@@ -1,0 +1,123 @@
+use std::io;
+
+use crate::util::data_reader::DataReader;
+
+
+#[derive(Debug)]
+pub struct ResourceIndexEntry {
+    pub type_id: u8,
+    pub file_offset: u16,
+}
+
+impl ResourceIndexEntry {
+    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceIndexEntry> {
+        let type_id = reader.read_u8()?;
+        let file_offset = reader.read_u16_le()?;
+        Ok(ResourceIndexEntry {
+            type_id,
+            file_offset,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ResourceIndex {
+    pub entries: Vec<ResourceIndexEntry>,
+    pub end: u16,
+}
+
+impl ResourceIndex {
+    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceIndex> {
+        let mut entries = Vec::new();
+        loop {
+            let entry = ResourceIndexEntry::read_from(reader)?;
+            if entry.type_id == 0xFF {
+                return Ok(ResourceIndex {
+                    entries,
+                    end: entry.file_offset,
+                });
+            }
+            entries.push(entry);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ResourceLocationEntry {
+    pub resource_num: u16,
+    pub resource_file_offset: u32,
+}
+
+impl ResourceLocationEntry {
+    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceLocationEntry> {
+        let resource_num = reader.read_u16_le()?;
+        let body = reader.read_u24_le()?;
+        assert_eq!(body & 0xF000_0000, 0);
+        let resource_file_offset = body & 0x0FFF_FFFF;
+        Ok(ResourceLocationEntry {
+            resource_num,
+            resource_file_offset,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ResourceTypeLocations {
+    pub type_id: u8,
+    pub entries: Vec<ResourceLocationEntry>,
+}
+
+impl ResourceTypeLocations {
+    pub fn read_from<R: DataReader>(
+        reader: &mut R,
+        type_id: u8,
+        start: u16,
+        end: u16,
+    ) -> io::Result<ResourceTypeLocations> {
+        // Despite documentation to the contrary, SCI11 uses 5 byte entries in the resource map
+        // file.
+        assert_eq!((end - start) % 5, 0);
+        let count = (end - start) / 5;
+        reader.seek_to(start as u32)?;
+        let mut entries = Vec::new();
+        for _ in 0..count {
+            entries.push(ResourceLocationEntry::read_from(reader)?);
+        }
+        Ok(ResourceTypeLocations { type_id, entries })
+    }
+}
+
+#[derive(Debug)]
+pub struct ResourceLocations {
+    pub type_locations: Vec<ResourceTypeLocations>,
+}
+
+impl ResourceLocations {
+    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceLocations> {
+        let index = dbg!(ResourceIndex::read_from(reader)?);
+        let mut type_locations = Vec::new();
+
+        let end_offsets = index
+            .entries
+            .iter()
+            .map(|entry| entry.file_offset)
+            .skip(1)
+            .chain(std::iter::once(index.end));
+        for (entry, end_offset) in index.entries.iter().zip(end_offsets) {
+            let locations = ResourceTypeLocations::read_from(
+                reader,
+                entry.type_id,
+                entry.file_offset,
+                end_offset,
+            )?;
+            type_locations.push(locations);
+        }
+        Ok(ResourceLocations { type_locations })
+    }
+
+    pub fn type_ids(&self) -> impl Iterator<Item = u8> + '_ {
+        self.type_locations
+            .iter()
+            .map(|locations| locations.type_id)
+    }
+}
