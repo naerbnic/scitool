@@ -6,6 +6,8 @@ pub trait DataReader {
     fn read_u24_le(&mut self) -> io::Result<u32>;
     fn read_u32_le(&mut self) -> io::Result<u32>;
     fn seek_to(&mut self, offset: u32) -> io::Result<()>;
+    fn tell(&mut self) -> io::Result<u32>;
+    fn file_size(&mut self) -> io::Result<u32>;
 }
 
 pub struct IoDataReader<R>(R);
@@ -44,5 +46,16 @@ impl<R: Read + Seek> DataReader for IoDataReader<R> {
     fn seek_to(&mut self, offset: u32) -> io::Result<()> {
         self.0.seek(io::SeekFrom::Start(offset as u64))?;
         Ok(())
+    }
+
+    fn tell(&mut self) -> io::Result<u32> {
+        Ok(self.0.seek(io::SeekFrom::Current(0))?.try_into().unwrap())
+    }
+
+    fn file_size(&mut self) -> io::Result<u32> {
+        let curr_offset = self.tell()?;
+        let result = self.0.seek(io::SeekFrom::End(0))?.try_into().unwrap();
+        self.seek_to(curr_offset)?;
+        Ok(result)
     }
 }
