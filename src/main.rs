@@ -20,8 +20,8 @@ struct ListResources {
 
 impl ListResources {
     fn run(&self) {
-        let map_file = std::fs::File::open(&self.root_dir.join("RESOURCE.MAP")).unwrap();
-        let data_file = std::fs::File::open(&self.root_dir.join("RESOURCE.000")).unwrap();
+        let map_file = std::fs::File::open(self.root_dir.join("RESOURCE.MAP")).unwrap();
+        let data_file = std::fs::File::open(self.root_dir.join("RESOURCE.000")).unwrap();
         let mut data_reader = IoDataReader::new(map_file);
         let resource_locations =
             res::mapfile::ResourceLocations::read_from(&mut data_reader).unwrap();
@@ -45,8 +45,8 @@ struct ExtractResourceAsPatch {
 
 impl ExtractResourceAsPatch {
     fn run(&self) -> anyhow::Result<()> {
-        let map_file = std::fs::File::open(&self.root_dir.join("RESOURCE.MAP")).unwrap();
-        let data_file = std::fs::File::open(&self.root_dir.join("RESOURCE.000")).unwrap();
+        let map_file = std::fs::File::open(self.root_dir.join("RESOURCE.MAP")).unwrap();
+        let data_file = std::fs::File::open(self.root_dir.join("RESOURCE.000")).unwrap();
         let mut data_reader = IoDataReader::new(map_file);
         let resource_locations =
             res::mapfile::ResourceLocations::read_from(&mut data_reader).unwrap();
@@ -81,7 +81,7 @@ impl ExtractResourceAsPatch {
 
             patch_file.write_u8(self.resource_type.into())?;
             patch_file.write_u8(0)?; // Header Size
-            patch_file.write_all(&contents.data())?;
+            patch_file.write_all(contents.data())?;
         }
 
         Ok(())
