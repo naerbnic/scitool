@@ -2,6 +2,7 @@ use std::io;
 
 use crate::util::data_reader::DataReader;
 
+use super::{ResourceId, ResourceType};
 
 #[derive(Debug)]
 pub struct ResourceIndexEntry {
@@ -53,7 +54,7 @@ impl ResourceLocationEntry {
         let resource_num = reader.read_u16_le()?;
         let body = reader.read_u24_le()?;
         assert_eq!(body & 0xF000_0000, 0);
-        let resource_file_offset = body & 0x0FFF_FFFF;
+        let resource_file_offset = (body & 0x0FFF_FFFF) << 1;
         Ok(ResourceLocationEntry {
             resource_num,
             resource_file_offset,
@@ -63,14 +64,14 @@ impl ResourceLocationEntry {
 
 #[derive(Debug)]
 pub struct ResourceTypeLocations {
-    pub type_id: u8,
+    pub type_id: ResourceType,
     pub entries: Vec<ResourceLocationEntry>,
 }
 
 impl ResourceTypeLocations {
     pub fn read_from<R: DataReader>(
         reader: &mut R,
-        type_id: u8,
+        type_id: ResourceType,
         start: u16,
         end: u16,
     ) -> io::Result<ResourceTypeLocations> {
@@ -94,7 +95,7 @@ pub struct ResourceLocations {
 
 impl ResourceLocations {
     pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceLocations> {
-        let index = dbg!(ResourceIndex::read_from(reader)?);
+        let index = ResourceIndex::read_from(reader)?;
         let mut type_locations = Vec::new();
 
         let end_offsets = index
@@ -106,7 +107,7 @@ impl ResourceLocations {
         for (entry, end_offset) in index.entries.iter().zip(end_offsets) {
             let locations = ResourceTypeLocations::read_from(
                 reader,
-                entry.type_id,
+                entry.type_id.try_into().unwrap(),
                 entry.file_offset,
                 end_offset,
             )?;
@@ -115,9 +116,53 @@ impl ResourceLocations {
         Ok(ResourceLocations { type_locations })
     }
 
-    pub fn type_ids(&self) -> impl Iterator<Item = u8> + '_ {
+    pub fn type_ids(&self) -> impl Iterator<Item = ResourceType> + '_ {
         self.type_locations
             .iter()
             .map(|locations| locations.type_id)
     }
+
+    pub fn type_counts(&self) -> impl Iterator<Item = (ResourceType, usize)> + '_ {
+        self.type_locations
+            .iter()
+            .map(|locations| (locations.type_id, locations.entries.len()))
+    }
+
+    pub fn locations(&self) -> impl Iterator<Item = ResourceLocation> + '_ {
+        self.type_locations.iter().flat_map(|locations| {
+            locations
+                .entries
+                .iter()
+                .map(move |entry| ResourceLocation {
+                    type_id: locations.type_id,
+                    resource_num: entry.resource_num,
+                    file_offset: entry.resource_file_offset,
+                })
+        })
+    }
+
+    pub fn get_location(&self, id: &ResourceId) -> Option<ResourceLocation> {
+        self.type_locations
+            .iter()
+            .find(|locations| locations.type_id == id.type_id)
+            .and_then(|locations| {
+                locations
+                    .entries
+                    .iter()
+                    .find(|entry| entry.resource_num == id.resource_num)
+                    .map(|entry| ResourceLocation {
+                        type_id: locations.type_id,
+                        resource_num: entry.resource_num,
+                        file_offset: entry.resource_file_offset,
+                    })
+            })
+    }
+}
+
+/// The location of a resource within a resource data file
+#[derive(Debug, Clone, Copy)]
+pub struct ResourceLocation {
+    pub type_id: ResourceType,
+    pub resource_num: u16,
+    pub file_offset: u32,
 }

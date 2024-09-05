@@ -5,6 +5,7 @@ pub trait DataReader {
     fn read_u16_le(&mut self) -> io::Result<u16>;
     fn read_u24_le(&mut self) -> io::Result<u32>;
     fn read_u32_le(&mut self) -> io::Result<u32>;
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()>;
     fn seek_to(&mut self, offset: u32) -> io::Result<()>;
     fn tell(&mut self) -> io::Result<u32>;
     fn file_size(&mut self) -> io::Result<u32>;
@@ -41,6 +42,10 @@ impl<R: Read + Seek> DataReader for IoDataReader<R> {
         let mut buf = [0; 4];
         self.0.read_exact(&mut buf)?;
         Ok(u32::from_le_bytes(buf))
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        self.0.read_exact(buf)
     }
 
     fn seek_to(&mut self, offset: u32) -> io::Result<()> {

@@ -1,0 +1,68 @@
+use std::io;
+
+pub trait DataWriter {
+    fn write_u8(&mut self, value: u8) -> io::Result<()>;
+    fn write_u16_le(&mut self, value: u16) -> io::Result<()>;
+    fn write_u24_le(&mut self, value: u32) -> io::Result<()>;
+    fn write_u32_le(&mut self, value: u32) -> io::Result<()>;
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
+    // Seek to the given offset in the file. If the offset is beyond the end of the file, the file
+    // will be extended with zeroes.
+    fn seek_to(&mut self, offset: u32) -> io::Result<()>;
+    fn tell(&mut self) -> io::Result<u32>;
+}
+
+fn write_zeroes<W: io::Write>(writer: &mut W, mut count: usize) -> io::Result<()> {
+    static ZEROES: [u8; 1024] = [0; 1024];
+    while count > ZEROES.len() {
+        writer.write_all(&ZEROES)?;
+        count -= ZEROES.len();
+    }
+    writer.write_all(&ZEROES[0..count])?;
+    Ok(())
+}
+
+pub struct IoDataWriter<W>(W);
+
+impl<W: io::Write + io::Seek> IoDataWriter<W> {
+    pub fn new(writer: W) -> IoDataWriter<W> {
+        IoDataWriter(writer)
+    }
+}
+
+impl<W: io::Write + io::Seek> DataWriter for IoDataWriter<W> {
+    fn write_u8(&mut self, value: u8) -> io::Result<()> {
+        self.0.write_all(&[value])
+    }
+
+    fn write_u16_le(&mut self, value: u16) -> io::Result<()> {
+        self.0.write_all(&value.to_le_bytes())
+    }
+
+    fn write_u24_le(&mut self, value: u32) -> io::Result<()> {
+        self.0.write_all(&value.to_le_bytes()[0..3])
+    }
+
+    fn write_u32_le(&mut self, value: u32) -> io::Result<()> {
+        self.0.write_all(&value.to_le_bytes())
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.0.write_all(buf)
+    }
+
+    fn seek_to(&mut self, offset: u32) -> io::Result<()> {
+        let file_length = self.0.seek(io::SeekFrom::End(0))?;
+        if file_length < offset as u64 {
+            self.0.seek(io::SeekFrom::Start(file_length as u64))?;
+            write_zeroes(&mut self.0, (offset as usize) - file_length as usize)?;
+        } else {
+            self.0.seek(io::SeekFrom::Start(offset as u64))?;
+        }
+        Ok(())
+    }
+
+    fn tell(&mut self) -> io::Result<u32> {
+        Ok(self.0.seek(io::SeekFrom::Current(0))?.try_into().unwrap())
+    }
+}
