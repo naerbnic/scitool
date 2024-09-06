@@ -141,6 +141,15 @@ impl<R> IoSource<R> {
     }
 }
 
+impl<R> IoSource<R>
+where
+    R: io::Seek,
+{
+    fn size(&mut self) -> Result<u64, super::Error> {
+        Ok(self.0.seek(io::SeekFrom::End(0))?)
+    }
+}
+
 impl<R> DataSource for IoSource<R>
 where
     R: io::Read + io::Seek,
@@ -164,10 +173,6 @@ where
         source.position = Some(offset + buf.len() as u64);
 
         Ok(())
-    }
-
-    fn size(&mut self) -> Result<u64, super::Error> {
-        Ok(self.0.seek(io::SeekFrom::End(0))?)
     }
 }
 
