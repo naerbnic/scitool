@@ -915,7 +915,7 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
     }
 
     let mut dump = Vec::new();
-    hxdmp::hexdump(&output[..], &mut dump)?;
+    hxdmp::hexdump(output, &mut dump)?;
     eprintln!("{}", String::from_utf8_lossy(&dump));
 
     Ok(())
