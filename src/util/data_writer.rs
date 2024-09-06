@@ -1,5 +1,7 @@
 use std::io;
 
+use super::data_source::DataTarget;
+
 pub trait DataWriter {
     fn write_u8(&mut self, value: u8) -> io::Result<()>;
     fn write_u16_le(&mut self, value: u16) -> io::Result<()>;
@@ -9,7 +11,6 @@ pub trait DataWriter {
     // Seek to the given offset in the file. If the offset is beyond the end of the file, the file
     // will be extended with zeroes.
     fn seek_to(&mut self, offset: u32) -> io::Result<()>;
-    fn tell(&mut self) -> io::Result<u32>;
 }
 
 fn write_zeroes<W: io::Write>(writer: &mut W, mut count: usize) -> io::Result<()> {
@@ -54,15 +55,57 @@ impl<W: io::Write + io::Seek> DataWriter for IoDataWriter<W> {
     fn seek_to(&mut self, offset: u32) -> io::Result<()> {
         let file_length = self.0.seek(io::SeekFrom::End(0))?;
         if file_length < offset as u64 {
-            self.0.seek(io::SeekFrom::Start(file_length as u64))?;
+            self.0.seek(io::SeekFrom::Start(file_length))?;
             write_zeroes(&mut self.0, (offset as usize) - file_length as usize)?;
         } else {
             self.0.seek(io::SeekFrom::Start(offset as u64))?;
         }
         Ok(())
     }
+}
 
-    fn tell(&mut self) -> io::Result<u32> {
-        Ok(self.0.seek(io::SeekFrom::Current(0))?.try_into().unwrap())
+pub struct TargetWriter<T> {
+    target: T,
+    position: u64,
+}
+
+impl<T> DataWriter for TargetWriter<T>
+where
+    T: DataTarget,
+{
+    fn write_u8(&mut self, value: u8) -> io::Result<()> {
+        self.target.write_at(self.position, &[value])?;
+        self.position += 1;
+        Ok(())
+    }
+
+    fn write_u16_le(&mut self, value: u16) -> io::Result<()> {
+        self.target.write_at(self.position, &value.to_le_bytes())?;
+        self.position += 2;
+        Ok(())
+    }
+
+    fn write_u24_le(&mut self, value: u32) -> io::Result<()> {
+        self.target
+            .write_at(self.position, &value.to_le_bytes()[0..3])?;
+        self.position += 3;
+        Ok(())
+    }
+
+    fn write_u32_le(&mut self, value: u32) -> io::Result<()> {
+        self.target.write_at(self.position, &value.to_le_bytes())?;
+        self.position += 4;
+        Ok(())
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.target.write_at(self.position, buf)?;
+        self.position += buf.len() as u64;
+        Ok(())
+    }
+
+    fn seek_to(&mut self, offset: u32) -> io::Result<()> {
+        self.position = offset as u64;
+        Ok(())
     }
 }

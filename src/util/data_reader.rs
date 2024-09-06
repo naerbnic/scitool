@@ -13,6 +13,42 @@ pub trait DataReader {
     fn file_size(&mut self) -> io::Result<u32>;
 }
 
+impl<T> DataReader for Box<T>
+where
+    T: DataReader + ?Sized,
+{
+    fn read_u8(&mut self) -> io::Result<u8> {
+        (**self).read_u8()
+    }
+
+    fn read_u16_le(&mut self) -> io::Result<u16> {
+        (**self).read_u16_le()
+    }
+
+    fn read_u24_le(&mut self) -> io::Result<u32> {
+        (**self).read_u24_le()
+    }
+
+    fn read_u32_le(&mut self) -> io::Result<u32> {
+        (**self).read_u32_le()
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        (**self).read_exact(buf)
+    }
+
+    fn seek_to(&mut self, offset: u32) -> io::Result<()> {
+        (**self).seek_to(offset)
+    }
+
+    fn tell(&mut self) -> io::Result<u32> {
+        (**self).tell()
+    }
+
+    fn file_size(&mut self) -> io::Result<u32> {
+        (**self).file_size()
+    }
+}
 pub struct IoDataReader<R>(R);
 
 impl<R: Read + Seek> IoDataReader<R> {
