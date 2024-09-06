@@ -1,4 +1,3 @@
-#![recursion_limit = "1024"]
 #![expect(dead_code)]
 
 use std::path::PathBuf;
