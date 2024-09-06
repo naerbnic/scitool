@@ -1,4 +1,4 @@
-use std::{io, sync::Mutex};
+use std::io;
 
 use super::{DataSource, DataTarget};
 

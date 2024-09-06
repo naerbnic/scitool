@@ -92,7 +92,7 @@ impl<R: Read + Seek> DataReader for IoDataReader<R> {
     }
 
     fn tell(&mut self) -> io::Result<u32> {
-        Ok(self.0.seek(io::SeekFrom::Current(0))?.try_into().unwrap())
+        Ok(self.0.stream_position()?.try_into().unwrap())
     }
 
     fn file_size(&mut self) -> io::Result<u32> {
@@ -170,7 +170,7 @@ where
     }
 
     fn tell(&mut self) -> io::Result<u32> {
-        Ok(self.curr_pos as u32)
+        Ok(self.curr_pos.try_into().unwrap())
     }
 
     fn file_size(&mut self) -> io::Result<u32> {
