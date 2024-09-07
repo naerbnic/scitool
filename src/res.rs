@@ -1,6 +1,7 @@
 pub mod audio36;
 pub mod datafile;
 pub mod mapfile;
+pub mod gamedir;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 #[repr(u8)]

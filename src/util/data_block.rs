@@ -1,6 +1,7 @@
 pub mod cloneable;
 pub mod io_source;
 pub mod subrange;
+pub mod path;
 
 pub struct Error(anyhow::Error);
 
@@ -63,6 +64,13 @@ where
 
 pub trait ReadBlock: DataBlock {
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()>;
+
+    fn into_read_box(self) -> Box<dyn ReadBlock>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
+    }
 }
 
 impl<D> ReadBlock for Box<D>
@@ -88,10 +96,24 @@ pub trait WriteBlock: DataBlock {
     /// It is valid to write an empty buffer at an offset. Implementations may
     /// interpret this as extending the target to the specified offset.
     fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<()>;
+
+    fn into_write_box(self) -> Box<dyn WriteBlock>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
+    }
 }
 
 /// Represents a source of data blocks.
 pub trait BlockSource {
     fn open_read(&self) -> Result<Box<dyn ReadBlock>>;
     fn open_write(&self) -> Result<Box<dyn WriteBlock>>;
+
+    fn into_source_box(self) -> Box<dyn BlockSource>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
+    }
 }
