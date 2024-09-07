@@ -1,6 +1,6 @@
 use std::io;
 
-use super::{block::Block, data_block::WriteBlock};
+use super::block::Block;
 
 pub trait DataWriter {
     fn write_u8(&mut self, value: u8) -> io::Result<()>;
@@ -65,56 +65,6 @@ impl<W: io::Write + io::Seek> DataWriter for IoDataWriter<W> {
         } else {
             self.0.seek(io::SeekFrom::Start(offset as u64))?;
         }
-        Ok(())
-    }
-}
-
-pub struct TargetWriter<T> {
-    target: T,
-    position: u64,
-}
-
-impl<T> DataWriter for TargetWriter<T>
-where
-    T: WriteBlock,
-{
-    fn write_u8(&mut self, value: u8) -> io::Result<()> {
-        self.target.write_at(self.position, &[value])?;
-        self.position += 1;
-        Ok(())
-    }
-
-    fn write_u16_le(&mut self, value: u16) -> io::Result<()> {
-        self.target.write_at(self.position, &value.to_le_bytes())?;
-        self.position += 2;
-        Ok(())
-    }
-
-    fn write_u24_le(&mut self, value: u32) -> io::Result<()> {
-        self.target
-            .write_at(self.position, &value.to_le_bytes()[0..3])?;
-        self.position += 3;
-        Ok(())
-    }
-
-    fn write_u32_le(&mut self, value: u32) -> io::Result<()> {
-        self.target.write_at(self.position, &value.to_le_bytes())?;
-        self.position += 4;
-        Ok(())
-    }
-
-    fn write_block(&mut self, block: &Block) -> io::Result<()> {
-        self.write_all(&block.read_all()?)
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.target.write_at(self.position, buf)?;
-        self.position += buf.len() as u64;
-        Ok(())
-    }
-
-    fn seek_to(&mut self, offset: u32) -> io::Result<()> {
-        self.position = offset as u64;
         Ok(())
     }
 }
