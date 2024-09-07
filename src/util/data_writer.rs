@@ -1,12 +1,13 @@
 use std::io;
 
-use super::data_block::WriteBlock;
+use super::{block::Block, data_block::WriteBlock};
 
 pub trait DataWriter {
     fn write_u8(&mut self, value: u8) -> io::Result<()>;
     fn write_u16_le(&mut self, value: u16) -> io::Result<()>;
     fn write_u24_le(&mut self, value: u32) -> io::Result<()>;
     fn write_u32_le(&mut self, value: u32) -> io::Result<()>;
+    fn write_block(&mut self, block: &Block) -> io::Result<()>;
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
     // Seek to the given offset in the file. If the offset is beyond the end of the file, the file
     // will be extended with zeroes.
@@ -46,6 +47,10 @@ impl<W: io::Write + io::Seek> DataWriter for IoDataWriter<W> {
 
     fn write_u32_le(&mut self, value: u32) -> io::Result<()> {
         self.0.write_all(&value.to_le_bytes())
+    }
+
+    fn write_block(&mut self, block: &Block) -> io::Result<()> {
+        self.0.write_all(&block.read_all()?)
     }
 
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
@@ -96,6 +101,10 @@ where
         self.target.write_at(self.position, &value.to_le_bytes())?;
         self.position += 4;
         Ok(())
+    }
+
+    fn write_block(&mut self, block: &Block) -> io::Result<()> {
+        self.write_all(&block.read_all()?)
     }
 
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {

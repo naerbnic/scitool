@@ -2,7 +2,10 @@ use std::{io, vec};
 
 use bitter::BitReader;
 
-use crate::util::data_reader::DataReader;
+use crate::util::{
+    block::{Block, BlockReader},
+    data_reader::DataReader,
+};
 
 use super::mapfile::ResourceLocation;
 
@@ -40,22 +43,17 @@ pub struct RawContents {
     res_number: u16,
     unpacked_size: u16,
     compression_type: u16,
-    data: Vec<u8>,
+    data: Block,
 }
 
 impl std::fmt::Debug for RawContents {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut dump = Vec::new();
-        hxdmp::hexdump(&self.data, &mut dump).unwrap();
         f.debug_struct("RawContents")
             .field("res_type", &self.res_type)
             .field("res_number", &self.res_number)
             .field("unpacked_size", &self.unpacked_size)
             .field("compression_type", &self.compression_type)
-            .field(
-                "data",
-                &format_args!("Bytes\n{}", String::from_utf8_lossy(&dump)),
-            )
+            .field("data", &self.data.size())
             .finish()
     }
 }
@@ -70,7 +68,7 @@ struct HuffmanTable<T> {
 }
 
 impl<T> HuffmanTable<T> {
-    fn lookup(&self, reader: &mut bitter::LittleEndianReader) -> anyhow::Result<&T> {
+    fn lookup(&self, reader: &mut bitter::LittleEndianReader) -> io::Result<&T> {
         let mut pos = 0;
         loop {
             match &self.entries[pos] {
@@ -78,7 +76,7 @@ impl<T> HuffmanTable<T> {
                 HuffmanTableEntry::Branch(left, right) => {
                     let bit = reader
                         .read_bit()
-                        .ok_or_else(|| anyhow::anyhow!("Failed to read bit"))?;
+                        .ok_or_else(|| io::Error::other("Failed to read bit"))?;
                     pos = if bit { *right } else { *left };
                 }
             }
@@ -802,25 +800,30 @@ mod trees {
 
 use trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 
-pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
+pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> io::Result<()> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let mut reader = bitter::LittleEndianReader::new(input);
     let Some(mode) = reader.read_u8() else {
-        anyhow::bail!("Failed to read DCL mode")
+        return Err(io::Error::other("Failed to read DCL mode"));
     };
     let Some(dict_type) = reader.read_u8() else {
-        anyhow::bail!("Failed to read DCL dictionary type")
+        return Err(io::Error::other("Failed to read DCL dictionary type"));
     };
 
     if mode != 0 && mode != 1 {
-        anyhow::bail!("Unsupported DCL mode: {}", mode);
+        return Err(io::Error::other(format!("Unsupported DCL mode: {}", mode)));
     }
 
     let dict_size = match dict_type {
         4 => 1024,
         5 => 2048,
         6 => 4096,
-        _ => anyhow::bail!("Unsupported DCL dictionary type: {}", dict_type),
+        _ => {
+            return Err(io::Error::other(format!(
+                "Unsupported DCL dictionary type: {}",
+                dict_type
+            )))
+        }
     };
     let dict_mask: u32 = dict_size - 1;
     let mut dict = vec![0u8; dict_size as usize];
@@ -830,7 +833,7 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
     loop {
         let should_decode_entry = reader
             .read_bit()
-            .ok_or_else(|| anyhow::anyhow!("Failed to read DCL entry type"))?;
+            .ok_or_else(|| io::Error::other("Failed to read DCL entry type"))?;
         if should_decode_entry {
             let length_code = *LENGTH_TREE.lookup(&mut reader)?;
             let token_length = if length_code < 8 {
@@ -839,7 +842,7 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
                 let num_bits = (length_code - 7) as u32;
                 let extra_bits: u32 = reader
                     .read_bits(num_bits)
-                    .ok_or_else(|| anyhow::anyhow!("Failed to read DCL extra length bits"))?
+                    .ok_or_else(|| io::Error::other("Failed to read DCL extra length bits"))?
                     .try_into()
                     .unwrap();
 
@@ -855,19 +858,21 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
                 1 + if token_length == 2 {
                     distance_code << 2
                         | reader.read_bits(2).ok_or_else(|| {
-                            anyhow::anyhow!("Failed to read DCL extra distance bits")
+                            io::Error::other("Failed to read DCL extra distance bits")
                         })? as u32
                 } else {
                     distance_code << dict_type
                         | reader.read_bits(dict_type as u32).ok_or_else(|| {
-                            anyhow::anyhow!("Failed to read DCL extra distance bits")
+                            io::Error::other("Failed to read DCL extra distance bits")
                         })? as u32
                 };
             if token_length + bytes_written > output.len() as u32 {
-                anyhow::bail!("DCL token length exceeds output buffer size");
+                return Err(io::Error::other(
+                    "DCL token length exceeds output buffer size",
+                ));
             }
             if bytes_written < token_offset {
-                anyhow::bail!("DCL token offset exceeds bytes written");
+                return Err(io::Error::other("DCL token offset exceeds bytes written"));
             }
 
             dbg!(dict_pos, token_offset, token_length);
@@ -898,7 +903,7 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
             } else {
                 reader
                     .read_u8()
-                    .ok_or_else(|| anyhow::anyhow!("Failed to read DCL byte"))?
+                    .ok_or_else(|| io::Error::other("Failed to read DCL byte"))?
             };
             output[bytes_written as usize] = value;
             bytes_written += 1;
@@ -911,12 +916,8 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
     }
 
     if bytes_written != output.len() as u32 {
-        anyhow::bail!("DCL output buffer not fully written");
+        return Err(io::Error::other("DCL output buffer not fully written"));
     }
-
-    let mut dump = Vec::new();
-    hxdmp::hexdump(output, &mut dump)?;
-    eprintln!("{}", String::from_utf8_lossy(&dump));
 
     Ok(())
 }
@@ -925,34 +926,35 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> anyhow::Result<()> {
 pub struct Contents {
     res_type: u8,
     res_number: u16,
-    data: Vec<u8>,
+    data: Block,
 }
 
 impl Contents {
-    pub fn data(&self) -> &[u8] {
+    pub fn data(&self) -> &Block {
         &self.data
     }
 }
 
 impl TryFrom<RawContents> for Contents {
-    type Error = anyhow::Error;
+    type Error = io::Error;
 
     fn try_from(raw_contents: RawContents) -> Result<Self, Self::Error> {
         let decompressed_data = match raw_contents.compression_type {
             0 => {
-                assert_eq!(raw_contents.data.len(), raw_contents.unpacked_size as usize);
+                assert_eq!(raw_contents.data.size(), raw_contents.unpacked_size as u64);
                 raw_contents.data
             }
             18 => {
+                let compressed_data = raw_contents.data.read_all()?;
                 let mut decompressed_data = vec![0; raw_contents.unpacked_size as usize];
-                decompress_dcl(&raw_contents.data, &mut decompressed_data)?;
-                decompressed_data
+                decompress_dcl(&compressed_data, &mut decompressed_data)?;
+                Block::from_vec(decompressed_data)
             }
             _ => {
-                anyhow::bail!(
-                    "Unsupported compression type: {:?}",
+                return Err(io::Error::other(format!(
+                    "Unsupported compression type: {}",
                     raw_contents.compression_type
-                );
+                )));
             }
         };
 
@@ -965,36 +967,35 @@ impl TryFrom<RawContents> for Contents {
 }
 
 pub struct DataFile {
-    reader: Box<dyn DataReader>,
+    data: Block,
 }
 
 impl DataFile {
-    pub fn new<R: io::Read + io::Seek + 'static>(reader: R) -> DataFile {
-        DataFile {
-            reader: Box::new(crate::util::data_reader::IoDataReader::new(reader)),
-        }
+    pub fn new(data: Block) -> DataFile {
+        DataFile { data }
     }
 
-    pub fn read_raw_header(&mut self, location: &ResourceLocation) -> io::Result<RawEntryHeader> {
-        self.reader.seek_to(location.file_offset)?;
-        RawEntryHeader::read_from(&mut *self.reader)
+    pub fn from_reader<R: io::Read + io::Seek + 'static>(reader: R) -> io::Result<DataFile> {
+        Ok(DataFile {
+            data: Block::from_reader(reader)?,
+        })
     }
 
-    pub fn read_raw_contents(&mut self, location: &ResourceLocation) -> io::Result<RawContents> {
-        self.reader.seek_to(location.file_offset)?;
-        let header = RawEntryHeader::read_from(&mut *self.reader)?;
-        let mut data = vec![0; header.packed_size as usize];
-        self.reader.read_exact(&mut data)?;
+    pub fn read_raw_contents(&self, location: &ResourceLocation) -> io::Result<RawContents> {
+        let mut reader = BlockReader::new(self.data.subblock(location.file_offset as u64..));
+        let header = RawEntryHeader::read_from(&mut reader)?;
+        let resource_block = reader.into_rest().subblock(..header.packed_size as u64);
+        assert_eq!(resource_block.size(), header.packed_size as u64);
         Ok(RawContents {
             res_type: header.res_type,
             res_number: header.res_number,
             unpacked_size: header.unpacked_size,
             compression_type: header.compression_type,
-            data,
+            data: resource_block,
         })
     }
 
-    pub fn read_contents(&mut self, location: &ResourceLocation) -> anyhow::Result<Contents> {
+    pub fn read_contents(&self, location: &ResourceLocation) -> io::Result<Contents> {
         let raw_contents = self.read_raw_contents(location)?;
         raw_contents.try_into()
     }

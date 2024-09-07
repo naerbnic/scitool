@@ -40,11 +40,19 @@ impl From<ReadError> for io::Error {
 
 pub type ReadResult<T> = std::result::Result<T, ReadError>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Block {
     start: u64,
     size: u64,
     data: Arc<Vec<u8>>,
+}
+
+impl std::fmt::Debug for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_tuple("Block")
+            .field(&&self.data[self.start as usize..][..self.size as usize])
+            .finish()
+    }
 }
 
 impl Block {
@@ -84,6 +92,12 @@ impl Block {
         Ok(())
     }
 
+    pub fn read_all(&self) -> ReadResult<Vec<u8>> {
+        let mut buf = vec![0; self.size.try_into().map_err(ReadError::from_std_err)?];
+        self.read_at(0, &mut buf)?;
+        Ok(buf)
+    }
+
     pub fn subblock<R>(&self, range: R) -> Self
     where
         R: RangeBounds<u64>,
@@ -105,10 +119,10 @@ impl Block {
         let end = self.start + end;
 
         assert!(start <= end);
-        assert!(end <= self.size);
+        assert!(end <= self.start + self.size, "End: {} Size: {}", end, self.start + self.size);
 
         Self {
-            start: self.start,
+            start,
             size: end - start,
             data: self.data.clone(),
         }

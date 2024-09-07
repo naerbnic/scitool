@@ -11,7 +11,7 @@ pub struct ResourceIndexEntry {
 }
 
 impl ResourceIndexEntry {
-    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceIndexEntry> {
+    pub fn read_from<R: DataReader>(mut reader: R) -> io::Result<ResourceIndexEntry> {
         let type_id = reader.read_u8()?;
         let file_offset = reader.read_u16_le()?;
         Ok(ResourceIndexEntry {
@@ -28,10 +28,10 @@ pub struct ResourceIndex {
 }
 
 impl ResourceIndex {
-    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceIndex> {
+    pub fn read_from<R: DataReader>(mut reader: R) -> io::Result<ResourceIndex> {
         let mut entries = Vec::new();
         loop {
-            let entry = ResourceIndexEntry::read_from(reader)?;
+            let entry = ResourceIndexEntry::read_from(&mut reader)?;
             if entry.type_id == 0xFF {
                 return Ok(ResourceIndex {
                     entries,
@@ -94,8 +94,8 @@ pub struct ResourceLocations {
 }
 
 impl ResourceLocations {
-    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceLocations> {
-        let index = ResourceIndex::read_from(reader)?;
+    pub fn read_from<R: DataReader>(mut reader: R) -> io::Result<ResourceLocations> {
+        let index = ResourceIndex::read_from(&mut reader)?;
         let mut type_locations = Vec::new();
 
         let end_offsets = index
@@ -106,7 +106,7 @@ impl ResourceLocations {
             .chain(std::iter::once(index.end));
         for (entry, end_offset) in index.entries.iter().zip(end_offsets) {
             let locations = ResourceTypeLocations::read_from(
-                reader,
+                &mut reader,
                 entry.type_id.try_into().unwrap(),
                 entry.file_offset,
                 end_offset,
@@ -130,14 +130,11 @@ impl ResourceLocations {
 
     pub fn locations(&self) -> impl Iterator<Item = ResourceLocation> + '_ {
         self.type_locations.iter().flat_map(|locations| {
-            locations
-                .entries
-                .iter()
-                .map(move |entry| ResourceLocation {
-                    type_id: locations.type_id,
-                    resource_num: entry.resource_num,
-                    file_offset: entry.resource_file_offset,
-                })
+            locations.entries.iter().map(move |entry| ResourceLocation {
+                type_id: locations.type_id,
+                resource_num: entry.resource_num,
+                file_offset: entry.resource_file_offset,
+            })
         })
     }
 
