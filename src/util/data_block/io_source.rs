@@ -1,6 +1,6 @@
 use std::io;
 
-use super::{DataSource, DataTarget};
+use super::{DataBlock, ReadBlock, WriteBlock, Result};
 
 pub struct Inner<R> {
     reader: R,
@@ -141,20 +141,20 @@ impl<R> IoSource<R> {
     }
 }
 
-impl<R> IoSource<R>
+impl<R> DataBlock for IoSource<R>
 where
     R: io::Seek,
 {
-    fn size(&mut self) -> Result<u64, super::Error> {
+    fn size(&mut self) -> Result<u64> {
         Ok(self.0.seek(io::SeekFrom::End(0))?)
     }
 }
 
-impl<R> DataSource for IoSource<R>
+impl<R> ReadBlock for IoSource<R>
 where
     R: io::Read + io::Seek,
 {
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), super::Error> {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
         let source = &mut self.0;
         if Some(offset) != source.position {
             let new_pos = source.seek(io::SeekFrom::Start(offset))?;
@@ -176,11 +176,11 @@ where
     }
 }
 
-impl<R> DataTarget for IoSource<R>
+impl<R> WriteBlock for IoSource<R>
 where
     R: io::Write + io::Seek,
 {
-    fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<(), super::Error> {
+    fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         let source = &mut self.0;
         source.ensure_size(offset)?;
         source.seek(io::SeekFrom::Start(offset))?;

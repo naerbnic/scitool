@@ -1,6 +1,6 @@
 use std::io;
 
-use super::data_source::DataTarget;
+use super::data_block::WriteBlock;
 
 pub trait DataWriter {
     fn write_u8(&mut self, value: u8) -> io::Result<()>;
@@ -71,7 +71,7 @@ pub struct TargetWriter<T> {
 
 impl<T> DataWriter for TargetWriter<T>
 where
-    T: DataTarget,
+    T: WriteBlock,
 {
     fn write_u8(&mut self, value: u8) -> io::Result<()> {
         self.target.write_at(self.position, &[value])?;

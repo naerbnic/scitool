@@ -1,6 +1,6 @@
-pub mod bounded;
-pub mod io_source;
 pub mod cloneable;
+pub mod io_source;
+pub mod subrange;
 
 pub struct Error(anyhow::Error);
 
@@ -46,29 +46,31 @@ impl From<Error> for std::io::Error {
     }
 }
 
-pub trait DataSource {
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error>;
+pub type Result<T> = std::result::Result<T, Error>;
+
+pub trait DataBlock {
+    fn size(&mut self) -> Result<u64>;
 }
 
-impl<D> DataSource for Box<D>
+impl<D> DataBlock for Box<D>
 where
-    D: DataSource + ?Sized,
+    D: DataBlock + ?Sized,
 {
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), Error> {
-        (**self).read_at(offset, buf)
+    fn size(&mut self) -> Result<u64> {
+        (**self).size()
     }
 }
 
-pub trait BoundedDataSource: DataSource {
-    fn size(&mut self) -> Result<u64, Error>;
+pub trait ReadBlock: DataBlock {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()>;
 }
 
-impl<D> BoundedDataSource for Box<D>
+impl<D> ReadBlock for Box<D>
 where
-    D: BoundedDataSource + ?Sized,
+    D: ReadBlock + ?Sized,
 {
-    fn size(&mut self) -> Result<u64, Error> {
-        (**self).size()
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
+        (**self).read_at(offset, buf)
     }
 }
 
@@ -80,18 +82,16 @@ where
 /// be returned when attempting to write past the end of a target, but it
 /// is also allowed to automatically increase the size of the underlying target
 /// to accommodate the write.
-pub trait DataTarget {
+pub trait WriteBlock: DataBlock {
     /// Writes the contents of the buffer to the target at the specified offset.
     ///
     /// It is valid to write an empty buffer at an offset. Implementations may
     /// interpret this as extending the target to the specified offset.
-    fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<(), Error>;
+    fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<()>;
 }
 
-/// Represents a writable data buffer with a fixed size.
-///
-/// Any attempts to write_at a range that exceeds the size of the target must
-/// result in an UnexpectedEof error.
-pub trait BoundedDataTarget: DataTarget {
-    fn size(&mut self) -> Result<u64, Error>;
+/// Represents a source of data blocks.
+pub trait BlockSource {
+    fn open_read(&self) -> Result<Box<dyn ReadBlock>>;
+    fn open_write(&self) -> Result<Box<dyn WriteBlock>>;
 }

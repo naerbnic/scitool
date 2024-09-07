@@ -1,6 +1,6 @@
 use std::io::{self, Read, Seek};
 
-use super::data_source::{BoundedDataSource, DataSource};
+use super::data_block::{ReadBlock};
 
 pub trait DataReader {
     fn read_u8(&mut self) -> io::Result<u8>;
@@ -110,7 +110,7 @@ pub struct SourceReader<S> {
 
 impl<S> SourceReader<S>
 where
-    S: DataSource,
+    S: ReadBlock,
 {
     pub fn new(source: S) -> Self {
         Self {
@@ -122,7 +122,7 @@ where
 
 impl<S> DataReader for SourceReader<S>
 where
-    S: BoundedDataSource,
+    S: ReadBlock,
 {
     fn read_u8(&mut self) -> io::Result<u8> {
         let mut buf = [0; 1];
