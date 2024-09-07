@@ -3,7 +3,7 @@ use std::{io, vec};
 use bitter::BitReader;
 
 use crate::util::{
-    block::{Block, BlockReader},
+    block::{Block, BlockReader, BlockSource},
     data_reader::DataReader,
 };
 
@@ -967,22 +967,17 @@ impl TryFrom<RawContents> for Contents {
 }
 
 pub struct DataFile {
-    data: Block,
+    data: BlockSource,
 }
 
 impl DataFile {
-    pub fn new(data: Block) -> DataFile {
+    pub fn new(data: BlockSource) -> DataFile {
         DataFile { data }
     }
 
-    pub fn from_reader<R: io::Read + io::Seek + 'static>(reader: R) -> io::Result<DataFile> {
-        Ok(DataFile {
-            data: Block::from_reader(reader)?,
-        })
-    }
-
     pub fn read_raw_contents(&self, location: &ResourceLocation) -> io::Result<RawContents> {
-        let mut reader = BlockReader::new(self.data.subblock(location.file_offset as u64..));
+        let mut reader =
+            BlockReader::new(self.data.subblock(location.file_offset as u64..).open()?);
         let header = RawEntryHeader::read_from(&mut reader)?;
         let resource_block = reader.into_rest().subblock(..header.packed_size as u64);
         assert_eq!(resource_block.size(), header.packed_size as u64);

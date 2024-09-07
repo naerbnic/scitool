@@ -9,7 +9,7 @@ use res::{
     ResourceId, ResourceType,
 };
 use util::{
-    block::{Block, BlockReader},
+    block::{Block, BlockReader, BlockSource},
     data_writer::{DataWriter, IoDataWriter},
 };
 
@@ -24,9 +24,7 @@ struct ResourceDirFiles {
 impl ResourceDirFiles {
     fn open(root_dir: &PathBuf) -> io::Result<Self> {
         let map_file = Block::from_reader(File::open(root_dir.join("RESOURCE.MAP"))?)?;
-        let data_file = DataFile::new(Block::from_reader(File::open(
-            root_dir.join("RESOURCE.000"),
-        )?)?);
+        let data_file = DataFile::new(BlockSource::from_path(root_dir.join("RESOURCE.000"))?);
         let resource_locations =
             res::mapfile::ResourceLocations::read_from(BlockReader::new(map_file))?;
         Ok(ResourceDirFiles {
@@ -78,6 +76,10 @@ struct ExtractResourceAsPatch {
     resource_type: ResourceType,
     #[clap(index = 3)]
     resource_id: u16,
+    #[clap(short = 'n', long, default_value = "false")]
+    dry_run: bool,
+    #[clap(short = 'o', long)]
+    output_dir: Option<PathBuf>,
 }
 
 impl ExtractResourceAsPatch {
@@ -92,24 +94,35 @@ impl ExtractResourceAsPatch {
             }
         };
 
-        let filename = format!("{0}.{1}", self.resource_id, ext);
-        eprintln!(
-            "Writing resource {restype:?}:{resid} to {filename}",
-            restype = self.resource_type,
-            resid = self.resource_id,
-            filename = filename
-        );
-        {
-            let mut patch_file = IoDataWriter::new(
-                std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(self.root_dir.join(filename))?,
-            );
+        let out_root = self.output_dir.as_ref().unwrap_or(&self.root_dir);
 
-            patch_file.write_u8(self.resource_type.into())?;
-            patch_file.write_u8(0)?; // Header Size
-            patch_file.write_block(&contents.data())?;
+        let filename = out_root.join(format!("{0}.{1}", self.resource_id, ext));
+        if self.dry_run {
+            eprintln!(
+                "DRY_RUN: Writing resource {restype:?}:{resid} to {filename:?}",
+                restype = self.resource_type,
+                resid = self.resource_id,
+                filename = filename
+            );
+        } else {
+            eprintln!(
+                "Writing resource {restype:?}:{resid} to {filename:?}",
+                restype = self.resource_type,
+                resid = self.resource_id,
+                filename = filename
+            );
+            {
+                let mut patch_file = IoDataWriter::new(
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(self.root_dir.join(filename))?,
+                );
+
+                patch_file.write_u8(self.resource_type.into())?;
+                patch_file.write_u8(0)?; // Header Size
+                patch_file.write_block(&contents.data())?;
+            }
         }
 
         Ok(())

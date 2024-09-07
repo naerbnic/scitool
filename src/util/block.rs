@@ -1,4 +1,9 @@
-use std::{any::Any, io, ops::RangeBounds, sync::Arc};
+use std::{
+    any::Any,
+    io::{self, Seek},
+    ops::RangeBounds,
+    sync::{Arc, Mutex},
+};
 
 use super::data_reader::DataReader;
 
@@ -35,6 +40,12 @@ impl ReadError {
 impl From<ReadError> for io::Error {
     fn from(err: ReadError) -> Self {
         err.0
+    }
+}
+
+impl From<io::Error> for ReadError {
+    fn from(err: io::Error) -> Self {
+        Self(err)
     }
 }
 
@@ -119,12 +130,94 @@ impl Block {
         let end = self.start + end;
 
         assert!(start <= end);
-        assert!(end <= self.start + self.size, "End: {} Size: {}", end, self.start + self.size);
+        assert!(
+            end <= self.start + self.size,
+            "End: {} Size: {}",
+            end,
+            self.start + self.size
+        );
 
         Self {
             start,
             size: end - start,
             data: self.data.clone(),
+        }
+    }
+}
+
+pub trait BlockSourceImpl {
+    fn read_block(&self, start: u64, size: u64) -> ReadResult<Block>;
+}
+
+struct ReaderBlockSourceImpl<R>(Mutex<R>);
+
+impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
+where
+    R: io::Read + io::Seek,
+{
+    fn read_block(&self, start: u64, size: u64) -> ReadResult<Block> {
+        let mut reader = self.0.lock().unwrap();
+        reader.seek(io::SeekFrom::Start(start))?;
+        let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
+        reader.read_exact(&mut data)?;
+
+        Ok(Block::from_vec(data))
+    }
+}
+
+pub struct BlockSource {
+    start: u64,
+    size: u64,
+    source_impl: Arc<dyn BlockSourceImpl>,
+}
+
+impl BlockSource {
+    pub fn from_path(path: std::path::PathBuf) -> io::Result<Self> {
+        let mut file = std::fs::File::open(&path)?;
+        let size = file.seek(io::SeekFrom::End(0))?;
+        Ok(Self {
+            start: 0,
+            size,
+            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(file))),
+        })
+    }
+
+    pub fn open(&self) -> ReadResult<Block> {
+        self.source_impl.read_block(self.start, self.size)
+    }
+
+    pub fn subblock<R>(&self, range: R) -> Self
+    where
+        R: RangeBounds<u64>,
+    {
+        let start = match range.start_bound() {
+            std::ops::Bound::Included(&start) => start,
+            std::ops::Bound::Excluded(&start) => start + 1,
+            std::ops::Bound::Unbounded => 0,
+        };
+
+        let end = match range.end_bound() {
+            std::ops::Bound::Included(&end) => end + 1,
+            std::ops::Bound::Excluded(&end) => end,
+            std::ops::Bound::Unbounded => self.size,
+        };
+
+        // Actual start/end are offsets from self.start
+        let start = self.start + start;
+        let end = self.start + end;
+
+        assert!(start <= end);
+        assert!(
+            end <= self.start + self.size,
+            "End: {} Size: {}",
+            end,
+            self.start + self.size
+        );
+
+        Self {
+            start,
+            size: end - start,
+            source_impl: self.source_impl.clone(),
         }
     }
 }
