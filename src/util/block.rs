@@ -178,8 +178,12 @@ impl BlockSource {
         Ok(Self {
             start: 0,
             size,
-            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(file))),
+            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(io::BufReader::new(file)))),
         })
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
     }
 
     pub fn open(&self) -> ReadResult<Block> {

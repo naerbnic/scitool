@@ -1,5 +1,7 @@
 use std::io::{self, Read, Seek};
 
+use super::block::{BlockReader, BlockSource};
+
 pub trait DataReader {
     fn read_u8(&mut self) -> io::Result<u8>;
     fn read_u16_le(&mut self) -> io::Result<u16>;
@@ -11,7 +13,10 @@ pub trait DataReader {
     fn file_size(&mut self) -> io::Result<u32>;
 }
 
-impl<R> DataReader for &mut R where R: DataReader {
+impl<R> DataReader for &mut R
+where
+    R: DataReader,
+{
     fn read_u8(&mut self) -> io::Result<u8> {
         (**self).read_u8()
     }
@@ -133,4 +138,21 @@ impl<R: Read + Seek> DataReader for IoDataReader<R> {
         self.seek_to(curr_offset)?;
         Ok(result)
     }
+}
+
+pub trait FromBlockSource: Sized {
+    fn from_block_source(source: &BlockSource) -> io::Result<(Self, BlockSource)> {
+        let block = source
+            .subblock(..Self::read_size() as u64)
+            .open()?;
+        let header = Self::parse(BlockReader::new(block))?;
+        let rest = source.subblock(Self::read_size() as u64..);
+        Ok((header, rest))
+    }
+
+    fn read_size() -> usize;
+
+    fn parse<R>(reader: R) -> io::Result<Self>
+    where
+        R: DataReader;
 }

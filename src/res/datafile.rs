@@ -3,8 +3,8 @@ use std::{io, vec};
 use bitter::BitReader;
 
 use crate::util::{
-    block::{Block, BlockReader, BlockSource},
-    data_reader::DataReader,
+    block::{Block, BlockSource},
+    data_reader::{DataReader, FromBlockSource},
 };
 
 use super::mapfile::ResourceLocation;
@@ -21,8 +21,15 @@ pub struct RawEntryHeader {
     compression_type: u16,
 }
 
-impl RawEntryHeader {
-    pub fn read_from<R: DataReader + ?Sized>(reader: &mut R) -> io::Result<RawEntryHeader> {
+impl FromBlockSource for RawEntryHeader {
+    fn read_size() -> usize {
+        9
+    }
+
+    fn parse<R>(mut reader: R) -> io::Result<Self>
+    where
+        R: DataReader,
+    {
         let res_type = reader.read_u8()?;
         let res_number = reader.read_u16_le()?;
         let packed_size = reader.read_u16_le()?;
@@ -43,7 +50,7 @@ pub struct RawContents {
     res_number: u16,
     unpacked_size: u16,
     compression_type: u16,
-    data: Block,
+    data: BlockSource,
 }
 
 impl std::fmt::Debug for RawContents {
@@ -942,10 +949,10 @@ impl TryFrom<RawContents> for Contents {
         let decompressed_data = match raw_contents.compression_type {
             0 => {
                 assert_eq!(raw_contents.data.size(), raw_contents.unpacked_size as u64);
-                raw_contents.data
+                raw_contents.data.open()?
             }
             18 => {
-                let compressed_data = raw_contents.data.read_all()?;
+                let compressed_data = raw_contents.data.open()?.read_all()?;
                 let mut decompressed_data = vec![0; raw_contents.unpacked_size as usize];
                 decompress_dcl(&compressed_data, &mut decompressed_data)?;
                 Block::from_vec(decompressed_data)
@@ -976,10 +983,9 @@ impl DataFile {
     }
 
     pub fn read_raw_contents(&self, location: &ResourceLocation) -> io::Result<RawContents> {
-        let mut reader =
-            BlockReader::new(self.data.subblock(location.file_offset as u64..).open()?);
-        let header = RawEntryHeader::read_from(&mut reader)?;
-        let resource_block = reader.into_rest().subblock(..header.packed_size as u64);
+        let (header, rest) =
+            RawEntryHeader::from_block_source(&self.data.subblock(location.file_offset as u64..))?;
+        let resource_block = rest.subblock(..header.packed_size as u64);
         assert_eq!(resource_block.size(), header.packed_size as u64);
         Ok(RawContents {
             res_type: header.res_type,
