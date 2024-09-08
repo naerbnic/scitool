@@ -5,22 +5,6 @@ use crate::res::{file::open_game_resources, msg::parse_message_resource, Resourc
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-struct ReadMessages {
-    #[clap(index = 1)]
-    root_dir: PathBuf,
-}
-
-impl ReadMessages {
-    fn run(&self) -> anyhow::Result<()> {
-        let resource_set = open_game_resources(&self.root_dir)?;
-        for (_id, res) in resource_set.resources_of_type(ResourceType::Message) {
-            parse_message_resource(res.open()?)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Parser)]
 struct ExportMessages {
     #[clap(index = 1)]
     root_dir: PathBuf,
@@ -62,7 +46,6 @@ impl ExportMessages {
 
 #[derive(Subcommand)]
 enum MessageCommand {
-    Read(ReadMessages),
     Export(ExportMessages),
 }
 
@@ -75,7 +58,6 @@ pub struct Messages {
 impl Messages {
     pub fn run(&self) -> anyhow::Result<()> {
         match self.msg_cmd {
-            MessageCommand::Read(ref cmd) => cmd.run()?,
             MessageCommand::Export(ref cmd) => cmd.run()?,
         }
         Ok(())
