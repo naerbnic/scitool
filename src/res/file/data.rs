@@ -2,12 +2,12 @@ use std::{io, vec};
 
 use bitter::BitReader;
 
-use crate::util::{
+use crate::{res::{ResourceId, ResourceType}, util::{
     block::{Block, BlockSource, LazyBlock},
     data_reader::{DataReader, FromBlockSource},
-};
+}};
 
-use super::{mapfile::ResourceLocation, ResourceId, ResourceType};
+use super::map::ResourceLocation;
 
 /// A resource entry header in a data file.
 ///

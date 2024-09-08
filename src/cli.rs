@@ -1,6 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use crate::{msg, res::{read_resources, ResourceId, ResourceSet, ResourceType}, util::data_writer::{DataWriter, IoDataWriter}};
+use crate::{
+    msg,
+    res::{file::{read_resources, ResourceSet}, ResourceId, ResourceType},
+    util::data_writer::{DataWriter, IoDataWriter},
+};
 use clap::{Parser, Subcommand};
 
 fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
