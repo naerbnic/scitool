@@ -11,8 +11,8 @@ use crate::util::block::{Block, BlockReader, BlockSource, LazyBlock};
 
 use super::{ResourceId, ResourceType};
 
-pub mod data;
-pub mod map;
+mod data;
+mod map;
 
 pub fn read_resources(map_file: &Path, data_file: &Path) -> io::Result<ResourceSet> {
     let map_file = Block::from_reader(File::open(map_file)?)?;
