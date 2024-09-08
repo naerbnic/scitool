@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use crate::{
-    res::{file::open_game_resources, msg, ResourceId, ResourceType},
+    res::{file::open_game_resources, ResourceId, ResourceType},
     util::data_writer::{DataWriter, IoDataWriter},
 };
 use clap::{Parser, Subcommand};
+
+mod msg;
 
 #[derive(Parser)]
 struct ListResources {
@@ -115,49 +117,12 @@ impl Resource {
     }
 }
 
-#[derive(Parser)]
-struct ReadMessages {
-    #[clap(index = 1)]
-    root_dir: PathBuf,
-}
-
-impl ReadMessages {
-    fn run(&self) -> anyhow::Result<()> {
-        let resource_set = open_game_resources(&self.root_dir)?;
-        for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
-            eprintln!("Reading message {:?}", id);
-            msg::parse_message_resource(res.open()?)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Subcommand)]
-enum MessageCommand {
-    Read(ReadMessages),
-}
-
-#[derive(Parser)]
-struct Messages {
-    #[clap(subcommand)]
-    msg_cmd: MessageCommand,
-}
-
-impl Messages {
-    fn run(&self) -> anyhow::Result<()> {
-        match self.msg_cmd {
-            MessageCommand::Read(ref cmd) => cmd.run()?,
-        }
-        Ok(())
-    }
-}
-
 #[derive(Subcommand)]
 enum Category {
     #[clap(name = "res")]
     Resource(Resource),
     #[clap(name = "msg")]
-    Message(Messages),
+    Message(msg::Messages),
 }
 
 impl Category {

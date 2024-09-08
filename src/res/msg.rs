@@ -13,6 +13,24 @@ pub struct MessageId {
     sequence: u8,
 }
 
+impl MessageId {
+    pub fn noun(&self) -> u8 {
+        self.noun
+    }
+
+    pub fn verb(&self) -> u8 {
+        self.verb
+    }
+
+    pub fn condition(&self) -> u8 {
+        self.condition
+    }
+
+    pub fn sequence(&self) -> u8 {
+        self.sequence
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct RawMessageRecord {
     id: MessageId,
@@ -21,12 +39,21 @@ struct RawMessageRecord {
     talker: u8,
 }
 
-#[expect(dead_code)]
 #[derive(Debug)]
 pub struct MessageRecord {
-    ref_id: MessageId,
+    _ref_id: MessageId,
     text: String,
     talker: u8,
+}
+
+impl MessageRecord {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn talker(&self) -> u8 {
+        self.talker
+    }
 }
 
 fn parse_message_resource_v4(msg_res: Block) -> anyhow::Result<Vec<RawMessageRecord>> {
@@ -100,15 +127,20 @@ fn resolve_raw_record(
 ) -> anyhow::Result<MessageRecord> {
     let text = read_string_at_offset(msg_res, raw_record.text_offset)?;
     Ok(MessageRecord {
-        ref_id: raw_record.ref_id,
+        _ref_id: raw_record.ref_id,
         text,
         talker: raw_record.talker,
     })
 }
 
-#[expect(dead_code)]
 pub struct RoomMessageSet {
     messages: BTreeMap<MessageId, MessageRecord>,
+}
+
+impl RoomMessageSet {
+    pub fn messages(&self) -> impl Iterator<Item = (&MessageId, &MessageRecord)> {
+        self.messages.iter()
+    }
 }
 
 pub fn parse_message_resource(msg_res: Block) -> anyhow::Result<RoomMessageSet> {
