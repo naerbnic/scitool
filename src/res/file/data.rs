@@ -91,7 +91,7 @@ impl TryFrom<RawContents> for Contents {
             18 => raw_contents
                 .data
                 .to_lazy_block()
-                .map(move |block| Ok(decompress_dcl(&block, raw_contents.unpacked_size as usize)?)),
+                .map(move |block| Ok(decompress_dcl(&block)?)),
             _ => {
                 // Let's be lazy here.
                 LazyBlock::from_factory(move || {

@@ -6,11 +6,12 @@ use crate::util::block::Block;
 
 use super::huffman::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 
-pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
+pub fn decompress_dcl(input: &Block) -> io::Result<Block> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_data = input.read_all()?;
+    let input_size = input_data.len();
     let mut reader = bitter::LittleEndianReader::new(&input_data);
-    let mut output = vec![0u8; output_size];
+    let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
     let Some(mode) = reader.read_u8() else {
         return Err(io::Error::other("Failed to read DCL mode"));
     };
@@ -36,7 +37,6 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
     let dict_mask: u32 = dict_size - 1;
     let mut dict = vec![0u8; dict_size as usize];
     let mut dict_pos: u32 = 0;
-    let mut bytes_written: u32 = 0;
 
     loop {
         let should_decode_entry = reader
@@ -74,12 +74,7 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
                             io::Error::other("Failed to read DCL extra distance bits")
                         })? as u32
                 };
-            if token_length + bytes_written > output.len() as u32 {
-                return Err(io::Error::other(
-                    "DCL token length exceeds output buffer size",
-                ));
-            }
-            if bytes_written < token_offset {
+            if output.len() < token_offset as usize {
                 return Err(io::Error::other("DCL token offset exceeds bytes written"));
             }
 
@@ -89,8 +84,7 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
 
             for _ in 0..token_length {
                 let curr_byte = dict[curr_index as usize];
-                output[bytes_written as usize] = curr_byte;
-                bytes_written += 1;
+                output.push(curr_byte);
                 dict[next_index as usize] = curr_byte;
                 next_index = (next_index + 1) & dict_mask;
                 curr_index = (curr_index + 1) & dict_mask;
@@ -111,18 +105,13 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
                     .read_u8()
                     .ok_or_else(|| io::Error::other("Failed to read DCL byte"))?
             };
-            output[bytes_written as usize] = value;
-            bytes_written += 1;
+            output.push(value);
             dict[dict_pos as usize] = value;
             dict_pos += 1;
             if dict_pos >= dict_size {
                 dict_pos = 0;
             }
         }
-    }
-
-    if bytes_written != output.len() as u32 {
-        return Err(io::Error::other("DCL output buffer not fully written"));
     }
 
     Ok(Block::from_vec(output))
