@@ -7,7 +7,7 @@ use crate::util::{
     data_reader::{DataReader, FromBlockSource},
 };
 
-use super::mapfile::ResourceLocation;
+use super::{mapfile::ResourceLocation, ResourceId, ResourceType};
 
 /// A resource entry header in a data file.
 ///
@@ -933,12 +933,14 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
 
 #[derive(Debug, Clone)]
 pub struct Contents {
-    res_type: u8,
-    res_number: u16,
+    id: ResourceId,
     data: LazyBlock,
 }
 
 impl Contents {
+    pub fn id(&self) -> &ResourceId {
+        &self.id
+    }
     pub fn data(&self) -> &LazyBlock {
         &self.data
     }
@@ -955,10 +957,14 @@ impl TryFrom<RawContents> for Contents {
                 .to_lazy_block()
                 .map(move |block| Ok(decompress_dcl(&block, raw_contents.unpacked_size as usize)?)),
             _ => {
-                return Err(io::Error::other(format!(
-                    "Unsupported compression type: {}",
-                    raw_contents.compression_type
-                )));
+                // Let's be lazy here.
+                LazyBlock::from_factory(move || {
+                    Err(io::Error::other(format!(
+                        "Unsupported compression type: {}",
+                        raw_contents.compression_type
+                    ))
+                    .into())
+                })
             }
         };
         let decompressed_data = decompressed_data.with_check(move |block| {
@@ -969,8 +975,10 @@ impl TryFrom<RawContents> for Contents {
         });
 
         Ok(Contents {
-            res_type: raw_contents.res_type,
-            res_number: raw_contents.res_number,
+            id: ResourceId::new(
+                ResourceType::try_from(raw_contents.res_type).map_err(io::Error::other)?,
+                raw_contents.res_number,
+            ),
             data: decompressed_data,
         })
     }

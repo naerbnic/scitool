@@ -131,8 +131,7 @@ impl ResourceLocations {
     pub fn locations(&self) -> impl Iterator<Item = ResourceLocation> + '_ {
         self.type_locations.iter().flat_map(|locations| {
             locations.entries.iter().map(move |entry| ResourceLocation {
-                type_id: locations.type_id,
-                resource_num: entry.resource_num,
+                id: ResourceId::new(locations.type_id, entry.resource_num),
                 file_offset: entry.resource_file_offset,
             })
         })
@@ -148,8 +147,7 @@ impl ResourceLocations {
                     .iter()
                     .find(|entry| entry.resource_num == id.resource_num)
                     .map(|entry| ResourceLocation {
-                        type_id: locations.type_id,
-                        resource_num: entry.resource_num,
+                        id: ResourceId::new(locations.type_id, entry.resource_num),
                         file_offset: entry.resource_file_offset,
                     })
             })
@@ -159,7 +157,6 @@ impl ResourceLocations {
 /// The location of a resource within a resource data file
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceLocation {
-    pub type_id: ResourceType,
-    pub resource_num: u16,
+    pub id: ResourceId,
     pub file_offset: u32,
 }

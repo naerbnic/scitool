@@ -255,6 +255,21 @@ impl LazyBlockImpl for RangeLazyBlockImpl {
     }
 }
 
+struct FactoryLazyBlockImpl<F>(F);
+
+impl<F> LazyBlockImpl for FactoryLazyBlockImpl<F>
+where
+    F: Fn() -> ReadResult<Block>,
+{
+    fn open(&self) -> ReadResult<Block> {
+        (self.0)()
+    }
+
+    fn size(&self) -> Option<u64> {
+        None
+    }
+}
+
 struct MapLazyBlockImpl<F> {
     base_impl: Arc<dyn LazyBlockImpl>,
     map_fn: F,
@@ -280,6 +295,15 @@ pub struct LazyBlock {
 }
 
 impl LazyBlock {
+    pub fn from_factory<F>(factory: F) -> Self
+    where
+        F: Fn() -> ReadResult<Block> + 'static,
+    {
+        Self {
+            source: Arc::new(FactoryLazyBlockImpl(factory)),
+        }
+    }
+    
     pub fn open(&self) -> ReadResult<Block> {
         self.source.open()
     }
