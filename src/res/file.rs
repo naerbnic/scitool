@@ -93,3 +93,18 @@ impl ResourceSet {
         Ok(ResourceSet { entries })
     }
 }
+
+pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
+    let main_set = {
+        let map_file = root_dir.join("RESOURCE.MAP");
+        let data_file = root_dir.join("RESOURCE.000");
+        read_resources(&map_file, &data_file)?
+    };
+
+    let message_set = {
+        let map_file = root_dir.join("MESSAGE.MAP");
+        let data_file = root_dir.join("RESOURCE.MSG");
+        read_resources(&map_file, &data_file)?
+    };
+    Ok(main_set.merge(&message_set)?)
+}

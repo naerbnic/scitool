@@ -1,5 +1,6 @@
 pub mod audio36;
 pub mod file;
+pub mod msg;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, clap::ValueEnum)]
 #[repr(u8)]
