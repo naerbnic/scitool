@@ -116,18 +116,6 @@ impl ResourceLocations {
         Ok(ResourceLocations { type_locations })
     }
 
-    pub fn type_ids(&self) -> impl Iterator<Item = ResourceType> + '_ {
-        self.type_locations
-            .iter()
-            .map(|locations| locations.type_id)
-    }
-
-    pub fn type_counts(&self) -> impl Iterator<Item = (ResourceType, usize)> + '_ {
-        self.type_locations
-            .iter()
-            .map(|locations| (locations.type_id, locations.entries.len()))
-    }
-
     pub fn locations(&self) -> impl Iterator<Item = ResourceLocation> + '_ {
         self.type_locations.iter().flat_map(|locations| {
             locations.entries.iter().map(move |entry| ResourceLocation {
@@ -135,22 +123,6 @@ impl ResourceLocations {
                 file_offset: entry.resource_file_offset,
             })
         })
-    }
-
-    pub fn get_location(&self, id: &ResourceId) -> Option<ResourceLocation> {
-        self.type_locations
-            .iter()
-            .find(|locations| locations.type_id == id.type_id)
-            .and_then(|locations| {
-                locations
-                    .entries
-                    .iter()
-                    .find(|entry| entry.resource_num == id.resource_num)
-                    .map(|entry| ResourceLocation {
-                        id: ResourceId::new(locations.type_id, entry.resource_num),
-                        file_offset: entry.resource_file_offset,
-                    })
-            })
     }
 }
 

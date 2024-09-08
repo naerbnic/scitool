@@ -88,12 +88,6 @@ where
 }
 pub struct IoDataReader<R>(R);
 
-impl<R: Read + Seek> IoDataReader<R> {
-    pub fn new(reader: R) -> IoDataReader<R> {
-        IoDataReader(reader)
-    }
-}
-
 impl<R: Read + Seek> DataReader for IoDataReader<R> {
     fn read_u8(&mut self) -> io::Result<u8> {
         let mut buf = [0; 1];

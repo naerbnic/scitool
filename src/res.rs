@@ -112,6 +112,7 @@ impl ResourceSet {
         self.entries.keys()
     }
 
+    #[expect(dead_code)]
     pub fn with_overlay(&self, overlay: &ResourceSet) -> ResourceSet {
         let mut entries = self.entries.clone();
         for (id, block) in overlay.entries.iter() {
@@ -119,7 +120,7 @@ impl ResourceSet {
         }
         ResourceSet { entries }
     }
-    
+
     pub fn merge(&self, other: &ResourceSet) -> io::Result<ResourceSet> {
         let mut entries = self.entries.clone();
         for (id, block) in other.entries.iter() {

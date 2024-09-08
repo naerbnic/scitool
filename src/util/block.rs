@@ -110,6 +110,7 @@ impl Block {
         Ok(buf)
     }
 
+    #[expect(dead_code)]
     pub fn subblock<R>(&self, range: R) -> Self
     where
         R: RangeBounds<u64>,
@@ -303,7 +304,7 @@ impl LazyBlock {
             source: Arc::new(FactoryLazyBlockImpl(factory)),
         }
     }
-    
+
     pub fn open(&self) -> ReadResult<Block> {
         self.source.open()
     }
@@ -353,10 +354,6 @@ pub struct BlockReader {
 impl BlockReader {
     pub fn new(block: Block) -> Self {
         Self { curr_pos: 0, block }
-    }
-
-    pub fn into_rest(self) -> Block {
-        self.block.subblock(self.curr_pos..)
     }
 }
 

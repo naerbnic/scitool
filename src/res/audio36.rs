@@ -1,3 +1,4 @@
+#![expect(dead_code)]
 use std::io;
 
 use crate::util::{data_reader::DataReader, data_writer::DataWriter};
