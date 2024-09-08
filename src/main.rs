@@ -152,7 +152,7 @@ impl ExtractResourceAsPatch {
 
                 patch_file.write_u8(self.resource_type.into())?;
                 patch_file.write_u8(0)?; // Header Size
-                patch_file.write_block(&contents.data())?;
+                patch_file.write_block(&contents.data().open()?)?;
             }
         }
 

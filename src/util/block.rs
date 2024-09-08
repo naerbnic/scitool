@@ -1,5 +1,9 @@
 use std::{
-    any::Any, io::{self, Seek}, ops::RangeBounds, path::Path, sync::{Arc, Mutex}
+    any::Any,
+    io::{self, Seek},
+    ops::RangeBounds,
+    path::Path,
+    sync::{Arc, Mutex},
 };
 
 use super::data_reader::DataReader;
@@ -162,6 +166,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct BlockSource {
     start: u64,
     size: u64,
@@ -220,6 +225,98 @@ impl BlockSource {
             size: end - start,
             source_impl: self.source_impl.clone(),
         }
+    }
+
+    pub fn to_lazy_block(&self) -> LazyBlock {
+        LazyBlock {
+            source: Arc::new(RangeLazyBlockImpl {
+                source: self.clone(),
+            }),
+        }
+    }
+}
+
+trait LazyBlockImpl {
+    fn open(&self) -> ReadResult<Block>;
+    fn size(&self) -> Option<u64>;
+}
+
+struct RangeLazyBlockImpl {
+    source: BlockSource,
+}
+
+impl LazyBlockImpl for RangeLazyBlockImpl {
+    fn open(&self) -> ReadResult<Block> {
+        self.source.open()
+    }
+
+    fn size(&self) -> Option<u64> {
+        Some(self.source.size())
+    }
+}
+
+struct MapLazyBlockImpl<F> {
+    base_impl: Arc<dyn LazyBlockImpl>,
+    map_fn: F,
+}
+
+impl<F> LazyBlockImpl for MapLazyBlockImpl<F>
+where
+    F: Fn(Block) -> ReadResult<Block>,
+{
+    fn open(&self) -> ReadResult<Block> {
+        let base_block = self.base_impl.open()?;
+        Ok((self.map_fn)(base_block)?)
+    }
+
+    fn size(&self) -> Option<u64> {
+        None
+    }
+}
+
+#[derive(Clone)]
+pub struct LazyBlock {
+    source: Arc<dyn LazyBlockImpl>,
+}
+
+impl LazyBlock {
+    pub fn open(&self) -> ReadResult<Block> {
+        self.source.open()
+    }
+
+    pub fn map<F>(self, map_fn: F) -> Self
+    where
+        F: Fn(Block) -> ReadResult<Block> + 'static,
+    {
+        Self {
+            source: Arc::new(MapLazyBlockImpl {
+                base_impl: self.source,
+                map_fn,
+            }),
+        }
+    }
+
+    pub fn with_check<F>(&self, check_fn: F) -> Self
+    where
+        F: Fn(&Block) -> ReadResult<()> + 'static,
+    {
+        Self {
+            source: Arc::new(MapLazyBlockImpl {
+                base_impl: self.source.clone(),
+                map_fn: move |block| {
+                    check_fn(&block)?;
+                    Ok(block)
+                },
+            }),
+        }
+    }
+}
+
+impl std::fmt::Debug for LazyBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("LazyBlock")
+            .field("size", &self.source.size())
+            .finish()
     }
 }
 

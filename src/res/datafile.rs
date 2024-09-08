@@ -3,7 +3,7 @@ use std::{io, vec};
 use bitter::BitReader;
 
 use crate::util::{
-    block::{Block, BlockSource},
+    block::{Block, BlockSource, LazyBlock},
     data_reader::{DataReader, FromBlockSource},
 };
 
@@ -935,11 +935,11 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
 pub struct Contents {
     res_type: u8,
     res_number: u16,
-    data: Block,
+    data: LazyBlock,
 }
 
 impl Contents {
-    pub fn data(&self) -> &Block {
+    pub fn data(&self) -> &LazyBlock {
         &self.data
     }
 }
@@ -949,11 +949,11 @@ impl TryFrom<RawContents> for Contents {
 
     fn try_from(raw_contents: RawContents) -> Result<Self, Self::Error> {
         let decompressed_data = match raw_contents.compression_type {
-            0 => raw_contents.data.open()?,
-            18 => decompress_dcl(
-                &raw_contents.data.open()?,
-                raw_contents.unpacked_size as usize,
-            )?,
+            0 => raw_contents.data.to_lazy_block(),
+            18 => raw_contents
+                .data
+                .to_lazy_block()
+                .map(move |block| Ok(decompress_dcl(&block, raw_contents.unpacked_size as usize)?)),
             _ => {
                 return Err(io::Error::other(format!(
                     "Unsupported compression type: {}",
@@ -961,7 +961,12 @@ impl TryFrom<RawContents> for Contents {
                 )));
             }
         };
-        assert_eq!(decompressed_data.size(), raw_contents.unpacked_size as u64);
+        let decompressed_data = decompressed_data.with_check(move |block| {
+            if block.size() != raw_contents.unpacked_size as u64 {
+                return Err(io::Error::other("Decompressed data size mismatch").into());
+            }
+            Ok(())
+        });
 
         Ok(Contents {
             res_type: raw_contents.res_type,
