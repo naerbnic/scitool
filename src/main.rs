@@ -1,6 +1,10 @@
 #![expect(dead_code)]
 
-use std::{fs::File, io, path::PathBuf};
+use std::{
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+};
 
 use clap::{Parser, Subcommand};
 use res::{
@@ -16,18 +20,18 @@ use util::{
 mod res;
 mod util;
 
-struct ResourceDirFiles {
+struct ResourceStore {
     resource_locations: ResourceLocations,
     data_file: DataFile,
 }
 
-impl ResourceDirFiles {
-    fn open(root_dir: &PathBuf) -> io::Result<Self> {
-        let map_file = Block::from_reader(File::open(root_dir.join("RESOURCE.MAP"))?)?;
-        let data_file = DataFile::new(BlockSource::from_path(root_dir.join("RESOURCE.000"))?);
+impl ResourceStore {
+    fn open(map_file: &Path, data_file: &Path) -> io::Result<Self> {
+        let map_file = Block::from_reader(File::open(map_file)?)?;
+        let data_file = DataFile::new(BlockSource::from_path(data_file)?);
         let resource_locations =
             res::mapfile::ResourceLocations::read_from(BlockReader::new(map_file))?;
-        Ok(ResourceDirFiles {
+        Ok(ResourceStore {
             resource_locations,
             data_file,
         })
@@ -49,6 +53,18 @@ impl ResourceDirFiles {
     }
 }
 
+fn open_main_store(root_dir: &Path) -> anyhow::Result<ResourceStore> {
+    let map_file = root_dir.join("RESOURCE.MAP");
+    let data_file = root_dir.join("RESOURCE.000");
+    Ok(ResourceStore::open(&map_file, &data_file)?)
+}
+
+fn open_message_store(root_dir: &Path) -> anyhow::Result<ResourceStore> {
+    let map_file = root_dir.join("MESSAGE.MAP");
+    let data_file = root_dir.join("RESOURCE.MSG");
+    Ok(ResourceStore::open(&map_file, &data_file)?)
+}
+
 #[derive(Parser)]
 struct ListResources {
     #[clap(index = 1)]
@@ -57,7 +73,24 @@ struct ListResources {
 
 impl ListResources {
     fn run(&self) -> anyhow::Result<()> {
-        let resource_dir_files = ResourceDirFiles::open(&self.root_dir)?;
+        let resource_dir_files = open_main_store(&self.root_dir.join("R"))?;
+        for item in resource_dir_files.read_raw_contents() {
+            let header = item?;
+            println!("{:?}", header);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Parser)]
+struct ListMessageResources {
+    #[clap(index = 1)]
+    root_dir: PathBuf,
+}
+
+impl ListMessageResources {
+    fn run(&self) -> anyhow::Result<()> {
+        let resource_dir_files = open_message_store(&self.root_dir)?;
         for item in resource_dir_files.read_raw_contents() {
             let header = item?;
             println!("{:?}", header);
@@ -82,7 +115,7 @@ struct ExtractResourceAsPatch {
 
 impl ExtractResourceAsPatch {
     fn run(&self) -> anyhow::Result<()> {
-        let resource_dir_files = ResourceDirFiles::open(&self.root_dir)?;
+        let resource_dir_files = open_main_store(&self.root_dir)?;
         let contents = resource_dir_files.read_resource(self.resource_type, self.resource_id)?;
         let ext = match self.resource_type {
             ResourceType::Script => "SCR",
@@ -131,6 +164,7 @@ impl ExtractResourceAsPatch {
 enum ResourceCommand {
     #[clap(name = "list")]
     List(ListResources),
+    ListMsg(ListMessageResources),
     ExtractAsPatch(ExtractResourceAsPatch),
 }
 
@@ -139,6 +173,7 @@ impl ResourceCommand {
         match self {
             ResourceCommand::List(list) => list.run()?,
             ResourceCommand::ExtractAsPatch(extract) => extract.run()?,
+            ResourceCommand::ListMsg(list_msg) => list_msg.run()?,
         }
         Ok(())
     }

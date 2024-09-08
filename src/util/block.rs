@@ -1,8 +1,5 @@
 use std::{
-    any::Any,
-    io::{self, Seek},
-    ops::RangeBounds,
-    sync::{Arc, Mutex},
+    any::Any, io::{self, Seek}, ops::RangeBounds, path::Path, sync::{Arc, Mutex}
 };
 
 use super::data_reader::DataReader;
@@ -172,7 +169,7 @@ pub struct BlockSource {
 }
 
 impl BlockSource {
-    pub fn from_path(path: std::path::PathBuf) -> io::Result<Self> {
+    pub fn from_path(path: &Path) -> io::Result<Self> {
         let mut file = std::fs::File::open(&path)?;
         let size = file.seek(io::SeekFrom::End(0))?;
         Ok(Self {
