@@ -113,6 +113,20 @@ impl ResourceSet {
     }
 
     #[expect(dead_code)]
+    pub fn resources(&self) -> impl Iterator<Item = (&ResourceId, &LazyBlock)> {
+        self.entries.iter()
+    }
+
+    pub fn resources_of_type(
+        &self,
+        type_id: ResourceType,
+    ) -> impl Iterator<Item = (&ResourceId, &LazyBlock)> {
+        self.entries
+            .iter()
+            .filter(move |(id, _)| id.type_id == type_id)
+    }
+
+    #[expect(dead_code)]
     pub fn with_overlay(&self, overlay: &ResourceSet) -> ResourceSet {
         let mut entries = self.entries.clone();
         for (id, block) in overlay.entries.iter() {

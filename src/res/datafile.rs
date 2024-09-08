@@ -884,8 +884,6 @@ pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
                 return Err(io::Error::other("DCL token offset exceeds bytes written"));
             }
 
-            dbg!(dict_pos, token_offset, token_length);
-
             let base_index = (dict_pos.wrapping_sub(token_offset)) & dict_mask;
             let mut curr_index = base_index;
             let mut next_index = dict_pos;
