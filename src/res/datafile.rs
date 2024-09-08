@@ -807,9 +807,11 @@ mod trees {
 
 use trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 
-pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> io::Result<()> {
+pub fn decompress_dcl(input: &Block, output_size: usize) -> io::Result<Block> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
-    let mut reader = bitter::LittleEndianReader::new(input);
+    let input_data = input.read_all()?;
+    let mut reader = bitter::LittleEndianReader::new(&input_data);
+    let mut output = vec![0u8; output_size];
     let Some(mode) = reader.read_u8() else {
         return Err(io::Error::other("Failed to read DCL mode"));
     };
@@ -926,7 +928,7 @@ pub fn decompress_dcl(input: &[u8], output: &mut [u8]) -> io::Result<()> {
         return Err(io::Error::other("DCL output buffer not fully written"));
     }
 
-    Ok(())
+    Ok(Block::from_vec(output))
 }
 
 #[derive(Debug, Clone)]
@@ -947,16 +949,11 @@ impl TryFrom<RawContents> for Contents {
 
     fn try_from(raw_contents: RawContents) -> Result<Self, Self::Error> {
         let decompressed_data = match raw_contents.compression_type {
-            0 => {
-                assert_eq!(raw_contents.data.size(), raw_contents.unpacked_size as u64);
-                raw_contents.data.open()?
-            }
-            18 => {
-                let compressed_data = raw_contents.data.open()?.read_all()?;
-                let mut decompressed_data = vec![0; raw_contents.unpacked_size as usize];
-                decompress_dcl(&compressed_data, &mut decompressed_data)?;
-                Block::from_vec(decompressed_data)
-            }
+            0 => raw_contents.data.open()?,
+            18 => decompress_dcl(
+                &raw_contents.data.open()?,
+                raw_contents.unpacked_size as usize,
+            )?,
             _ => {
                 return Err(io::Error::other(format!(
                     "Unsupported compression type: {}",
@@ -964,6 +961,7 @@ impl TryFrom<RawContents> for Contents {
                 )));
             }
         };
+        assert_eq!(decompressed_data.size(), raw_contents.unpacked_size as u64);
 
         Ok(Contents {
             res_type: raw_contents.res_type,

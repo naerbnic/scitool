@@ -5,7 +5,7 @@ use std::{fs::File, io, path::PathBuf};
 use clap::{Parser, Subcommand};
 use res::{
     datafile::{Contents, DataFile, RawContents},
-    mapfile::{ResourceLocation, ResourceLocations},
+    mapfile::ResourceLocations,
     ResourceId, ResourceType,
 };
 use util::{
@@ -33,12 +33,10 @@ impl ResourceDirFiles {
         })
     }
 
-    pub fn read_raw_contents(
-        &self,
-    ) -> impl Iterator<Item = io::Result<(ResourceLocation, RawContents)>> + '_ {
+    pub fn read_raw_contents(&self) -> impl Iterator<Item = io::Result<RawContents>> + '_ {
         self.resource_locations.locations().map(move |location| {
             let raw_contents = self.data_file.read_raw_contents(&location)?;
-            Ok((location, raw_contents))
+            Ok(raw_contents)
         })
     }
 
@@ -61,8 +59,8 @@ impl ListResources {
     fn run(&self) -> anyhow::Result<()> {
         let resource_dir_files = ResourceDirFiles::open(&self.root_dir)?;
         for item in resource_dir_files.read_raw_contents() {
-            let (location, header) = item?;
-            println!("{:?}, {:?}", location, header);
+            let header = item?;
+            println!("{:?}", header);
         }
         Ok(())
     }
