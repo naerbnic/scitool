@@ -13,8 +13,7 @@ struct ReadMessages {
 impl ReadMessages {
     fn run(&self) -> anyhow::Result<()> {
         let resource_set = open_game_resources(&self.root_dir)?;
-        for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
-            eprintln!("Reading message {:?}", id);
+        for (_id, res) in resource_set.resources_of_type(ResourceType::Message) {
             parse_message_resource(res.open()?)?;
         }
         Ok(())

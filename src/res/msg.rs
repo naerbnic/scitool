@@ -155,7 +155,6 @@ pub fn parse_message_resource(msg_res: Block) -> anyhow::Result<RoomMessageSet> 
         .into_iter()
         .map(|raw_record| {
             let record = resolve_raw_record(&msg_res, raw_record)?;
-            println!("{:?}: {:?}", raw_record.id, record);
             Ok((raw_record.id, record))
         })
         .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
