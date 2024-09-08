@@ -355,7 +355,6 @@ impl BlockReader {
         Self { curr_pos: 0, block }
     }
 
-    #[expect(dead_code)]
     pub fn into_rest(self) -> Block {
         self.block.subblock(self.curr_pos..)
     }
