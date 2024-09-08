@@ -4,7 +4,7 @@ use crate::{
     res::{ResourceId, ResourceType},
     util::{
         block::{BlockSource, LazyBlock},
-        compression::decompress_dcl,
+        compression::dcl::decompress_dcl,
         data_reader::{DataReader, FromBlockSource},
     },
 };
