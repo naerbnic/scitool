@@ -146,7 +146,7 @@ impl Block {
     }
 }
 
-pub trait BlockSourceImpl {
+pub trait BlockSourceImpl: Send + Sync {
     fn read_block(&self, start: u64, size: u64) -> ReadResult<Block>;
 }
 
@@ -154,7 +154,7 @@ struct ReaderBlockSourceImpl<R>(Mutex<R>);
 
 impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
 where
-    R: io::Read + io::Seek,
+    R: io::Read + io::Seek + Send,
 {
     fn read_block(&self, start: u64, size: u64) -> ReadResult<Block> {
         let mut reader = self.0.lock().unwrap();
@@ -175,7 +175,7 @@ pub struct BlockSource {
 
 impl BlockSource {
     pub fn from_path(path: &Path) -> io::Result<Self> {
-        let mut file = std::fs::File::open(&path)?;
+        let mut file = std::fs::File::open(path)?;
         let size = file.seek(io::SeekFrom::End(0))?;
         Ok(Self {
             start: 0,
@@ -281,7 +281,7 @@ where
 {
     fn open(&self) -> ReadResult<Block> {
         let base_block = self.base_impl.open()?;
-        Ok((self.map_fn)(base_block)?)
+        (self.map_fn)(base_block)
     }
 
     fn size(&self) -> Option<u64> {
