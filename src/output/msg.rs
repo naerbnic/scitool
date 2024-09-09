@@ -24,3 +24,4 @@ pub struct Message {
 pub struct MessageFile {
     pub messages: Vec<Message>,
 }
+

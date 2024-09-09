@@ -1,0 +1,143 @@
+cast:
+  roger:
+    name: Roger Wilco
+    short_name: Roger
+  quirk:
+    name: Captain William T. Quirk
+    short_name: Quirk
+  help:
+    name: Help Text Narrator
+    short_name: Help
+  rotunda-guard-left:
+    name: Rotunda Guard (Left)
+    short_name: Guard (L)
+  rotunda-guard-right:
+    name: Rotunda Guard (Right)
+    short_name: Guard (R)
+  big-brain:
+    name: Big-Brain Student
+    short_name: big-brain
+  cliffy:
+    name: Cliffy
+    short_name: Cliffy
+  # TODO: Split into multiple for tracking later
+  extras:
+    name: Extras (One Line)
+    short_name: Extra
+  admiral:
+    name: Starcon Admiral
+    short_name: Admiral
+  droole:
+    name: Droole
+    short_name: Droole
+  flo:
+    name: Flo
+    short_name: Flo
+  wd-40:
+    name: WD-40
+    short_name: WD-40
+  beatrice:
+    name: Ambassador Beatrice Wankmeister
+    short_name: Beatrice
+  dumb:
+    name: Dumb Student
+    short_name: Dumb
+  failing:
+    name: Failing Student
+    short_name: Failing
+  slep:
+    name: Slep
+    short_name: Slep
+  crumpella:
+    name: Crumpella
+    short_name: Crumpella
+  merchant:
+    name: Nelo Jones, Merchant of Venus
+    short_name: Nelo
+  brig-guard-1:
+    name: Spacebar Brig Guard \#1
+    short_name: Brig Guard \#1
+  brig-guard-2:
+    name: Spacebar Brig Guard \#2
+    short_name: Brig Guard \#2
+  colonist:
+    name: Colonist Mutant
+    short_name: Colonist Mutant
+  maggot:
+    name: "Maggot"
+    short_name: Maggot
+  patron-1:
+    name: Spacebar Patron \#1
+    short_name: Patron \#1
+  narrator:
+    name: Narrator
+    short_name: Narrator
+  
+talkers:
+  - id: 1
+    cast: quirk
+  - id: 3
+    cast: quirk
+  - id: 4
+    cast: help
+  - id: 5
+    cast: rotunda-guard-left
+  - id: 6
+    cast: rotunda-guard-right
+  - id: 7
+    cast: roger
+  - id: 8
+    cast: big-brain
+  - id: 9
+    cast: cliffy
+  - id: 17
+    cast: extras
+  - id: 18
+    cast: admiral
+  - id: 19
+    cast: roger
+  - id: 21
+    cast: Droole
+  - id: 22
+    cast: flo
+  - id: 23
+    cast: cliffy
+  - id: 24
+    cast: wd-40
+  - id: 25
+    cast: quirk
+  - id: 26
+    cast: beatrice
+  - id: 27
+    cast: dumb
+  - id: 28
+    cast: unknown
+  - id: 29
+    cast: failing
+  - id: 36
+    cast: slep
+  - id: 37
+    cast: crumpella
+  - id: 38
+    cast: merchant
+  - id: 42
+    cast: spacebar-guard-1
+  - id: 43
+    cast: spacebar-guard-2
+  - id: 46
+    cast: colonist
+  - id: 47
+    cast: maggot
+  - id: 49
+    cast: patron-1
+  # UI Help Text
+  - id: 97
+    cast: help
+  # System Messages
+  - id: 98
+    cast: help
+  # TODO: Sort through lines, as not all are the narrator.
+  # May be separated by room
+  - id: 99
+    cast: narrator
+    
