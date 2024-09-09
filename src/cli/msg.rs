@@ -71,7 +71,7 @@ impl PrintMessages {
     fn run(&self) -> anyhow::Result<()> {
         if let Some(config_path) = &self.config_path {
             let config: msg_out::ScriptConfig =
-                serde_yml::from_reader(std::fs::File::open(&config_path)?)?;
+                serde_yml::from_reader(std::fs::File::open(config_path)?)?;
             eprintln!("Loaded config from {:?}: {:?}", config_path, config);
         }
         let resource_set = open_game_resources(&self.root_dir)?;
