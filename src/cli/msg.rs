@@ -51,6 +51,8 @@ impl ExportMessages {
 struct PrintMessages {
     #[clap(index = 1)]
     root_dir: PathBuf,
+    #[clap(long = "config")]
+    config_path: Option<PathBuf>,
     #[clap(short = 't', long, required = false)]
     talker: Option<u8>,
     #[clap(short = 'r', long, required = false)]
@@ -63,11 +65,15 @@ struct PrintMessages {
     condition: Option<u8>,
     #[clap(short = 's', long, required = false)]
     sequence: Option<u8>,
-
 }
 
 impl PrintMessages {
     fn run(&self) -> anyhow::Result<()> {
+        if let Some(config_path) = &self.config_path {
+            let config: msg_out::ScriptConfig =
+                serde_yml::from_reader(std::fs::File::open(&config_path)?)?;
+            eprintln!("Loaded config from {:?}: {:?}", config_path, config);
+        }
         let resource_set = open_game_resources(&self.root_dir)?;
         for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
             let msg_resources = parse_message_resource(res.open()?)?;

@@ -14,6 +14,10 @@ cast:
   rotunda-guard-right:
     name: Rotunda Guard (Right)
     short_name: Guard (R)
+  # TODO: Split into multiple for tracking later
+  students:
+    name: Hallway Students
+    short_name: Students
   big-brain:
     name: Big-Brain Student
     short_name: big-brain
@@ -385,6 +389,3 @@ rooms:
     name: Game End/Credits
   - id: 1050
     name: Goliath - Transporter Room
-
-
-
