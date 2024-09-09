@@ -53,6 +53,17 @@ struct PrintMessages {
     root_dir: PathBuf,
     #[clap(short = 't', long, required = false)]
     talker: Option<u8>,
+    #[clap(short = 'r', long, required = false)]
+    room: Option<u16>,
+    #[clap(short = 'v', long, required = false)]
+    verb: Option<u8>,
+    #[clap(short = 'n', long, required = false)]
+    noun: Option<u8>,
+    #[clap(short = 'c', long, required = false)]
+    condition: Option<u8>,
+    #[clap(short = 's', long, required = false)]
+    sequence: Option<u8>,
+
 }
 
 impl PrintMessages {
@@ -61,8 +72,33 @@ impl PrintMessages {
         for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
             let msg_resources = parse_message_resource(res.open()?)?;
             for (msg_id, record) in msg_resources.messages() {
+                if let Some(room) = self.room {
+                    if id.resource_num != room {
+                        continue;
+                    }
+                }
                 if let Some(talker) = self.talker {
                     if record.talker() != talker {
+                        continue;
+                    }
+                }
+                if let Some(verb) = self.verb {
+                    if msg_id.verb() != verb {
+                        continue;
+                    }
+                }
+                if let Some(noun) = self.noun {
+                    if msg_id.noun() != noun {
+                        continue;
+                    }
+                }
+                if let Some(condition) = self.condition {
+                    if msg_id.condition() != condition {
+                        continue;
+                    }
+                }
+                if let Some(sequence) = self.sequence {
+                    if msg_id.sequence() != sequence {
                         continue;
                     }
                 }

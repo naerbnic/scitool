@@ -28,10 +28,10 @@ cast:
     name: Starcon Admiral
     short_name: Admiral
   droole:
-    name: Droole
+    name: Subcorporal Droole
     short_name: Droole
   flo:
-    name: Flo
+    name: Com Specialist Flo
     short_name: Flo
   wd-40:
     name: WD-40
@@ -40,8 +40,8 @@ cast:
     name: Ambassador Beatrice Wankmeister
     short_name: Beatrice
   dumb:
-    name: Dumb Student
-    short_name: Dumb
+    name: Schleppo (Dumb Student)
+    short_name: Schleppo
   failing:
     name: Failing Student
     short_name: Failing
@@ -72,7 +72,7 @@ cast:
   narrator:
     name: Narrator
     short_name: Narrator
-  
+
 talkers:
   - id: 1
     cast: quirk
@@ -81,11 +81,12 @@ talkers:
   - id: 4
     cast: help
   - id: 5
-    cast: rotunda-guard-left
-  - id: 6
     cast: rotunda-guard-right
+  - id: 6
+    cast: rotunda-guard-left
   - id: 7
     cast: roger
+  # TODO: Split to different students
   - id: 8
     cast: big-brain
   - id: 9
@@ -111,7 +112,7 @@ talkers:
   - id: 27
     cast: dumb
   - id: 28
-    cast: unknown
+    cast: big-brain
   - id: 29
     cast: failing
   - id: 36
@@ -140,4 +141,250 @@ talkers:
   # May be separated by room
   - id: 99
     cast: narrator
-    
+
+verbs:
+  - id: 1
+    name: Look
+  - id: 2
+    name: Talk
+  - id: 3
+    name: Walk
+  - id: 4
+    name: Use
+  - id: 5
+    name: Get Help
+  - id: 6
+    name: Ship Opener
+  - id: 7
+    name: Generic Use Item / Settings (?)
+  - id: 8
+    name: Control Panel Action
+  - id: 17
+    name: Use Buckazoids
+  - id: 18
+    name: Use Floor Scrubber
+  - id: 19
+    name: Use Distributor Cap
+  - id: 20
+    name: Safety Cones
+  - id: 21
+    name: Use Kiz-Urazgubi Branch
+  - id: 22
+    name: Use Kiz-Urazgubi Fruit
+  - id: 23
+    name: Use Frock
+  - id: 24
+    name: Command
+  - id: 25
+    name: Use Oxygen Tank
+  - id: 26
+    name: Use Cloaking Device
+  - id: 28
+    name: Use Transporter Fuse
+  - id: 29
+    name: Use Antacid
+  - id: 30
+    name: Use Cutting Torch
+  - id: 31
+    name: Use Spike
+  - id: 32
+    name: Use Communicator
+  - id: 33
+    name: Use Hole Punch
+  - id: 34
+    name: Use Space Monkeys
+  - id: 35
+    name: Use Business Card
+  - id: 36
+    name: Use Genetix Canister
+  - id: 37
+    name: Use Liquid Nitro Tank
+  - id: 38
+    name: Use WD-40 Head
+  - id: 39
+    name: Use Oxygen Mask
+  - id: 42
+    name: Use Paper
+
+rooms:
+  - id: 0
+    name: General Text
+  - id: 1
+    name: Roger Verb Responses
+  - id: 13
+    name: Settings Credits
+  - id: 15
+    name: Inventory
+  - id: 20
+    name: Deaths
+  - id: 24
+    name: Settings Descriptions
+  - id: 100
+    name: Technobabble
+  - id: 104
+    name: Introduction
+  - id: 109
+    name: Starcon Hallways (General)
+  - id: 110
+    name: Bridge Simulator Room
+  - id: 115
+    name: Rotunda Walkway R
+  - id: 117
+    name: Rotunda Walkway L
+  - id: 119
+    name: Rotunda Floor
+  - id: 121
+    name: Starcon Hallway \#1
+  - id: 122
+    name: Starcon Hallway \#2
+  - id: 123
+    name: Starcon Hallway \#3
+  - id: 125
+    name: Starcon Hallway \#4
+  - id: 127
+    name: Starcon Conference Room
+  - id: 133
+    name: Grade Master 2000
+  - id: 135
+    name: Classrom
+  - id: 137
+    name: SAT Questions
+  - id: 165
+    name: Starcon Ship Bay (Cutscene)
+  - id: 166
+    name: SAT Results Letter
+  - id: 200
+    name: Eureka Bridge - Standing
+  - id: 201
+    name: Eureka Bridge - In Chair
+  - id: 202
+    name: Eureka Bridge - Location Specific
+  - id: 205
+    name: Eureka Bridge - Crew Commands
+  - id: 206
+    name: Eureka Bridge - Maggot/Dung Heep Cutscene
+  - id: 208
+    name: Eureka Bridge - WD-40 Attack
+  - id: 225
+    name: Eureka Hallway
+  - id: 226
+    name: Cliffy's Toolbox
+  - id: 228
+    name: Eureka Fusebox
+  - id: 230
+    name: Eureka Hallway - Meeting Spike
+  - id: 240
+    name: Engineering
+  - id: 241
+    name: Engineering - Cryo-Chef
+  - id: 246
+    name: Engineeering - Infiltration Planning
+  - id: 250
+    name: EVA Bay
+  - id: 300
+    name: Kiz-Urazgubi - Waterfall Pool
+  - id: 301
+    name: Kiz-Urazgubi - General Messages
+  - id: 305
+    name: Kiz-Urazgubi - Log Bridge
+  - id: 310
+    name: Kiz-Urazgubi - Lower Cliffs
+  - id: 315
+    name: Kiz-Urazgubi - Upper Cliffs
+  - id: 320
+    name: Kiz-Urazgubi - Side Cave
+  - id: 325
+    name: Kiz-Urazgubi - Outside WD-40's Ship
+  - id: 330
+    name: Kiz-Urazgubi - Inside WD-40's Ship
+  - id: 335
+    name: Kiz-Urazgubi - Cloaking Device Hatch
+  - id: 400
+    name: Klorox II - Canister
+  - id: 401
+    name: Klorox II - Beam Up Messages
+  - id: 410
+    name: Klorox II - Vista
+  - id: 420
+    name: Klorox II - Greenhouse
+  - id: 440
+    name: Klorox II - Mutant Attack
+  - id: 450
+    name: Klorox II - After Attack
+  - id: 460
+    name: Klorox II - Computer Console
+  - id: 500
+    name: SpaceBar - Lounge
+  - id: 501
+    name: SpaceBar - Explosion Warnings
+  - id: 510
+    name: SpaceBar - Brig
+  - id: 520
+    name: SpaceBar - Table
+  - id: 530
+    name: SpaceBar - Cliffy's Cell
+  - id: 620
+    name: Thrakus - Bea's Pod (Interior/Exterior)
+  - id: 640
+    name: Thrakus - Exterior
+  - id: 660
+    name: Thrakus - Ledge Hanging
+  - id: 701
+    name: Genetix - Transporter
+  - id: 730
+    name: Genetix - Lab Exterior
+  - id: 740
+    name: Genetix - Dumpster
+  - id: 750
+    name: Genetix - Security Log
+  - id: 751
+    name: Genetix - Computer Budget
+  - id: 752
+    name: Genetix - Science Log
+  - id: 753
+    name: Genetix - Surveillance Camera
+  - id: 760
+    name: Genetix - Pond
+  - id: 770
+    name: Genetix - Door Lock
+  - id: 780
+    name: Genetix - Lab Interior
+  - id: 800
+    name: EVA Pod - Attached to Goliath
+  - id: 801
+    name: EVA Pod - Saving Cliffy
+  - id: 802
+    name: EVA Pod - Approaching Goliath
+  - id: 850
+    name: SpaceBar - Playing Battle Cruiser
+  # TODO: I don't know the difference between these rooms
+  - id: 990
+    name: Save/Load Messages
+  - id: 994
+    name: Save/Load UI
+  - id: 1000
+    name: Goliath - Engine Room \#1
+  # TODO: This seems to have the same messages as room 1000, with a few extra
+  - id: 1001
+    name: Goliath - Engine Room \#2
+  - id: 1005
+    name: Goliath - Starburator
+  - id: 1010
+    name: Goliath - Hallway
+  - id: 1020
+    name: Goliath - Crawlspace
+  - id: 1025
+    name: Goliath - Shield Power Crawlspace
+  - id: 1030
+    name: Goliath - Turbolift Shaft (Upper)
+  - id: 1035
+    name: Goliath - Turbolift Shaft (Lower)
+  - id: 1040
+    name: Goliath - Bridge
+  - id: 1041
+    name: Game End/Credits
+  - id: 1050
+    name: Goliath - Transporter Room
+
+
+
