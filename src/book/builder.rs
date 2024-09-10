@@ -1,10 +1,13 @@
-use std::collections::BTreeMap;
+use std::collections::{btree_map, BTreeMap};
 
-use crate::util::validation::{IteratorExt as _, MultiValidator, ValidationError};
+use crate::{
+    res::msg::{MessageId, MessageRecord},
+    util::validation::{IteratorExt as _, MultiValidator, ValidationError},
+};
 
 use super::{
     config::{self, BookConfig},
-    CastId, ConditionId, NounId, RoomId, TalkerId, VerbId,
+    CastId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -56,6 +59,41 @@ where
     group_pairs(resolved)
 }
 
+struct MessageEntry {
+    #[expect(dead_code)]
+    talker: TalkerId,
+    #[expect(dead_code)]
+    text: String,
+}
+
+/// A key for a conversation in a noun.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConversationKey {
+    verb: VerbId,
+    condition: ConditionId,
+}
+
+pub struct Conversation(BTreeMap<SequenceId, MessageEntry>);
+
+impl Conversation {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    pub fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+        match self.0.entry(SequenceId(message.sequence())) {
+            btree_map::Entry::Vacant(vac) => {
+                vac.insert(MessageEntry {
+                    talker: TalkerId(record.talker()),
+                    text: record.text().to_string(),
+                });
+                Ok(())
+            }
+            btree_map::Entry::Occupied(_) => Err("Sequence Collision".to_string().into()),
+        }
+    }
+}
+
 struct CastEntry {
     #[expect(dead_code)]
     name: String,
@@ -104,12 +142,33 @@ impl ConditionEntry {
     }
 }
 
+#[derive(Default)]
 struct NounEntry {
     #[expect(dead_code)]
-    desc: String,
+    desc: Option<String>,
+    conversation_set: BTreeMap<ConversationKey, Conversation>,
 }
 
 impl NounEntry {
+    pub fn with_desc(desc: impl Into<String>) -> Self {
+        Self {
+            desc: Some(desc.into()),
+            conversation_set: BTreeMap::new(),
+        }
+    }
+
+    fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+        let key = ConversationKey {
+            verb: VerbId(message.verb()),
+            condition: ConditionId(message.condition()),
+        };
+
+        self.conversation_set
+            .entry(key)
+            .or_insert_with(Conversation::new)
+            .add_message(message, record)
+    }
+
     fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
@@ -152,9 +211,16 @@ impl RoomEntry {
                 room_config
                     .nouns
                     .into_iter()
-                    .map(|noun| (noun.id, NounEntry { desc: noun.desc })),
+                    .map(|noun| (noun.id, NounEntry::with_desc(noun.desc))),
             )?,
         })
+    }
+
+    fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+        self.nouns
+            .entry(NounId(message.noun()))
+            .or_default()
+            .add_message(message, record)
     }
 }
 
@@ -200,6 +266,19 @@ impl BookBuilder {
         builder.validate()?;
 
         Ok(builder)
+    }
+
+    pub fn add_message(
+        &mut self,
+        room: RoomId,
+        message: &MessageId,
+        record: &MessageRecord,
+    ) -> BuildResult<&mut Self> {
+        self.rooms
+            .get_mut(&room)
+            .ok_or_else(|| format!("Room not found: {:?}", room))?
+            .add_message(message, record)?;
+        Ok(self)
     }
 }
 

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::book::builder::BookBuilder;
 use crate::book::config::BookConfig;
+use crate::book::RoomId;
 use crate::output::msg as msg_out;
 use crate::res::msg as msg_res;
 use crate::res::msg::MessageRecord;
@@ -324,15 +325,14 @@ struct CheckMessages {
 impl CheckMessages {
     fn run(&self) -> anyhow::Result<()> {
         let config = if let Some(config_path) = &self.config_path {
-            let config: BookConfig =
-                serde_yml::from_reader(std::fs::File::open(config_path)?)?;
+            let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
             eprintln!("Loaded config from {:?}: {:?}", config_path, config);
             config
         } else {
             BookConfig::default()
         };
         let resource_set = open_game_resources(&self.root_dir)?;
-        let _builder = BookBuilder::new(config)?;
+        let mut builder = BookBuilder::new(config)?;
 
         // Extra testing for building a conversation.
 
@@ -340,7 +340,8 @@ impl CheckMessages {
             let msg_resources = parse_message_resource(res.open()?)?;
             let mut msg_room = MessageRoom::new();
             for (msg_id, record) in msg_resources.messages() {
-                msg_room.insert_message(msg_id, record);
+                builder.add_message(RoomId::from(id.resource_num), msg_id, record)?;
+                msg_room.insert_message(msg_id, record)
             }
             let mut context = ErrorContext::new();
             msg_room.validate(&mut context);

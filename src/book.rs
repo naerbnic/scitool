@@ -3,13 +3,19 @@
 
 use serde::{Deserialize, Serialize};
 
-pub mod config;
 pub mod builder;
+pub mod config;
 
 // Plain IDs.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RoomId(u16);
+
+impl From<u16> for RoomId {
+    fn from(value: u16) -> Self {
+        RoomId(value)
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NounId(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
