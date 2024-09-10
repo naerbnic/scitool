@@ -38,7 +38,7 @@ impl ErrorContext {
         for context in &self.contexts {
             result.push_str(context);
         }
-        result.push_str(&error.as_ref());
+        result.push_str(error.as_ref());
         self.errors.push(result);
     }
 
