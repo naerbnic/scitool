@@ -229,6 +229,15 @@ rooms:
     name: Introduction
   - id: 109
     name: Starcon Hallways (General)
+    conditions:
+      - id: 0
+        desc: Hall Section 1
+      - id: 1
+        desc: Hall Section 2
+      - id: 2
+        desc: Hall Section 3
+      - id: 3
+        desc: Hall Section 4
   - id: 110
     name: Bridge Simulator Room
   - id: 115
@@ -237,6 +246,21 @@ rooms:
     name: Rotunda Walkway L
   - id: 119
     name: Rotunda Floor
+    conditions:
+      - id: 0
+        desc: Before Cleaning
+      - id: 1
+        desc: Scrubber Activated
+      - id: 2
+        desc: Sitting on Scrubber
+      - id: 3
+        desc: Clean Crest, On Scrubber
+      - id: 4
+        desc: Crest is Clean and Wet
+      - id: 5
+        desc: Crest is Clean and Dry
+      - id: 6
+        desc: 
   - id: 121
     name: Starcon Hallway \#1
   - id: 122
@@ -261,6 +285,168 @@ rooms:
     name: Eureka Bridge - Standing
   - id: 201
     name: Eureka Bridge - In Chair
+    nouns:
+      - id: 1
+        desc: Abandon Ship
+      - id: 2
+        desc: Activate RRS (Fail)
+      - id: 3
+        desc: Belay That Order (WD-40)
+      - id: 4
+        desc: Cancel Order (Flo)
+      - id: 5
+        desc: Commander's Chair
+      - id: 6
+        desc: Cliffy
+      - id: 7
+        desc: Cloak Ship
+      - id: 8
+        desc: Status Report (Cliffy)
+      - id: 9
+        desc: Navigation Console
+      - id: 10
+        desc: Decloak Ship
+      - id: 11
+        # Condition 41 = Coordinates Locked
+        desc: Droole
+      - id: 12
+        desc: Status Report (Droole)
+      - id: 13
+        desc: Evasive Action
+      - id: 14
+        desc: Communications Console
+      - id: 15
+        desc: Fire Weapons
+      - id: 16
+        desc: Flo
+      - id: 17
+        desc: Forget it (Cliffy)
+      - id: 18
+        desc: Status Report (Flo)
+      - id: 19
+        desc: Hailing
+      - id: 20
+        desc: Hail Ship
+      - id: 21
+        desc: Hail Planet
+      - id: 22
+        desc: Hail Starcon
+      - id: 23
+        desc: Lay in a Course
+      - id: 24
+        desc: Lite Speed (no course laid in)
+      - id: 25
+        desc: Lower Shields
+      - id: 26
+        desc: More Power!
+      - id: 27
+        desc: Never Mind (Droole)
+      - id: 28
+        desc: Act Busy
+      - id: 29
+        desc: Raise Shields
+      - id: 30
+        desc: Recommendation (WD-40)
+      - id: 31
+        desc: Regular Speed (When at Regular Speed)
+      - id: 32
+        desc: Bridge
+      - id: 33
+        desc: Scan Planet
+      - id: 34
+        desc: Scan for Ships
+      - id: 35
+        desc: Standard Orbit
+      - id: 36
+        desc: Monitors
+      - id: 39
+        desc: Waste Beacon Detected
+      - id: 40
+        desc: WD-40 Screen
+      - id: 41
+        desc: Status Report (WD-40)
+      - id: 42
+        desc: Command Success
+      - id: 43
+        desc: Anything Else (Engineering)
+    conditions:
+      - id: 1
+        desc: No Self Destruct
+      - id: 2
+        desc: Self Destruct Running
+      - id: 3
+        desc: Respectful Crew
+      - id: 4
+        desc: Disrespectful Crew
+      - id: 5
+        desc: WD-40 Repaired
+      - id: 6
+        desc: Bea Dies (Thrakus)
+      - id: 7
+        desc: Bea Dies (Not Thrakus)
+      - id: 8
+        desc: Cliffy Manning Engineering
+      - id: 9
+        desc: Currently Cloaked
+      - id: 10
+        desc: Cloak Being Installed
+      - id: 11
+        desc: Ship Damaged (Goliath)
+      - id: 12
+        desc: Spike is Loose
+      - id: 13
+        desc: Ship Damaged (WD-40)
+      - id: 14
+        desc: Approaching Destination
+      - id: 15
+        desc: Goliath Damaged
+      - id: 16
+        desc: Blob Vacuumed
+      - id: 17
+        desc: At Regular Speed
+      - id: 18
+        desc: Blob Visible
+      - id: 19
+        desc: Ship Cloaked (Goliath)
+      - id: 20
+        desc: Goliath Attack
+      - id: 21
+        desc: Goliath Attack
+      - id: 22
+        desc: Goliath Attack
+      - id: 23
+        desc: At Starcon Base
+      - id: 24
+        desc: Goliath Attack
+      - id: 25
+        desc: Intercepted Message
+      - id: 26
+        desc: Spike in Waste Compartment
+      - id: 27
+        desc: At Klorox II
+      - id: 28
+        desc: At Genetix
+      - id: 29
+        desc: Garbage Run Reminder
+      - id: 30
+        desc: At Thrakus
+      - id: 31
+        desc: At Generic Planet
+      - id: 32
+        desc: At Starcon Base
+      - id: 33
+        desc: Goliath Jamming
+      - id: 34
+        desc: Hailing Goliath (Peaceful)
+      - id: 35
+        desc: Goliath Hail (Peaceful)
+      - id: 36
+        desc: Laying In a Course
+      - id: 37
+        desc: At Starcon Base
+      - id: 38
+        desc: Ship Needs Repairs
+      - id: 39
   - id: 202
     name: Eureka Bridge - Location Specific
   - id: 205
