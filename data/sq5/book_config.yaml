@@ -102,7 +102,7 @@ talkers:
   - id: 19
     cast: roger
   - id: 21
-    cast: Droole
+    cast: droole
   - id: 22
     cast: flo
   - id: 23
@@ -126,9 +126,9 @@ talkers:
   - id: 38
     cast: merchant
   - id: 42
-    cast: spacebar-guard-1
+    cast: brig-guard-1
   - id: 43
-    cast: spacebar-guard-2
+    cast: brig-guard-2
   - id: 46
     cast: colonist
   - id: 47
@@ -447,6 +447,8 @@ rooms:
       - id: 38
         desc: Ship Needs Repairs
       - id: 39
+        # FIXME:
+        desc: Nothing
   - id: 202
     name: Eureka Bridge - Location Specific
   - id: 205
