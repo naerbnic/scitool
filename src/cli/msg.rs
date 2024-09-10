@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use crate::book::config::BookConfig;
 use crate::output::msg as msg_out;
 use crate::res::msg as msg_res;
 use crate::res::msg::MessageRecord;
@@ -254,8 +255,7 @@ struct PrintMessages {
 impl PrintMessages {
     fn run(&self) -> anyhow::Result<()> {
         if let Some(config_path) = &self.config_path {
-            let config: msg_out::ScriptConfig =
-                serde_yml::from_reader(std::fs::File::open(config_path)?)?;
+            let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
             eprintln!("Loaded config from {:?}: {:?}", config_path, config);
         }
         let resource_set = open_game_resources(&self.root_dir)?;
@@ -323,7 +323,7 @@ struct CheckMessages {
 impl CheckMessages {
     fn run(&self) -> anyhow::Result<()> {
         if let Some(config_path) = &self.config_path {
-            let config: msg_out::ScriptConfig =
+            let config: BookConfig =
                 serde_yml::from_reader(std::fs::File::open(config_path)?)?;
             eprintln!("Loaded config from {:?}: {:?}", config_path, config);
         }
