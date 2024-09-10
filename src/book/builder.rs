@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::util::validation::{IteratorExt as _, MultiValidator, ValidationError};
+
 use super::{
     config::{self, BookConfig},
     CastId, ConditionId, NounId, RoomId, TalkerId, VerbId,
@@ -15,7 +17,14 @@ impl From<String> for BuildError {
     }
 }
 
+impl From<ValidationError> for BuildError {
+    fn from(value: ValidationError) -> Self {
+        BuildError(Box::new(value))
+    }
+}
+
 pub type BuildResult<T> = Result<T, BuildError>;
+pub type ValidateResult = Result<(), ValidationError>;
 
 /// Convert an iterator of pairs into a BTreeMap,
 fn group_pairs<I, K, V>(pairs: I) -> BuildResult<BTreeMap<K, V>>
@@ -26,11 +35,9 @@ where
     let mut map = BTreeMap::new();
     let mut dup_keys = Vec::new();
     for (key, value) in pairs {
-        #[allow(clippy::map_entry, reason = "Avoid needing to clone key")]
-        if map.contains_key(&key) {
-            dup_keys.push(format!("{:?}", key));
-        } else {
-            map.insert(key, value);
+        let key_fmt = format!("{:?}", key);
+        if map.insert(key, value).is_some() {
+            dup_keys.push(format!("{:?}", key_fmt));
         }
     }
     if dup_keys.is_empty() {
@@ -47,19 +54,6 @@ where
 {
     let resolved = pairs.into_iter().collect::<Result<Vec<_>, _>>()?;
     group_pairs(resolved)
-}
-
-fn validate_all<'a, I, K, V, F>(entries: I, validator: F) -> BuildResult<()>
-where
-    K: 'a,
-    V: 'a,
-    I: IntoIterator<Item = (&'a K, &'a V)>,
-    F: Fn(&V) -> BuildResult<()>,
-{
-    for (_key, entry) in entries {
-        validator(entry)?
-    }
-    Ok(())
 }
 
 struct CastEntry {
@@ -80,7 +74,7 @@ struct TalkerEntry {
 }
 
 impl TalkerEntry {
-    fn validate(&self, ctxt: &BookBuilder) -> BuildResult<()> {
+    fn validate(&self, ctxt: &BookBuilder) -> ValidateResult {
         if !ctxt.contains_cast(&self.cast) {
             return Err(format!("Talker references unknown cast member: {:?}", self.cast).into());
         }
@@ -94,7 +88,7 @@ struct VerbEntry {
 }
 
 impl VerbEntry {
-    fn validate(&self, _ctxt: &BookBuilder) -> BuildResult<()> {
+    fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
 }
@@ -105,7 +99,7 @@ struct ConditionEntry {
 }
 
 impl ConditionEntry {
-    fn validate(&self, _ctxt: &BookBuilder) -> BuildResult<()> {
+    fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
 }
@@ -116,7 +110,7 @@ struct NounEntry {
 }
 
 impl NounEntry {
-    fn validate(&self, _ctxt: &BookBuilder) -> BuildResult<()> {
+    fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
 }
@@ -129,9 +123,15 @@ struct RoomEntry {
 }
 
 impl RoomEntry {
-    fn validate(&self, ctxt: &BookBuilder) -> BuildResult<()> {
-        validate_all(&self.conditions, |e| e.validate(ctxt))?;
-        validate_all(&self.nouns, |e| e.validate(ctxt))?;
+    fn validate(&self, ctxt: &BookBuilder) -> ValidateResult {
+        MultiValidator::new()
+            .validate_ctxt("conditions", &self.conditions, |conditions| {
+                conditions.iter().validate_all_values(|e| e.validate(ctxt))
+            })
+            .validate_ctxt("conditions", &self.nouns, |nouns| {
+                nouns.iter().validate_all_values(|e| e.validate(ctxt))
+            })
+            .build()?;
         Ok(())
     }
 }
@@ -205,11 +205,21 @@ impl BookBuilder {
 
 /// Validation helpers. Internal
 impl BookBuilder {
-    fn validate(&self) -> BuildResult<()> {
-        validate_all(&self.cast, |e| e.validate(self))?;
-        validate_all(&self.talkers, |e| e.validate(self))?;
-        validate_all(&self.verbs, |e| e.validate(self))?;
-        validate_all(&self.rooms, |e| e.validate(self))?;
+    fn validate(&self) -> ValidateResult {
+        MultiValidator::new()
+            .validate_ctxt("cast", &self.cast, |cast| {
+                cast.iter().validate_all_values(|e| e.validate(self))
+            })
+            .validate_ctxt("talkers", &self.talkers, |talkers| {
+                talkers.iter().validate_all_values(|e| e.validate(self))
+            })
+            .validate_ctxt("verbs", &self.verbs, |verbs| {
+                verbs.iter().validate_all_values(|e| e.validate(self))
+            })
+            .validate_ctxt("rooms", &self.rooms, |rooms| {
+                rooms.iter().validate_all_values(|e| e.validate(self))
+            })
+            .build()?;
         Ok(())
     }
 
