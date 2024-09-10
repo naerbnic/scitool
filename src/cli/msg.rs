@@ -48,7 +48,9 @@ impl ErrorContext {
 }
 
 struct Line {
+    #[expect(dead_code)]
     talker: u8,
+    #[expect(dead_code)]
     text: String,
 }
 
@@ -106,13 +108,12 @@ impl ConversationSet {
         self.condition_conversations
             .entry(id.condition())
             .or_insert_with(Conversation::new)
-            .lines
-            .insert(id.sequence(), Line::from_message(message));
+            .insert_line(id, message);
     }
 
     fn validate(&self, context: &mut ErrorContext) {
         for (condition, conversation) in &self.condition_conversations {
-            context.with_context(&format!("cond: {} ", condition), |context| {
+            context.with_context(format!("cond: {} ", condition), |context| {
                 conversation.validate(context)
             });
         }
@@ -143,7 +144,7 @@ impl RoomNoun {
 
     fn validate(&self, context: &mut ErrorContext) {
         for (verb, conversation_set) in &self.verb_conversations {
-            context.with_context(&format!("verb: {} ", verb), |context| {
+            context.with_context(format!("verb: {} ", verb), |context| {
                 conversation_set.validate(context)
             });
         }
