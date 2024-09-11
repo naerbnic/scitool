@@ -82,7 +82,7 @@ impl MessageEntry {
 }
 
 /// A key for a conversation in a noun.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConversationKey {
     verb: RawVerbId,
     condition: RawConditionId,

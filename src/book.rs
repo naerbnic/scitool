@@ -45,35 +45,29 @@ struct RawRoleId(String);
 // These uniquely identify different entities in the book. They are frequently
 // composite ids, in order to navigate to the correct entity in the book.
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RoomId(RawRoomId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VerbId(RawVerbId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RoleId(RawRoleId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct NounId(RawRoomId, RawNounId);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NounId(RoomId, RawNounId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TalkerId(RawTalkerId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ConditionId(RawRoomId, RawConditionId);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ConditionId(RoomId, RawConditionId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ConversationId(RawRoomId, RawNounId, RawVerbId, RawConditionId);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ConversationId(NounId, ConversationKey);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct LineId(
-    RawRoomId,
-    RawNounId,
-    RawVerbId,
-    RawConditionId,
-    RawSequenceId,
-);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LineId(ConversationId, RawSequenceId);
 
 // Entries
 //
@@ -137,22 +131,13 @@ pub struct Line<'a> {
     noun: &'a NounEntry,
     conversation: &'a ConversationEntry,
     line: &'a LineEntry,
-    room_id: RawRoomId,
-    noun_id: RawNounId,
-    conversation_key: ConversationKey,
-    sequence_id: RawSequenceId,
+    id: LineId,
 }
 
 impl<'a> Line<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> LineId {
-        LineId(
-            self.room_id,
-            self.noun_id,
-            self.conversation_key.verb(),
-            self.conversation_key.condition(),
-            self.sequence_id,
-        )
+        self.id.clone()
     }
 
     #[expect(dead_code)]
@@ -176,9 +161,7 @@ impl<'a> Line<'a> {
             room: self.room,
             noun: self.noun,
             conversation: self.conversation,
-            room_id: self.room_id,
-            noun_id: self.noun_id,
-            conversation_key: self.conversation_key,
+            id: self.id.0,
         }
     }
 }
@@ -188,20 +171,13 @@ pub struct Conversation<'a> {
     room: &'a RoomEntry,
     noun: &'a NounEntry,
     conversation: &'a ConversationEntry,
-    room_id: RawRoomId,
-    noun_id: RawNounId,
-    conversation_key: ConversationKey,
+    id: ConversationId,
 }
 
 impl<'a> Conversation<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> ConversationId {
-        ConversationId(
-            self.room_id,
-            self.noun_id,
-            self.conversation_key.verb(),
-            self.conversation_key.condition(),
-        )
+        self.id
     }
 
     #[expect(dead_code)]
@@ -212,10 +188,7 @@ impl<'a> Conversation<'a> {
             noun: self.noun,
             conversation: self.conversation,
             line: v,
-            room_id: self.room_id,
-            noun_id: self.noun_id,
-            conversation_key: self.conversation_key,
-            sequence_id: *k,
+            id: LineId(self.id, *k),
         })
     }
 
@@ -226,40 +199,30 @@ impl<'a> Conversation<'a> {
             book: self.book,
             room: self.room,
             noun: self.noun,
-            room_id: self.room_id,
-            noun_id: self.noun_id,
+            id: self.id.0,
         }
     }
 
     /// Get the verb used for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn verb(&self) -> Option<Verb<'a>> {
-        if self.conversation_key.verb() == RawVerbId(0) {
+        if self.id.1.verb() == RawVerbId(0) {
             return None;
         }
-        Some(
-            self.book
-                .get_verb(VerbId(self.conversation_key.verb()))
-                .unwrap(),
-        )
+        Some(self.book.get_verb(VerbId(self.id.1.verb())).unwrap())
     }
 
     /// Get the condition needed for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn condition(&self) -> Option<Condition<'a>> {
-        if self.conversation_key.condition() == RawConditionId(0) {
+        if self.id.1.condition() == RawConditionId(0) {
             return None;
         }
         Some(Condition {
             book: self.book,
             room: self.room,
-            room_id: self.room_id,
-            id: self.conversation_key.condition(),
-            condition: self
-                .room
-                .conditions
-                .get(&self.conversation_key.condition())
-                .unwrap(),
+            id: ConditionId(self.id.0 .0, self.id.1.condition()),
+            condition: self.room.conditions.get(&self.id.1.condition()).unwrap(),
         })
     }
 }
@@ -268,14 +231,13 @@ pub struct Condition<'a> {
     book: &'a Book,
     room: &'a RoomEntry,
     condition: &'a ConditionEntry,
-    room_id: RawRoomId,
-    id: RawConditionId,
+    id: ConditionId,
 }
 
 impl<'a> Condition<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> ConditionId {
-        ConditionId(self.room_id, self.id)
+        self.id
     }
 
     /// Get the description of this condition (if specified).
@@ -289,7 +251,7 @@ impl<'a> Condition<'a> {
     pub fn room(&self) -> Room<'a> {
         Room {
             parent: self.book,
-            id: self.room_id,
+            id: self.id.0,
             entry: self.room,
         }
     }
@@ -337,14 +299,13 @@ pub struct Noun<'a> {
     book: &'a Book,
     room: &'a RoomEntry,
     noun: &'a NounEntry,
-    room_id: RawRoomId,
-    noun_id: RawNounId,
+    id: NounId,
 }
 
 impl<'a> Noun<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> NounId {
-        NounId(self.room_id, self.noun_id)
+        self.id
     }
 
     #[expect(dead_code)]
@@ -356,7 +317,7 @@ impl<'a> Noun<'a> {
     pub fn room(&self) -> Room<'a> {
         Room {
             parent: self.book,
-            id: self.room_id,
+            id: self.id.0,
             entry: self.room,
         }
     }
@@ -368,23 +329,21 @@ impl<'a> Noun<'a> {
             room: self.room,
             noun: self.noun,
             conversation: v,
-            room_id: self.room_id,
-            noun_id: self.noun_id,
-            conversation_key: *k,
+            id: ConversationId(self.id, *k),
         })
     }
 }
 
 pub struct Room<'a> {
     parent: &'a Book,
-    id: RawRoomId,
+    id: RoomId,
     entry: &'a RoomEntry,
 }
 
 impl<'a> Room<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> RoomId {
-        RoomId(self.id)
+        self.id
     }
 
     pub fn name(&self) -> &str {
@@ -397,9 +356,8 @@ impl<'a> Room<'a> {
         self.entry.nouns.iter().map(|(k, v)| Noun {
             book: self.parent,
             room: self.entry,
-            room_id: self.id,
-            noun_id: *k,
             noun: v,
+            id: NounId(self.id, *k),
         })
     }
 
@@ -409,8 +367,7 @@ impl<'a> Room<'a> {
         self.entry.conditions.iter().map(|(k, v)| Condition {
             book: self.parent,
             room: self.entry,
-            room_id: self.id,
-            id: *k,
+            id: ConditionId(self.id, *k),
             condition: v,
         })
     }
@@ -454,7 +411,7 @@ impl Book {
     pub fn rooms(&self) -> impl Iterator<Item = Room> {
         self.rooms.iter().map(|(k, v)| Room {
             parent: self,
-            id: *k,
+            id: RoomId(*k),
             entry: v,
         })
     }
@@ -463,7 +420,7 @@ impl Book {
     pub fn get_room(&self, id: RoomId) -> Option<Room> {
         self.rooms.get(&id.0).map(|entry| Room {
             parent: self,
-            id: id.0,
+            id,
             entry,
         })
     }
