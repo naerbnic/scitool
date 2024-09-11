@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     config::{self, BookConfig},
-    Book, CastId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId,
+    Book, RoleId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -131,19 +131,19 @@ impl Conversation {
     }
 }
 
-pub(super) struct CastEntry {
+pub(super) struct RoleEntry {
     name: String,
     short_name: String,
 }
 
-impl CastEntry {
+impl RoleEntry {
     fn validate(&self, _ctxt: &BookBuilder) -> BuildResult<()> {
         Ok(())
     }
 
-    fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::CastMemberEntry> {
+    fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::RoleEntry> {
         self.validate(ctxt)?;
-        Ok(super::CastMemberEntry {
+        Ok(super::RoleEntry {
             name: self.name.clone(),
             short_name: self.short_name.clone(),
         })
@@ -152,20 +152,20 @@ impl CastEntry {
 
 #[derive(Debug, Clone)]
 pub(super) struct TalkerEntry {
-    cast: CastId,
+    role: RoleId,
 }
 
 impl TalkerEntry {
     fn validate(&self, ctxt: &BookBuilder) -> ValidateResult {
-        if !ctxt.contains_cast(&self.cast) {
-            return Err(format!("Talker references unknown cast member: {:?}", self.cast).into());
+        if !ctxt.contains_role(&self.role) {
+            return Err(format!("Talker references unknown role: {:?}", self.role).into());
         }
         Ok(())
     }
 
     fn build(&self, _arg: &BookBuilder) -> Result<super::TalkerEntry, BuildError> {
         Ok(super::TalkerEntry {
-            cast_id: self.cast.clone(),
+            role_id: self.role.clone(),
         })
     }
 }
@@ -307,7 +307,7 @@ impl RoomEntry {
 }
 
 pub struct BookBuilder {
-    cast: BTreeMap<CastId, CastEntry>,
+    roles: BTreeMap<RoleId, RoleEntry>,
     talkers: BTreeMap<TalkerId, TalkerEntry>,
     verbs: BTreeMap<VerbId, VerbEntry>,
     rooms: BTreeMap<RoomId, RoomEntry>,
@@ -316,10 +316,10 @@ pub struct BookBuilder {
 impl BookBuilder {
     pub fn new(config: BookConfig) -> BuildResult<Self> {
         let builder = Self {
-            cast: group_pairs(config.cast.into_iter().map(|(k, v)| {
+            roles: group_pairs(config.roles.into_iter().map(|(k, v)| {
                 (
                     k,
-                    CastEntry {
+                    RoleEntry {
                         name: v.name,
                         short_name: v.short_name,
                     },
@@ -329,7 +329,7 @@ impl BookBuilder {
                 config
                     .talkers
                     .into_iter()
-                    .map(|talker| (talker.id, TalkerEntry { cast: talker.cast })),
+                    .map(|talker| (talker.id, TalkerEntry { role: talker.role })),
             )?,
             verbs: group_pairs(
                 config
@@ -364,7 +364,7 @@ impl BookBuilder {
     pub fn build(self) -> BuildResult<Book> {
         self.validate()?;
         Ok(Book {
-            cast: map_values(&self.cast, |v| v.build(&self))?,
+            roles: map_values(&self.roles, |v| v.build(&self))?,
             talkers: map_values(&self.talkers, |v| v.build(&self))?,
             verbs: map_values(&self.verbs, |v| v.build(&self))?,
             rooms: map_values(&self.rooms, |v| v.build(&self))?,
@@ -376,8 +376,8 @@ impl BookBuilder {
 impl BookBuilder {
     fn validate(&self) -> ValidateResult {
         MultiValidator::new()
-            .validate_ctxt("cast", &self.cast, |cast| {
-                cast.iter().validate_all_values(|e| e.validate(self))
+            .validate_ctxt("roles", &self.roles, |roles| {
+                roles.iter().validate_all_values(|e| e.validate(self))
             })
             .validate_ctxt("talkers", &self.talkers, |talkers| {
                 talkers.iter().validate_all_values(|e| e.validate(self))
@@ -392,7 +392,7 @@ impl BookBuilder {
         Ok(())
     }
 
-    fn contains_cast(&self, cast_id: &CastId) -> bool {
-        self.cast.contains_key(cast_id)
+    fn contains_role(&self, role_id: &RoleId) -> bool {
+        self.roles.contains_key(role_id)
     }
 }

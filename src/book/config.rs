@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CastId, ConditionId, NounId, RoomId, TalkerId, VerbId};
+use super::{RoleId, ConditionId, NounId, RoomId, TalkerId, VerbId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CastEntry {
+pub struct RoleEntry {
     pub name: String,
     pub short_name: String,
 }
@@ -13,8 +13,8 @@ pub struct CastEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TalkerEntry {
     pub id: TalkerId,
-    // A reference to a cast entry.
-    pub cast: CastId,
+    // A reference to a role entry.
+    pub role: RoleId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +48,7 @@ pub struct RoomEntry {
 /// The top-level script config structure, and embedding in the messages file.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BookConfig {
-    pub cast: BTreeMap<CastId, CastEntry>,
+    pub roles: BTreeMap<RoleId, RoleEntry>,
     pub talkers: Vec<TalkerEntry>,
     pub verbs: Vec<VerbEntry>,
     pub rooms: Vec<RoomEntry>,

@@ -32,9 +32,9 @@ pub struct TalkerId(u8);
 
 // Book Specific IDs.
 
-/// An identifier for a cast member.
+/// An identifier for a role.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct CastId(String);
+pub struct RoleId(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ConversationId(RoomId, NounId, VerbId, ConditionId);
@@ -73,13 +73,13 @@ struct RoomEntry {
     nouns: BTreeMap<NounId, NounEntry>,
 }
 
-struct CastMemberEntry {
+struct RoleEntry {
     name: String,
     short_name: String,
 }
 
 struct TalkerEntry {
-    cast_id: CastId,
+    role_id: RoleId,
 }
 
 struct VerbEntry {
@@ -91,7 +91,7 @@ struct VerbEntry {
 // These are the public types that are used to navigate the book.
 // They provide methods that let you access different related
 // entities in the book, for instance, which conversations have
-// which cast members in them.
+// which roles in them.
 //
 // They all borrow from the book instance itself.
 
@@ -119,8 +119,8 @@ impl<'a> Line<'a> {
     }
 
     #[expect(dead_code)]
-    pub fn cast_member(&self) -> CastMember<'a> {
-        self.talker().cast_member()
+    pub fn role(&self) -> Role<'a> {
+        self.talker().role()
     }
 
     #[expect(dead_code)]
@@ -254,8 +254,8 @@ pub struct Talker<'a> {
 }
 
 impl<'a> Talker<'a> {
-    pub fn cast_member(&self) -> CastMember<'a> {
-        self.book.get_cast_member(&self.talker.cast_id).unwrap()
+    pub fn role(&self) -> Role<'a> {
+        self.book.get_role(&self.talker.role_id).unwrap()
     }
 }
 
@@ -333,22 +333,22 @@ impl<'a> Room<'a> {
     }
 }
 
-pub struct CastMember<'a> {
+pub struct Role<'a> {
     #[expect(dead_code)]
     parent: &'a Book,
     #[expect(dead_code)]
-    id: &'a CastId,
-    entry: &'a CastMemberEntry,
+    id: &'a RoleId,
+    entry: &'a RoleEntry,
 }
 
-impl<'a> CastMember<'a> {
-    /// Get the full name of the role of this cast member.
+impl<'a> Role<'a> {
+    /// Get the full name of the role.
     #[expect(dead_code)]
     pub fn name(&self) -> &str {
         &self.entry.name
     }
 
-    /// Get the short name of the role of this cast member.
+    /// Get the short name of the role.
     #[expect(dead_code)]
     pub fn short_name(&self) -> &str {
         &self.entry.short_name
@@ -356,7 +356,7 @@ impl<'a> CastMember<'a> {
 }
 
 pub struct Book {
-    cast: BTreeMap<CastId, CastMemberEntry>,
+    roles: BTreeMap<RoleId, RoleEntry>,
     talkers: BTreeMap<TalkerId, TalkerEntry>,
     verbs: BTreeMap<VerbId, VerbEntry>,
     rooms: BTreeMap<RoomId, RoomEntry>,
@@ -382,16 +382,16 @@ impl Book {
     }
 
     #[expect(dead_code)]
-    pub fn cast_members(&self) -> impl Iterator<Item = CastMember> {
-        self.cast.iter().map(|(k, v)| CastMember {
+    pub fn roles(&self) -> impl Iterator<Item = Role> {
+        self.roles.iter().map(|(k, v)| Role {
             parent: self,
             id: k,
             entry: v,
         })
     }
 
-    pub fn get_cast_member(&self, id: &CastId) -> Option<CastMember> {
-        self.cast.get_key_value(id).map(|(k, entry)| CastMember {
+    pub fn get_role(&self, id: &RoleId) -> Option<Role> {
+        self.roles.get_key_value(id).map(|(k, entry)| Role {
             parent: self,
             id: k,
             entry,

@@ -1,4 +1,4 @@
-cast:
+roles:
   roger:
     name: Roger Wilco
     short_name: Roger
@@ -79,72 +79,72 @@ cast:
 
 talkers:
   - id: 1
-    cast: quirk
+    role: quirk
   - id: 3
-    cast: quirk
+    role: quirk
   - id: 4
-    cast: help
+    role: help
   - id: 5
-    cast: rotunda-guard-right
+    role: rotunda-guard-right
   - id: 6
-    cast: rotunda-guard-left
+    role: rotunda-guard-left
   - id: 7
-    cast: roger
+    role: roger
   # TODO: Split to different students
   - id: 8
-    cast: big-brain
+    role: big-brain
   - id: 9
-    cast: cliffy
+    role: cliffy
   - id: 17
-    cast: extras
+    role: extras
   - id: 18
-    cast: admiral
+    role: admiral
   - id: 19
-    cast: roger
+    role: roger
   - id: 21
-    cast: droole
+    role: droole
   - id: 22
-    cast: flo
+    role: flo
   - id: 23
-    cast: cliffy
+    role: cliffy
   - id: 24
-    cast: wd-40
+    role: wd-40
   - id: 25
-    cast: quirk
+    role: quirk
   - id: 26
-    cast: beatrice
+    role: beatrice
   - id: 27
-    cast: dumb
+    role: dumb
   - id: 28
-    cast: big-brain
+    role: big-brain
   - id: 29
-    cast: failing
+    role: failing
   - id: 36
-    cast: slep
+    role: slep
   - id: 37
-    cast: crumpella
+    role: crumpella
   - id: 38
-    cast: merchant
+    role: merchant
   - id: 42
-    cast: brig-guard-1
+    role: brig-guard-1
   - id: 43
-    cast: brig-guard-2
+    role: brig-guard-2
   - id: 46
-    cast: colonist
+    role: colonist
   - id: 47
-    cast: maggot
+    role: maggot
   - id: 49
-    cast: patron-1
+    role: patron-1
   # UI Help Text
   - id: 97
-    cast: help
+    role: help
   # System Messages
   - id: 98
-    cast: help
+    role: help
   # TODO: Sort through lines, as not all are the narrator.
   # May be separated by room
   - id: 99
-    cast: narrator
+    role: narrator
 
 verbs:
   - id: 1
