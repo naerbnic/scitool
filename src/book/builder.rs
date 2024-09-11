@@ -6,7 +6,8 @@ use crate::{
 };
 
 use super::{
-    config::{self, BookConfig}, Book, CastId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId
+    config::{self, BookConfig},
+    Book, CastId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -58,11 +59,26 @@ where
     group_pairs(resolved)
 }
 
+fn map_values<K, S, T, F>(source: &BTreeMap<K, S>, f: F) -> BuildResult<BTreeMap<K, T>>
+where
+    K: Ord + Clone,
+    F: Fn(&S) -> BuildResult<T>,
+{
+    source.iter().map(|(k, v)| Ok((k.clone(), f(v)?))).collect()
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct MessageEntry {
-    #[expect(dead_code)]
     talker: TalkerId,
-    #[expect(dead_code)]
     text: String,
+}
+impl MessageEntry {
+    fn build(&self, _ctxt: &Conversation) -> Result<super::LineEntry, BuildError> {
+        Ok(super::LineEntry {
+            text: self.text.clone(),
+            talker: self.talker.clone(),
+        })
+    }
 }
 
 /// A key for a conversation in a noun.
@@ -72,6 +88,7 @@ pub struct ConversationKey {
     condition: ConditionId,
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct Conversation(BTreeMap<SequenceId, MessageEntry>);
 
 impl Conversation {
@@ -91,12 +108,16 @@ impl Conversation {
             btree_map::Entry::Occupied(_) => Err("Sequence Collision".to_string().into()),
         }
     }
+
+    fn build(&self, _ctxt: &BookBuilder) -> BuildResult<super::ConversationEntry> {
+        Ok(super::ConversationEntry {
+            lines: map_values(&self.0, |v| v.build(self))?,
+        })
+    }
 }
 
 pub(super) struct CastEntry {
-    #[expect(dead_code)]
     name: String,
-    #[expect(dead_code)]
     short_name: String,
 }
 
@@ -104,8 +125,17 @@ impl CastEntry {
     fn validate(&self, _ctxt: &BookBuilder) -> BuildResult<()> {
         Ok(())
     }
+
+    fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::CastMemberEntry> {
+        self.validate(ctxt)?;
+        Ok(super::CastMemberEntry {
+            name: self.name.clone(),
+            short_name: self.short_name.clone(),
+        })
+    }
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct TalkerEntry {
     cast: CastId,
 }
@@ -117,10 +147,16 @@ impl TalkerEntry {
         }
         Ok(())
     }
+
+    fn build(&self, _arg: &BookBuilder) -> Result<super::TalkerEntry, BuildError> {
+        Ok(super::TalkerEntry {
+            cast_id: self.cast.clone(),
+        })
+    }
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct VerbEntry {
-    #[expect(dead_code)]
     name: String,
 }
 
@@ -128,8 +164,15 @@ impl VerbEntry {
     fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
+
+    fn build(&self, _arg: &BookBuilder) -> Result<super::VerbEntry, BuildError> {
+        Ok(super::VerbEntry {
+            name: self.name.clone(),
+        })
+    }
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct ConditionEntry {
     #[expect(dead_code)]
     desc: String,
@@ -139,11 +182,16 @@ impl ConditionEntry {
     fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
+
+    fn build(&self, _ctxt: &BookBuilder) -> Result<super::ConditionInfo, BuildError> {
+        Ok(super::ConditionInfo {
+            builder: Some(self.clone()),
+        })
+    }
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct NounEntry {
-    #[expect(dead_code)]
     desc: Option<String>,
     conversation_set: BTreeMap<ConversationKey, Conversation>,
 }
@@ -171,10 +219,17 @@ impl NounEntry {
     fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
         Ok(())
     }
+
+    fn build(&self, ctxt: &BookBuilder) -> Result<super::NounEntry, BuildError> {
+        Ok(super::NounEntry {
+            desc: self.desc.clone(),
+            conversations: map_values(&self.conversation_set, |v| v.build(ctxt))?,
+        })
+    }
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct RoomEntry {
-    #[expect(dead_code)]
     name: String,
     conditions: BTreeMap<ConditionId, ConditionEntry>,
     nouns: BTreeMap<NounId, NounEntry>,
@@ -191,6 +246,14 @@ impl RoomEntry {
             })
             .build()?;
         Ok(())
+    }
+
+    fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::RoomEntry> {
+        Ok(super::RoomEntry {
+            name: self.name.clone(),
+            conditions: map_values(&self.conditions, |v| v.build(ctxt))?,
+            nouns: map_values(&self.nouns, |v| v.build(ctxt))?,
+        })
     }
 }
 
@@ -281,10 +344,10 @@ impl BookBuilder {
     pub fn build(self) -> BuildResult<Book> {
         self.validate()?;
         Ok(Book {
-            cast: self.cast,
-            talkers: self.talkers,
-            verbs: self.verbs,
-            rooms: self.rooms,
+            cast: map_values(&self.cast, |v| v.build(&self))?,
+            talkers: map_values(&self.talkers, |v| v.build(&self))?,
+            verbs: map_values(&self.verbs, |v| v.build(&self))?,
+            rooms: map_values(&self.rooms, |v| v.build(&self))?,
         })
     }
 }
