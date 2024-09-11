@@ -59,11 +59,11 @@ roles:
     name: Nelo Jones, Merchant of Venus
     short_name: Nelo
   brig-guard-1:
-    name: Spacebar Brig Guard \#1
-    short_name: Brig Guard \#1
+    name: "Spacebar Brig Guard #1"
+    short_name: "Brig Guard #1"
   brig-guard-2:
-    name: Spacebar Brig Guard \#2
-    short_name: Brig Guard \#2
+    name: "Spacebar Brig Guard #2"
+    short_name: "Brig Guard #2"
   colonist:
     name: Colonist Mutant
     short_name: Colonist Mutant
@@ -71,8 +71,8 @@ roles:
     name: "Maggot"
     short_name: Maggot
   patron-1:
-    name: Spacebar Patron \#1
-    short_name: Patron \#1
+    name: "Spacebar Patron #1"
+    short_name: "Patron #1"
   narrator:
     name: Narrator
     short_name: Narrator
@@ -262,13 +262,13 @@ rooms:
       - id: 6
         desc: 
   - id: 121
-    name: Starcon Hallway \#1
+    name: "Starcon Hallway #1"
   - id: 122
-    name: Starcon Hallway \#2
+    name: "Starcon Hallway #2"
   - id: 123
-    name: Starcon Hallway \#3
+    name: "Starcon Hallway #3"
   - id: 125
-    name: Starcon Hallway \#4
+    name: "Starcon Hallway #4"
   - id: 127
     name: Starcon Conference Room
   - id: 133
@@ -539,7 +539,7 @@ rooms:
     name: Genetix - Pond
   - id: 770
     name: Genetix - Door Lock
-  - id: 780
+  - id: 790
     name: Genetix - Lab Interior
   - id: 800
     name: EVA Pod - Attached to Goliath
@@ -555,10 +555,10 @@ rooms:
   - id: 994
     name: Save/Load UI
   - id: 1000
-    name: Goliath - Engine Room \#1
+    name: "Goliath - Engine Room #1"
   # TODO: This seems to have the same messages as room 1000, with a few extra
   - id: 1001
-    name: Goliath - Engine Room \#2
+    name: "Goliath - Engine Room #2"
   - id: 1005
     name: Goliath - Starburator
   - id: 1010

@@ -303,7 +303,6 @@ pub struct Room<'a> {
 }
 
 impl<'a> Room<'a> {
-    #[expect(dead_code)]
     pub fn name(&self) -> &str {
         &self.entry.name
     }
@@ -363,7 +362,6 @@ pub struct Book {
 }
 
 impl Book {
-    #[expect(dead_code)]
     pub fn rooms(&self) -> impl Iterator<Item = Room> {
         self.rooms.iter().map(|(k, v)| Room {
             parent: self,
