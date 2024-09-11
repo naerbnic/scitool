@@ -59,7 +59,7 @@ where
     group_pairs(resolved)
 }
 
-struct MessageEntry {
+pub(super) struct MessageEntry {
     #[expect(dead_code)]
     talker: TalkerId,
     #[expect(dead_code)]
@@ -73,7 +73,7 @@ pub struct ConversationKey {
     condition: ConditionId,
 }
 
-pub struct Conversation(BTreeMap<SequenceId, MessageEntry>);
+pub(super) struct Conversation(BTreeMap<SequenceId, MessageEntry>);
 
 impl Conversation {
     pub fn new() -> Self {
@@ -94,7 +94,7 @@ impl Conversation {
     }
 }
 
-struct CastEntry {
+pub(super) struct CastEntry {
     #[expect(dead_code)]
     name: String,
     #[expect(dead_code)]
@@ -107,7 +107,7 @@ impl CastEntry {
     }
 }
 
-struct TalkerEntry {
+pub(super) struct TalkerEntry {
     cast: CastId,
 }
 
@@ -120,7 +120,7 @@ impl TalkerEntry {
     }
 }
 
-struct VerbEntry {
+pub(super) struct VerbEntry {
     #[expect(dead_code)]
     name: String,
 }
@@ -131,7 +131,7 @@ impl VerbEntry {
     }
 }
 
-struct ConditionEntry {
+pub(super) struct ConditionEntry {
     #[expect(dead_code)]
     desc: String,
 }
@@ -143,7 +143,7 @@ impl ConditionEntry {
 }
 
 #[derive(Default)]
-struct NounEntry {
+pub(super) struct NounEntry {
     #[expect(dead_code)]
     desc: Option<String>,
     conversation_set: BTreeMap<ConversationKey, Conversation>,
@@ -174,7 +174,7 @@ impl NounEntry {
     }
 }
 
-struct RoomEntry {
+pub(super) struct RoomEntry {
     #[expect(dead_code)]
     name: String,
     conditions: BTreeMap<ConditionId, ConditionEntry>,
@@ -263,8 +263,6 @@ impl BookBuilder {
             )?,
         };
 
-        builder.validate()?;
-
         Ok(builder)
     }
 
@@ -279,6 +277,16 @@ impl BookBuilder {
             .ok_or_else(|| format!("Room not found: {:?}", room))?
             .add_message(message, record)?;
         Ok(self)
+    }
+
+    pub fn build(self) -> BuildResult<Book> {
+        self.validate()?;
+        Ok(Book {
+            cast: self.cast,
+            talkers: self.talkers,
+            verbs: self.verbs,
+            rooms: self.rooms,
+        })
     }
 }
 
