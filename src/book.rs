@@ -9,35 +9,62 @@ use serde::{Deserialize, Serialize};
 pub mod builder;
 pub mod config;
 
-// Plain IDs.
+// Raw IDs.
+//
+// There are the internal IDs used to reference different entities in the book.
+// They are copyable, but only reference a single literal value from the SCI message
+// file. They are used to construct the public IDs that are used to navigate the book.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RoomId(u16);
+struct RawRoomId(u16);
 
-impl From<u16> for RoomId {
+impl From<u16> for RawRoomId {
     fn from(value: u16) -> Self {
-        RoomId(value)
+        RawRoomId(value)
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct NounId(u8);
+struct RawNounId(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct VerbId(u8);
+struct RawVerbId(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ConditionId(u8);
+struct RawConditionId(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct SequenceId(u8);
+struct RawSequenceId(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct TalkerId(u8);
+struct RawTalkerId(u8);
 
 // Book Specific IDs.
 
 /// An identifier for a role.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RoleId(String);
+struct RawRoleId(String);
+
+// Public IDs.
+//
+// These uniquely identify different entities in the book. They are frequently
+// composite ids, in order to navigate to the correct entity in the book.
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ConversationId(RoomId, NounId, VerbId, ConditionId);
+pub struct RoomId(RawRoomId);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct VerbId(RawVerbId);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct RoleId(RawRoleId);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct NounId(RawRoomId, RawNounId);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TalkerId(RawTalkerId);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ConditionId(RawRoomId, RawConditionId);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ConversationId(RawRoomId, RawNounId, RawVerbId, RawConditionId);
 
 // Entries
 //
@@ -55,11 +82,11 @@ struct ConditionEntry {
 
 struct LineEntry {
     text: String,
-    talker: TalkerId,
+    talker: RawTalkerId,
 }
 
 struct ConversationEntry {
-    lines: BTreeMap<SequenceId, LineEntry>,
+    lines: BTreeMap<RawSequenceId, LineEntry>,
 }
 
 struct NounEntry {
@@ -68,9 +95,9 @@ struct NounEntry {
 }
 
 struct RoomEntry {
-    name: String,
-    conditions: BTreeMap<ConditionId, ConditionEntry>,
-    nouns: BTreeMap<NounId, NounEntry>,
+    name: Option<String>,
+    conditions: BTreeMap<RawConditionId, ConditionEntry>,
+    nouns: BTreeMap<RawNounId, NounEntry>,
 }
 
 struct RoleEntry {
@@ -79,7 +106,7 @@ struct RoleEntry {
 }
 
 struct TalkerEntry {
-    role_id: RoleId,
+    role_id: RawRoleId,
 }
 
 struct VerbEntry {
@@ -101,11 +128,11 @@ pub struct Line<'a> {
     noun: &'a NounEntry,
     conversation: &'a ConversationEntry,
     line: &'a LineEntry,
-    room_id: RoomId,
-    noun_id: NounId,
+    room_id: RawRoomId,
+    noun_id: RawNounId,
     conversation_key: ConversationKey,
     #[expect(dead_code)]
-    sequence_id: SequenceId,
+    sequence_id: RawSequenceId,
 }
 
 impl<'a> Line<'a> {
@@ -115,7 +142,7 @@ impl<'a> Line<'a> {
     }
 
     pub fn talker(&self) -> Talker<'a> {
-        self.book.get_talker(self.line.talker).unwrap()
+        self.book.get_talker(TalkerId(self.line.talker)).unwrap()
     }
 
     #[expect(dead_code)]
@@ -142,8 +169,8 @@ pub struct Conversation<'a> {
     room: &'a RoomEntry,
     noun: &'a NounEntry,
     conversation: &'a ConversationEntry,
-    room_id: RoomId,
-    noun_id: NounId,
+    room_id: RawRoomId,
+    noun_id: RawNounId,
     conversation_key: ConversationKey,
 }
 
@@ -178,16 +205,20 @@ impl<'a> Conversation<'a> {
     /// Get the verb used for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn verb(&self) -> Option<Verb<'a>> {
-        if self.conversation_key.verb() == VerbId(0) {
+        if self.conversation_key.verb() == RawVerbId(0) {
             return None;
         }
-        Some(self.book.get_verb(self.conversation_key.verb()).unwrap())
+        Some(
+            self.book
+                .get_verb(VerbId(self.conversation_key.verb()))
+                .unwrap(),
+        )
     }
 
     /// Get the condition needed for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn condition(&self) -> Option<Condition<'a>> {
-        if self.conversation_key.condition() == ConditionId(0) {
+        if self.conversation_key.condition() == RawConditionId(0) {
             return None;
         }
         Some(Condition {
@@ -208,9 +239,9 @@ pub struct Condition<'a> {
     book: &'a Book,
     room: &'a RoomEntry,
     condition: &'a ConditionEntry,
-    room_id: RoomId,
+    room_id: RawRoomId,
     #[expect(dead_code)]
-    id: ConditionId,
+    id: RawConditionId,
 }
 
 impl<'a> Condition<'a> {
@@ -236,7 +267,7 @@ pub struct Verb<'a> {
     book: &'a Book,
     verb: &'a VerbEntry,
     #[expect(dead_code)]
-    id: VerbId,
+    id: RawVerbId,
 }
 
 impl<'a> Verb<'a> {
@@ -250,12 +281,14 @@ pub struct Talker<'a> {
     book: &'a Book,
     talker: &'a TalkerEntry,
     #[expect(dead_code)]
-    id: TalkerId,
+    id: RawTalkerId,
 }
 
 impl<'a> Talker<'a> {
     pub fn role(&self) -> Role<'a> {
-        self.book.get_role(&self.talker.role_id).unwrap()
+        self.book
+            .get_role(&RoleId(self.talker.role_id.clone()))
+            .unwrap()
     }
 }
 
@@ -263,8 +296,8 @@ pub struct Noun<'a> {
     book: &'a Book,
     room: &'a RoomEntry,
     noun: &'a NounEntry,
-    room_id: RoomId,
-    noun_id: NounId,
+    room_id: RawRoomId,
+    noun_id: RawNounId,
 }
 
 impl<'a> Noun<'a> {
@@ -298,13 +331,13 @@ impl<'a> Noun<'a> {
 
 pub struct Room<'a> {
     parent: &'a Book,
-    id: RoomId,
+    id: RawRoomId,
     entry: &'a RoomEntry,
 }
 
 impl<'a> Room<'a> {
     pub fn name(&self) -> &str {
-        &self.entry.name
+        self.entry.name.as_deref().unwrap_or("*NO NAME*")
     }
 
     /// Get an iterator over all the nouns in this room.
@@ -336,7 +369,7 @@ pub struct Role<'a> {
     #[expect(dead_code)]
     parent: &'a Book,
     #[expect(dead_code)]
-    id: &'a RoleId,
+    id: &'a RawRoleId,
     entry: &'a RoleEntry,
 }
 
@@ -355,10 +388,10 @@ impl<'a> Role<'a> {
 }
 
 pub struct Book {
-    roles: BTreeMap<RoleId, RoleEntry>,
-    talkers: BTreeMap<TalkerId, TalkerEntry>,
-    verbs: BTreeMap<VerbId, VerbEntry>,
-    rooms: BTreeMap<RoomId, RoomEntry>,
+    roles: BTreeMap<RawRoleId, RoleEntry>,
+    talkers: BTreeMap<RawTalkerId, TalkerEntry>,
+    verbs: BTreeMap<RawVerbId, VerbEntry>,
+    rooms: BTreeMap<RawRoomId, RoomEntry>,
 }
 
 impl Book {
@@ -372,9 +405,9 @@ impl Book {
 
     #[expect(dead_code)]
     pub fn get_room(&self, id: RoomId) -> Option<Room> {
-        self.rooms.get(&id).map(|entry| Room {
+        self.rooms.get(&id.0).map(|entry| Room {
             parent: self,
-            id,
+            id: id.0,
             entry,
         })
     }
@@ -389,7 +422,7 @@ impl Book {
     }
 
     pub fn get_role(&self, id: &RoleId) -> Option<Role> {
-        self.roles.get_key_value(id).map(|(k, entry)| Role {
+        self.roles.get_key_value(&id.0).map(|(k, entry)| Role {
             parent: self,
             id: k,
             entry,
@@ -406,9 +439,9 @@ impl Book {
     }
 
     pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
-        self.verbs.get(&id).map(|entry| Verb {
+        self.verbs.get(&id.0).map(|entry| Verb {
             book: self,
-            id,
+            id: id.0,
             verb: entry,
         })
     }
@@ -423,9 +456,9 @@ impl Book {
     }
 
     pub fn get_talker(&self, id: TalkerId) -> Option<Talker> {
-        self.talkers.get(&id).map(|entry| Talker {
+        self.talkers.get(&id.0).map(|entry| Talker {
             book: self,
-            id,
+            id: id.0,
             talker: entry,
         })
     }

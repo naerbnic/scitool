@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     config::{self, BookConfig},
-    Book, RoleId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId,
+    Book, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId, RawTalkerId, RawVerbId,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -69,7 +69,7 @@ where
 
 #[derive(Debug, Clone)]
 pub(super) struct MessageEntry {
-    talker: TalkerId,
+    talker: RawTalkerId,
     text: String,
 }
 impl MessageEntry {
@@ -84,27 +84,27 @@ impl MessageEntry {
 /// A key for a conversation in a noun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConversationKey {
-    verb: VerbId,
-    condition: ConditionId,
+    verb: RawVerbId,
+    condition: RawConditionId,
 }
 
 impl ConversationKey {
     #[expect(dead_code)]
-    pub fn new(verb: VerbId, condition: ConditionId) -> Self {
+    pub(super) fn new(verb: RawVerbId, condition: RawConditionId) -> Self {
         Self { verb, condition }
     }
 
-    pub fn verb(&self) -> VerbId {
+    pub(super) fn verb(&self) -> RawVerbId {
         self.verb
     }
 
-    pub fn condition(&self) -> ConditionId {
+    pub(super) fn condition(&self) -> RawConditionId {
         self.condition
     }
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Conversation(BTreeMap<SequenceId, MessageEntry>);
+pub(super) struct Conversation(BTreeMap<RawSequenceId, MessageEntry>);
 
 impl Conversation {
     pub fn new() -> Self {
@@ -112,10 +112,10 @@ impl Conversation {
     }
 
     pub fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
-        match self.0.entry(SequenceId(message.sequence())) {
+        match self.0.entry(RawSequenceId(message.sequence())) {
             btree_map::Entry::Vacant(vac) => {
                 vac.insert(MessageEntry {
-                    talker: TalkerId(record.talker()),
+                    talker: RawTalkerId(record.talker()),
                     text: record.text().to_string(),
                 });
                 Ok(())
@@ -152,7 +152,7 @@ impl RoleEntry {
 
 #[derive(Debug, Clone)]
 pub(super) struct TalkerEntry {
-    role: RoleId,
+    role: RawRoleId,
 }
 
 impl TalkerEntry {
@@ -226,8 +226,8 @@ impl NounEntry {
 
     fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
         let key = ConversationKey {
-            verb: VerbId(message.verb()),
-            condition: ConditionId(message.condition()),
+            verb: RawVerbId(message.verb()),
+            condition: RawConditionId(message.condition()),
         };
 
         self.conversation_set
@@ -248,11 +248,11 @@ impl NounEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct RoomEntry {
-    name: String,
-    conditions: BTreeMap<ConditionId, ConditionEntry>,
-    nouns: BTreeMap<NounId, NounEntry>,
+    name: Option<String>,
+    conditions: BTreeMap<RawConditionId, ConditionEntry>,
+    nouns: BTreeMap<RawNounId, NounEntry>,
 }
 
 impl RoomEntry {
@@ -278,9 +278,9 @@ impl RoomEntry {
 }
 
 impl RoomEntry {
-    fn new(room_config: config::RoomEntry) -> BuildResult<Self> {
+    fn from_config(room_config: config::RoomEntry) -> BuildResult<Self> {
         Ok(Self {
-            name: room_config.name,
+            name: Some(room_config.name),
             conditions: group_pairs(room_config.conditions.into_iter().map(|condition| {
                 (
                     condition.id,
@@ -300,17 +300,17 @@ impl RoomEntry {
 
     fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
         self.nouns
-            .entry(NounId(message.noun()))
+            .entry(RawNounId(message.noun()))
             .or_default()
             .add_message(message, record)
     }
 }
 
 pub struct BookBuilder {
-    roles: BTreeMap<RoleId, RoleEntry>,
-    talkers: BTreeMap<TalkerId, TalkerEntry>,
-    verbs: BTreeMap<VerbId, VerbEntry>,
-    rooms: BTreeMap<RoomId, RoomEntry>,
+    roles: BTreeMap<RawRoleId, RoleEntry>,
+    talkers: BTreeMap<RawTalkerId, TalkerEntry>,
+    verbs: BTreeMap<RawVerbId, VerbEntry>,
+    rooms: BTreeMap<RawRoomId, RoomEntry>,
 }
 
 impl BookBuilder {
@@ -341,7 +341,7 @@ impl BookBuilder {
                 config
                     .rooms
                     .into_iter()
-                    .map(|room| Ok((room.id, RoomEntry::new(room)?))),
+                    .map(|room| Ok((room.id, RoomEntry::from_config(room)?))),
             )?,
         };
 
@@ -350,13 +350,13 @@ impl BookBuilder {
 
     pub fn add_message(
         &mut self,
-        room: RoomId,
+        room: u16,
         message: &MessageId,
         record: &MessageRecord,
     ) -> BuildResult<&mut Self> {
         self.rooms
-            .get_mut(&room)
-            .ok_or_else(|| format!("Room not found: {:?}", room))?
+            .entry(RawRoomId(room))
+            .or_default()
             .add_message(message, record)?;
         Ok(self)
     }
@@ -392,7 +392,7 @@ impl BookBuilder {
         Ok(())
     }
 
-    fn contains_role(&self, role_id: &RoleId) -> bool {
+    fn contains_role(&self, role_id: &RawRoleId) -> bool {
         self.roles.contains_key(role_id)
     }
 }

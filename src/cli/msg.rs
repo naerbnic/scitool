@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use crate::book::builder::BookBuilder;
 use crate::book::config::BookConfig;
-use crate::book::RoomId;
 use crate::output::msg as msg_out;
 use crate::res::msg as msg_res;
 use crate::res::msg::MessageRecord;
@@ -340,7 +339,7 @@ impl CheckMessages {
             let msg_resources = parse_message_resource(res.open()?)?;
             let mut msg_room = MessageRoom::new();
             for (msg_id, record) in msg_resources.messages() {
-                builder.add_message(RoomId::from(id.resource_num), msg_id, record)?;
+                builder.add_message(id.resource_num, msg_id, record)?;
                 msg_room.insert_message(msg_id, record)
             }
             let mut context = ErrorContext::new();
