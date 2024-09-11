@@ -163,6 +163,7 @@ impl<'a> Conversation<'a> {
         })
     }
 
+    /// Get the noun this conversation is part of.
     #[expect(dead_code)]
     pub fn noun(&self) -> Noun<'a> {
         Noun {
@@ -174,6 +175,7 @@ impl<'a> Conversation<'a> {
         }
     }
 
+    /// Get the verb used for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn verb(&self) -> Option<Verb<'a>> {
         if self.conversation_key.verb() == VerbId(0) {
@@ -182,6 +184,7 @@ impl<'a> Conversation<'a> {
         Some(self.book.get_verb(self.conversation_key.verb()).unwrap())
     }
 
+    /// Get the condition needed for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn condition(&self) -> Option<Condition<'a>> {
         if self.conversation_key.condition() == ConditionId(0) {
@@ -202,21 +205,29 @@ impl<'a> Conversation<'a> {
 }
 
 pub struct Condition<'a> {
-    #[expect(dead_code)]
     book: &'a Book,
-    #[expect(dead_code)]
     room: &'a RoomEntry,
     condition: &'a ConditionEntry,
-    #[expect(dead_code)]
     room_id: RoomId,
     #[expect(dead_code)]
     id: ConditionId,
 }
 
 impl<'a> Condition<'a> {
+    /// Get the description of this condition (if specified).
     #[expect(dead_code)]
-    pub fn name(&self) -> Option<&str> {
+    pub fn desc(&self) -> Option<&str> {
         self.condition.builder.as_ref().map(|b| b.desc())
+    }
+
+    /// Get the room this condition is part of.
+    #[expect(dead_code)]
+    pub fn room(&self) -> Room<'a> {
+        Room {
+            parent: self.book,
+            id: self.room_id,
+            entry: self.room,
+        }
     }
 }
 
@@ -297,6 +308,7 @@ impl<'a> Room<'a> {
         &self.entry.name
     }
 
+    /// Get an iterator over all the nouns in this room.
     #[expect(dead_code)]
     pub fn nouns(&self) -> impl Iterator<Item = Noun> {
         self.entry.nouns.iter().map(|(k, v)| Noun {
@@ -308,6 +320,7 @@ impl<'a> Room<'a> {
         })
     }
 
+    /// Get an iterator over all the conditions in this room.
     #[expect(dead_code)]
     pub fn conditions(&self) -> impl Iterator<Item = Condition> {
         self.entry.conditions.iter().map(|(k, v)| Condition {
@@ -329,11 +342,13 @@ pub struct CastMember<'a> {
 }
 
 impl<'a> CastMember<'a> {
+    /// Get the full name of the role of this cast member.
     #[expect(dead_code)]
     pub fn name(&self) -> &str {
         &self.entry.name
     }
 
+    /// Get the short name of the role of this cast member.
     #[expect(dead_code)]
     pub fn short_name(&self) -> &str {
         &self.entry.short_name

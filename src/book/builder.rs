@@ -76,7 +76,7 @@ impl MessageEntry {
     fn build(&self, _ctxt: &Conversation) -> Result<super::LineEntry, BuildError> {
         Ok(super::LineEntry {
             text: self.text.clone(),
-            talker: self.talker.clone(),
+            talker: self.talker,
         })
     }
 }
