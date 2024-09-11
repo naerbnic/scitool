@@ -88,6 +88,21 @@ pub struct ConversationKey {
     condition: ConditionId,
 }
 
+impl ConversationKey {
+    #[expect(dead_code)]
+    pub fn new(verb: VerbId, condition: ConditionId) -> Self {
+        Self { verb, condition }
+    }
+
+    pub fn verb(&self) -> VerbId {
+        self.verb
+    }
+
+    pub fn condition(&self) -> ConditionId {
+        self.condition
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct Conversation(BTreeMap<SequenceId, MessageEntry>);
 
@@ -174,8 +189,13 @@ impl VerbEntry {
 
 #[derive(Debug, Clone)]
 pub(super) struct ConditionEntry {
-    #[expect(dead_code)]
     desc: String,
+}
+
+impl ConditionEntry {
+    pub fn desc(&self) -> &str {
+        &self.desc
+    }
 }
 
 impl ConditionEntry {
@@ -183,8 +203,8 @@ impl ConditionEntry {
         Ok(())
     }
 
-    fn build(&self, _ctxt: &BookBuilder) -> Result<super::ConditionInfo, BuildError> {
-        Ok(super::ConditionInfo {
+    fn build(&self, _ctxt: &BookBuilder) -> Result<super::ConditionEntry, BuildError> {
+        Ok(super::ConditionEntry {
             builder: Some(self.clone()),
         })
     }

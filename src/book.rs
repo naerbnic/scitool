@@ -39,74 +39,102 @@ pub struct CastId(String);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ConversationId(RoomId, NounId, VerbId, ConditionId);
 
-pub struct ConditionInfo {
+// Entries
+//
+// These are the actual data structures that are stored in the book.
+// They form a tree of data that can be navigated to find the specific
+// information needed from the book.
+//
+// Public access is provided by the handle types below.
+
+struct ConditionEntry {
     /// If this was configured with a description in the input config file,
     /// this will be Some.
-    #[expect(dead_code)]
     builder: Option<builder::ConditionEntry>,
 }
 
-pub struct LineEntry {
-    #[expect(dead_code)]
+struct LineEntry {
     text: String,
-    #[expect(dead_code)]
     talker: TalkerId,
 }
 
-pub struct ConversationEntry {
+struct ConversationEntry {
     lines: BTreeMap<SequenceId, LineEntry>,
 }
 
-pub struct NounEntry {
-    #[expect(dead_code)]
+struct NounEntry {
     desc: Option<String>,
     conversations: BTreeMap<ConversationKey, ConversationEntry>,
 }
 
-pub struct RoomEntry {
-    #[expect(dead_code)]
+struct RoomEntry {
     name: String,
-    #[expect(dead_code)]
-    conditions: BTreeMap<ConditionId, ConditionInfo>,
+    conditions: BTreeMap<ConditionId, ConditionEntry>,
     nouns: BTreeMap<NounId, NounEntry>,
 }
 
-pub struct CastMemberEntry {
-    #[expect(dead_code)]
+struct CastMemberEntry {
     name: String,
-    #[expect(dead_code)]
     short_name: String,
 }
 
-pub struct TalkerEntry {
-    #[expect(dead_code)]
+struct TalkerEntry {
     cast_id: CastId,
 }
 
-pub struct VerbEntry {
-    #[expect(dead_code)]
+struct VerbEntry {
     name: String,
 }
 
+// Handles
+//
+// These are the public types that are used to navigate the book.
+// They provide methods that let you access different related
+// entities in the book, for instance, which conversations have
+// which cast members in them.
+//
+// They all borrow from the book instance itself.
+
 pub struct Line<'a> {
-    #[expect(dead_code)]
     book: &'a Book,
-    #[expect(dead_code)]
     room: &'a RoomEntry,
-    #[expect(dead_code)]
     noun: &'a NounEntry,
-    #[expect(dead_code)]
     conversation: &'a ConversationEntry,
-    #[expect(dead_code)]
     line: &'a LineEntry,
-    #[expect(dead_code)]
     room_id: RoomId,
-    #[expect(dead_code)]
     noun_id: NounId,
-    #[expect(dead_code)]
     conversation_key: ConversationKey,
     #[expect(dead_code)]
     sequence_id: SequenceId,
+}
+
+impl<'a> Line<'a> {
+    #[expect(dead_code)]
+    pub fn text(&self) -> &str {
+        &self.line.text
+    }
+
+    pub fn talker(&self) -> Talker<'a> {
+        self.book.get_talker(self.line.talker).unwrap()
+    }
+
+    #[expect(dead_code)]
+    pub fn cast_member(&self) -> CastMember<'a> {
+        self.talker().cast_member()
+    }
+
+    #[expect(dead_code)]
+    pub fn conversation(&self) -> Conversation<'a> {
+        Conversation {
+            book: self.book,
+            room: self.room,
+            noun: self.noun,
+            conversation: self.conversation,
+            room_id: self.room_id,
+            noun_id: self.noun_id,
+            conversation_key: self.conversation_key,
+        }
+    }
 }
 
 pub struct Conversation<'a> {
@@ -134,43 +162,121 @@ impl<'a> Conversation<'a> {
             sequence_id: *k,
         })
     }
+
+    #[expect(dead_code)]
+    pub fn noun(&self) -> Noun<'a> {
+        Noun {
+            book: self.book,
+            room: self.room,
+            noun: self.noun,
+            room_id: self.room_id,
+            noun_id: self.noun_id,
+        }
+    }
+
+    #[expect(dead_code)]
+    pub fn verb(&self) -> Option<Verb<'a>> {
+        if self.conversation_key.verb() == VerbId(0) {
+            return None;
+        }
+        Some(self.book.get_verb(self.conversation_key.verb()).unwrap())
+    }
+
+    #[expect(dead_code)]
+    pub fn condition(&self) -> Option<Condition<'a>> {
+        if self.conversation_key.condition() == ConditionId(0) {
+            return None;
+        }
+        Some(Condition {
+            book: self.book,
+            room: self.room,
+            room_id: self.room_id,
+            id: self.conversation_key.condition(),
+            condition: self
+                .room
+                .conditions
+                .get(&self.conversation_key.condition())
+                .unwrap(),
+        })
+    }
+}
+
+pub struct Condition<'a> {
+    #[expect(dead_code)]
+    book: &'a Book,
+    #[expect(dead_code)]
+    room: &'a RoomEntry,
+    condition: &'a ConditionEntry,
+    #[expect(dead_code)]
+    room_id: RoomId,
+    #[expect(dead_code)]
+    id: ConditionId,
+}
+
+impl<'a> Condition<'a> {
+    #[expect(dead_code)]
+    pub fn name(&self) -> Option<&str> {
+        self.condition.builder.as_ref().map(|b| b.desc())
+    }
 }
 
 pub struct Verb<'a> {
     #[expect(dead_code)]
     book: &'a Book,
-    #[expect(dead_code)]
     verb: &'a VerbEntry,
     #[expect(dead_code)]
     id: VerbId,
 }
 
+impl<'a> Verb<'a> {
+    #[expect(dead_code)]
+    pub fn name(&self) -> &str {
+        &self.verb.name
+    }
+}
+
 pub struct Talker<'a> {
-    #[expect(dead_code)]
     book: &'a Book,
-    #[expect(dead_code)]
     talker: &'a TalkerEntry,
     #[expect(dead_code)]
     id: TalkerId,
 }
 
+impl<'a> Talker<'a> {
+    pub fn cast_member(&self) -> CastMember<'a> {
+        self.book.get_cast_member(&self.talker.cast_id).unwrap()
+    }
+}
+
 pub struct Noun<'a> {
     book: &'a Book,
     room: &'a RoomEntry,
-    #[expect(dead_code)]
     noun: &'a NounEntry,
     room_id: RoomId,
     noun_id: NounId,
-    entry: &'a NounEntry,
 }
 
 impl<'a> Noun<'a> {
     #[expect(dead_code)]
+    pub fn desc(&self) -> Option<&str> {
+        self.noun.desc.as_deref()
+    }
+
+    #[expect(dead_code)]
+    pub fn room(&self) -> Room<'a> {
+        Room {
+            parent: self.book,
+            id: self.room_id,
+            entry: self.room,
+        }
+    }
+
+    #[expect(dead_code)]
     pub fn conversations(&self) -> impl Iterator<Item = Conversation> {
-        self.entry.conversations.iter().map(|(k, v)| Conversation {
+        self.noun.conversations.iter().map(|(k, v)| Conversation {
             book: self.book,
             room: self.room,
-            noun: self.entry,
+            noun: self.noun,
             conversation: v,
             room_id: self.room_id,
             noun_id: self.noun_id,
@@ -187,6 +293,11 @@ pub struct Room<'a> {
 
 impl<'a> Room<'a> {
     #[expect(dead_code)]
+    pub fn name(&self) -> &str {
+        &self.entry.name
+    }
+
+    #[expect(dead_code)]
     pub fn nouns(&self) -> impl Iterator<Item = Noun> {
         self.entry.nouns.iter().map(|(k, v)| Noun {
             book: self.parent,
@@ -194,7 +305,17 @@ impl<'a> Room<'a> {
             room_id: self.id,
             noun_id: *k,
             noun: v,
-            entry: v,
+        })
+    }
+
+    #[expect(dead_code)]
+    pub fn conditions(&self) -> impl Iterator<Item = Condition> {
+        self.entry.conditions.iter().map(|(k, v)| Condition {
+            book: self.parent,
+            room: self.entry,
+            room_id: self.id,
+            id: *k,
+            condition: v,
         })
     }
 }
@@ -204,8 +325,19 @@ pub struct CastMember<'a> {
     parent: &'a Book,
     #[expect(dead_code)]
     id: &'a CastId,
-    #[expect(dead_code)]
     entry: &'a CastMemberEntry,
+}
+
+impl<'a> CastMember<'a> {
+    #[expect(dead_code)]
+    pub fn name(&self) -> &str {
+        &self.entry.name
+    }
+
+    #[expect(dead_code)]
+    pub fn short_name(&self) -> &str {
+        &self.entry.short_name
+    }
 }
 
 pub struct Book {
@@ -243,7 +375,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn get_cast_member(&self, id: &CastId) -> Option<CastMember> {
         self.cast.get_key_value(id).map(|(k, entry)| CastMember {
             parent: self,
@@ -261,7 +392,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
         self.verbs.get(&id).map(|entry| Verb {
             book: self,
@@ -279,7 +409,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn get_talker(&self, id: TalkerId) -> Option<Talker> {
         self.talkers.get(&id).map(|entry| Talker {
             book: self,
