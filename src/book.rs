@@ -66,6 +66,15 @@ pub struct ConditionId(RawRoomId, RawConditionId);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ConversationId(RawRoomId, RawNounId, RawVerbId, RawConditionId);
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct LineId(
+    RawRoomId,
+    RawNounId,
+    RawVerbId,
+    RawConditionId,
+    RawSequenceId,
+);
+
 // Entries
 //
 // These are the actual data structures that are stored in the book.
@@ -131,11 +140,21 @@ pub struct Line<'a> {
     room_id: RawRoomId,
     noun_id: RawNounId,
     conversation_key: ConversationKey,
-    #[expect(dead_code)]
     sequence_id: RawSequenceId,
 }
 
 impl<'a> Line<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> LineId {
+        LineId(
+            self.room_id,
+            self.noun_id,
+            self.conversation_key.verb(),
+            self.conversation_key.condition(),
+            self.sequence_id,
+        )
+    }
+
     #[expect(dead_code)]
     pub fn text(&self) -> &str {
         &self.line.text
@@ -175,6 +194,16 @@ pub struct Conversation<'a> {
 }
 
 impl<'a> Conversation<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> ConversationId {
+        ConversationId(
+            self.room_id,
+            self.noun_id,
+            self.conversation_key.verb(),
+            self.conversation_key.condition(),
+        )
+    }
+
     #[expect(dead_code)]
     pub fn lines(&self) -> impl Iterator<Item = Line> {
         self.conversation.lines.iter().map(|(k, v)| Line {
@@ -240,11 +269,15 @@ pub struct Condition<'a> {
     room: &'a RoomEntry,
     condition: &'a ConditionEntry,
     room_id: RawRoomId,
-    #[expect(dead_code)]
     id: RawConditionId,
 }
 
 impl<'a> Condition<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> ConditionId {
+        ConditionId(self.room_id, self.id)
+    }
+
     /// Get the description of this condition (if specified).
     #[expect(dead_code)]
     pub fn desc(&self) -> Option<&str> {
@@ -266,11 +299,15 @@ pub struct Verb<'a> {
     #[expect(dead_code)]
     book: &'a Book,
     verb: &'a VerbEntry,
-    #[expect(dead_code)]
     id: RawVerbId,
 }
 
 impl<'a> Verb<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> VerbId {
+        VerbId(self.id)
+    }
+
     #[expect(dead_code)]
     pub fn name(&self) -> &str {
         &self.verb.name
@@ -280,11 +317,15 @@ impl<'a> Verb<'a> {
 pub struct Talker<'a> {
     book: &'a Book,
     talker: &'a TalkerEntry,
-    #[expect(dead_code)]
     id: RawTalkerId,
 }
 
 impl<'a> Talker<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> TalkerId {
+        TalkerId(self.id)
+    }
+
     pub fn role(&self) -> Role<'a> {
         self.book
             .get_role(&RoleId(self.talker.role_id.clone()))
@@ -301,6 +342,11 @@ pub struct Noun<'a> {
 }
 
 impl<'a> Noun<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> NounId {
+        NounId(self.room_id, self.noun_id)
+    }
+
     #[expect(dead_code)]
     pub fn desc(&self) -> Option<&str> {
         self.noun.desc.as_deref()
@@ -336,6 +382,11 @@ pub struct Room<'a> {
 }
 
 impl<'a> Room<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> RoomId {
+        RoomId(self.id)
+    }
+
     pub fn name(&self) -> &str {
         self.entry.name.as_deref().unwrap_or("*NO NAME*")
     }
@@ -368,12 +419,16 @@ impl<'a> Room<'a> {
 pub struct Role<'a> {
     #[expect(dead_code)]
     parent: &'a Book,
-    #[expect(dead_code)]
     id: &'a RawRoleId,
     entry: &'a RoleEntry,
 }
 
 impl<'a> Role<'a> {
+    #[expect(dead_code)]
+    pub fn id(&self) -> RoleId {
+        RoleId(self.id.clone())
+    }
+
     /// Get the full name of the role.
     #[expect(dead_code)]
     pub fn name(&self) -> &str {
@@ -394,6 +449,7 @@ pub struct Book {
     rooms: BTreeMap<RawRoomId, RoomEntry>,
 }
 
+/// Public methods for the book.
 impl Book {
     pub fn rooms(&self) -> impl Iterator<Item = Room> {
         self.rooms.iter().map(|(k, v)| Room {
