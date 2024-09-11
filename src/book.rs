@@ -225,6 +225,17 @@ impl<'a> Conversation<'a> {
             condition: self.room.conditions.get(&self.id.1.condition()).unwrap(),
         })
     }
+
+    fn get_line_inner(&self, id: RawSequenceId) -> Option<Line<'a>> {
+        self.conversation.lines.get(&id).map(|entry| Line {
+            book: self.book,
+            room: self.room,
+            noun: self.noun,
+            conversation: self.conversation,
+            line: entry,
+            id: LineId(self.id, id),
+        })
+    }
 }
 
 pub struct Condition<'a> {
@@ -332,6 +343,19 @@ impl<'a> Noun<'a> {
             id: ConversationId(self.id, *k),
         })
     }
+
+    fn get_conversation_inner(&self, id: ConversationKey) -> Option<Conversation<'a>> {
+        self.noun
+            .conversations
+            .get(&id)
+            .map(|conversation| Conversation {
+                book: self.book,
+                room: self.room,
+                noun: self.noun,
+                conversation,
+                id: ConversationId(self.id, id),
+            })
+    }
 }
 
 pub struct Room<'a> {
@@ -369,6 +393,24 @@ impl<'a> Room<'a> {
             room: self.entry,
             id: ConditionId(self.id, *k),
             condition: v,
+        })
+    }
+
+    fn get_condition_inner(&self, id: RawConditionId) -> Option<Condition<'a>> {
+        self.entry.conditions.get(&id).map(|entry| Condition {
+            book: self.parent,
+            room: self.entry,
+            id: ConditionId(self.id, id),
+            condition: entry,
+        })
+    }
+
+    fn get_noun_inner(&self, id: RawNounId) -> Option<Noun<'a>> {
+        self.entry.nouns.get(&id).map(|entry| Noun {
+            book: self.parent,
+            room: self.entry,
+            id: NounId(self.id, id),
+            noun: entry,
         })
     }
 }
@@ -417,28 +459,11 @@ impl Book {
     }
 
     #[expect(dead_code)]
-    pub fn get_room(&self, id: RoomId) -> Option<Room> {
-        self.rooms.get(&id.0).map(|entry| Room {
-            parent: self,
-            id,
-            entry,
-        })
-    }
-
-    #[expect(dead_code)]
     pub fn roles(&self) -> impl Iterator<Item = Role> {
         self.roles.iter().map(|(k, v)| Role {
             parent: self,
             id: k,
             entry: v,
-        })
-    }
-
-    pub fn get_role(&self, id: &RoleId) -> Option<Role> {
-        self.roles.get_key_value(&id.0).map(|(k, entry)| Role {
-            parent: self,
-            id: k,
-            entry,
         })
     }
 
@@ -448,14 +473,6 @@ impl Book {
             book: self,
             id: *k,
             verb: v,
-        })
-    }
-
-    pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
-        self.verbs.get(&id.0).map(|entry| Verb {
-            book: self,
-            id: id.0,
-            verb: entry,
         })
     }
 
@@ -474,5 +491,50 @@ impl Book {
             id: id.0,
             talker: entry,
         })
+    }
+
+    pub fn get_role(&self, id: &RoleId) -> Option<Role> {
+        self.roles.get_key_value(&id.0).map(|(k, entry)| Role {
+            parent: self,
+            id: k,
+            entry,
+        })
+    }
+
+    pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
+        self.verbs.get(&id.0).map(|entry| Verb {
+            book: self,
+            id: id.0,
+            verb: entry,
+        })
+    }
+
+    pub fn get_room(&self, id: RoomId) -> Option<Room> {
+        self.rooms.get(&id.0).map(|entry| Room {
+            parent: self,
+            id,
+            entry,
+        })
+    }
+
+    #[expect(dead_code)]
+    pub fn get_condition(&self, id: ConditionId) -> Option<Condition> {
+        self.get_room(id.0)
+            .and_then(|room| room.get_condition_inner(id.1))
+    }
+
+    pub fn get_noun(&self, id: NounId) -> Option<Noun> {
+        self.get_room(id.0).and_then(|room| room.get_noun_inner(id.1))
+    }
+
+    pub fn get_conversation(&self, id: ConversationId) -> Option<Conversation> {
+        self.get_noun(id.0)
+            .and_then(|noun| noun.get_conversation_inner(id.1))
+    }
+
+    #[expect(dead_code)]
+    pub fn get_line(&self, id: LineId) -> Option<Line> {
+        self.get_conversation(id.0)
+            .and_then(|conversation| conversation.get_line_inner(id.1))
     }
 }
