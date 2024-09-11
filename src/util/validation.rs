@@ -197,3 +197,26 @@ impl MultiValidator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_round_trippable() {
+        let err = ValidationError::Multiple(Multiple(vec![
+            "test".to_string().into(),
+            "test2".to_string().into(),
+        ]));
+        let err: Box<dyn std::error::Error + Send + Sync> = Box::new(err);
+        let err = ValidationError::from_boxed(err);
+        assert!(matches!(err, ValidationError::Multiple(_)));
+    }
+
+    #[test]
+    fn test_auto_wrap() {
+        let err: Box<dyn std::error::Error + Send + Sync> = "test".to_string().into();
+        let err = ValidationError::from_boxed(err);
+        assert!(matches!(err, ValidationError::Single(_)));
+    }
+}
