@@ -6,8 +6,7 @@ use crate::{
 };
 
 use super::{
-    config::{self, BookConfig},
-    CastId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId,
+    config::{self, BookConfig}, Book, CastId, ConditionId, NounId, RoomId, SequenceId, TalkerId, VerbId
 };
 
 #[derive(thiserror::Error, Debug)]

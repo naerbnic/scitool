@@ -356,6 +356,7 @@ impl CheckMessages {
                 eprintln!("Room {}: Conditions: {:?}", id.resource_num, conditions);
             }
         }
+        let _ = builder.build()?;
         Ok(())
     }
 }
