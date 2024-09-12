@@ -174,12 +174,14 @@ impl<'a> Conversation<'a> {
         ConversationId(self.noun.id(), self.id)
     }
 
-    #[expect(dead_code)]
-    pub fn lines(&self) -> impl Iterator<Item = Line> {
-        self.conversation.lines.iter().map(|(k, v)| Line {
-            conversation: self.clone(),
-            line: v,
-            id: *k,
+    pub fn lines(&self) -> impl Iterator<Item = Line<'a>> + 'a {
+        self.conversation.lines.iter().map({
+            let conversation = self.clone();
+            move |(k, v)| Line {
+                conversation: conversation.clone(),
+                line: v,
+                id: *k,
+            }
         })
     }
 
@@ -325,12 +327,14 @@ impl<'a> Noun<'a> {
         self.room.clone()
     }
 
-    #[expect(dead_code)]
-    pub fn conversations(&self) -> impl Iterator<Item = Conversation> {
-        self.noun.conversations.iter().map(|(k, v)| Conversation {
-            noun: self.clone(),
-            conversation: v,
-            id: *k,
+    pub fn conversations(&self) -> impl Iterator<Item = Conversation<'a>> + 'a {
+        self.noun.conversations.iter().map({
+            let noun = self.clone();
+            move |(k, v)| Conversation {
+                noun: noun.clone(),
+                conversation: v,
+                id: *k,
+            }
         })
     }
 
@@ -368,22 +372,26 @@ impl<'a> Room<'a> {
     }
 
     /// Get an iterator over all the nouns in this room.
-    #[expect(dead_code)]
-    pub fn nouns(&self) -> impl Iterator<Item = Noun> {
-        self.entry.nouns.iter().map(|(k, v)| Noun {
-            room: self.clone(),
-            noun: v,
-            id: *k,
+    pub fn nouns(&self) -> impl Iterator<Item = Noun<'a>> + 'a {
+        self.entry.nouns.iter().map({
+            let room = self.clone();
+            move |(k, v)| Noun {
+                room: room.clone(),
+                noun: v,
+                id: *k,
+            }
         })
     }
 
     /// Get an iterator over all the conditions in this room.
-    #[expect(dead_code)]
-    pub fn conditions(&self) -> impl Iterator<Item = Condition> {
-        self.entry.conditions.iter().map(|(k, v)| Condition {
-            room: self.clone(),
-            id: *k,
-            condition: v,
+    pub fn conditions(&self) -> impl Iterator<Item = Condition<'a>> + 'a {
+        self.entry.conditions.iter().map({
+            let room = self.clone();
+            move |(k, v)| Condition {
+                room: room.clone(),
+                id: *k,
+                condition: v,
+            }
         })
     }
 
@@ -481,6 +489,25 @@ impl Book {
             id: *k,
             talker: v,
         })
+    }
+
+    pub fn nouns(&self) -> impl Iterator<Item = Noun> {
+        self.rooms().flat_map(|room| room.nouns())
+    }
+
+    pub fn conversations(&self) -> impl Iterator<Item = Conversation> + '_ {
+        self.nouns().flat_map(|noun| noun.conversations())
+    }
+
+    #[expect(dead_code)]
+    pub fn lines(&self) -> impl Iterator<Item = Line> + '_ {
+        self.conversations()
+            .flat_map(|conversation| conversation.lines())
+    }
+
+    #[expect(dead_code)]
+    pub fn conditions(&self) -> impl Iterator<Item = Condition> + '_ {
+        self.rooms().flat_map(|room| room.conditions())
     }
 
     pub fn get_talker(&self, id: TalkerId) -> Option<Talker> {
