@@ -138,7 +138,6 @@ impl<'a> Line<'a> {
         LineId(self.parent.id(), self.raw_id)
     }
 
-    #[expect(dead_code)]
     pub fn text(&self) -> &str {
         &self.entry.text
     }
@@ -498,7 +497,6 @@ impl Book {
         self.nouns().flat_map(|noun| noun.conversations())
     }
 
-    #[expect(dead_code)]
     pub fn lines(&self) -> impl Iterator<Item = Line> + '_ {
         self.conversations()
             .flat_map(|conversation| conversation.lines())

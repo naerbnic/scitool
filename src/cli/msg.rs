@@ -357,6 +357,15 @@ impl CheckMessages {
         }
         let book = builder.build()?;
 
+        eprintln!("Num rooms: {}", book.rooms().count());
+        eprintln!("Num nouns: {}", book.nouns().count());
+        eprintln!("Num conversations: {}", book.conversations().count());
+        eprintln!("Num lines: {}", book.lines().count());
+        eprintln!(
+            "Num empty lines: {}",
+            book.lines().filter(|line| line.text().is_empty()).count()
+        );
+
         for room in book.rooms() {
             eprintln!("Room {:?}:", room.name(),);
             eprintln!("  Num Conditions: {}", room.conditions().count());
