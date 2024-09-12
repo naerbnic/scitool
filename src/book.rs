@@ -125,19 +125,17 @@ struct VerbEntry {
 //
 // They all borrow from the book instance itself.
 
+#[derive(Clone)]
 pub struct Line<'a> {
-    book: &'a Book,
-    room: &'a RoomEntry,
-    noun: &'a NounEntry,
-    conversation: &'a ConversationEntry,
+    conversation: Conversation<'a>,
     line: &'a LineEntry,
-    id: LineId,
+    id: RawSequenceId,
 }
 
 impl<'a> Line<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> LineId {
-        self.id.clone()
+        LineId(self.conversation.id(), self.id)
     }
 
     #[expect(dead_code)]
@@ -146,7 +144,7 @@ impl<'a> Line<'a> {
     }
 
     pub fn talker(&self) -> Talker<'a> {
-        self.book.get_talker(TalkerId(self.line.talker)).unwrap()
+        self.book().get_talker(TalkerId(self.line.talker)).unwrap()
     }
 
     #[expect(dead_code)]
@@ -156,99 +154,87 @@ impl<'a> Line<'a> {
 
     #[expect(dead_code)]
     pub fn conversation(&self) -> Conversation<'a> {
-        Conversation {
-            book: self.book,
-            room: self.room,
-            noun: self.noun,
-            conversation: self.conversation,
-            id: self.id.0,
-        }
+        self.conversation.clone()
+    }
+
+    fn book(&self) -> &'a Book {
+        self.conversation.book()
     }
 }
 
+#[derive(Clone)]
 pub struct Conversation<'a> {
-    book: &'a Book,
-    room: &'a RoomEntry,
-    noun: &'a NounEntry,
+    noun: Noun<'a>,
     conversation: &'a ConversationEntry,
-    id: ConversationId,
+    id: ConversationKey,
 }
 
 impl<'a> Conversation<'a> {
-    #[expect(dead_code)]
     pub fn id(&self) -> ConversationId {
-        self.id
+        ConversationId(self.noun.id(), self.id)
     }
 
     #[expect(dead_code)]
     pub fn lines(&self) -> impl Iterator<Item = Line> {
         self.conversation.lines.iter().map(|(k, v)| Line {
-            book: self.book,
-            room: self.room,
-            noun: self.noun,
-            conversation: self.conversation,
+            conversation: self.clone(),
             line: v,
-            id: LineId(self.id, *k),
+            id: *k,
         })
     }
 
     /// Get the noun this conversation is part of.
-    #[expect(dead_code)]
     pub fn noun(&self) -> Noun<'a> {
-        Noun {
-            book: self.book,
-            room: self.room,
-            noun: self.noun,
-            id: self.id.0,
-        }
+        self.noun.clone()
     }
 
     /// Get the verb used for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn verb(&self) -> Option<Verb<'a>> {
-        if self.id.1.verb() == RawVerbId(0) {
+        if self.id.verb() == RawVerbId(0) {
             return None;
         }
-        Some(self.book.get_verb(VerbId(self.id.1.verb())).unwrap())
+        Some(self.book().get_verb(VerbId(self.id.verb())).unwrap())
     }
 
     /// Get the condition needed for this conversation (if it exists).
     #[expect(dead_code)]
     pub fn condition(&self) -> Option<Condition<'a>> {
-        if self.id.1.condition() == RawConditionId(0) {
+        if self.id.condition() == RawConditionId(0) {
             return None;
         }
-        Some(Condition {
-            book: self.book,
-            room: self.room,
-            id: ConditionId(self.id.0 .0, self.id.1.condition()),
-            condition: self.room.conditions.get(&self.id.1.condition()).unwrap(),
-        })
+        Some(
+            self.noun()
+                .room()
+                .get_condition_inner(self.id.condition())
+                .expect("Condition has already been cleared"),
+        )
     }
 
     fn get_line_inner(&self, id: RawSequenceId) -> Option<Line<'a>> {
         self.conversation.lines.get(&id).map(|entry| Line {
-            book: self.book,
-            room: self.room,
-            noun: self.noun,
-            conversation: self.conversation,
+            conversation: self.clone(),
             line: entry,
-            id: LineId(self.id, id),
+            id,
         })
+    }
+
+    fn book(&self) -> &'a Book {
+        self.noun.book()
     }
 }
 
+#[derive(Clone)]
 pub struct Condition<'a> {
-    book: &'a Book,
-    room: &'a RoomEntry,
+    room: Room<'a>,
     condition: &'a ConditionEntry,
-    id: ConditionId,
+    id: RawConditionId,
 }
 
 impl<'a> Condition<'a> {
     #[expect(dead_code)]
     pub fn id(&self) -> ConditionId {
-        self.id
+        ConditionId(self.room.id, self.id)
     }
 
     /// Get the description of this condition (if specified).
@@ -260,16 +246,17 @@ impl<'a> Condition<'a> {
     /// Get the room this condition is part of.
     #[expect(dead_code)]
     pub fn room(&self) -> Room<'a> {
-        Room {
-            parent: self.book,
-            id: self.id.0,
-            entry: self.room,
-        }
+        self.room.clone()
+    }
+
+    #[expect(dead_code)]
+    fn book(&self) -> &'a Book {
+        self.room.book()
     }
 }
 
+#[derive(Clone)]
 pub struct Verb<'a> {
-    #[expect(dead_code)]
     book: &'a Book,
     verb: &'a VerbEntry,
     id: RawVerbId,
@@ -285,8 +272,14 @@ impl<'a> Verb<'a> {
     pub fn name(&self) -> &str {
         &self.verb.name
     }
+
+    #[expect(dead_code)]
+    fn book(&self) -> &Book {
+        self.book
+    }
 }
 
+#[derive(Clone)]
 pub struct Talker<'a> {
     book: &'a Book,
     talker: &'a TalkerEntry,
@@ -304,19 +297,23 @@ impl<'a> Talker<'a> {
             .get_role(&RoleId(self.talker.role_id.clone()))
             .unwrap()
     }
+
+    #[expect(dead_code)]
+    fn book(&self) -> &Book {
+        self.book
+    }
 }
 
+#[derive(Clone)]
 pub struct Noun<'a> {
-    book: &'a Book,
-    room: &'a RoomEntry,
+    room: Room<'a>,
     noun: &'a NounEntry,
-    id: NounId,
+    id: RawNounId,
 }
 
 impl<'a> Noun<'a> {
-    #[expect(dead_code)]
     pub fn id(&self) -> NounId {
-        self.id
+        NounId(self.room.id, self.id)
     }
 
     #[expect(dead_code)]
@@ -324,23 +321,16 @@ impl<'a> Noun<'a> {
         self.noun.desc.as_deref()
     }
 
-    #[expect(dead_code)]
     pub fn room(&self) -> Room<'a> {
-        Room {
-            parent: self.book,
-            id: self.id.0,
-            entry: self.room,
-        }
+        self.room.clone()
     }
 
     #[expect(dead_code)]
     pub fn conversations(&self) -> impl Iterator<Item = Conversation> {
         self.noun.conversations.iter().map(|(k, v)| Conversation {
-            book: self.book,
-            room: self.room,
-            noun: self.noun,
+            noun: self.clone(),
             conversation: v,
-            id: ConversationId(self.id, *k),
+            id: *k,
         })
     }
 
@@ -349,15 +339,18 @@ impl<'a> Noun<'a> {
             .conversations
             .get(&id)
             .map(|conversation| Conversation {
-                book: self.book,
-                room: self.room,
-                noun: self.noun,
+                noun: self.clone(),
                 conversation,
-                id: ConversationId(self.id, id),
+                id,
             })
+    }
+
+    fn book(&self) -> &'a Book {
+        self.room.book()
     }
 }
 
+#[derive(Clone)]
 pub struct Room<'a> {
     parent: &'a Book,
     id: RoomId,
@@ -378,10 +371,9 @@ impl<'a> Room<'a> {
     #[expect(dead_code)]
     pub fn nouns(&self) -> impl Iterator<Item = Noun> {
         self.entry.nouns.iter().map(|(k, v)| Noun {
-            book: self.parent,
-            room: self.entry,
+            room: self.clone(),
             noun: v,
-            id: NounId(self.id, *k),
+            id: *k,
         })
     }
 
@@ -389,34 +381,35 @@ impl<'a> Room<'a> {
     #[expect(dead_code)]
     pub fn conditions(&self) -> impl Iterator<Item = Condition> {
         self.entry.conditions.iter().map(|(k, v)| Condition {
-            book: self.parent,
-            room: self.entry,
-            id: ConditionId(self.id, *k),
+            room: self.clone(),
+            id: *k,
             condition: v,
         })
     }
 
     fn get_condition_inner(&self, id: RawConditionId) -> Option<Condition<'a>> {
         self.entry.conditions.get(&id).map(|entry| Condition {
-            book: self.parent,
-            room: self.entry,
-            id: ConditionId(self.id, id),
+            room: self.clone(),
+            id,
             condition: entry,
         })
     }
 
     fn get_noun_inner(&self, id: RawNounId) -> Option<Noun<'a>> {
         self.entry.nouns.get(&id).map(|entry| Noun {
-            book: self.parent,
-            room: self.entry,
-            id: NounId(self.id, id),
+            room: self.clone(),
+            id,
             noun: entry,
         })
     }
+
+    fn book(&self) -> &'a Book {
+        self.parent
+    }
 }
 
+#[derive(Clone)]
 pub struct Role<'a> {
-    #[expect(dead_code)]
     parent: &'a Book,
     id: &'a RawRoleId,
     entry: &'a RoleEntry,
@@ -438,6 +431,11 @@ impl<'a> Role<'a> {
     #[expect(dead_code)]
     pub fn short_name(&self) -> &str {
         &self.entry.short_name
+    }
+
+    #[expect(dead_code)]
+    fn book(&self) -> &Book {
+        self.parent
     }
 }
 
@@ -524,7 +522,8 @@ impl Book {
     }
 
     pub fn get_noun(&self, id: NounId) -> Option<Noun> {
-        self.get_room(id.0).and_then(|room| room.get_noun_inner(id.1))
+        self.get_room(id.0)
+            .and_then(|room| room.get_noun_inner(id.1))
     }
 
     pub fn get_conversation(&self, id: ConversationId) -> Option<Conversation> {
