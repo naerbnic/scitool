@@ -366,6 +366,12 @@ impl CheckMessages {
             book.lines().filter(|line| line.text().is_empty()).count()
         );
 
+        for conversation in book.conversations() {
+            if let Err(e) = conversation.validate_complete() {
+                eprintln!("Conversation {:?}: {}", conversation.id(), e);
+            }
+        }
+
         for room in book.rooms() {
             eprintln!("Room {:?}:", room.name(),);
             eprintln!("  Num Conditions: {}", room.conditions().count());

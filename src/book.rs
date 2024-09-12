@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use builder::ConversationKey;
 use serde::{Deserialize, Serialize};
 
+use crate::util::validation::{MultiValidator, ValidationError};
+
 pub mod builder;
 pub mod config;
 
@@ -210,6 +212,21 @@ impl<'a> Conversation<'a> {
                 .get_condition_inner(self.raw_id.condition())
                 .expect("Condition has already been cleared"),
         )
+    }
+
+    pub fn validate_complete(&self) -> Result<(), ValidationError> {
+        let mut validator = MultiValidator::new();
+        let mut expected_next = 1;
+        for id in self.entry.lines.keys().map(|id| id.0) {
+            if id != expected_next {
+                validator.with_err(ValidationError::from(
+                    format!("Skipped sequence ID {}, next {}", expected_next, id).to_string(),
+                ));
+            }
+            expected_next = id + 1;
+        }
+
+        validator.build()
     }
 
     fn get_line_inner(&self, raw_id: RawSequenceId) -> Option<Line<'a>> {

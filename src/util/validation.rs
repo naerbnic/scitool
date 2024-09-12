@@ -227,6 +227,14 @@ impl MultiValidator {
         self
     }
 
+    pub fn with_err<E>(&mut self, item: E) -> &mut Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        self.result.append_err(ValidationError::from_any(item));
+        self
+    }
+
     pub fn validate_ctxt<T, F, E>(
         &mut self,
         ctxt: impl Into<String>,
