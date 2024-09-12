@@ -80,7 +80,7 @@ pub struct LineId(ConversationId, RawSequenceId);
 struct ConditionEntry {
     /// If this was configured with a description in the input config file,
     /// this will be Some.
-    builder: Option<builder::ConditionEntry>,
+    builder: builder::ConditionEntry,
 }
 
 struct LineEntry {
@@ -242,7 +242,7 @@ impl<'a> Condition<'a> {
     /// Get the description of this condition (if specified).
     #[expect(dead_code)]
     pub fn desc(&self) -> Option<&str> {
-        self.entry.builder.as_ref().map(|b| b.desc())
+        self.entry.builder.desc()
     }
 
     /// Get the room this condition is part of.

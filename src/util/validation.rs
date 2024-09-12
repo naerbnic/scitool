@@ -67,6 +67,37 @@ impl ValidationError {
     {
         Self::from_boxed(Box::new(err))
     }
+
+    pub fn with_context(self, context: impl Into<String>) -> Self {
+        match self {
+            ValidationError::Context(mut ctxt) => {
+                ctxt.context = format!("{}: {}", context.into(), ctxt.context);
+                ValidationError::Context(ctxt)
+            }
+            _ => ValidationError::Context(Context {
+                context: context.into(),
+                error: Box::new(self),
+            }),
+        }
+    }
+
+    pub fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (ValidationError::Multiple(mut first), ValidationError::Multiple(second)) => {
+                first.0.extend(second.0);
+                ValidationError::Multiple(first)
+            }
+            (ValidationError::Multiple(mut multi), single) => {
+                multi.0.push(single);
+                ValidationError::Multiple(multi)
+            }
+            (single, ValidationError::Multiple(mut multi)) => {
+                multi.0.insert(0, single);
+                ValidationError::Multiple(multi)
+            }
+            (first, second) => ValidationError::Multiple(Multiple(vec![first, second])),
+        }
+    }
 }
 
 impl From<String> for ValidationError {
@@ -81,6 +112,47 @@ where
 {
     fn from(err: Box<T>) -> Self {
         ValidationError::from_boxed(err)
+    }
+}
+
+pub trait ResultExt {
+    fn join(self, other: Self) -> Self;
+    fn join_err(self, other: ValidationError) -> Self;
+    fn append(&mut self, other: Self);
+    fn append_err(&mut self, other: ValidationError);
+    fn with_context(self, context: impl Into<String>) -> Self;
+}
+
+impl ResultExt for Result<(), ValidationError> {
+    fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(first), Ok(())) => Err(first),
+            (Ok(()), Err(second)) => Err(second),
+            (Err(first), Err(second)) => Err(first.join(second)),
+        }
+    }
+
+    fn join_err(self, other: ValidationError) -> Self {
+        match self {
+            Ok(()) => Err(other),
+            Err(err) => Err(err.join(other)),
+        }
+    }
+
+    fn append(&mut self, other: Self) {
+        *self = std::mem::replace(self, Ok(())).join(other);
+    }
+
+    fn append_err(&mut self, other: ValidationError) {
+        *self = std::mem::replace(self, Ok(())).join_err(other);
+    }
+
+    fn with_context(self, context: impl Into<String>) -> Self {
+        match self {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err.with_context(context)),
+        }
     }
 }
 
@@ -109,24 +181,11 @@ where
         F: Fn(Self::Item) -> Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        let mut errors = Vec::new();
+        let mut result = Ok(());
         for item in self {
-            if let Err(err) = validator(item) {
-                match ValidationError::from_any(err) {
-                    err @ (ValidationError::Single(_) | ValidationError::Context(_)) => {
-                        errors.push(err)
-                    }
-                    ValidationError::Multiple(errs) => errors.extend(errs.0),
-                }
-            }
+            result = result.join(validator(item).map_err(ValidationError::from_any));
         }
-        if errors.is_empty() {
-            Ok(())
-        } else if errors.len() == 1 {
-            Err(errors.pop().unwrap())
-        } else {
-            Err(ValidationError::Multiple(Multiple(errors)))
-        }
+        result
     }
 
     fn validate_all_values<'a, K, V, F, E>(self, validator: F) -> Result<(), ValidationError>
@@ -137,34 +196,35 @@ where
         F: Fn(&V) -> Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        let mut errors = Vec::new();
+        let mut result = Ok(());
         for (key, value) in self {
-            if let Err(err) = validator(value) {
-                let base_error = ValidationError::from_any(err);
-                errors.push(ValidationError::Context(Context {
-                    context: format!("{:?}", key),
-                    error: Box::new(base_error),
+            result =
+                result.join(validator(value).map_err(|err| {
+                    ValidationError::from_any(err).with_context(format!("{:?}", key))
                 }));
-            }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else if errors.len() == 1 {
-            Err(errors.pop().unwrap())
-        } else {
-            Err(ValidationError::Multiple(Multiple(errors)))
-        }
+        result
     }
 }
 
-#[derive(Default)]
 pub struct MultiValidator {
-    errors: Vec<ValidationError>,
+    result: Result<(), ValidationError>,
 }
 
 impl MultiValidator {
     pub fn new() -> Self {
-        Self { errors: Vec::new() }
+        Self { result: Ok(()) }
+    }
+
+    #[expect(dead_code)]
+    pub fn with_result<E>(&mut self, item: Result<(), E>) -> &mut Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        if let Err(err) = item {
+            self.result.append_err(ValidationError::from_any(err))
+        }
+        self
     }
 
     pub fn validate_ctxt<T, F, E>(
@@ -177,24 +237,16 @@ impl MultiValidator {
         F: FnOnce(&T) -> Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        if let Err(err) = validator(item) {
-            self.errors.push(ValidationError::Context(Context {
-                context: ctxt.into(),
-                error: Box::new(ValidationError::from_any(err)),
-            }))
-        }
+        self.result.append(
+            validator(item)
+                .map_err(ValidationError::from_any)
+                .with_context(ctxt),
+        );
         self
     }
 
     pub fn build(&mut self) -> Result<(), ValidationError> {
-        let mut errors = std::mem::take(&mut self.errors);
-        if errors.is_empty() {
-            Ok(())
-        } else if errors.len() == 1 {
-            Err(errors.pop().unwrap())
-        } else {
-            Err(ValidationError::Multiple(Multiple(errors)))
-        }
+        std::mem::replace(&mut self.result, Ok(()))
     }
 }
 

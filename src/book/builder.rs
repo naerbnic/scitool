@@ -189,12 +189,12 @@ impl VerbEntry {
 
 #[derive(Debug, Clone)]
 pub(super) struct ConditionEntry {
-    desc: String,
+    desc: Option<String>,
 }
 
 impl ConditionEntry {
-    pub fn desc(&self) -> &str {
-        &self.desc
+    pub fn desc(&self) -> Option<&str> {
+        self.desc.as_deref()
     }
 }
 
@@ -205,7 +205,7 @@ impl ConditionEntry {
 
     fn build(&self, _ctxt: &BookBuilder) -> Result<super::ConditionEntry, BuildError> {
         Ok(super::ConditionEntry {
-            builder: Some(self.clone()),
+            builder: self.clone(),
         })
     }
 }
@@ -261,7 +261,7 @@ impl RoomEntry {
             .validate_ctxt("conditions", &self.conditions, |conditions| {
                 conditions.iter().validate_all_values(|e| e.validate(ctxt))
             })
-            .validate_ctxt("conditions", &self.nouns, |nouns| {
+            .validate_ctxt("nouns", &self.nouns, |nouns| {
                 nouns.iter().validate_all_values(|e| e.validate(ctxt))
             })
             .build()?;
@@ -285,7 +285,7 @@ impl RoomEntry {
                 (
                     condition.id,
                     ConditionEntry {
-                        desc: condition.desc,
+                        desc: Some(condition.desc),
                     },
                 )
             }))?,
@@ -299,6 +299,10 @@ impl RoomEntry {
     }
 
     fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+        let condition_id = RawConditionId(message.condition());
+        if let btree_map::Entry::Vacant(vac) = self.conditions.entry(condition_id) {
+            vac.insert(ConditionEntry { desc: None });
+        }
         self.nouns
             .entry(RawNounId(message.noun()))
             .or_default()
