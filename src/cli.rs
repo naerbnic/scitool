@@ -6,6 +6,7 @@ use crate::{
 };
 use clap::{Parser, Subcommand};
 
+mod gen;
 mod msg;
 
 #[derive(Parser)]
@@ -123,6 +124,8 @@ enum Category {
     Resource(Resource),
     #[clap(name = "msg")]
     Message(msg::Messages),
+    #[clap(name = "gen")]
+    Generate(gen::Generate),
 }
 
 impl Category {
@@ -130,6 +133,7 @@ impl Category {
         match self {
             Category::Resource(res) => res.run(),
             Category::Message(msg) => msg.run(),
+            Category::Generate(gen) => gen.run(),
         }
     }
 }
