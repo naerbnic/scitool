@@ -1,195 +1,13 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::book::builder::BookBuilder;
 use crate::book::config::BookConfig;
 use crate::output::msg as msg_out;
-use crate::res::msg as msg_res;
-use crate::res::msg::MessageRecord;
 use crate::res::{file::open_game_resources, msg::parse_message_resource, ResourceType};
 use clap::{Parser, Subcommand};
 
 // My current theory is that messages are separatable into a few categories:
-
-struct ErrorContext {
-    contexts: Vec<String>,
-    errors: Vec<String>,
-}
-
-impl ErrorContext {
-    fn new() -> Self {
-        Self {
-            contexts: Vec::new(),
-            errors: Vec::new(),
-        }
-    }
-
-    fn with_context<R>(
-        &mut self,
-        context: impl Into<String>,
-        body: impl FnOnce(&mut Self) -> R,
-    ) -> R {
-        self.contexts.push(context.into());
-        let result = body(self);
-        self.contexts.pop();
-        result
-    }
-
-    fn add_error(&mut self, error: impl AsRef<str>) {
-        let mut result = String::new();
-        for context in &self.contexts {
-            result.push_str(context);
-        }
-        result.push_str(error.as_ref());
-        self.errors.push(result);
-    }
-
-    fn errors(&self) -> &[String] {
-        &self.errors
-    }
-}
-
-struct Line {
-    #[expect(dead_code)]
-    talker: u8,
-    #[expect(dead_code)]
-    text: String,
-}
-
-impl Line {
-    fn from_message(message: &MessageRecord) -> Self {
-        Self {
-            talker: message.talker(),
-            text: message.text().to_string(),
-        }
-    }
-}
-
-struct Conversation {
-    lines: BTreeMap<u8, Line>,
-}
-
-impl Conversation {
-    fn new() -> Self {
-        Self {
-            lines: BTreeMap::new(),
-        }
-    }
-
-    fn insert_line(&mut self, id: &msg_res::MessageId, message: &MessageRecord) {
-        self.lines
-            .insert(id.sequence(), Line::from_message(message));
-    }
-
-    fn validate(&self, context: &mut ErrorContext) {
-        // All conversations have lines from 1 to N.
-        let expected_sequences = (1..=self.lines.len() as u8).collect::<Vec<_>>();
-        let mut actual_sequences = self.lines.keys().cloned().collect::<Vec<_>>();
-        actual_sequences.sort();
-        if expected_sequences != actual_sequences {
-            context.add_error(format!(
-                "Expected sequences {:?}, got {:?}",
-                expected_sequences, actual_sequences
-            ));
-        }
-    }
-}
-
-struct ConversationSet {
-    condition_conversations: BTreeMap<u8, Conversation>,
-}
-
-impl ConversationSet {
-    fn new() -> Self {
-        Self {
-            condition_conversations: BTreeMap::new(),
-        }
-    }
-
-    fn insert_message(&mut self, id: &msg_res::MessageId, message: &MessageRecord) {
-        self.condition_conversations
-            .entry(id.condition())
-            .or_insert_with(Conversation::new)
-            .insert_line(id, message);
-    }
-
-    fn validate(&self, context: &mut ErrorContext) {
-        for (condition, conversation) in &self.condition_conversations {
-            context.with_context(format!("cond: {} ", condition), |context| {
-                conversation.validate(context)
-            });
-        }
-    }
-
-    fn conditions(&self) -> impl Iterator<Item = u8> + '_ {
-        self.condition_conversations.keys().cloned()
-    }
-}
-
-struct RoomNoun {
-    verb_conversations: BTreeMap<u8, ConversationSet>,
-}
-
-impl RoomNoun {
-    fn new() -> Self {
-        Self {
-            verb_conversations: BTreeMap::new(),
-        }
-    }
-
-    fn insert_message(&mut self, id: &msg_res::MessageId, message: &MessageRecord) {
-        self.verb_conversations
-            .entry(id.verb())
-            .or_insert_with(ConversationSet::new)
-            .insert_message(id, message);
-    }
-
-    fn validate(&self, context: &mut ErrorContext) {
-        for (verb, conversation_set) in &self.verb_conversations {
-            context.with_context(format!("verb: {} ", verb), |context| {
-                conversation_set.validate(context)
-            });
-        }
-    }
-
-    fn conditions(&self) -> impl Iterator<Item = u8> + '_ {
-        self.verb_conversations
-            .values()
-            .flat_map(ConversationSet::conditions)
-    }
-}
-
-struct MessageRoom {
-    nouns: BTreeMap<u8, RoomNoun>,
-}
-
-impl MessageRoom {
-    fn new() -> Self {
-        Self {
-            nouns: BTreeMap::new(),
-        }
-    }
-
-    fn insert_message(&mut self, id: &msg_res::MessageId, message: &MessageRecord) {
-        self.nouns
-            .entry(id.noun())
-            .or_insert_with(RoomNoun::new)
-            .insert_message(id, message);
-    }
-
-    fn validate(&self, context: &mut ErrorContext) {
-        // Scenes and nouns should be disjoint
-        for (noun, room_noun) in &self.nouns {
-            context.with_context(format!("noun: {} ", noun), |context| {
-                room_noun.validate(context)
-            });
-        }
-    }
-
-    fn conditions(&self) -> BTreeSet<u8> {
-        self.nouns.values().flat_map(RoomNoun::conditions).collect()
-    }
-}
 
 #[derive(Parser)]
 struct ExportMessages {
@@ -337,22 +155,8 @@ impl CheckMessages {
 
         for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
             let msg_resources = parse_message_resource(res.open()?)?;
-            let mut msg_room = MessageRoom::new();
             for (msg_id, record) in msg_resources.messages() {
                 builder.add_message(id.resource_num, msg_id, record)?;
-                msg_room.insert_message(msg_id, record)
-            }
-            let mut context = ErrorContext::new();
-            msg_room.validate(&mut context);
-            if context.errors().is_empty() {
-                eprintln!("Room {}: OK", id.resource_num);
-            } else {
-                eprintln!("Room {}: {:#?}", id.resource_num, context.errors());
-            }
-
-            let conditions = msg_room.conditions();
-            if conditions != (0..1).collect() {
-                eprintln!("Room {}: Conditions: {:?}", id.resource_num, conditions);
             }
         }
         let book = builder.build()?;
@@ -360,6 +164,12 @@ impl CheckMessages {
         eprintln!("Num rooms: {}", book.rooms().count());
         eprintln!("Num nouns: {}", book.nouns().count());
         eprintln!("Num conversations: {}", book.conversations().count());
+        eprintln!(
+            "Num multi-line conversations: {}",
+            book.conversations()
+                .filter(|c| c.lines().count() > 1)
+                .count()
+        );
         eprintln!("Num lines: {}", book.lines().count());
         eprintln!(
             "Num empty lines: {}",
