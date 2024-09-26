@@ -2,6 +2,7 @@ use clap::Parser;
 
 mod book;
 mod cli;
+mod gen;
 mod output;
 mod res;
 mod util;
