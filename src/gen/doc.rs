@@ -15,12 +15,10 @@ pub struct Document {
 }
 
 impl Document {
-    #[expect(dead_code)]
     pub fn title(&self) -> &RichText {
         &self.title
     }
 
-    #[expect(dead_code)]
     pub fn chapters(&self) -> &[Section] {
         &self.chapters
     }
@@ -33,17 +31,14 @@ pub struct Section {
 }
 
 impl Section {
-    #[expect(dead_code)]
     pub fn title(&self) -> &RichText {
         &self.title
     }
 
-    #[expect(dead_code)]
     pub fn content(&self) -> &Content {
         &self.content
     }
 
-    #[expect(dead_code)]
     pub fn subsections(&self) -> &[Section] {
         &self.subsections
     }
@@ -64,7 +59,6 @@ pub struct List {
 }
 
 impl List {
-    #[expect(dead_code)]
     pub fn items(&self) -> &[Content] {
         &self.items
     }
@@ -82,12 +76,10 @@ pub struct Line {
 }
 
 impl Line {
-    #[expect(dead_code)]
     pub fn speaker(&self) -> &RichText {
         &self.speaker
     }
 
-    #[expect(dead_code)]
     pub fn line(&self) -> &RichText {
         &self.line
     }
@@ -98,7 +90,6 @@ pub struct Dialogue {
 }
 
 impl Dialogue {
-    #[expect(dead_code)]
     pub fn lines(&self) -> &[Line] {
         &self.lines
     }
@@ -111,7 +102,6 @@ impl Dialogue {
 }
 
 pub enum ContentItem {
-    #[expect(dead_code)]
     Paragraph(RichText),
     List(List),
     Dialogue(Dialogue),
@@ -122,7 +112,6 @@ pub struct Content {
 }
 
 impl Content {
-    #[expect(dead_code)]
     pub fn items(&self) -> &[ContentItem] {
         &self.items
     }

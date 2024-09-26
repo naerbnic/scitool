@@ -2,3 +2,4 @@
 
 mod doc;
 mod markdown;
+mod html;

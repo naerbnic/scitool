@@ -5,16 +5,12 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
-    #[expect(dead_code)]
-    pub fn bold(&mut self, bold: bool) -> &mut Self {
-        self.bold = bold;
-        self
+    pub fn bold(&self) -> bool {
+        self.bold
     }
 
-    #[expect(dead_code)]
-    pub fn italic(&mut self, italic: bool) -> &mut Self {
-        self.italic = italic;
-        self
+    pub fn italic(&self) -> bool {
+        self.italic
     }
 }
 
@@ -25,12 +21,10 @@ pub struct TextItem {
 }
 
 impl TextItem {
-    #[expect(dead_code)]
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    #[expect(dead_code)]
     pub fn style(&self) -> &TextStyle {
         &self.style
     }
@@ -39,6 +33,19 @@ impl TextItem {
 #[derive(Debug, Clone, Default)]
 pub struct RichText {
     items: Vec<TextItem>,
+}
+
+impl RichText {
+    pub fn items(&self) -> &[TextItem] {
+        &self.items
+    }
+
+    #[expect(dead_code)]
+    pub fn builder() -> RichTextBuilder {
+        RichTextBuilder {
+            output: Some(RichText::default()),
+        }
+    }
 }
 
 pub struct RichTextBuilder {
