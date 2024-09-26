@@ -2,7 +2,6 @@
 
 use text::RichText;
 
-pub mod markdown;
 pub mod text;
 
 fn push_last_mut<T>(vec: &mut Vec<T>, value: T) -> &mut T {

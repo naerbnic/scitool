@@ -1,5 +1,3 @@
-use super::text::RichText;
-
 mod builder;
 
 // pub struct MarkdownDocument {
