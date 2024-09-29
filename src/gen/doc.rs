@@ -149,24 +149,24 @@ pub struct DocumentBuilder {
 }
 
 impl DocumentBuilder {
-    #[expect(dead_code)]
-    pub fn new(title: RichText) -> Self {
+    pub fn new(title: impl Into<RichText>) -> Self {
         Self {
             document: Document {
-                title,
+                title: title.into(),
                 chapters: Vec::new(),
             },
         }
     }
 
-    #[expect(dead_code)]
-    pub fn add_chapter(&mut self, title: RichText) -> SectionBuilder {
+    pub fn add_chapter(&mut self, title: impl Into<RichText>) -> SectionBuilder {
         SectionBuilder {
-            section: push_last_mut(&mut self.document.chapters, Section::with_title(title)),
+            section: push_last_mut(
+                &mut self.document.chapters,
+                Section::with_title(title.into()),
+            ),
         }
     }
 
-    #[expect(dead_code)]
     pub fn build(self) -> Document {
         self.document
     }
@@ -190,14 +190,12 @@ pub struct SectionBuilder<'a> {
 }
 
 impl<'a> SectionBuilder<'a> {
-    #[expect(dead_code)]
     pub fn add_content(&mut self) -> ContentBuilder {
         ContentBuilder {
             content: &mut self.section.content,
         }
     }
 
-    #[expect(dead_code)]
     pub fn into_section_builder(self) -> SubSectionBuilder<'a> {
         SubSectionBuilder {
             section: self.section,
@@ -210,10 +208,12 @@ pub struct SubSectionBuilder<'a> {
 }
 
 impl SubSectionBuilder<'_> {
-    #[expect(dead_code)]
-    pub fn add_subsection(&mut self, title: RichText) -> SectionBuilder {
+    pub fn add_subsection(&mut self, title: impl Into<RichText>) -> SectionBuilder {
         SectionBuilder {
-            section: push_last_mut(&mut self.section.subsections, Section::with_title(title)),
+            section: push_last_mut(
+                &mut self.section.subsections,
+                Section::with_title(title.into()),
+            ),
         }
     }
 }
@@ -235,7 +235,6 @@ impl ContentBuilder<'_> {
         }
     }
 
-    #[expect(dead_code)]
     pub fn add_dialogue(&mut self) -> DialogueBuilder {
         DialogueBuilder {
             dialogue: self.content.push_dialogue_mut(),
@@ -248,8 +247,10 @@ pub struct DialogueBuilder<'a> {
 }
 
 impl DialogueBuilder<'_> {
-    #[expect(dead_code)]
-    pub fn add_line(&mut self, speaker: RichText, line: RichText) {
-        self.dialogue.push(Line { speaker, line });
+    pub fn add_line(&mut self, speaker: impl Into<RichText>, line: impl Into<RichText>) {
+        self.dialogue.push(Line {
+            speaker: speaker.into(),
+            line: line.into(),
+        });
     }
 }

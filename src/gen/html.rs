@@ -73,7 +73,6 @@ pub fn generate_section(_level: usize, section: &Section) -> maud::Markup {
     }
 }
 
-#[expect(dead_code)]
 pub fn generate_html(doc: &Document) -> anyhow::Result<String> {
     Ok(maud::html! {
         (maud::DOCTYPE)

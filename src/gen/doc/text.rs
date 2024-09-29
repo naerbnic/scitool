@@ -48,6 +48,20 @@ impl RichText {
     }
 }
 
+impl<T> From<T> for RichText
+where
+    T: ToString,
+{
+    fn from(text: T) -> Self {
+        RichText {
+            items: vec![TextItem {
+                text: text.to_string(),
+                style: TextStyle::default(),
+            }],
+        }
+    }
+}
+
 pub struct RichTextBuilder {
     output: Option<RichText>,
 }

@@ -1,5 +1,3 @@
-use super::doc::Document;
-
 mod builder;
 
 // pub struct MarkdownDocument {

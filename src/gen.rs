@@ -1,5 +1,5 @@
 //! Contains code used to generate outputs from scitool.
 
-mod doc;
+pub mod doc;
 mod markdown;
-mod html;
+pub mod html;

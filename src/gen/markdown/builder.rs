@@ -1,3 +1,5 @@
+#![expect(dead_code)]
+
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 fn ends_with_newline(s: &str) -> bool {
@@ -11,7 +13,7 @@ fn ends_with_blankline(s: &str) -> bool {
             _ => return false,
         }
     }
-    return true;
+    true
 }
 
 struct NewlineChars<'a>(std::iter::Peekable<std::str::Chars<'a>>);
@@ -50,14 +52,14 @@ impl<'a> StringBuilder<'a> {
         }
     }
     pub fn ensure_newline(&mut self) {
-        if !ends_with_blankline(&self.output) {
+        if !ends_with_blankline(self.output) {
             self.add_newline();
         }
     }
 
     pub fn add_newline(&mut self) {
         self.output.push('\n');
-        self.state.append_prefix(&mut self.output);
+        self.state.append_prefix(self.output);
     }
 
     pub fn add_raw_text(&mut self, text: &str) {
@@ -99,7 +101,7 @@ impl<'a> StringBuilder<'a> {
         }
     }
 
-    fn borrow<'s>(&'s mut self) -> StringBuilder<'s> {
+    fn borrow(&mut self) -> StringBuilder {
         StringBuilder {
             state: self.state,
             output: self.output,
@@ -223,7 +225,7 @@ impl StyleChange {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct TextStyle {
     pub bold: bool,
     pub italic: bool,
@@ -234,15 +236,6 @@ impl TextStyle {
         TextStyleChange {
             bold: StyleChange::from_state(self.bold, new_style.bold),
             italic: StyleChange::from_state(self.italic, new_style.italic),
-        }
-    }
-}
-
-impl Default for TextStyle {
-    fn default() -> Self {
-        TextStyle {
-            bold: false,
-            italic: false,
         }
     }
 }

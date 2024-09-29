@@ -148,7 +148,6 @@ impl<'a> Line<'a> {
         self.book().get_talker(TalkerId(self.entry.talker)).unwrap()
     }
 
-    #[expect(dead_code)]
     pub fn role(&self) -> Role<'a> {
         self.talker().role()
     }
@@ -334,7 +333,6 @@ impl<'a> Noun<'a> {
         NounId(self.parent.id(), self.raw_id)
     }
 
-    #[expect(dead_code)]
     pub fn desc(&self) -> Option<&str> {
         self.entry.desc.as_deref()
     }
@@ -451,7 +449,6 @@ impl<'a> Role<'a> {
     }
 
     /// Get the short name of the role.
-    #[expect(dead_code)]
     pub fn short_name(&self) -> &str {
         &self.entry.short_name
     }
