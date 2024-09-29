@@ -47,29 +47,94 @@ struct RawRoleId(String);
 // These uniquely identify different entities in the book. They are frequently
 // composite ids, in order to navigate to the correct entity in the book.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RoomId(RawRoomId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for RoomId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RoomId").field(&self.0 .0).finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VerbId(RawVerbId);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for VerbId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("VerbId").field(&self.0 .0).finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RoleId(RawRoleId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for RoleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RoleId").field(&self.0 .0).finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NounId(RoomId, RawNounId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for NounId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NounId")
+            .field("room", &self.0 .0 .0)
+            .field("noun", &self.1 .0)
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TalkerId(RawTalkerId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for TalkerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RoleId").field(&self.0 .0).finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConditionId(RoomId, RawConditionId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for ConditionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConditionId")
+            .field("room", &self.0 .0 .0)
+            .field("condition", &self.1 .0)
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConversationId(NounId, ConversationKey);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl std::fmt::Debug for ConversationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConversationId")
+            .field("room", &self.0 .0 .0 .0)
+            .field("noun", &self.0 .1 .0)
+            .field("verb", &self.1.verb().0)
+            .field("condition", &self.1.condition().0)
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LineId(ConversationId, RawSequenceId);
+
+impl std::fmt::Debug for LineId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LineId")
+            .field("room", &self.0 .0 .0 .0 .0)
+            .field("noun", &self.0 .0 .1 .0)
+            .field("verb", &self.0 .1.verb().0)
+            .field("condition", &self.0 .1.condition().0)
+            .field("sequence", &self.1 .0)
+            .finish()
+    }
+}
 
 // Entries
 //
