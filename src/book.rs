@@ -135,7 +135,6 @@ pub struct Line<'a> {
 }
 
 impl<'a> Line<'a> {
-    #[expect(dead_code)]
     pub fn id(&self) -> LineId {
         LineId(self.parent.id(), self.raw_id)
     }
@@ -145,7 +144,15 @@ impl<'a> Line<'a> {
     }
 
     pub fn talker(&self) -> Talker<'a> {
-        self.book().get_talker(TalkerId(self.entry.talker)).unwrap()
+        self.book()
+            .get_talker(TalkerId(self.entry.talker))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Talker not found: {:?} in line: {:?}",
+                    self.entry.talker,
+                    self.id()
+                )
+            })
     }
 
     pub fn role(&self) -> Role<'a> {

@@ -55,6 +55,9 @@ roles:
   crumpella:
     name: Crumpella
     short_name: Crumpella
+  waitress:
+    name: Spacebar Waitress
+    short_name: Waitress
   merchant:
     name: Nelo Jones, Merchant of Venus
     short_name: Nelo
@@ -129,6 +132,8 @@ talkers:
     role: brig-guard-1
   - id: 43
     role: brig-guard-2
+  - id: 45
+    role: waitress
   - id: 46
     role: colonist
   - id: 47
