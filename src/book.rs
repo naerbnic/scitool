@@ -263,16 +263,24 @@ impl<'a> Conversation<'a> {
     }
 
     /// Get the verb used for this conversation (if it exists).
-    #[expect(dead_code)]
     pub fn verb(&self) -> Option<Verb<'a>> {
         if self.raw_id.verb() == RawVerbId(0) {
             return None;
         }
-        Some(self.book().get_verb(VerbId(self.raw_id.verb())).unwrap())
+        Some(
+            self.book()
+                .get_verb(VerbId(self.raw_id.verb()))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Verb not found: {:?} in conversation: {:?}",
+                        self.raw_id.verb(),
+                        self.id()
+                    )
+                }),
+        )
     }
 
     /// Get the condition needed for this conversation (if it exists).
-    #[expect(dead_code)]
     pub fn condition(&self) -> Option<Condition<'a>> {
         if self.raw_id.condition() == RawConditionId(0) {
             return None;
@@ -321,13 +329,11 @@ pub struct Condition<'a> {
 }
 
 impl<'a> Condition<'a> {
-    #[expect(dead_code)]
     pub fn id(&self) -> ConditionId {
         ConditionId(self.parent.id(), self.raw_id)
     }
 
     /// Get the description of this condition (if specified).
-    #[expect(dead_code)]
     pub fn desc(&self) -> Option<&str> {
         self.entry.builder.desc()
     }
@@ -357,7 +363,6 @@ impl<'a> Verb<'a> {
         VerbId(self.raw_id)
     }
 
-    #[expect(dead_code)]
     pub fn name(&self) -> &str {
         &self.entry.name
     }

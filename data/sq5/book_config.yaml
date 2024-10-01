@@ -188,6 +188,8 @@ verbs:
     name: Use Oxygen Tank
   - id: 26
     name: Use Cloaking Device
+  - id: 27
+    name: ??? (27)
   - id: 28
     name: Use Transporter Fuse
   - id: 29
@@ -212,8 +214,12 @@ verbs:
     name: Use WD-40 Head
   - id: 39
     name: Use Oxygen Mask
+  - id: 41
+    name: Use Frock
   - id: 42
     name: Use Paper
+  - id: 43
+    name: ??? (43)
 
 rooms:
   - id: 0
@@ -472,8 +478,18 @@ rooms:
     name: Eureka Hallway - Meeting Spike
   - id: 240
     name: Engineering
+    nouns:
+      - id: 11
+        desc: Cryo-Chef
+    conditions:
+      - id: 11
+        desc: Cryo-Chamber Closed
+      - id: 12
+        desc: Cryo-Chamber Open
+      - id: 13
+        desc: Holding Beatrice
   - id: 241
-    name: Engineering - Cryo-Chef
+    name: Engineering - Cryo-Chef Inset
   - id: 246
     name: Engineeering - Infiltration Planning
   - id: 250

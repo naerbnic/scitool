@@ -12,6 +12,16 @@ impl TextStyle {
     pub fn italic(&self) -> bool {
         self.italic
     }
+
+    pub fn set_bold(&mut self, bold: bool) -> &mut Self {
+        self.bold = bold;
+        self
+    }
+
+    pub fn set_italic(&mut self, italic: bool) -> &mut Self {
+        self.italic = italic;
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -40,10 +50,9 @@ impl RichText {
         &self.items
     }
 
-    #[expect(dead_code)]
     pub fn builder() -> RichTextBuilder {
         RichTextBuilder {
-            output: Some(RichText::default()),
+            output: RichText::default(),
         }
     }
 }
@@ -63,32 +72,31 @@ where
 }
 
 pub struct RichTextBuilder {
-    output: Option<RichText>,
+    output: RichText,
 }
 
 impl RichTextBuilder {
     #[expect(dead_code)]
     pub fn add_plain_text(&mut self, text: impl ToString) -> &mut Self {
-        self.add_text(text, TextStyle::default())
+        self.add_text(text, &TextStyle::default())
     }
 
-    pub fn add_text(&mut self, text: impl ToString, curr_style: TextStyle) -> &mut Self {
-        match self.output.as_mut().unwrap().items.last_mut() {
-            Some(last) if last.style == curr_style => {
+    pub fn add_text(&mut self, text: impl ToString, curr_style: &TextStyle) -> &mut Self {
+        match self.output.items.last_mut() {
+            Some(last) if &last.style == curr_style => {
                 last.text.push_str(text.to_string().as_str());
             }
             _ => {
-                self.output.as_mut().unwrap().items.push(TextItem {
+                self.output.items.push(TextItem {
                     text: text.to_string(),
-                    style: curr_style,
+                    style: curr_style.clone(),
                 });
             }
         }
         self
     }
 
-    #[expect(dead_code)]
-    pub fn build(mut self) -> RichText {
-        self.output.take().unwrap()
+    pub fn build(self) -> RichText {
+        self.output
     }
 }

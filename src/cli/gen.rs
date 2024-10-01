@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -5,7 +6,10 @@ use clap::{Parser, Subcommand};
 use crate::{
     book::{builder::BookBuilder, config::BookConfig, Book},
     gen::{
-        doc::{Document, DocumentBuilder},
+        doc::{
+            text::{RichText, TextStyle},
+            Document, DocumentBuilder, SectionBuilder,
+        },
         html::generate_html,
     },
     res::{file::open_game_resources, msg::parse_message_resource, ResourceType},
@@ -15,6 +19,140 @@ use crate::{
 struct CommonArgs {
     root_dir: PathBuf,
     config_path: PathBuf,
+}
+
+enum MessageSegment<'a> {
+    Text(&'a str),
+    Control(char, Option<u32>),
+}
+
+fn split_first_char(text: &str) -> Option<(char, &str)> {
+    let mut chars = text.chars();
+    let first = chars.next()?;
+    Some((first, chars.as_str()))
+}
+
+fn parse_message_text(mut text: &str) -> Vec<MessageSegment> {
+    let mut segments = Vec::new();
+    loop {
+        let (next_text, control_start_rest) = match text.split_once('|') {
+            Some((first, second)) => (first, Some(second)),
+            None => (text, None),
+        };
+
+        if !next_text.is_empty() {
+            segments.push(MessageSegment::Text(next_text));
+        }
+
+        let Some(rest) = control_start_rest else {
+            break;
+        };
+        let (control, rest) = split_first_char(rest).unwrap();
+        let (value, rest) = rest.split_once('|').unwrap();
+        segments.push(MessageSegment::Control(
+            control,
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.parse().unwrap())
+            },
+        ));
+        text = rest;
+    }
+
+    segments
+}
+
+fn convert_message_text_to_rich_text(ctxt: &str, text: &str) -> RichText {
+    let segments = parse_message_text(text);
+    let mut builder = RichText::builder();
+    let mut curr_style = TextStyle::default();
+    for segment in segments {
+        match segment {
+            MessageSegment::Text(text) => {
+                builder.add_text(text, &curr_style);
+            }
+            MessageSegment::Control(ctrl, value) => match ctrl {
+                'f' => {
+                    match value {
+                        None => curr_style = TextStyle::default(),
+                        Some(1) => {
+                            // ???
+                        }
+                        Some(2) => {
+                            // Italics
+                            curr_style = TextStyle::default();
+                            curr_style.set_italic(true);
+                        }
+                        Some(3) => {
+                            // Super Large Font
+                            curr_style = TextStyle::default();
+                            curr_style.set_bold(true);
+                        }
+                        Some(4) => {
+                            // Lowercase
+                        }
+                        Some(5) => {
+                            // Title Font
+                            //
+                            // Example: "|f5|Space Quest 5:"
+                            curr_style = TextStyle::default();
+                            curr_style.set_bold(true);
+                        }
+                        Some(6) => {
+                            // ???
+                        }
+                        Some(8) => {
+                            curr_style = TextStyle::default();
+                            curr_style.set_bold(true);
+                        }
+                        _ => {
+                            eprintln!(
+                                "Found font control with value {:?}; Context: {:?}, {}",
+                                value, text, ctxt
+                            );
+                        }
+                    }
+                }
+                'c' => {
+                    // Color control
+                    match value {
+                        None => {
+                            // Reset to default color
+                        }
+                        Some(1) => {
+                            // Red
+                        }
+                        Some(2) => {
+                            // Yellow
+                        }
+                        Some(3) => {
+                            // White
+                        }
+                        Some(4) => {
+                            // Green
+                        }
+                        Some(5) => {
+                            // Cyan
+                        }
+                        Some(6) => {
+                            // ???
+                        }
+                        _ => {
+                            eprintln!(
+                                "Found color control with value {:?}; Context: {:?}, {}",
+                                value, text, ctxt
+                            );
+                        }
+                    }
+                }
+                c => {
+                    eprintln!("Unknown control: {:?} with value {:?}", c, value);
+                }
+            },
+        }
+    }
+    builder.build()
 }
 
 fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
@@ -38,25 +176,65 @@ fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
     Ok(builder.build()?)
 }
 
+fn generate_conversation(mut section: SectionBuilder, conversation: &crate::book::Conversation) {
+    let mut content = section.add_content();
+    let mut dialogue = content.add_dialogue();
+    for line in conversation.lines() {
+        dialogue.add_line(
+            line.role().short_name(),
+            convert_message_text_to_rich_text(&format!("{:?}", conversation.id()), line.text()),
+        );
+    }
+}
+
 fn generate_document(book: &Book) -> anyhow::Result<Document> {
     let mut doc = DocumentBuilder::new("SQ5: The Game: The Script");
     for room in book.rooms() {
         let mut room_section = doc.add_chapter(room.name()).into_section_builder();
         for noun in room.nouns() {
-            let mut noun_section = room_section
-                .add_subsection(
-                    noun.desc()
-                        .map(ToOwned::to_owned)
-                        .unwrap_or_else(|| format!("{:?}", noun.id())),
-                )
-                .into_section_builder();
-            for conversion in noun.conversations() {
-                let mut conv_section =
-                    noun_section.add_subsection(format!("{:?}", conversion.id()));
-                let mut content = conv_section.add_content();
-                let mut dialogue = content.add_dialogue();
-                for line in conversion.lines() {
-                    dialogue.add_line(line.role().short_name(), line.text())
+            let num_conversations = noun.conversations().count();
+            if num_conversations == 0 {
+                continue;
+            }
+            let mut noun_section = room_section.add_subsection(
+                noun.desc()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("{:?}", noun.id())),
+            );
+
+            match noun.conversations().exactly_one() {
+                Ok(conversation) => {
+                    if let Some(verb) = conversation.verb() {
+                        noun_section
+                            .add_content()
+                            .add_paragraph(format!("On {}", verb.name()));
+                    }
+                    generate_conversation(noun_section, &conversation);
+                }
+                Err(full_iter) => {
+                    let mut noun_section_builder = noun_section.into_section_builder();
+
+                    for conversation in full_iter {
+                        let title = match (conversation.verb(), conversation.condition()) {
+                            (Some(verb), Some(cond)) => format!(
+                                "On {} ({})",
+                                verb.name(),
+                                cond.desc()
+                                    .map(ToString::to_string)
+                                    .unwrap_or_else(|| format!("Condition {:?}", cond.id()))
+                            ),
+                            (Some(verb), None) => format!("On {}", verb.name()),
+                            (None, Some(cond)) => format!(
+                                "When {}",
+                                cond.desc()
+                                    .map(ToString::to_string)
+                                    .unwrap_or_else(|| format!("Condition {:?}", cond.id()))
+                            ),
+                            (None, None) => "On Any".to_string(),
+                        };
+                        let conv_section = noun_section_builder.add_subsection(title);
+                        generate_conversation(conv_section, &conversation);
+                    }
                 }
             }
         }

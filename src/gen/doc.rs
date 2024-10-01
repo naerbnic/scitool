@@ -223,9 +223,8 @@ pub struct ContentBuilder<'a> {
 }
 
 impl ContentBuilder<'_> {
-    #[expect(dead_code)]
-    pub fn add_paragraph(&mut self, text: RichText) {
-        self.content.push_paragraph(text);
+    pub fn add_paragraph(&mut self, text: impl Into<RichText>) {
+        self.content.push_paragraph(text.into());
     }
 
     #[expect(dead_code)]
