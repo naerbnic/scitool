@@ -1,5 +1,7 @@
 use super::doc::{text::RichText, ContentItem, Document, Section};
 
+const SCRIPT_CSS: &str = include_str!("script.css");
+
 fn generate_rich_text(text: &RichText) -> maud::Markup {
     maud::html! {
         @for item in text.items() {
@@ -44,12 +46,11 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
                     }
                 }
                 ContentItem::Dialogue(dialogue) => {
-                    ul {
+                    .dialogue {
                         @for line in dialogue.lines() {
-                            li {
-                                span.speaker { (generate_rich_text(line.speaker())) }
-                                ":"
-                                span."line-text" { (generate_rich_text(line.line())) }
+                            .line {
+                                .speaker { (generate_rich_text(line.speaker())) ":" }
+                                ."line-text" { (generate_rich_text(line.line())) }
                             }
                         }
                     }
@@ -61,14 +62,16 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
 
 pub fn generate_section(_level: usize, section: &Section) -> maud::Markup {
     maud::html! {
-        h2 {
+        ."section-title" {
             (generate_rich_text(section.title()))
         }
 
         (generate_content(section.content()))
 
         @for subsection in section.subsections() {
-            (generate_section(_level + 1, subsection))
+            .section {
+                (generate_section(_level + 1, subsection))
+            }
         }
     }
 }
@@ -79,6 +82,7 @@ pub fn generate_html(doc: &Document) -> anyhow::Result<String> {
         html {
             head {
                 title { (generate_plain_text(doc.title())) }
+                style { (SCRIPT_CSS) }
             }
             body {
                 h1 { (generate_rich_text(doc.title())) }

@@ -199,7 +199,7 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
             let mut noun_section = room_section.add_subsection(
                 noun.desc()
                     .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| format!("{:?}", noun.id())),
+                    .unwrap_or_else(|| format!("Noun #{:?}", noun.id().noun_num())),
             );
 
             match noun.conversations().exactly_one() {
@@ -215,23 +215,24 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
                     let mut noun_section_builder = noun_section.into_section_builder();
 
                     for conversation in full_iter {
-                        let title = match (conversation.verb(), conversation.condition()) {
-                            (Some(verb), Some(cond)) => format!(
-                                "On {} ({})",
-                                verb.name(),
-                                cond.desc()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| format!("Condition {:?}", cond.id()))
-                            ),
-                            (Some(verb), None) => format!("On {}", verb.name()),
-                            (None, Some(cond)) => format!(
-                                "When {}",
-                                cond.desc()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| format!("Condition {:?}", cond.id()))
-                            ),
-                            (None, None) => "On Any".to_string(),
-                        };
+                        let title =
+                            match (conversation.verb(), conversation.condition()) {
+                                (Some(verb), Some(cond)) => format!(
+                                    "On {} ({})",
+                                    verb.name(),
+                                    cond.desc().map(ToString::to_string).unwrap_or_else(
+                                        || format!("Condition #{:?}", cond.id().condition_num())
+                                    )
+                                ),
+                                (Some(verb), None) => format!("On {}", verb.name()),
+                                (None, Some(cond)) => format!(
+                                    "When {}",
+                                    cond.desc().map(ToString::to_string).unwrap_or_else(
+                                        || format!("Condition #{:?}", cond.id().condition_num())
+                                    )
+                                ),
+                                (None, None) => "On Any".to_string(),
+                            };
                         let conv_section = noun_section_builder.add_subsection(title);
                         generate_conversation(conv_section, &conversation);
                     }

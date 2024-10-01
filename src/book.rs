@@ -77,6 +77,12 @@ impl std::fmt::Debug for RoleId {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NounId(RoomId, RawNounId);
 
+impl NounId {
+    pub fn noun_num(&self) -> u8 {
+        self.1 .0
+    }
+}
+
 impl std::fmt::Debug for NounId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NounId")
@@ -97,6 +103,12 @@ impl std::fmt::Debug for TalkerId {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConditionId(RoomId, RawConditionId);
+
+impl ConditionId {
+    pub fn condition_num(&self) -> u8 {
+        self.1 .0
+    }
+}
 
 impl std::fmt::Debug for ConditionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

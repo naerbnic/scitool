@@ -1,0 +1,58 @@
+div.dialogue {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    margin: 0.5em;
+}
+
+div.line {
+    display: grid;
+    grid-column: 1 / 3;
+    grid-template-columns: subgrid;
+    margin-bottom: 0.25em;
+}
+
+div.speaker {
+    display: inline;
+    font-weight: bold;
+    grid-column: 1 / 2;
+    justify-self: end;
+}
+
+div.line-text {
+    display: inline;
+    grid-column: 2 / 3;
+    margin-left: 1em;
+}
+
+.section {
+    margin-top: 1em;
+    margin-bottom: 1em;
+}
+
+.section-title {
+    font-size: 2em;
+    font-weight: bold;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+.section .section-title {
+    font-size: 1.5em;
+    font-weight: bold;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+.section .section .section-title {
+    font-size: 1.25em;
+    font-weight: bold;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+.section .section .section .section-title {
+    font-size: 1em;
+    font-weight: bold;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
