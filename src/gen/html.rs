@@ -66,11 +66,13 @@ pub fn generate_section(_level: usize, section: &Section) -> maud::Markup {
             ."section-title" {
                 (generate_rich_text(section.title()))
             }
+            ."section-body" {
 
-            (generate_content(section.content()))
+                (generate_content(section.content()))
 
-            @for subsection in section.subsections() {
-                (generate_section(_level + 1, subsection))
+                @for subsection in section.subsections() {
+                    (generate_section(_level + 1, subsection))
+                }
             }
         }
     }
@@ -84,7 +86,7 @@ pub fn generate_html(doc: &Document) -> anyhow::Result<String> {
                 title { (generate_plain_text(doc.title())) }
                 style { (SCRIPT_CSS) }
             }
-            body {
+            body lang="en-US"{
                 h1 { (generate_rich_text(doc.title())) }
                 @for chapter in doc.chapters() {
                     (generate_section(0, chapter))

@@ -1,6 +1,8 @@
 div.dialogue {
+    padding-left: 1em;
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: max-content fit-content;
+    width: fit-content;
     margin: 0.5em;
 }
 
@@ -8,50 +10,65 @@ div.line {
     display: grid;
     grid-column: 1 / 3;
     grid-template-columns: subgrid;
+    font-family: 'Courier New', monospace;
+    margin-bottom: 0.25em;
+}
+
+div.line:hover {
+    background-color: #f0f0f0;
 }
 
 div.speaker {
-    display: inline;
     font-weight: bold;
+    text-transform: uppercase;
     grid-column: 1 / 2;
     justify-self: end;
 }
 
 div.line-text {
-    display: inline;
     grid-column: 2 / 3;
-    margin-left: 1em;
+    margin-left: 0.5em;
+    max-width: 36em;
+    hyphens: auto;
+}
+
+div.line-text b {
+    text-transform: uppercase;
 }
 
 .section {
+    border-left-width: 1px;
+    border-left-style: dashed;
+    border-left-color: transparent;
+}
+
+.section:hover {
+    border-left-color: darkgray;
+}
+
+.section-body {
+    padding-left: 1em;
     margin-top: 1em;
     margin-bottom: 1em;
 }
 
 .section-title {
+    padding-left: 0.1em;
     font-size: 2em;
     font-weight: bold;
+    font-family: Helvetica, sans-serif;
     margin-top: 0.5em;
     margin-bottom: 0.5em;
 }
 
 .section .section-title {
     font-size: 1.5em;
-    font-weight: bold;
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
 }
 
 .section .section .section-title {
     font-size: 1.25em;
-    font-weight: bold;
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
 }
 
 .section .section .section .section-title {
-    font-size: 1em;
-    font-weight: bold;
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
+    font-size: 1.1em;
 }
