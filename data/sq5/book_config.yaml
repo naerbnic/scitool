@@ -344,6 +344,34 @@ rooms:
   name: "Starcon Hallway #1"
 - id: 122
   name: "Starcon Hallway #2"
+  conditions:
+  - id: 1
+    desc: Janitor's Closet Open
+  - id: 2
+    desc: Janitor's Closet Closed
+  - id: 3
+    desc: Before Meeting Beatrice
+  - id: 4
+    desc: After Meeting Beatrice
+  nouns:
+  - id: 1
+    desc: Floor Scrubber
+  - id: 2
+    desc: Janitor's Closet
+  - id: 3
+    desc: Safety Cones
+  - id: 4
+    desc: Broken Academy Schematic
+  - id: 5
+    desc: Beatrice's Ship
+  - id: 6
+    desc: "Ship #1"
+  - id: 7
+    desc: "Ship #2"
+  - id: 8
+    desc: Simulator Door
+  - id: 9
+    desc: Astro-techs
 - id: 123
   name: "Starcon Hallway #3"
 - id: 125
