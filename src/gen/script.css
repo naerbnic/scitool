@@ -18,6 +18,14 @@ div.line:hover {
     background-color: #f0f0f0;
 }
 
+div.line .copy-button {
+    visibility: hidden;
+}
+
+div.line:hover .copy-button {
+    visibility: initial;
+}
+
 div.speaker {
     font-weight: bold;
     text-transform: uppercase;
@@ -61,6 +69,14 @@ div.line-text b {
     margin-bottom: 0.5em;
 }
 
+.section-title .copy-button {
+    visibility: hidden
+}
+
+.section-title:hover .copy-button {
+    visibility: initial;
+}
+
 .section .section-title {
     font-size: 1.5em;
 }
@@ -71,4 +87,29 @@ div.line-text b {
 
 .section .section .section .section-title {
     font-size: 1.1em;
+}
+
+.material-symbols-outlined {
+    font-variation-settings:
+        'FILL' 0,
+        'wght' 400,
+        'GRAD' 0,
+        'opsz' 20
+}
+
+div.copy-button {
+    display: inline-flex;
+    opacity: 10%;
+    cursor: pointer;
+    margin-left: 0.2em;
+    align-items: center;
+}
+
+/* The icon inside of the copy button */
+div.copy-button .material-symbols-outlined {
+    font-size: 1em;
+}
+
+div.copy-button:hover {
+    opacity: 100%;
 }
