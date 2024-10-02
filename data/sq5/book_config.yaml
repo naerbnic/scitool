@@ -224,6 +224,21 @@ verbs:
 rooms:
   - id: 0
     name: General Text
+    nouns:
+    - id: 0
+      desc: Generic Object Responses
+    - id: 1
+      desc: Information Button
+    - id: 22
+      desc: Roger
+    - id: 23
+      desc: Save Button
+    - id: 24
+      desc: Volume Slider
+    - id: 25
+      desc: Speed Slider
+    - id: 26
+      desc: Talk Button
   - id: 1
     name: Roger Verb Responses
   - id: 13
