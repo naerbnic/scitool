@@ -20,7 +20,7 @@ roles:
     short_name: Students
   big-brain:
     name: Big-Brain Student
-    short_name: big-brain
+    short_name: Big Brain
   cliffy:
     name: Cliffy
     short_name: Cliffy
@@ -95,7 +95,7 @@ talkers:
   role: roger
 # TODO: Split to different students
 - id: 8
-  role: big-brain
+  role: students
 - id: 9
   role: cliffy
 - id: 17
