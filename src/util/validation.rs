@@ -235,18 +235,13 @@ impl MultiValidator {
         self
     }
 
-    pub fn validate_ctxt<T, F, E>(
-        &mut self,
-        ctxt: impl Into<String>,
-        item: &T,
-        validator: F,
-    ) -> &mut Self
+    pub fn validate_ctxt<F, E>(&mut self, ctxt: impl Into<String>, validator: F) -> &mut Self
     where
-        F: FnOnce(&T) -> Result<(), E>,
+        F: FnOnce() -> Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
     {
         self.result.append(
-            validator(item)
+            validator()
                 .map_err(ValidationError::from_any)
                 .with_context(ctxt),
         );

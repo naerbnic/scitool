@@ -283,11 +283,13 @@ pub(super) struct RoomEntry {
 impl RoomEntry {
     fn validate(&self, ctxt: &BookBuilder) -> ValidateResult {
         MultiValidator::new()
-            .validate_ctxt("conditions", &self.conditions, |conditions| {
-                conditions.iter().validate_all_values(|e| e.validate(ctxt))
+            .validate_ctxt("conditions", || {
+                self.conditions
+                    .iter()
+                    .validate_all_values(|e| e.validate(ctxt))
             })
-            .validate_ctxt("nouns", &self.nouns, |nouns| {
-                nouns.iter().validate_all_values(|e| e.validate(ctxt))
+            .validate_ctxt("nouns", || {
+                self.nouns.iter().validate_all_values(|e| e.validate(ctxt))
             })
             .build()?;
         Ok(())
@@ -405,17 +407,19 @@ impl BookBuilder {
 impl BookBuilder {
     fn validate(&self) -> ValidateResult {
         MultiValidator::new()
-            .validate_ctxt("roles", &self.roles, |roles| {
-                roles.iter().validate_all_values(|e| e.validate(self))
+            .validate_ctxt("roles", || {
+                self.roles.iter().validate_all_values(|e| e.validate(self))
             })
-            .validate_ctxt("talkers", &self.talkers, |talkers| {
-                talkers.iter().validate_all_values(|e| e.validate(self))
+            .validate_ctxt("talkers", || {
+                self.talkers
+                    .iter()
+                    .validate_all_values(|e| e.validate(self))
             })
-            .validate_ctxt("verbs", &self.verbs, |verbs| {
-                verbs.iter().validate_all_values(|e| e.validate(self))
+            .validate_ctxt("verbs", || {
+                self.verbs.iter().validate_all_values(|e| e.validate(self))
             })
-            .validate_ctxt("rooms", &self.rooms, |rooms| {
-                rooms.iter().validate_all_values(|e| e.validate(self))
+            .validate_ctxt("rooms", || {
+                self.rooms.iter().validate_all_values(|e| e.validate(self))
             })
             .build()?;
         Ok(())
