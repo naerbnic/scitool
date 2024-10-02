@@ -173,6 +173,7 @@ struct ConversationEntry {
 
 struct NounEntry {
     desc: Option<String>,
+    is_cutscene: bool,
     conversations: BTreeMap<ConversationKey, ConversationEntry>,
 }
 
@@ -424,6 +425,10 @@ impl<'a> Noun<'a> {
 
     pub fn desc(&self) -> Option<&str> {
         self.entry.desc.as_deref()
+    }
+
+    pub fn is_cutscene(&self) -> bool {
+        self.entry.is_cutscene
     }
 
     pub fn room(&self) -> Room<'a> {

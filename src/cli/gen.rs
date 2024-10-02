@@ -196,11 +196,16 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
             if num_conversations == 0 {
                 continue;
             }
-            let mut noun_section = room_section.add_subsection(
-                noun.desc()
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| format!("Noun #{:?}", noun.id().noun_num())),
-            );
+            let mut noun_desc = noun
+                .desc()
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| format!("Noun #{:?}", noun.id().noun_num()));
+
+            if noun.is_cutscene() {
+                noun_desc.push_str(" (Cutscene)");
+            }
+
+            let mut noun_section = room_section.add_subsection(noun_desc);
 
             match noun.conversations().exactly_one() {
                 Ok(conversation) => {

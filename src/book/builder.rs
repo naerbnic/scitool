@@ -1,5 +1,7 @@
 use std::collections::{btree_map, BTreeMap};
 
+use itertools::Itertools;
+
 use crate::{
     res::msg::{MessageId, MessageRecord},
     util::validation::{IteratorExt as _, MultiValidator, ValidationError},
@@ -213,13 +215,15 @@ impl ConditionEntry {
 #[derive(Debug, Clone, Default)]
 pub(super) struct NounEntry {
     desc: Option<String>,
+    is_cutscene: bool,
     conversation_set: BTreeMap<ConversationKey, Conversation>,
 }
 
 impl NounEntry {
-    pub fn with_desc(desc: impl Into<String>) -> Self {
+    pub fn with_desc(desc: impl Into<String>, is_cutscene: bool) -> Self {
         Self {
             desc: Some(desc.into()),
+            is_cutscene,
             conversation_set: BTreeMap::new(),
         }
     }
@@ -237,12 +241,33 @@ impl NounEntry {
     }
 
     fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
+        let mut validator = MultiValidator::new();
+        if self.is_cutscene {
+            match self.conversation_set.iter().exactly_one() {
+                Ok((key, _)) => {
+                    if key.verb != RawVerbId(0) || key.condition != RawConditionId(0) {
+                        validator.with_err(ValidationError::from(format!(
+                            "Cutscene noun must have exactly one conversation with verb 0 and condition 0. Found: {:?}",
+                            key
+                        )));
+                    }
+                }
+                Err(conversations) => {
+                    validator.with_err(ValidationError::from(format!(
+                        "Cutscene noun must have exactly one conversation. Found: {}",
+                        conversations.count()
+                    )));
+                }
+            }
+        }
+        validator.build()?;
         Ok(())
     }
 
     fn build(&self, ctxt: &BookBuilder) -> Result<super::NounEntry, BuildError> {
         Ok(super::NounEntry {
             desc: self.desc.clone(),
+            is_cutscene: self.is_cutscene,
             conversations: map_values(&self.conversation_set, |v| v.build(ctxt))?,
         })
     }
@@ -293,7 +318,7 @@ impl RoomEntry {
                 room_config
                     .nouns
                     .into_iter()
-                    .map(|noun| (noun.id, NounEntry::with_desc(noun.desc))),
+                    .map(|noun| (noun.id, NounEntry::with_desc(noun.desc, noun.is_cutscene))),
             )?,
         })
     }

@@ -33,6 +33,10 @@ pub(super) struct ConditionEntry {
 pub(super) struct NounEntry {
     pub id: RawNounId,
     pub desc: String,
+    /// If true, this noun refers to a cutscene. It should have
+    /// only one conversation with verb 0, and condition 0.
+    #[serde(default)]
+    pub is_cutscene: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

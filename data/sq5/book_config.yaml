@@ -219,7 +219,7 @@ verbs:
 - id: 42
   name: Use Paper
 - id: 43
-  name: ??? (43)
+  name: "??? (43)"
 
 rooms:
 - id: 0
@@ -229,6 +229,46 @@ rooms:
     desc: Generic Object Responses
   - id: 1
     desc: Information Button
+  - id: 2
+    desc: Command Button
+  - id: 3
+    desc: Options Button
+  - id: 4
+    desc: Inventory Panel
+  - id: 5
+    desc: Detail Slider
+  - id: 6
+    desc: Use Button
+  - id: 7
+    desc: Help Button
+  - id: 8
+    desc: Main Menu
+  - id: 9
+    desc: Inventory Use Button
+  - id: 10
+    desc: Inventory Button
+  - id: 11
+    desc: Inventory Help Button
+  - id: 12
+    desc: Inventory Arrow Button
+  - id: 13
+    desc: Inventory Look Button
+  - id: 14
+    desc: Inventory OK Button
+  - id: 15
+    desc: Inventory Array Button (#2?)
+  - id: 16
+    desc: Look Button
+  - id: 17
+    desc: Settings Back Button
+  - id: 18
+    desc: "??? (18)"
+  - id: 19
+    desc: Quit Button
+  - id: 20
+    desc: Restart Button
+  - id: 21
+    desc: Restore Button
   - id: 22
     desc: Roger
   - id: 23
@@ -239,6 +279,12 @@ rooms:
     desc: Speed Slider
   - id: 26
     desc: Talk Button
+  - id: 28
+    desc: Walk Button
+  - id: 29
+    desc: Score Bar
+  - id: 30
+    desc: Roger (as fly)
 - id: 1
   name: Roger Verb Responses
 - id: 13
@@ -253,6 +299,13 @@ rooms:
   name: Technobabble
 - id: 104
   name: Introduction
+  nouns:
+  - id: 1
+    is_cutscene: true
+    desc: Roger's Captains Log
+  - id: 2
+    is_cutscene: true
+    desc: Roger at the Helm (Simulator)
 - id: 109
   name: Starcon Hallways (General)
   conditions:
