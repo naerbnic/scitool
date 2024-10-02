@@ -50,6 +50,12 @@ struct RawRoleId(String);
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RoomId(RawRoomId);
 
+impl RoomId {
+    pub fn room_num(&self) -> u16 {
+        self.0 .0
+    }
+}
+
 impl std::fmt::Debug for RoomId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RoomId").field(&self.0 .0).finish()
@@ -78,6 +84,10 @@ impl std::fmt::Debug for RoleId {
 pub struct NounId(RoomId, RawNounId);
 
 impl NounId {
+    pub fn room_num(&self) -> u16 {
+        self.0 .0 .0
+    }
+
     pub fn noun_num(&self) -> u8 {
         self.1 .0
     }
@@ -86,8 +96,8 @@ impl NounId {
 impl std::fmt::Debug for NounId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NounId")
-            .field("room", &self.0 .0 .0)
-            .field("noun", &self.1 .0)
+            .field("room", &self.room_num())
+            .field("noun", &self.noun_num())
             .finish()
     }
 }
@@ -122,19 +132,59 @@ impl std::fmt::Debug for ConditionId {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConversationId(NounId, ConversationKey);
 
+impl ConversationId {
+    pub fn room_num(&self) -> u16 {
+        self.0 .0 .0 .0
+    }
+
+    pub fn noun_num(&self) -> u8 {
+        self.0 .1 .0
+    }
+
+    pub fn verb_num(&self) -> u8 {
+        self.1.verb().0
+    }
+
+    pub fn condition_num(&self) -> u8 {
+        self.1.condition().0
+    }
+}
+
 impl std::fmt::Debug for ConversationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConversationId")
-            .field("room", &self.0 .0 .0 .0)
-            .field("noun", &self.0 .1 .0)
-            .field("verb", &self.1.verb().0)
-            .field("condition", &self.1.condition().0)
+            .field("room", &self.room_num())
+            .field("noun", &self.noun_num())
+            .field("verb", &self.verb_num())
+            .field("condition", &self.condition_num())
             .finish()
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LineId(ConversationId, RawSequenceId);
+
+impl LineId {
+    pub fn room_num(&self) -> u16 {
+        self.0.room_num()
+    }
+
+    pub fn noun_num(&self) -> u8 {
+        self.0.noun_num()
+    }
+
+    pub fn verb_num(&self) -> u8 {
+        self.0.verb_num()
+    }
+
+    pub fn condition_num(&self) -> u8 {
+        self.0.condition_num()
+    }
+
+    pub fn sequence_num(&self) -> u8 {
+        self.1 .0
+    }
+}
 
 impl std::fmt::Debug for LineId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

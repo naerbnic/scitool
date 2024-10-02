@@ -177,20 +177,54 @@ fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
 }
 
 fn generate_conversation(mut section: SectionBuilder, conversation: &crate::book::Conversation) {
+    section.set_id(conversation_id_to_id_string(conversation.id()));
     let mut content = section.add_content();
     let mut dialogue = content.add_dialogue();
     for line in conversation.lines() {
         dialogue.add_line(
             line.role().short_name(),
             convert_message_text_to_rich_text(&format!("{:?}", conversation.id()), line.text()),
+            line_id_to_id_string(line.id()),
         );
     }
+}
+
+fn room_id_to_id_string(room_id: crate::book::RoomId) -> String {
+    format!("room-{}", room_id.room_num())
+}
+
+fn noun_id_to_id_string(noun_id: crate::book::NounId) -> String {
+    format!("noun-{}-{}", noun_id.room_num(), noun_id.noun_num())
+}
+
+fn conversation_id_to_id_string(conversation_id: crate::book::ConversationId) -> String {
+    format!(
+        "conv-{}-{}-{}-{}",
+        conversation_id.room_num(),
+        conversation_id.noun_num(),
+        conversation_id.verb_num(),
+        conversation_id.condition_num(),
+    )
+}
+
+fn line_id_to_id_string(line_id: crate::book::LineId) -> String {
+    format!(
+        "line-{}-{}-{}-{}-{}",
+        line_id.room_num(),
+        line_id.noun_num(),
+        line_id.verb_num(),
+        line_id.condition_num(),
+        line_id.sequence_num(),
+    )
 }
 
 fn generate_document(book: &Book) -> anyhow::Result<Document> {
     let mut doc = DocumentBuilder::new("SQ5: The Game: The Script");
     for room in book.rooms() {
-        let mut room_section = doc.add_chapter(room.name()).into_section_builder();
+        let mut room_section = doc.add_chapter(room.name());
+        room_section.set_id(room_id_to_id_string(room.id()));
+        let mut room_section = room_section.into_section_builder();
+
         for noun in room.nouns() {
             let num_conversations = noun.conversations().count();
             if num_conversations == 0 {
@@ -206,6 +240,8 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
             }
 
             let mut noun_section = room_section.add_subsection(noun_desc);
+
+            noun_section.set_id(noun_id_to_id_string(noun.id()));
 
             match noun.conversations().exactly_one() {
                 Ok(conversation) => {

@@ -26,6 +26,7 @@ impl Document {
 
 pub struct Section {
     title: RichText,
+    id: Option<String>,
     content: Content,
     subsections: Vec<Section>,
 }
@@ -33,6 +34,10 @@ pub struct Section {
 impl Section {
     pub fn title(&self) -> &RichText {
         &self.title
+    }
+
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     pub fn content(&self) -> &Content {
@@ -48,6 +53,7 @@ impl Section {
     fn with_title(title: RichText) -> Self {
         Self {
             title,
+            id: None,
             content: Content::new(),
             subsections: Vec::new(),
         }
@@ -72,6 +78,7 @@ impl List {
 
 pub struct Line {
     speaker: RichText,
+    id: String,
     line: RichText,
 }
 
@@ -82,6 +89,10 @@ impl Line {
 
     pub fn line(&self) -> &RichText {
         &self.line
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
     }
 }
 
@@ -190,6 +201,10 @@ pub struct SectionBuilder<'a> {
 }
 
 impl<'a> SectionBuilder<'a> {
+    pub fn set_id(&mut self, id: impl Into<String>) {
+        self.section.id = Some(id.into());
+    }
+
     pub fn add_content(&mut self) -> ContentBuilder {
         ContentBuilder {
             content: &mut self.section.content,
@@ -246,9 +261,15 @@ pub struct DialogueBuilder<'a> {
 }
 
 impl DialogueBuilder<'_> {
-    pub fn add_line(&mut self, speaker: impl Into<RichText>, line: impl Into<RichText>) {
+    pub fn add_line(
+        &mut self,
+        speaker: impl Into<RichText>,
+        line: impl Into<RichText>,
+        id: String,
+    ) {
         self.dialogue.push(Line {
             speaker: speaker.into(),
+            id,
             line: line.into(),
         });
     }

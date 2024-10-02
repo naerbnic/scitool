@@ -48,7 +48,7 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
                 ContentItem::Dialogue(dialogue) => {
                     .dialogue {
                         @for line in dialogue.lines() {
-                            .line {
+                            .line id=(line.id()){
                                 .speaker { (generate_rich_text(line.speaker())) ":" }
                                 ."line-text" { (generate_rich_text(line.line())) }
                             }
@@ -62,14 +62,14 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
 
 pub fn generate_section(_level: usize, section: &Section) -> maud::Markup {
     maud::html! {
-        ."section-title" {
-            (generate_rich_text(section.title()))
-        }
+        .section id=[section.id()] {
+            ."section-title" {
+                (generate_rich_text(section.title()))
+            }
 
-        (generate_content(section.content()))
+            (generate_content(section.content()))
 
-        @for subsection in section.subsections() {
-            .section {
+            @for subsection in section.subsections() {
                 (generate_section(_level + 1, subsection))
             }
         }
@@ -87,7 +87,7 @@ pub fn generate_html(doc: &Document) -> anyhow::Result<String> {
             body {
                 h1 { (generate_rich_text(doc.title())) }
                 @for chapter in doc.chapters() {
-                    (generate_section(2, chapter))
+                    (generate_section(0, chapter))
                 }
             }
         }
