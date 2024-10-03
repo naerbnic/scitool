@@ -604,6 +604,7 @@ impl<'a> Role<'a> {
 }
 
 pub struct Book {
+    project_name: String,
     roles: BTreeMap<RawRoleId, RoleEntry>,
     talkers: BTreeMap<RawTalkerId, TalkerEntry>,
     verbs: BTreeMap<RawVerbId, VerbEntry>,
@@ -612,6 +613,10 @@ pub struct Book {
 
 /// Public methods for the book.
 impl Book {
+    pub fn project_name(&self) -> &str {
+        &self.project_name
+    }
+
     pub fn rooms(&self) -> impl Iterator<Item = Room> {
         self.rooms.iter().map(|(&raw_id, entry)| Room {
             parent: self,

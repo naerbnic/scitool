@@ -219,7 +219,7 @@ fn line_id_to_id_string(line_id: crate::book::LineId) -> String {
 }
 
 fn generate_document(book: &Book) -> anyhow::Result<Document> {
-    let mut doc = DocumentBuilder::new("SQ5: The Game: The Script");
+    let mut doc = DocumentBuilder::new(format!("{} Script", book.project_name()));
     for room in book.rooms() {
         let mut room_section = doc.add_chapter(room.name());
         room_section.set_id(room_id_to_id_string(room.id()));

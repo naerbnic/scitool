@@ -338,6 +338,7 @@ impl RoomEntry {
 }
 
 pub struct BookBuilder {
+    project_name: String,
     roles: BTreeMap<RawRoleId, RoleEntry>,
     talkers: BTreeMap<RawTalkerId, TalkerEntry>,
     verbs: BTreeMap<RawVerbId, VerbEntry>,
@@ -347,6 +348,7 @@ pub struct BookBuilder {
 impl BookBuilder {
     pub fn new(config: BookConfig) -> BuildResult<Self> {
         let builder = Self {
+            project_name: config.project_name.clone(),
             roles: group_pairs(config.roles.into_iter().map(|(k, v)| {
                 (
                     k,
@@ -395,6 +397,7 @@ impl BookBuilder {
     pub fn build(self) -> BuildResult<Book> {
         self.validate()?;
         Ok(Book {
+            project_name: self.project_name.clone(),
             roles: map_values(&self.roles, |v| v.build(&self))?,
             talkers: map_values(&self.talkers, |v| v.build(&self))?,
             verbs: map_values(&self.verbs, |v| v.build(&self))?,

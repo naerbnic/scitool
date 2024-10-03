@@ -52,6 +52,7 @@ pub(super) struct RoomEntry {
 /// The top-level script config structure, and embedding in the messages file.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BookConfig {
+    pub(super) project_name: String,
     pub(super) roles: BTreeMap<RawRoleId, RoleEntry>,
     pub(super) talkers: Vec<TalkerEntry>,
     pub(super) verbs: Vec<VerbEntry>,
