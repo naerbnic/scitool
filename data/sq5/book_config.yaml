@@ -245,6 +245,7 @@ rooms:
     desc: Help Button
   - id: 8
     desc: Main Menu
+    hidden: true
   - id: 9
     desc: Inventory Use Button
   - id: 10
@@ -264,7 +265,8 @@ rooms:
   - id: 17
     desc: Settings Back Button
   - id: 18
-    desc: "??? (18)"
+    desc: Score String (X OUT OF Y)
+    hidden: true
   - id: 19
     desc: Quit Button
   - id: 20
@@ -291,6 +293,7 @@ rooms:
   name: Roger Verb Responses
 - id: 13
   name: Settings Credits
+  hidden: true
 - id: 15
   name: Inventory
 - id: 20
@@ -299,6 +302,7 @@ rooms:
   name: Settings Descriptions
 - id: 100
   name: Technobabble
+  hidden: true
 - id: 104
   name: Introduction
   nouns:
@@ -648,8 +652,19 @@ rooms:
   name: Genetix - Dumpster
 - id: 750
   name: Genetix - Security Log
+  nouns:
+  - id: 2
+    desc: Status Log
+    hidden: true
+  - id: 3
+    desc: Headers
+    hidden: true
+  - id: 4
+    desc: Log Contents
+    hidden: true
 - id: 751
   name: Genetix - Computer Budget
+  hidden: true
 - id: 752
   name: Genetix - Science Log
 - id: 753
@@ -694,5 +709,9 @@ rooms:
   name: Goliath - Bridge
 - id: 1041
   name: Game End/Credits
+  nouns:
+  - id: 1
+    desc: "Credits"
+    hidden: true
 - id: 1050
   name: Goliath - Transporter Room

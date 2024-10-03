@@ -37,6 +37,9 @@ pub(super) struct NounEntry {
     /// only one conversation with verb 0, and condition 0.
     #[serde(default)]
     pub is_cutscene: bool,
+    /// If true, this room is not included in the final script.
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +60,9 @@ pub(super) struct RoomEntry {
     /// there are several formats where numeric keys are not natively supported
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nouns: Vec<NounEntry>,
+    /// If true, this room is not included in the final script.
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 /// The top-level script config structure, and embedding in the messages file.

@@ -69,6 +69,21 @@ where
     source.iter().map(|(k, v)| Ok((k.clone(), f(v)?))).collect()
 }
 
+fn filter_map_values<K, S, T, F>(source: &BTreeMap<K, S>, body: F) -> BuildResult<BTreeMap<K, T>>
+where
+    K: Ord + Clone,
+    F: Fn(&S) -> BuildResult<Option<T>>,
+{
+    source
+        .iter()
+        .filter_map(|(k, v)| match body(v) {
+            Ok(Some(v)) => Some(Ok((k.clone(), v))),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct MessageEntry {
     talker: RawTalkerId,
@@ -217,14 +232,16 @@ pub(super) struct NounEntry {
     desc: Option<String>,
     is_cutscene: bool,
     conversation_set: BTreeMap<ConversationKey, Conversation>,
+    hidden: bool,
 }
 
 impl NounEntry {
-    pub fn with_desc(desc: impl Into<String>, is_cutscene: bool) -> Self {
+    pub fn with_config(noun_entry: config::NounEntry) -> Self {
         Self {
-            desc: Some(desc.into()),
-            is_cutscene,
+            desc: Some(noun_entry.desc),
+            is_cutscene: noun_entry.is_cutscene,
             conversation_set: BTreeMap::new(),
+            hidden: noun_entry.hidden,
         }
     }
 
@@ -278,6 +295,7 @@ pub(super) struct RoomEntry {
     name: Option<String>,
     conditions: BTreeMap<RawConditionId, ConditionEntry>,
     nouns: BTreeMap<RawNounId, NounEntry>,
+    hidden: bool,
 }
 
 impl RoomEntry {
@@ -299,7 +317,13 @@ impl RoomEntry {
         Ok(super::RoomEntry {
             name: self.name.clone(),
             conditions: map_values(&self.conditions, |v| v.build(ctxt))?,
-            nouns: map_values(&self.nouns, |v| v.build(ctxt))?,
+            nouns: filter_map_values(&self.nouns, |v| {
+                Ok(if !v.hidden {
+                    Some(v.build(ctxt)?)
+                } else {
+                    None
+                })
+            })?,
         })
     }
 }
@@ -320,8 +344,9 @@ impl RoomEntry {
                 room_config
                     .nouns
                     .into_iter()
-                    .map(|noun| (noun.id, NounEntry::with_desc(noun.desc, noun.is_cutscene))),
+                    .map(|noun| (noun.id, NounEntry::with_config(noun))),
             )?,
+            hidden: room_config.hidden,
         })
     }
 
@@ -401,7 +426,13 @@ impl BookBuilder {
             roles: map_values(&self.roles, |v| v.build(&self))?,
             talkers: map_values(&self.talkers, |v| v.build(&self))?,
             verbs: map_values(&self.verbs, |v| v.build(&self))?,
-            rooms: map_values(&self.rooms, |v| v.build(&self))?,
+            rooms: filter_map_values(&self.rooms, |v| {
+                Ok(if !v.hidden {
+                    Some(v.build(&self)?)
+                } else {
+                    None
+                })
+            })?,
         })
     }
 }
