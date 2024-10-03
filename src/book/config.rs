@@ -41,10 +41,20 @@ pub(super) struct NounEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct RoomEntry {
+    /// The numeric room ID.
     pub id: RawRoomId,
+    /// The human readable name of the room.
     pub name: String,
+    /// The list of conditions used in the room.
+    ///
+    /// This should generally be a map from condition IDs to data, but
+    /// there are several formats where numeric keys are not natively supported
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<ConditionEntry>,
+    /// The list of nouns used in the room.
+    ///
+    /// This should generally be a map from noun IDs to data, but
+    /// there are several formats where numeric keys are not natively supported
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nouns: Vec<NounEntry>,
 }
