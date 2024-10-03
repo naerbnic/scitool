@@ -103,6 +103,7 @@ div.copy-button {
     cursor: pointer;
     margin-left: 0.2em;
     align-items: center;
+    vertical-align: middle;
 }
 
 /* The icon inside of the copy button */
