@@ -380,10 +380,56 @@ rooms:
     desc: Astro-techs
 - id: 123
   name: "Starcon Hallway #3"
+  conditions:
+  - id: 1
+    desc: After Taking SATs
+  - id: 2
+    desc: Before Taking SATs
+  nouns:
+  - id: 1
+    desc: Bulletin Board
+  - id: 2
+    desc: Classroom Door
+  - id: 3
+    desc: Locker
+  - id: 4
+    desc: "Ship #1"
+  - id: 5
+    desc: "Ship #2"
+  - id: 6
+    desc: "Ship #3"
+  - id: 7
+    desc: Astro-mechs
+  - id: 8
+    desc: Post-SAT Student Crowd
 - id: 125
   name: "Starcon Hallway #4"
+  nouns:
+  - id: 1
+    desc: Bummed Student
+  - id: 2
+    desc: Failing Dialogue
+    is_cutscene: true
+  - id: 3
+    desc: Conference Room Door
+  - id: 4
+    desc: Conference Room Window
+  - id: 5
+    desc: Mysterious Panel
+  - id: 6
+    desc: "Ship #1"
+  - id: 7
+    desc: "Ship #2"
+  - id: 8
+    desc: "Ship #3"
+  - id: 9
+    desc: Astro-mechs
 - id: 127
   name: Starcon Conference Room
+  nouns:
+  - id: 1
+    desc: Beatrice's Presentation
+    is_cutscene: true
 - id: 133
   name: Grade Master 2000
 - id: 135
