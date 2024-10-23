@@ -103,7 +103,7 @@ impl InstDefListParsed {
     pub fn opcode_enum(&self) -> TokenStream{
         let inst_enum_items = self.inst_defs.iter().map(InstDefParsed::opcode_enum_item);
         quote! {
-            pub enum Opcode {
+            pub enum PMachineOpcode {
                 #(#inst_enum_items),*
             }
         }

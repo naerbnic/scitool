@@ -1,17 +1,6 @@
 use std::collections::{btree_map, BTreeMap};
 
-use crate::reloc::{RelocSize, RelocType};
-
-fn safe_signed_narrow(number: u16) -> anyhow::Result<u8> {
-    let sign_part = number & 0xFF80;
-    if sign_part != 0 && sign_part != 0xFF80 {
-        anyhow::bail!(
-            "number {} cannot be safely narrowed to a signed byte",
-            number
-        );
-    }
-    Ok((number & 0xFF) as u8)
-}
+use crate::{numbers::safe_signed_narrow, reloc::{RelocSize, RelocType}};
 
 #[derive(Clone, Copy, Debug)]
 struct Relocation<RelocSymbol> {

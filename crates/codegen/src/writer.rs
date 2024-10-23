@@ -12,5 +12,8 @@ pub trait BytecodeWriter<SymbolT, RelocT> {
     fn mark_symbol(&mut self, symbol: SymbolT);
     // Adds a relocation entry to the current position. It advances the current
     // position by the size of the relocation.
-    fn add_reloc(&mut self, reloc_type: RelocType, reloc_size: RelocSize, reloc: RelocT);
+    fn add_byte_reloc(&mut self, reloc_type: RelocType, offset: u8, reloc: RelocT);
+    // Adds a relocation entry to the current position. It advances the current
+    // position by the size of the relocation.
+    fn add_word_reloc(&mut self, reloc_type: RelocType, offset: u16, reloc: RelocT);
 }
