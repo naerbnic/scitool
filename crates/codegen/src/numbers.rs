@@ -50,10 +50,6 @@ pub fn write_word<W: std::io::Write>(mut buf: W, word: u16) -> anyhow::Result<()
     Ok(())
 }
 
-pub fn signed_extend_isize(word: u16) -> isize {
-    word as i16 as isize
-}
-
 pub fn safe_narrow_from_isize(size: isize) -> anyhow::Result<u16> {
     let top_bits_mask = !0x7FFFisize;
     let top_bits = size & top_bits_mask;

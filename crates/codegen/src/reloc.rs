@@ -1,5 +1,3 @@
-
-
 #[derive(Clone, Copy, Debug)]
 pub enum RelocSize {
     Byte,
@@ -13,12 +11,6 @@ impl RelocSize {
             RelocSize::Word => 2,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct RelocPosition {
-    offset: usize,
-    size: RelocSize,
 }
 
 #[derive(Clone, Copy, Debug)]

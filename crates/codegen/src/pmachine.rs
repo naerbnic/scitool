@@ -1,6 +1,6 @@
 //! This module defines the PMachine instruction set.
 
-mod var_access;
+pub mod var_access;
 
 use std::borrow::Cow;
 

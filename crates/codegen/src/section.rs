@@ -1,6 +1,10 @@
 use std::collections::{btree_map, BTreeMap};
 
-use crate::{numbers::safe_signed_narrow, reloc::{RelocSize, RelocType}};
+use crate::{
+    numbers::safe_signed_narrow,
+    reloc::{RelocSize, RelocType},
+    writer::BytecodeWriter,
+};
 
 #[derive(Clone, Copy, Debug)]
 struct Relocation<RelocSymbol> {
@@ -171,5 +175,92 @@ where
             relocations,
             alignment,
         }
+    }
+}
+
+pub struct SectionBuilder<TargetSymbol, RelocSymbol> {
+    section: Section<TargetSymbol, RelocSymbol>,
+}
+
+impl<TargetSymbol, RelocSymbol> SectionBuilder<TargetSymbol, RelocSymbol>
+where
+    TargetSymbol: Ord,
+{
+    pub fn new() -> Self {
+        Self {
+            section: Section {
+                data: Vec::new(),
+                symbols: BTreeMap::new(),
+                relocations: Vec::new(),
+                alignment: 1,
+            },
+        }
+    }
+
+    pub fn build(self) -> Section<TargetSymbol, RelocSymbol> {
+        self.section
+    }
+}
+
+impl<TargetSymbol, RelocSymbol> Default for SectionBuilder<TargetSymbol, RelocSymbol>
+where
+    TargetSymbol: Ord,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<TargetSymbol, RelocSymbol> BytecodeWriter<TargetSymbol, RelocSymbol>
+    for SectionBuilder<TargetSymbol, RelocSymbol>
+where
+    TargetSymbol: Ord,
+{
+    fn write_u8(&mut self, value: u8) {
+        self.section.data.push(value);
+    }
+
+    fn write_u16_le(&mut self, value: u16) {
+        self.section.data.extend(&value.to_le_bytes());
+    }
+
+    fn align(&mut self, alignment: usize) {
+        // Update the alignment of the section, to the minimum necessary.
+        if self.section.alignment < alignment {
+            self.section.alignment = alignment;
+        }
+
+        // We still align the section to the requested alignment, even if
+        // the section is already aligned to a higher value.
+        let padding = alignment - (self.section.data.len() % alignment);
+        if padding != alignment {
+            self.section.data.extend(std::iter::repeat(0).take(padding));
+        }
+    }
+
+    fn mark_symbol(&mut self, symbol: TargetSymbol) {
+        self.section.symbols.insert(symbol, self.section.data.len());
+    }
+
+    fn add_byte_reloc(&mut self, reloc_type: RelocType, offset: u8, reloc: RelocSymbol) {
+        let pos = self.section.data.len();
+        self.write_u8(offset);
+        self.section.relocations.push(Relocation {
+            reloc_type,
+            offset: pos,
+            size: RelocSize::Byte,
+            symbol: reloc,
+        });
+    }
+
+    fn add_word_reloc(&mut self, reloc_type: RelocType, offset: u16, reloc: RelocSymbol) {
+        let pos = self.section.data.len();
+        self.write_u16_le(offset);
+        self.section.relocations.push(Relocation {
+            reloc_type,
+            offset: pos,
+            size: RelocSize::Word,
+            symbol: reloc,
+        });
     }
 }
