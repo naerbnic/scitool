@@ -14,7 +14,7 @@ pub enum ArgsWidth {
 }
 
 pub trait InstArg: Sized {
-    fn byte_width(inst_args_width: ArgsWidth) -> usize;
+    fn byte_size(inst_args_width: ArgsWidth) -> usize;
     fn read_arg<R: std::io::Read + std::io::Seek>(
         inst_args_width: ArgsWidth,
         buf: R,
@@ -53,7 +53,7 @@ pub trait InstAsmArg<RelocSymbol>: Sized {
 pub struct VarUWord(u16);
 
 impl InstArg for VarUWord {
-    fn byte_width(inst_args_width: ArgsWidth) -> usize {
+    fn byte_size(inst_args_width: ArgsWidth) -> usize {
         match inst_args_width {
             ArgsWidth::Byte => 1,
             ArgsWidth::Word => 2,
@@ -110,7 +110,7 @@ impl<T> InstAsmArg<T> for VarUWord {
 pub struct VarSWord(u16);
 
 impl InstArg for VarSWord {
-    fn byte_width(inst_args_width: ArgsWidth) -> usize {
+    fn byte_size(inst_args_width: ArgsWidth) -> usize {
         match inst_args_width {
             ArgsWidth::Byte => 1,
             ArgsWidth::Word => 2,
@@ -166,7 +166,7 @@ impl<T> InstAsmArg<T> for VarSWord {
 pub struct Word(u16);
 
 impl InstArg for Word {
-    fn byte_width(_inst_args_width: ArgsWidth) -> usize {
+    fn byte_size(_inst_args_width: ArgsWidth) -> usize {
         2
     }
 
@@ -204,7 +204,7 @@ impl<T> InstAsmArg<T> for Word {
 pub struct Byte(u8);
 
 impl InstArg for Byte {
-    fn byte_width(_inst_args_width: ArgsWidth) -> usize {
+    fn byte_size(_inst_args_width: ArgsWidth) -> usize {
         1
     }
 

@@ -35,7 +35,7 @@ impl<T> NamesList<T> {
 }
 
 impl ArgType {
-    pub fn asm_arg_name(&self, label_type_var: &syn::Ident) -> TokenStream {
+    pub fn asm_arg_type_name(&self, label_type_var: &syn::Ident) -> TokenStream {
         match self {
             ArgType::Label => quote! { Label<#label_type_var> },
             ArgType::VarUWord => quote! { VarUWord },
@@ -43,7 +43,7 @@ impl ArgType {
         }
     }
 
-    pub fn arg_name(&self) -> TokenStream {
+    pub fn arg_type_name(&self) -> TokenStream {
         match self {
             // Labels are variable width signed words.
             ArgType::Label => quote! { VarSWord },
@@ -125,7 +125,7 @@ impl InstDefParsed {
         let asm_args = self
             .arg_types
             .iter()
-            .map(|arg_type| arg_type.asm_arg_name(label_type_var));
+            .map(|arg_type| arg_type.asm_arg_type_name(label_type_var));
         match &self.opcode {
             OpcodeDefParsed::LocalDef { type_name } => {
                 // A locally defined opcode takes the opcode type as an argument.
@@ -143,7 +143,7 @@ impl InstDefParsed {
 
     pub fn inst_enum_item(&self) -> TokenStream {
         let id = &self.id;
-        let arg_types = self.arg_types.iter().map(ArgType::arg_name);
+        let arg_types = self.arg_types.iter().map(ArgType::arg_type_name);
         match &self.opcode {
             OpcodeDefParsed::LocalDef { type_name } => {
                 // A locally defined opcode takes the opcode type as an argument.
@@ -231,6 +231,36 @@ impl InstDefParsed {
         }
     }
 
+    pub fn impl_inst_byte_size_clause(&self) -> TokenStream {
+        let id = &self.id;
+        let arg_wildcards = self.arg_types.iter().map(|_| quote! { _ });
+        let arg_types = self.arg_types.iter().map(ArgType::arg_type_name);
+        match &self.opcode {
+            OpcodeDefParsed::LocalDef { .. } => {
+                quote! {
+                    PMachineInst::#id(opcode, #(#arg_wildcards),*) => {
+                        let mut byte_size = 0;
+                        #(
+                            byte_size += #arg_types::byte_size(arg_width);
+                        )*
+                        byte_size
+                    }
+                }
+            }
+            OpcodeDefParsed::LiteralDef { .. } => {
+                quote! {
+                    PMachineInst::#id(#(#arg_wildcards),*) => {
+                        let mut byte_size = 0;
+                        #(
+                            byte_size += #arg_types::byte_size(arg_width);
+                        )*
+                        byte_size
+                    }
+                }
+            }
+        }
+    }
+
     pub fn impl_write_inst_clause(&self) -> TokenStream {
         let id = &self.id;
         let args = NamesList::from_iter("arg", self.arg_types.iter());
@@ -304,6 +334,7 @@ impl InstDefListParsed {
         let opcode_byte_impl = self.impl_opcode_byte();
         let opcode_name_impl = self.impl_opcode_name();
         let opcode_impl = self.impl_opcode();
+        let inst_size_impl = self.impl_inst_size();
         let write_inst_impl = self.impl_write_inst();
         let asm_inst_enum_items = self
             .inst_defs
@@ -332,6 +363,7 @@ impl InstDefListParsed {
             }
 
             impl Inst for PMachineInst {
+                #inst_size_impl
                 #write_inst_impl
             }
 
@@ -389,6 +421,20 @@ impl InstDefListParsed {
             fn opcode(&self) -> Self::Opcode {
                 match self {
                     #(#opcode_enum_items)*
+                }
+            }
+        }
+    }
+
+    fn impl_inst_size(&self) -> TokenStream {
+        let inst_enum_items = self
+            .inst_defs
+            .iter()
+            .map(InstDefParsed::impl_inst_byte_size_clause);
+        quote! {
+            fn byte_size(&self, arg_width: ArgsWidth) -> usize {
+                match self {
+                    #(#inst_enum_items)*
                 }
             }
         }

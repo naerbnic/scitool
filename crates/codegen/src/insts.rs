@@ -18,6 +18,8 @@ pub trait InstBase {
 /// Kinds for instructions that can be written directly to a data buffer, without
 /// further resolution.
 pub trait Inst: InstBase {
+    /// Get the size of this instruction in bytes for the given argument width.
+    fn byte_size(&self, arg_width: ArgsWidth) -> usize;
     /// Writes the entire instruction to the buffer, including the opcode byte.
     fn write_inst<W: std::io::Write>(&self, arg_width: ArgsWidth, buf: W) -> anyhow::Result<()>;
 }
