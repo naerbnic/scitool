@@ -5,3 +5,4 @@ mod reloc;
 mod writer;
 mod opcode;
 mod numbers;
+mod pmachine;

@@ -1,5 +1,3 @@
-pub mod var_access;
-
 use std::borrow::Cow;
 
 use crate::insts::Inst;
