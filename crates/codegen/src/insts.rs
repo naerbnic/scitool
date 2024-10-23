@@ -3,9 +3,12 @@
 
 use std::borrow::Cow;
 
-use crate::args::{ArgsWidth, Byte, Label, VarSWord, VarUWord};
-use crate::opcode::{Opcode, var_access::VarAccessOp};
-use crate::writer::BytecodeWriter;
+use crate::{
+    args::{ArgsWidth, Byte, InstArg, Label, VarSWord, VarUWord},
+    numbers::write_byte,
+    opcode::{var_access::VarAccessOp, Opcode},
+    writer::BytecodeWriter,
+};
 
 pub trait InstBase {
     type Opcode: Opcode;
@@ -63,7 +66,11 @@ where
     K: AsmInst<T>,
 {
     pub fn new(inst: K, args_width: ArgsWidth) -> Self {
-        SizedAsmInst { inst, args_width, _phantom: std::marker::PhantomData }
+        SizedAsmInst {
+            inst,
+            args_width,
+            _phantom: std::marker::PhantomData,
+        }
     }
 
     pub fn opcode(&self) -> <K as InstBase>::Opcode {

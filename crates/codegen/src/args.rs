@@ -20,7 +20,7 @@ pub trait InstArg: Sized {
         buf: R,
     ) -> anyhow::Result<Self>;
 
-    fn write_arg<W: std::io::Write + std::io::Seek>(
+    fn write_arg<W: std::io::Write>(
         &self,
         inst_args_width: ArgsWidth,
         buf: W,
@@ -70,7 +70,7 @@ impl InstArg for VarUWord {
         }
     }
 
-    fn write_arg<W: std::io::Write + std::io::Seek>(
+    fn write_arg<W: std::io::Write>(
         &self,
         inst_args_width: ArgsWidth,
         buf: W,
@@ -127,7 +127,7 @@ impl InstArg for VarSWord {
         }))
     }
 
-    fn write_arg<W: std::io::Write + std::io::Seek>(
+    fn write_arg<W: std::io::Write>(
         &self,
         inst_args_width: ArgsWidth,
         buf: W,
@@ -177,7 +177,7 @@ impl InstArg for Word {
         Ok(Word(read_word(buf)?))
     }
 
-    fn write_arg<W: std::io::Write + std::io::Seek>(
+    fn write_arg<W: std::io::Write>(
         &self,
         _inst_args_width: ArgsWidth,
         buf: W,
@@ -215,7 +215,7 @@ impl InstArg for Byte {
         Ok(Byte(read_byte(buf)?))
     }
 
-    fn write_arg<W: std::io::Write + std::io::Seek>(
+    fn write_arg<W: std::io::Write>(
         &self,
         _inst_args_width: ArgsWidth,
         buf: W,
