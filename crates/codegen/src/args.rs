@@ -200,6 +200,7 @@ impl<T> InstAsmArg<T> for Word {
 }
 
 /// A static length byte.
+#[derive(Clone, Copy, Debug)]
 pub struct Byte(u8);
 
 impl InstArg for Byte {
