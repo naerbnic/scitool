@@ -4,7 +4,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    args::{ArgsWidth, Byte, InstArg, Label, VarSWord, VarUWord},
+    args::{ArgsWidth, Byte, InstArg, InstArgBase, InstAsmArg, Label, VarSWord, VarUWord},
     numbers::write_byte,
     opcode::{var_access::VarAccessOp, Opcode},
     writer::BytecodeWriter,
@@ -13,19 +13,18 @@ use crate::{
 pub trait InstBase {
     type Opcode: Opcode;
     fn opcode(&self) -> Self::Opcode;
+    /// Get the size of this instruction in bytes for the given argument width.
+    fn byte_size(&self, arg_width: ArgsWidth) -> usize;
 }
 
 /// Kinds for instructions that can be written directly to a data buffer, without
 /// further resolution.
 pub trait Inst: InstBase {
-    /// Get the size of this instruction in bytes for the given argument width.
-    fn byte_size(&self, arg_width: ArgsWidth) -> usize;
     /// Writes the entire instruction to the buffer, including the opcode byte.
     fn write_inst<W: std::io::Write>(&self, arg_width: ArgsWidth, buf: W) -> anyhow::Result<()>;
 }
 
 pub trait AsmInst<T>: InstBase {
-    type Opcode: Opcode;
     /// Writes the entire instruction to the buffer, including the opcode byte. This
     /// may also include relocation information.
     fn write_inst<Sym, W: BytecodeWriter<Sym, T>>(

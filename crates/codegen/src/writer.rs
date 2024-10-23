@@ -1,4 +1,4 @@
-use crate::reloc::{RelocSize, RelocType};
+use crate::reloc::RelocType;
 
 pub trait BytecodeWriter<SymbolT, RelocT> {
     // Writes a single byte to the output.

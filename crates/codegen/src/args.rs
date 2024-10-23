@@ -1,7 +1,7 @@
 use crate::{
     numbers::{
-        read_byte, read_word, safe_signed_narrow, safe_unsigned_narrow, signed_extend_byte,
-        unsigned_extend_byte, write_byte, write_word,
+        read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow, safe_unsigned_narrow,
+        signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
     },
     reloc::RelocType,
     writer::BytecodeWriter,
@@ -13,8 +13,11 @@ pub enum ArgsWidth {
     Word,
 }
 
-pub trait InstArg: Sized {
+pub trait InstArgBase: Sized {
     fn byte_size(inst_args_width: ArgsWidth) -> usize;
+}
+
+pub trait InstArg: InstArgBase {
     fn read_arg<R: std::io::Read + std::io::Seek>(
         inst_args_width: ArgsWidth,
         buf: R,
@@ -30,7 +33,7 @@ pub trait InstArg: Sized {
 /// An instruction argument created by the assembler, or during compilation.
 /// This value may not have the final value, and can write a relocation action
 /// to the output.
-pub trait InstAsmArg<RelocSymbol>: Sized {
+pub trait InstAsmArg<RelocSymbol>: InstArgBase {
     /// The InstArg that this instruction argument will be converted to after
     /// relocation.
     ///
@@ -40,9 +43,13 @@ pub trait InstAsmArg<RelocSymbol>: Sized {
 
     /// Writes the argument to the output. If needed, writes a relocation entry
     /// to the output.
-    fn write_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, RelocSymbol>>(
+    ///
+    /// bytes_to_end gives the number of bytes to the end of the instruction.
+    /// This is necessary to compute correct offsets for the argument.
+    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, RelocSymbol>>(
         &self,
         inst_args_width: ArgsWidth,
+        bytes_to_inst_end: usize,
         writer: &mut W,
     ) -> anyhow::Result<()>;
 }
@@ -52,14 +59,16 @@ pub trait InstAsmArg<RelocSymbol>: Sized {
 #[derive(Clone, Copy, Debug)]
 pub struct VarUWord(u16);
 
-impl InstArg for VarUWord {
+impl InstArgBase for VarUWord {
     fn byte_size(inst_args_width: ArgsWidth) -> usize {
         match inst_args_width {
             ArgsWidth::Byte => 1,
             ArgsWidth::Word => 2,
         }
     }
+}
 
+impl InstArg for VarUWord {
     fn read_arg<R: std::io::Read + std::io::Seek>(
         inst_args_width: ArgsWidth,
         buf: R,
@@ -90,9 +99,10 @@ impl InstArg for VarUWord {
 impl<T> InstAsmArg<T> for VarUWord {
     type InstArg = VarUWord;
 
-    fn write_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
         &self,
         inst_args_width: ArgsWidth,
+        _bytes_to_inst_end: usize,
         writer: &mut W,
     ) -> anyhow::Result<()> {
         match inst_args_width {
@@ -109,14 +119,16 @@ impl<T> InstAsmArg<T> for VarUWord {
 #[derive(Clone, Copy, Debug)]
 pub struct VarSWord(u16);
 
-impl InstArg for VarSWord {
+impl InstArgBase for VarSWord {
     fn byte_size(inst_args_width: ArgsWidth) -> usize {
         match inst_args_width {
             ArgsWidth::Byte => 1,
             ArgsWidth::Word => 2,
         }
     }
+}
 
+impl InstArg for VarSWord {
     fn read_arg<R: std::io::Read + std::io::Seek>(
         inst_args_width: ArgsWidth,
         buf: R,
@@ -147,9 +159,10 @@ impl InstArg for VarSWord {
 impl<T> InstAsmArg<T> for VarSWord {
     type InstArg = VarSWord;
 
-    fn write_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
         &self,
         inst_args_width: ArgsWidth,
+        _bytes_to_inst_end: usize,
         writer: &mut W,
     ) -> anyhow::Result<()> {
         match inst_args_width {
@@ -165,11 +178,13 @@ impl<T> InstAsmArg<T> for VarSWord {
 #[derive(Clone, Copy, Debug)]
 pub struct Word(u16);
 
-impl InstArg for Word {
+impl InstArgBase for Word {
     fn byte_size(_inst_args_width: ArgsWidth) -> usize {
         2
     }
+}
 
+impl InstArg for Word {
     fn read_arg<R: std::io::Read + std::io::Seek>(
         _inst_args_width: ArgsWidth,
         buf: R,
@@ -189,9 +204,10 @@ impl InstArg for Word {
 impl<T> InstAsmArg<T> for Word {
     type InstArg = VarSWord;
 
-    fn write_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
         &self,
         _inst_args_width: ArgsWidth,
+        _bytes_to_inst_end: usize,
         writer: &mut W,
     ) -> anyhow::Result<()> {
         writer.write_u16_le(self.0);
@@ -203,11 +219,13 @@ impl<T> InstAsmArg<T> for Word {
 #[derive(Clone, Copy, Debug)]
 pub struct Byte(u8);
 
-impl InstArg for Byte {
+impl InstArgBase for Byte {
     fn byte_size(_inst_args_width: ArgsWidth) -> usize {
         1
     }
+}
 
+impl InstArg for Byte {
     fn read_arg<R: std::io::Read + std::io::Seek>(
         _inst_args_width: ArgsWidth,
         buf: R,
@@ -227,9 +245,10 @@ impl InstArg for Byte {
 impl<T> InstAsmArg<T> for Byte {
     type InstArg = VarSWord;
 
-    fn write_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
         &self,
         _inst_args_width: ArgsWidth,
+        _bytes_to_inst_end: usize,
         writer: &mut W,
     ) -> anyhow::Result<()> {
         writer.write_u8(self.0);
@@ -241,9 +260,15 @@ impl<T> InstAsmArg<T> for Byte {
 #[derive(Clone, Copy, Debug)]
 pub struct Label<T> {
     label: T,
-    /// The offset to add to the symbol. Note that this may be negative, but
-    /// since wrapping addition is used, this is not a problem.
-    offset: u16,
+}
+
+impl<T> InstArgBase for Label<T> {
+    fn byte_size(inst_args_width: ArgsWidth) -> usize {
+        match inst_args_width {
+            ArgsWidth::Byte => 1,
+            ArgsWidth::Word => 2,
+        }
+    }
 }
 
 impl<T> InstAsmArg<T> for Label<T>
@@ -252,19 +277,38 @@ where
 {
     type InstArg = VarSWord;
 
-    fn write_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
         &self,
         inst_args_width: ArgsWidth,
+        bytes_to_inst_end: usize,
         writer: &mut W,
     ) -> anyhow::Result<()> {
+        // Labels are in reference to the location after the instruction, so
+        // we need to add a _negative_ offset to this relocation entry.
+        //
+        // For example, say that we had the sequence
+        //
+        // #0    #1    #2    #3
+        // OP1 . AG1   AG2 | OP2
+        //     ^src        ^dst
+        //
+        // where the writer cursor is just before AG1 (at the dot), and want to
+        // reference the offset from the end of this instruction the bar (which
+        // is the same location). We want `dst - src + offset = 0`. So,
+        // offset must equal `src - dst`, a negative value to the end of the
+        // instruction.
+
+        let offset: isize = -isize::try_from(bytes_to_inst_end)?;
+        let offset: u16 = safe_narrow_from_isize(offset)?;
+
         match inst_args_width {
             ArgsWidth::Byte => writer.add_byte_reloc(
                 RelocType::Relative,
-                safe_signed_narrow(self.offset)?,
+                safe_signed_narrow(offset)?,
                 self.label.clone(),
             ),
             ArgsWidth::Word => {
-                writer.add_word_reloc(RelocType::Relative, self.offset, self.label.clone())
+                writer.add_word_reloc(RelocType::Relative, offset, self.label.clone())
             }
         }
         Ok(())
