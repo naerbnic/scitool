@@ -5,6 +5,7 @@ use quote::quote;
 pub enum ArgType {
     Label,
     VarUWord,
+    VarSWord,
     Byte,
 }
 
@@ -35,6 +36,7 @@ impl ArgType {
         match self {
             ArgType::Label => quote! { Label<#label_type_var> },
             ArgType::VarUWord => quote! { VarUWord },
+            ArgType::VarSWord => quote! { VarSWord },
             ArgType::Byte => quote! { Byte },
         }
     }
@@ -44,6 +46,7 @@ impl ArgType {
             // Labels are variable width signed words.
             ArgType::Label => quote! { VarSWord },
             ArgType::VarUWord => quote! { VarUWord },
+            ArgType::VarSWord => quote! { VarSWord },
             ArgType::Byte => quote! { Byte },
         }
     }
@@ -55,6 +58,7 @@ impl syn::parse::Parse for ArgType {
         match ident.to_string().as_str() {
             "Label" => Ok(ArgType::Label),
             "VarUWord" => Ok(ArgType::VarUWord),
+            "VarSWord" => Ok(ArgType::VarSWord),
             "Byte" => Ok(ArgType::Byte),
             _ => Err(syn::Error::new(ident.span(), "unknown argument type")),
         }

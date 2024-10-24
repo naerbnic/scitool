@@ -40,7 +40,7 @@ codegen_macros::define_insts! {
     BT("bt", 0x17, (Label));      // if (acc) goto label
     BNT("bnt", 0x18, (Label));     // if (!acc) goto label
     JMP("jmp", 0x19, (Label));     // goto label
-    LDI("ldi", 0x1A, (Label));     // acc = immediate (sign extended)
+    LDI("ldi", 0x1A, (VarSWord));     // acc = immediate (sign extended)
     PUSH("push", 0x1B, ());    // push(acc)
     PUSHI("pushi", 0x1C, (Label));   // push(immediate) (sign extended)
     TOSS("toss", 0x1D, ());  // pop() (discard top of stack)

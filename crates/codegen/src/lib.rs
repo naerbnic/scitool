@@ -6,3 +6,4 @@ pub mod pmachine;
 pub mod reloc;
 pub mod section;
 pub mod writer;
+pub mod assembler;
