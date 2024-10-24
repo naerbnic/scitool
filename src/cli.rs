@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 
-use crate::{
-    res::{file::open_game_resources, ResourceId, ResourceType},
-    util::data_writer::{DataWriter, IoDataWriter},
-};
 use clap::{Parser, Subcommand};
+use sci_resources::{file::open_game_resources, ResourceId, ResourceType};
+use sci_utils::data_writer::{DataWriter, IoDataWriter};
 
 mod gen;
 mod msg;

@@ -2,10 +2,8 @@ use std::collections::{btree_map, BTreeMap};
 
 use itertools::Itertools;
 
-use crate::{
-    res::msg::{MessageId, MessageRecord},
-    util::validation::{IteratorExt as _, MultiValidator, ValidationError},
-};
+use sci_resources::msg::{MessageId, MessageRecord};
+use sci_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use super::{
     config::{self, BookConfig},

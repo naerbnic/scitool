@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::util::{
+use sci_utils::{
     block::{Block, BlockReader},
     data_reader::DataReader,
 };

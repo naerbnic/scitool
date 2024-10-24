@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use builder::ConversationKey;
 use serde::{Deserialize, Serialize};
 
-use crate::util::validation::{MultiValidator, ValidationError};
+use sci_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
 pub mod config;

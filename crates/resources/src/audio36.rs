@@ -1,7 +1,6 @@
-#![expect(dead_code)]
 use std::io;
 
-use crate::util::{data_reader::DataReader, data_writer::DataWriter};
+use sci_utils::{data_reader::DataReader, data_writer::DataWriter};
 
 /// A map entry for the audio36 map file.
 ///

@@ -7,7 +7,7 @@ use std::{
 
 use data::DataFile;
 
-use crate::util::block::{Block, BlockReader, BlockSource, LazyBlock};
+use sci_utils::block::{Block, BlockReader, BlockSource, LazyBlock};
 
 use super::{ResourceId, ResourceType};
 
@@ -52,7 +52,6 @@ impl ResourceSet {
         self.entries.keys()
     }
 
-    #[expect(dead_code)]
     pub fn resources(&self) -> impl Iterator<Item = (&ResourceId, &LazyBlock)> {
         self.entries.iter()
     }
@@ -66,7 +65,6 @@ impl ResourceSet {
             .filter(move |(id, _)| id.type_id == type_id)
     }
 
-    #[expect(dead_code)]
     pub fn with_overlay(&self, overlay: &ResourceSet) -> ResourceSet {
         let mut entries = self.entries.clone();
         for (id, block) in overlay.entries.iter() {

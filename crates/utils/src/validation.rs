@@ -157,7 +157,6 @@ impl ResultExt for Result<(), ValidationError> {
 }
 
 pub trait IteratorExt: Iterator {
-    #[expect(dead_code)]
     fn validate_all<F, E>(self, validator: F) -> Result<(), ValidationError>
     where
         F: Fn(Self::Item) -> Result<(), E>,
@@ -216,7 +215,6 @@ impl MultiValidator {
         Self { result: Ok(()) }
     }
 
-    #[expect(dead_code)]
     pub fn with_result<E>(&mut self, item: Result<(), E>) -> &mut Self
     where
         E: std::error::Error + Send + Sync + 'static,
@@ -250,6 +248,12 @@ impl MultiValidator {
 
     pub fn build(&mut self) -> Result<(), ValidationError> {
         std::mem::replace(&mut self.result, Ok(()))
+    }
+}
+
+impl Default for MultiValidator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

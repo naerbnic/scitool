@@ -2,6 +2,7 @@ use itertools::Itertools;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use sci_resources::{file::open_game_resources, msg::parse_message_resource, ResourceType};
 
 use crate::{
     book::{builder::BookBuilder, config::BookConfig, Book},
@@ -12,7 +13,6 @@ use crate::{
         },
         html::generate_html,
     },
-    res::{file::open_game_resources, msg::parse_message_resource, ResourceType},
 };
 
 #[derive(Parser)]

@@ -1,12 +1,10 @@
 use std::io;
 
-use crate::{
-    res::{ResourceId, ResourceType},
-    util::{
-        block::{BlockSource, LazyBlock},
-        compression::dcl::decompress_dcl,
-        data_reader::{DataReader, FromBlockSource},
-    },
+use crate::{ResourceId, ResourceType};
+use sci_utils::{
+    block::{BlockSource, LazyBlock},
+    compression::dcl::decompress_dcl,
+    data_reader::{DataReader, FromBlockSource},
 };
 
 use super::map::ResourceLocation;

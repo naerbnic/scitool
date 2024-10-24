@@ -8,6 +8,8 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+sci-utils = { path = "crates/utils" }
+sci-resources = { path = "crates/resources" }
 anyhow = "1.0.86"
 bitter = "0.7.0"
 clap = { version = "4.5.16", features = ["derive"] }
