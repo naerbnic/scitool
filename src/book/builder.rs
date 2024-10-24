@@ -2,7 +2,7 @@ use std::collections::{btree_map, BTreeMap};
 
 use itertools::Itertools;
 
-use sci_resources::msg::{MessageId, MessageRecord};
+use sci_resources::types::msg::{MessageId, MessageRecord};
 use sci_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use super::{

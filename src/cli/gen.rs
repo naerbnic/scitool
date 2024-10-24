@@ -2,7 +2,7 @@ use itertools::Itertools;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use sci_resources::{file::open_game_resources, msg::parse_message_resource, ResourceType};
+use sci_resources::{file::open_game_resources, types::msg::parse_message_resource, ResourceType};
 
 use crate::{
     book::{builder::BookBuilder, config::BookConfig, Book},
