@@ -69,8 +69,8 @@ impl From<ResourceType> for u8 {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceId {
-    pub type_id: ResourceType,
-    pub resource_num: u16,
+    pub(crate) type_id: ResourceType,
+    pub(crate) resource_num: u16,
 }
 
 impl ResourceId {
@@ -79,6 +79,14 @@ impl ResourceId {
             type_id,
             resource_num,
         }
+    }
+
+    pub fn type_id(&self) -> ResourceType {
+        self.type_id
+    }
+
+    pub fn resource_num(&self) -> u16 {
+        self.resource_num
     }
 }
 

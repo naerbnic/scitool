@@ -26,7 +26,7 @@ impl ExportMessages {
             for (msg_id, record) in msg_resources.messages() {
                 let message_id = {
                     msg_out::MessageId {
-                        room: res.id().resource_num,
+                        room: res.id().resource_num(),
                         noun: msg_id.noun(),
                         verb: msg_id.verb(),
                         condition: msg_id.condition(),
@@ -85,7 +85,7 @@ impl PrintMessages {
             let msg_resources = parse_message_resource(res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
                 if let Some(room) = self.room {
-                    if res.id().resource_num != room {
+                    if res.id().resource_num() != room {
                         continue;
                     }
                 }
@@ -116,7 +116,7 @@ impl PrintMessages {
                 }
                 println!(
                     "(room: {:?}, n: {:?}, v: {:?}, c: {:?}, s: {:?}, t: {:?}):",
-                    res.id().resource_num,
+                    res.id().resource_num(),
                     msg_id.noun(),
                     msg_id.verb(),
                     msg_id.condition(),
@@ -156,7 +156,7 @@ impl CheckMessages {
         for res in resource_set.resources_of_type(ResourceType::Message) {
             let msg_resources = parse_message_resource(res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
-                builder.add_message(res.id().resource_num, msg_id, record)?;
+                builder.add_message(res.id().resource_num(), msg_id, record)?;
             }
         }
         let book = builder.build()?;

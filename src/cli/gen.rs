@@ -170,7 +170,7 @@ fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
     for res in resource_set.resources_of_type(ResourceType::Message) {
         let msg_resources = parse_message_resource(res.load_data()?)?;
         for (msg_id, record) in msg_resources.messages() {
-            builder.add_message(res.id().resource_num, msg_id, record)?;
+            builder.add_message(res.id().resource_num(), msg_id, record)?;
         }
     }
     Ok(builder.build()?)
