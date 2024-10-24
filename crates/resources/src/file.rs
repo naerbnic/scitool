@@ -44,25 +44,34 @@ pub struct ResourceSet {
 }
 
 impl ResourceSet {
-    pub fn get_resource_block(&self, id: &ResourceId) -> Option<&LazyBlock> {
-        self.entries.get(id)
+    pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
+        self.entries.get(id).map(|b| Resource {
+            id: *id,
+            source: b.clone(),
+        })
     }
 
-    pub fn resource_ids(&self) -> impl Iterator<Item = &ResourceId> {
-        self.entries.keys()
+    pub fn resource_ids(&self) -> impl Iterator<Item = ResourceId> + '_ {
+        self.entries.keys().copied()
     }
 
-    pub fn resources(&self) -> impl Iterator<Item = (&ResourceId, &LazyBlock)> {
-        self.entries.iter()
+    pub fn resources(&self) -> impl Iterator<Item = Resource> + '_ {
+        self.entries.iter().map(|(id, block)| Resource {
+            id: *id,
+            source: block.clone(),
+        })
     }
 
-    pub fn resources_of_type(
-        &self,
-        type_id: ResourceType,
-    ) -> impl Iterator<Item = (&ResourceId, &LazyBlock)> {
-        self.entries
-            .iter()
-            .filter(move |(id, _)| id.type_id == type_id)
+    pub fn resources_of_type(&self, type_id: ResourceType) -> impl Iterator<Item = Resource> + '_ {
+        self.entries.iter().filter_map(move |(id, block)| {
+            if id.type_id != type_id {
+                return None;
+            }
+            Some(Resource {
+                id: *id,
+                source: block.clone(),
+            })
+        })
     }
 
     pub fn with_overlay(&self, overlay: &ResourceSet) -> ResourceSet {
@@ -105,4 +114,19 @@ pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
         read_resources(&map_file, &data_file)?
     };
     Ok(main_set.merge(&message_set)?)
+}
+
+pub struct Resource {
+    id: ResourceId,
+    source: LazyBlock,
+}
+
+impl Resource {
+    pub fn id(&self) -> &ResourceId {
+        &self.id
+    }
+
+    pub fn load_data(&self) -> anyhow::Result<Block> {
+        Ok(self.source.open()?)
+    }
 }

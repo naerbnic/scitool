@@ -42,7 +42,7 @@ impl ExtractResourceAsPatch {
         let resource_set = open_game_resources(&self.root_dir)?;
         let resource_id = ResourceId::new(self.resource_type, self.resource_id);
         let contents = resource_set
-            .get_resource_block(&resource_id)
+            .get_resource(&resource_id)
             .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
         let ext = match self.resource_type {
             ResourceType::Script => "SCR",
@@ -79,7 +79,7 @@ impl ExtractResourceAsPatch {
 
                 patch_file.write_u8(self.resource_type.into())?;
                 patch_file.write_u8(0)?; // Header Size
-                patch_file.write_block(&contents.open()?)?;
+                patch_file.write_block(&contents.load_data()?)?;
             }
         }
 

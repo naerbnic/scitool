@@ -21,12 +21,12 @@ impl ExportMessages {
     fn run(&self) -> anyhow::Result<()> {
         let resource_set = open_game_resources(&self.root_dir)?;
         let mut messages = Vec::new();
-        for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.open()?)?;
+        for res in resource_set.resources_of_type(ResourceType::Message) {
+            let msg_resources = parse_message_resource(res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
                 let message_id = {
                     msg_out::MessageId {
-                        room: id.resource_num,
+                        room: res.id().resource_num,
                         noun: msg_id.noun(),
                         verb: msg_id.verb(),
                         condition: msg_id.condition(),
@@ -81,11 +81,11 @@ impl PrintMessages {
 
         // Extra testing for building a conversation.
 
-        for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.open()?)?;
+        for res in resource_set.resources_of_type(ResourceType::Message) {
+            let msg_resources = parse_message_resource(res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
                 if let Some(room) = self.room {
-                    if id.resource_num != room {
+                    if res.id().resource_num != room {
                         continue;
                     }
                 }
@@ -116,7 +116,7 @@ impl PrintMessages {
                 }
                 println!(
                     "(room: {:?}, n: {:?}, v: {:?}, c: {:?}, s: {:?}, t: {:?}):",
-                    id.resource_num,
+                    res.id().resource_num,
                     msg_id.noun(),
                     msg_id.verb(),
                     msg_id.condition(),
@@ -153,10 +153,10 @@ impl CheckMessages {
 
         // Extra testing for building a conversation.
 
-        for (id, res) in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.open()?)?;
+        for res in resource_set.resources_of_type(ResourceType::Message) {
+            let msg_resources = parse_message_resource(res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
-                builder.add_message(id.resource_num, msg_id, record)?;
+                builder.add_message(res.id().resource_num, msg_id, record)?;
             }
         }
         let book = builder.build()?;
@@ -200,8 +200,8 @@ impl PrintTalkers {
     fn run(&self) -> anyhow::Result<()> {
         let resource_set = open_game_resources(&self.root_dir)?;
         let mut talkers = BTreeSet::new();
-        for (_, res) in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.open()?)?;
+        for res in resource_set.resources_of_type(ResourceType::Message) {
+            let msg_resources = parse_message_resource(res.load_data()?)?;
             for (_, record) in msg_resources.messages() {
                 talkers.insert(record.talker());
             }
