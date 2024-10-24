@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.91"
-codegen-macros = { path = "../codegen-macros" }
+sci-codegen-macros = { path = "../codegen-macros" }

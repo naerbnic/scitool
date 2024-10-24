@@ -13,7 +13,7 @@ use crate::{
 };
 use var_access::VarAccessOp;
 
-codegen_macros::define_insts! {
+sci_codegen_macros::define_insts! {
     BNOT("bnot", 0x00, ());  // acc = ~acc
     ADD("add", 0x01, ());  // acc += pop()
     SUB("sub", 0x02, ());  // acc -= pop()
