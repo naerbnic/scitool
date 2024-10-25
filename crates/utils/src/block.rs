@@ -59,14 +59,6 @@ pub struct Block {
     data: Arc<Vec<u8>>,
 }
 
-impl std::fmt::Debug for Block {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_tuple("Block")
-            .field(&&self.data[self.start as usize..][..self.size as usize])
-            .finish()
-    }
-}
-
 impl Block {
     pub fn from_vec(data: Vec<u8>) -> Self {
         let size = data.len() as u64;
@@ -143,6 +135,38 @@ impl Block {
             size: end - start,
             data: self.data.clone(),
         }
+    }
+
+    pub fn split_at(&self, offset: u64) -> (Self, Self) {
+        assert!(offset <= self.size);
+        (self.subblock(..offset), self.subblock(offset..))
+    }
+
+    /// Returns the offset of the contained block within the current block.
+    ///
+    /// Panics if the argument originated from another block, and is not fully
+    /// contained within the current block
+    pub fn offset_in(&self, contained_block: &Block) -> u64 {
+        assert!(Arc::ptr_eq(&self.data, &contained_block.data));
+        assert!(self.start <= contained_block.start);
+        assert!(contained_block.start + contained_block.size <= self.start + self.size);
+        contained_block.start - self.start
+    }
+}
+
+impl std::ops::Deref for Block {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.data[self.start as usize..][..self.size as usize]
+    }
+}
+
+impl std::fmt::Debug for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_tuple("Block")
+            .field(&&self.data[self.start as usize..][..self.size as usize])
+            .finish()
     }
 }
 
