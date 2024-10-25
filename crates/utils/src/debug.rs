@@ -13,7 +13,10 @@ pub fn hex_dump(data: &[u8], initial_offset: usize) {
     // length - 1.
     let max_offset = initial_offset + data.len() - 1;
 
-    let num_offset_hex_chars = ((max_offset.next_power_of_two() - 1).trailing_ones() / 4) as usize;
+    let num_offset_hex_chars =
+        (((max_offset.next_power_of_two() - 1).trailing_ones() / 4) + 1) as usize;
+
+    eprintln!("num_offset_hex_chars: {}", num_offset_hex_chars);
 
     let offset_padding = " ".repeat(num_offset_hex_chars);
 
@@ -25,15 +28,15 @@ pub fn hex_dump(data: &[u8], initial_offset: usize) {
     while !remaining_data.is_empty() {
         if num_lines % 16 == 0 {
             println!(
-                "{}   -----------------------------------------------",
+                "{}  -----------------------------------------------",
                 offset_padding
             );
             println!(
-                "{}   00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F",
+                "{}  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F",
                 offset_padding
             );
             println!(
-                "{}   -----------------------------------------------",
+                "{}  -----------------------------------------------",
                 offset_padding
             );
         }
@@ -62,7 +65,11 @@ pub fn hex_dump(data: &[u8], initial_offset: usize) {
             })
             .collect::<String>();
 
-        let offset_text = format!("{:0num_offset_hex_chars$X}", curr_offset + initial_offset);
+        let offset_text = format!(
+            "{:0num_offset_hex_chars$X}",
+            curr_offset + initial_offset,
+            num_offset_hex_chars = num_offset_hex_chars
+        );
 
         println!(
             "{}: {}{}{} {}{}{}",

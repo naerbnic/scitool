@@ -11,12 +11,19 @@ mod msg;
 struct ListResources {
     #[clap(index = 1)]
     root_dir: PathBuf,
+    #[clap(long = "type", short = 't')]
+    res_type: Option<ResourceType>,
 }
 
 impl ListResources {
     fn run(&self) -> anyhow::Result<()> {
         let resource_dir_files = open_game_resources(&self.root_dir)?;
         for id in resource_dir_files.resource_ids() {
+            if let Some(res_type) = self.res_type {
+                if id.type_id() != res_type {
+                    continue;
+                }
+            }
             println!("{:?}", id);
         }
         Ok(())
@@ -87,11 +94,35 @@ impl ExtractResourceAsPatch {
     }
 }
 
+#[derive(Parser)]
+struct DumpResource {
+    #[clap(index = 1)]
+    root_dir: PathBuf,
+    #[clap(index = 2)]
+    resource_type: ResourceType,
+    #[clap(index = 3)]
+    resource_id: u16,
+}
+
+impl DumpResource {
+    fn run(&self) -> anyhow::Result<()> {
+        let resource_set = open_game_resources(&self.root_dir)?;
+        let resource_id = ResourceId::new(self.resource_type, self.resource_id);
+        let res = resource_set
+            .get_resource(&resource_id)
+            .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
+        let data = res.load_data()?;
+        sci_utils::debug::hex_dump(&data, 0);
+        Ok(())
+    }
+}
+
 #[derive(Subcommand)]
 enum ResourceCommand {
     #[clap(name = "list")]
     List(ListResources),
     ExtractAsPatch(ExtractResourceAsPatch),
+    Dump(DumpResource),
 }
 
 impl ResourceCommand {
@@ -99,6 +130,7 @@ impl ResourceCommand {
         match self {
             ResourceCommand::List(list) => list.run()?,
             ResourceCommand::ExtractAsPatch(extract) => extract.run()?,
+            ResourceCommand::Dump(dump) => dump.run()?,
         }
         Ok(())
     }
