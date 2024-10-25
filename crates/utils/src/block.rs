@@ -138,7 +138,12 @@ impl Block {
     }
 
     pub fn split_at(&self, offset: u64) -> (Self, Self) {
-        assert!(offset <= self.size);
+        assert!(
+            offset <= self.size,
+            "Tried to split a block of size {} at offset {}",
+            self.size,
+            offset
+        );
         (self.subblock(..offset), self.subblock(offset..))
     }
 

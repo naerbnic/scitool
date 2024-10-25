@@ -5,20 +5,27 @@ use sci_utils::{
 
 struct Relocations {
     num_relocations: usize,
+    #[expect(dead_code)]
     reloc_block: Block,
 }
 
 impl Relocations {
+    #[expect(dead_code)]
     pub fn num_relocations(&self) -> usize {
         self.num_relocations
     }
 }
 
 pub struct Script {
+    #[expect(dead_code)]
     data: Block,
+    #[expect(dead_code)]
     relocations: Relocations,
+    #[expect(dead_code)]
     externs: Block,
+    #[expect(dead_code)]
     thing2: Block,
+    #[expect(dead_code)]
     thing3: Block,
 }
 
@@ -28,7 +35,7 @@ impl Script {
             let mut reader = BlockReader::new(data.clone());
             reader.read_u16_le()?
         };
-        let (script_data, relocation) = data.split_at(relocation_offset as u64);
+        let (_, _) = data.split_at(relocation_offset as u64);
 
         todo!()
     }
