@@ -1,7 +1,84 @@
-/// Print a hex dump of the given data. The `initial_offset` is
+fn write_dump_header<W: std::io::Write>(mut out: W, padding_spaces: usize) -> std::io::Result<()> {
+    let offset_padding = " ".repeat(padding_spaces);
+    writeln!(
+        out,
+        "{}  -----------------------------------------------",
+        offset_padding
+    )?;
+    writeln!(
+        out,
+        "{}  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F",
+        offset_padding
+    )?;
+    writeln!(
+        out,
+        "{}  -----------------------------------------------",
+        offset_padding
+    )?;
+    Ok(())
+}
+
+fn write_dump_line<W: std::io::Write>(
+    mut out: W,
+    offset_width: usize,
+    offset: usize,
+    data: &[u8],
+) -> std::io::Result<(usize, &[u8])> {
+    let line_start = offset % 16;
+    let line_end = std::cmp::min(data.len(), 16 - line_start) + line_start;
+    let line_length = line_end - line_start;
+
+    let empty_hex_prefix = "   ".repeat(line_start);
+    let empty_hex_suffix = "   ".repeat(16 - line_end);
+    let line_hex = data[..line_length]
+        .iter()
+        .map(|b| format!("{:02X} ", b))
+        .collect::<Vec<_>>()
+        .join("");
+    let empty_ascii_prefix = " ".repeat(line_start);
+    let empty_ascii_suffix = " ".repeat(16 - line_end);
+    let line_ascii = data[..line_length]
+        .iter()
+        .map(|b| {
+            if *b >= 32 && *b <= 126 {
+                *b as char
+            } else {
+                '.'
+            }
+        })
+        .collect::<String>();
+
+    let offset_text = format!("{:0offset_width$X}", offset, offset_width = offset_width);
+
+    writeln!(
+        out,
+        "{}: {}{}{} {}{}{}",
+        offset_text,
+        empty_hex_prefix,
+        line_hex,
+        empty_hex_suffix,
+        empty_ascii_prefix,
+        line_ascii,
+        empty_ascii_suffix
+    )?;
+    Ok((offset + line_length, &data[line_length..]))
+}
+
+/// Print a hex dump of the given data to stdout. The `initial_offset` is
 /// what the first byte of the data should be considered as, for printing
 /// of offsets.
 pub fn hex_dump(data: &[u8], initial_offset: usize) {
+    hex_dump_to(std::io::stdout(), data, initial_offset).unwrap();
+}
+
+/// Print a hex dump of the given data to the output writer. The `initial_offset` is
+/// what the first byte of the data should be considered as, for printing
+/// of offsets.
+pub fn hex_dump_to<W: std::io::Write>(
+    mut out: W,
+    data: &[u8],
+    initial_offset: usize,
+) -> std::io::Result<()> {
     // We want to print out an output like this:
     //       -----------------------------------------------
     //       00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
@@ -18,8 +95,6 @@ pub fn hex_dump(data: &[u8], initial_offset: usize) {
 
     let num_offset_hex_chars = ((num_visible_bits + 3) / 4) as usize;
 
-    let offset_padding = " ".repeat(num_offset_hex_chars);
-
     let mut remaining_data = data;
     let mut curr_offset = 0;
 
@@ -27,62 +102,11 @@ pub fn hex_dump(data: &[u8], initial_offset: usize) {
 
     while !remaining_data.is_empty() {
         if num_lines % 16 == 0 {
-            println!(
-                "{}  -----------------------------------------------",
-                offset_padding
-            );
-            println!(
-                "{}  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F",
-                offset_padding
-            );
-            println!(
-                "{}  -----------------------------------------------",
-                offset_padding
-            );
+            write_dump_header(&mut out, num_offset_hex_chars)?;
         }
-        // The position of the first byte shown in the current line
-        let line_start = (curr_offset + initial_offset) % 16;
-        let line_end = std::cmp::min(remaining_data.len(), 16 - line_start) + line_start;
-        let line_length = line_end - line_start;
-
-        let empty_hex_prefix = "   ".repeat(line_start);
-        let empty_hex_suffix = "   ".repeat(16 - line_end);
-        let line_hex = remaining_data[..line_length]
-            .iter()
-            .map(|b| format!("{:02X} ", b))
-            .collect::<Vec<_>>()
-            .join("");
-        let empty_ascii_prefix = " ".repeat(line_start);
-        let empty_ascii_suffix = " ".repeat(16 - line_end);
-        let line_ascii = remaining_data[..line_length]
-            .iter()
-            .map(|b| {
-                if *b >= 32 && *b <= 126 {
-                    *b as char
-                } else {
-                    '.'
-                }
-            })
-            .collect::<String>();
-
-        let offset_text = format!(
-            "{:0num_offset_hex_chars$X}",
-            curr_offset + initial_offset,
-            num_offset_hex_chars = num_offset_hex_chars
-        );
-
-        println!(
-            "{}: {}{}{} {}{}{}",
-            offset_text,
-            empty_hex_prefix,
-            line_hex,
-            empty_hex_suffix,
-            empty_ascii_prefix,
-            line_ascii,
-            empty_ascii_suffix
-        );
-        remaining_data = &remaining_data[line_length..];
-        curr_offset += line_length;
+        (curr_offset, remaining_data) =
+            write_dump_line(&mut out, num_offset_hex_chars, curr_offset, remaining_data)?;
         num_lines += 1;
     }
+    Ok(())
 }
