@@ -6,10 +6,13 @@ pub mod types;
 pub enum ResourceType {
     View = 0x80,
     Pic,
+    #[clap(alias = "scr")]
     Script,
+    #[clap(alias = "txt")]
     Text,
     Sound,
     Memory,
+    #[clap(alias = "voc")]
     Vocab,
     Font,
     Cursor,
@@ -19,6 +22,7 @@ pub enum ResourceType {
     CdAudio,
     Audio,
     Sync,
+    #[clap(alias = "msg")]
     Message,
     Map,
     Heap,
