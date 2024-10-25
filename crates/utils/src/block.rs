@@ -8,6 +8,17 @@ use std::{
 
 use super::data_reader::DataReader;
 
+fn try_cast_to<Target, T>(value: T) -> Result<Target, T>
+where
+    T: 'static,
+    Target: 'static,
+{
+    match (Box::new(value) as Box<dyn Any>).downcast::<Target>() {
+        Ok(target) => Ok(*target),
+        Err(value) => Err(*value.downcast::<T>().unwrap()),
+    }
+}
+
 #[derive(thiserror::Error)]
 #[error(transparent)]
 pub struct ReadError(io::Error);
@@ -28,12 +39,9 @@ impl ReadError {
         E: std::error::Error + Send + Sync + 'static,
     {
         // This should get optimized away.
-        match (Box::new(err) as Box<dyn Any>).downcast::<io::Error>() {
-            Ok(io_err) => Self(*io_err),
-            Err(err) => Self(io::Error::new(
-                io::ErrorKind::Other,
-                err.downcast::<E>().unwrap(),
-            )),
+        match try_cast_to(err) {
+            Ok(io_err) => Self(io_err),
+            Err(err) => Self(io::Error::other(err)),
         }
     }
 }
@@ -137,6 +145,9 @@ impl Block {
         }
     }
 
+    /// Splits the block at the given offset, returning two blocks: the first
+    /// containing the data before the offset, and the second containing the
+    /// data after the offset.
     pub fn split_at(&self, offset: u64) -> (Self, Self) {
         assert!(
             offset <= self.size,
@@ -145,6 +156,16 @@ impl Block {
             offset
         );
         (self.subblock(..offset), self.subblock(offset..))
+    }
+
+    /// Splits the block into chunks of the given size. Panics if the block size
+    /// is not a multiple of the chunk size.
+    pub fn split_chunks(&self, chunk_size: u64) -> Vec<Self> {
+        assert_eq!(self.size % chunk_size, 0);
+        (0..self.size)
+            .step_by(chunk_size as usize)
+            .map(|start| self.subblock(start..).subblock(..chunk_size))
+            .collect()
     }
 
     /// Returns the offset of the contained block within the current block.

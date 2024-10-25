@@ -3,20 +3,20 @@
 /// of offsets.
 pub fn hex_dump(data: &[u8], initial_offset: usize) {
     // We want to print out an output like this:
-    //      00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
-    //      -----------------------------------------------
-    // 0000 01 23 45 67 89 AB CD EF 01 23 45 67 89 AB CD EF
-    // 0010 01 23 45 67 89 AB CD EF 01 23 45 67 89 AB CD EF
+    //       -----------------------------------------------
+    //       00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
+    //       -----------------------------------------------
+    // 0000: 01 23 45 67 89 AB CD EF 01 23 45 67 89 AB CD EF
+    // 0010: 01 23 45 67 89 AB CD EF 01 23 45 67 89 AB CD EF
 
     // Find the length of the offset in characters
     // We subtraact one, because the final byte will be at offset
     // length - 1.
-    let max_offset = initial_offset + data.len() - 1;
+    let max_offset = initial_offset + data.len();
 
-    let num_offset_hex_chars =
-        (((max_offset.next_power_of_two() - 1).trailing_ones() / 4) + 1) as usize;
+    let num_visible_bits = (max_offset.next_power_of_two() - 1).trailing_ones();
 
-    eprintln!("num_offset_hex_chars: {}", num_offset_hex_chars);
+    let num_offset_hex_chars = ((num_visible_bits + 3) / 4) as usize;
 
     let offset_padding = " ".repeat(num_offset_hex_chars);
 
