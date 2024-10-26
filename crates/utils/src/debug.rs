@@ -1,3 +1,6 @@
+/// Writes a header for the hex dump to the output writer.
+///
+/// Inserts the given number of spaces before the header, to align with the data.
 fn write_dump_header<W: std::io::Write>(mut out: W, padding_spaces: usize) -> std::io::Result<()> {
     let offset_padding = " ".repeat(padding_spaces);
     writeln!(
@@ -18,6 +21,11 @@ fn write_dump_header<W: std::io::Write>(mut out: W, padding_spaces: usize) -> st
     Ok(())
 }
 
+/// Writes a single line of the hex dump to the output writer.
+///
+/// This may be a partial line, if the offset is not divisible by 16.
+///
+/// Returns a pair of the next offset to write, and the remaining data to write.
 fn write_dump_line<W: std::io::Write>(
     mut out: W,
     offset_width: usize,
