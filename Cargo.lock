@@ -261,6 +261,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "sci-codegen-macros",
+ "sci-utils",
 ]
 
 [[package]]
@@ -285,6 +286,7 @@ dependencies = [
 name = "sci-utils"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bitter",
  "thiserror",
 ]

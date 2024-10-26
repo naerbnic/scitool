@@ -60,3 +60,20 @@ pub fn safe_narrow_from_isize(size: isize) -> anyhow::Result<u16> {
     );
     Ok(size as usize as u16)
 }
+
+pub fn read_u16_le_from_slice(slice: &[u8], at: usize) -> u16 {
+    u16::from_le_bytes(slice[at..][..2].try_into().unwrap())
+}
+
+pub fn modify_u16_le_in_slice(
+    slice: &mut [u8],
+    at: usize,
+    body: impl FnOnce(u16) -> anyhow::Result<u16>,
+) -> anyhow::Result<()> {
+    let slice: &mut [u8] = &mut slice[at..][..2];
+    let slice: &mut [u8; 2] = slice.try_into()?;
+    let value = u16::from_le_bytes(*slice);
+    let new_value = body(value)?;
+    slice.copy_from_slice(&new_value.to_le_bytes());
+    Ok(())
+}

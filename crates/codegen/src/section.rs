@@ -1,10 +1,10 @@
 use std::collections::{btree_map, BTreeMap};
 
 use crate::{
-    numbers::safe_signed_narrow,
     reloc::{RelocSize, RelocType},
     writer::BytecodeWriter,
 };
+use sci_utils::numbers::safe_signed_narrow;
 
 #[derive(Clone, Copy, Debug)]
 struct Relocation<RelocSymbol> {
