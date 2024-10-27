@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::buffer::{Buffer, BufferSize, FromFixedBytes};
+use crate::buffer::{Buffer, FromFixedBytes};
 
 use super::data_reader::DataReader;
 
@@ -64,14 +64,14 @@ pub type ReadResult<T> = std::result::Result<T, ReadError>;
 
 #[derive(Clone)]
 pub struct Block {
-    start: u64,
-    size: u64,
+    start: usize,
+    size: usize,
     data: Arc<Vec<u8>>,
 }
 
 impl Block {
     pub fn from_vec(data: Vec<u8>) -> Self {
-        let size = data.len() as u64;
+        let size = data.len();
         Self {
             start: 0,
             size,
@@ -90,24 +90,24 @@ impl Block {
         Ok(Self::from_vec(data))
     }
 
-    pub fn size(&self) -> u64 {
+    pub fn size(&self) -> usize {
         self.size
     }
 
-    pub fn read_at(&self, offset: u64, buf: &mut [u8]) -> ReadResult<()> {
-        if offset + buf.len() as u64 > self.size {
+    pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> ReadResult<()> {
+        if offset + buf.len() > self.size {
             return Err(ReadError::new(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "Attempted to read past the end of the block",
             )));
         }
 
-        buf.copy_from_slice(&self.data[(self.start + offset) as usize..][..buf.len()]);
+        buf.copy_from_slice(&self.data[self.start + offset..][..buf.len()]);
         Ok(())
     }
 
     pub fn read_all(&self) -> ReadResult<Vec<u8>> {
-        let mut buf = vec![0; self.size.try_into().map_err(ReadError::from_std_err)?];
+        let mut buf = vec![0; self.size];
         self.read_at(0, &mut buf)?;
         Ok(buf)
     }
@@ -116,7 +116,7 @@ impl Block {
     ///
     /// Panics if the argument originated from another block, and is not fully
     /// contained within the current block
-    pub fn offset_in(&self, contained_block: &Block) -> u64 {
+    pub fn offset_in(&self, contained_block: &Block) -> usize {
         assert!(Arc::ptr_eq(&self.data, &contained_block.data));
         assert!(self.start <= contained_block.start);
         assert!(contained_block.start + contained_block.size <= self.start + self.size);
@@ -128,23 +128,23 @@ impl std::ops::Deref for Block {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.data[self.start as usize..][..self.size as usize]
+        &self.data[self.start..][..self.size]
     }
 }
 
 impl AsRef<[u8]> for Block {
     fn as_ref(&self) -> &[u8] {
-        &self.data[self.start as usize..][..self.size as usize]
+        &self.data[self.start..][..self.size]
     }
 }
 
 impl Buffer<'static> for Block {
-    type Idx = u64;
-    fn size(&self) -> BufferSize<u64> {
-        BufferSize::Size(self.size)
+    type Idx = usize;
+    fn size(&self) -> usize {
+        self.size
     }
 
-    fn sub_buffer<R: RangeBounds<u64>>(self, range: R) -> Self {
+    fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
         let start = match range.start_bound() {
             std::ops::Bound::Included(&start) => start,
             std::ops::Bound::Excluded(&start) => start + 1,
@@ -176,10 +176,7 @@ impl Buffer<'static> for Block {
         }
     }
 
-    fn split_at(self, at: impl Into<BufferSize<u64>>) -> (Self, Self) {
-        let BufferSize::Size(at) = at.into() else {
-            panic!("We cannot have a block that is larger than u64");
-        };
+    fn split_at(self, at: usize) -> (Self, Self) {
         assert!(
             at <= self.size,
             "Tried to split a block of size {} at offset {}",
@@ -192,7 +189,7 @@ impl Buffer<'static> for Block {
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
         let value_bytes: &[u8] = &self[..T::SIZE];
         let value = T::parse(value_bytes)?;
-        let remaining = self.sub_buffer(T::SIZE as u64..);
+        let remaining = self.sub_buffer(T::SIZE..);
         Ok((value, remaining))
     }
 }
@@ -200,7 +197,7 @@ impl Buffer<'static> for Block {
 impl std::fmt::Debug for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_tuple("Block")
-            .field(&&self.data[self.start as usize..][..self.size as usize])
+            .field(&&self.data[self.start..][..self.size])
             .finish()
     }
 }
@@ -405,7 +402,7 @@ impl std::fmt::Debug for LazyBlock {
 
 #[derive(Debug, Clone)]
 pub struct BlockReader {
-    curr_pos: u64,
+    curr_pos: usize,
     block: Block,
 }
 
@@ -450,19 +447,19 @@ impl DataReader for BlockReader {
 
     fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
         self.block.read_at(self.curr_pos, buf)?;
-        self.curr_pos += buf.len() as u64;
+        self.curr_pos += buf.len();
         Ok(())
     }
 
     fn seek_to(&mut self, offset: u32) -> io::Result<()> {
-        if offset as u64 > self.block.size() {
+        if offset as usize > self.block.size() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Attempted to seek past the end of the block",
             ));
         }
 
-        self.curr_pos = offset as u64;
+        self.curr_pos = offset as usize;
         Ok(())
     }
 

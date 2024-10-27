@@ -1,4 +1,3 @@
-use num::Zero;
 use std::ops::{Bound, RangeBounds};
 
 pub trait BufferOpsExt {
@@ -46,56 +45,39 @@ macro_rules! impl_fixed_bytes_for_num {
 impl_fixed_bytes_for_num!(i8, i16, i32, i64, i128, isize);
 impl_fixed_bytes_for_num!(u8, u16, u32, u64, u128, usize);
 
-/// A type that allows for the full range of buffer sizes for a given index
-/// type, including the maximum size.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BufferSize<T> {
-    /// The buffer is a value in [0, MAX_SIZE).
-    Size(T),
-    /// The buffer is exactly MAX_SIZE bytes.
-    Max,
-}
-
-impl<T> PartialOrd for BufferSize<T>
-where
-    T: PartialOrd,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (BufferSize::Size(a), BufferSize::Size(b)) => a.partial_cmp(b),
-            (BufferSize::Size(_), BufferSize::Max) => Some(std::cmp::Ordering::Less),
-            (BufferSize::Max, BufferSize::Size(_)) => Some(std::cmp::Ordering::Greater),
-            (BufferSize::Max, BufferSize::Max) => Some(std::cmp::Ordering::Equal),
-        }
+pub trait Index: num::Num + std::fmt::Debug + Ord + Copy {
+    const BITS: u32;
+    fn widen_to_usize(self) -> usize;
+    fn narrow_from_usize(idx: usize) -> Option<Self>;
+    fn widen_to<T: Index>(self) -> T {
+        assert!(Self::BITS <= T::BITS);
+        T::narrow_from_usize(self.widen_to_usize()).unwrap()
+    }
+    fn narrow_to<T: Index>(self) -> Option<T> {
+        assert!(T::BITS <= Self::BITS);
+        T::narrow_from_usize(self.widen_to_usize())
     }
 }
-
-impl<T> Ord for BufferSize<T>
-where
-    T: Ord,
-{
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (BufferSize::Size(a), BufferSize::Size(b)) => a.cmp(b),
-            (BufferSize::Size(_), BufferSize::Max) => std::cmp::Ordering::Less,
-            (BufferSize::Max, BufferSize::Size(_)) => std::cmp::Ordering::Greater,
-            (BufferSize::Max, BufferSize::Max) => std::cmp::Ordering::Equal,
-        }
-    }
-}
-
-impl<T> From<T> for BufferSize<T> {
-    fn from(size: T) -> Self {
-        BufferSize::Size(size)
-    }
-}
-
-pub trait Index: num::Num + std::fmt::Debug + Ord + Copy {}
 
 macro_rules! impl_index {
     ($($ty:ty),*) => {
         $(
             impl Index for $ty {
+                const BITS: u32 = std::mem::size_of::<$ty>() as u32 * 8;
+
+                fn widen_to_usize(self) -> usize {
+                    assert!(<$ty>::BITS <= usize::BITS);
+                    self as usize
+                }
+
+                fn narrow_from_usize(idx: usize) -> Option<Self> {
+                    assert!(<$ty>::BITS <= usize::BITS);
+                    if idx <= <$ty>::MAX as usize {
+                        Some(idx as $ty)
+                    } else {
+                        None
+                    }
+                }
             }
         )*
     };
@@ -103,78 +85,32 @@ macro_rules! impl_index {
 
 impl_index!(u8, u16, u32, u64, u128, usize);
 
-pub trait NarrowedIndex<LargerIdx>: Index + Sized + Copy {
-    fn widened_max_size() -> BufferSize<LargerIdx>;
-    fn widen_to(self) -> LargerIdx;
-    fn narrow_from(idx: LargerIdx) -> Option<Self>;
-    fn narrow_size_from(idx: BufferSize<LargerIdx>) -> Option<BufferSize<Self>>;
+pub trait NarrowedIndex: Index + Sized + Copy {
+    fn widened_max_size() -> usize;
 }
 
 macro_rules! impl_narrowed_index {
-    ($($small:ty => ($($large:ty),*)),*) => {
+    ($($small:ty),*) => {
         $(
-            $(
-                impl NarrowedIndex<$large> for $small {
-                    fn widened_max_size() -> BufferSize<$large> {
-                        assert!(<$small>::BITS <= <$large>::BITS);
-                        if (<$small>::BITS == <$large>::BITS) {
-                            return BufferSize::Max;
+                impl NarrowedIndex for $small {
+                    fn widened_max_size() -> usize {
+                        assert!(<$small>::BITS <= usize::BITS);
+                        let max = <$small>::MAX as usize;
+                        if max == usize::MAX {
+                            max
                         } else {
-                            BufferSize::Size(1 as $large << <$small>::BITS)
-                        }
-                    }
-
-                    fn widen_to(self) -> $large {
-                        assert!(<$small>::BITS <= <$large>::BITS);
-                        self as $large
-                    }
-
-                    fn narrow_from(idx: $large) -> Option<Self> {
-                        assert!(<$small>::BITS <= <$large>::BITS);
-                        if idx <= <$small>::MAX as $large {
-                            Some(idx as $small)
-                        } else {
-                            None
-                        }
-                    }
-
-                    fn narrow_size_from(idx: BufferSize<$large>) -> Option<BufferSize<Self>> {
-                        assert!(<$small>::BITS <= <$large>::BITS);
-                        match idx {
-                            BufferSize::Size(idx) => {
-                                if idx <= <$small>::MAX as $large {
-                                    Some(BufferSize::Size(idx as $small))
-                                } else {
-                                    None
-                                }
-                            }
-                            BufferSize::Max => {
-                                if <$small>::BITS == <$large>::BITS {
-                                    Some(BufferSize::Max)
-                                } else {
-                                    None
-                                }
-                            }
+                            max + 1
                         }
                     }
                 }
-            )*
         )*
     };
 }
 
-impl_narrowed_index!(
-    u16 => (u16, u32, u64, u128, usize),
-    u32 => (u32, u64, u128, usize),
-    u64 => (u64, u128),
-    usize => (u64, usize)
-);
-
-#[cfg(target_pointer_width = "32")]
-impl_narrowed_index!(usize => (u32));
+impl_narrowed_index!(u16, u32, usize);
 
 #[cfg(target_pointer_width = "64")]
-impl_narrowed_index!(u64 => (usize));
+impl_narrowed_index!(u64);
 
 /// An abstraction over types that contain a buffer of bytes.
 ///
@@ -186,9 +122,9 @@ impl_narrowed_index!(u64 => (usize));
 pub trait Buffer<'a>: Sized + AsRef<[u8]> {
     type Idx: Index;
 
-    fn size(&self) -> BufferSize<Self::Idx>;
+    fn size(&self) -> usize;
     fn sub_buffer<R: RangeBounds<Self::Idx>>(self, range: R) -> Self;
-    fn split_at(self, at: impl Into<BufferSize<Self::Idx>>) -> (Self, Self);
+    fn split_at(self, at: Self::Idx) -> (Self, Self);
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
@@ -198,17 +134,13 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
 
     /// Splits the block into chunks of the given size. Panics if the block size
     /// is not a multiple of the chunk size.
-    fn split_chunks(self, chunk_size: impl Into<BufferSize<Self::Idx>>) -> Vec<Self> {
-        let chunk_size = chunk_size.into();
-        let BufferSize::Size(chunk_size) = chunk_size else {
-            assert!(self.size() == BufferSize::Max);
-            return vec![self];
-        };
+    fn split_chunks(self, chunk_size: usize) -> Vec<Self> {
         let mut remaining = self;
         let mut chunks = Vec::new();
-        while remaining.size() != BufferSize::Size(Self::Idx::zero()) {
-            assert!(remaining.size() >= BufferSize::Size(chunk_size));
-            let (chunk, new_remaining) = remaining.split_at(chunk_size);
+        while remaining.size() != 0usize {
+            assert!(remaining.size() >= chunk_size);
+            let (chunk, new_remaining) =
+                remaining.split_at(Self::Idx::narrow_from_usize(chunk_size).unwrap());
             chunks.push(chunk);
             remaining = new_remaining;
         }
@@ -230,15 +162,15 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
 
     // Functions to create other dervied buffers.
 
-    fn narrow<Idx: NarrowedIndex<Self::Idx>>(self) -> NarrowedIndexBuffer<'a, Idx, Self> {
+    fn narrow<Idx: NarrowedIndex>(self) -> NarrowedIndexBuffer<'a, Idx, Self> {
         NarrowedIndexBuffer::new(self)
     }
 }
 
 impl<'a> Buffer<'a> for &'a [u8] {
     type Idx = usize;
-    fn size(&self) -> BufferSize<Self::Idx> {
-        BufferSize::Size(self.len())
+    fn size(&self) -> usize {
+        self.len()
     }
 
     fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
@@ -255,11 +187,8 @@ impl<'a> Buffer<'a> for &'a [u8] {
         &self[start..end]
     }
 
-    fn split_at(self, at: impl Into<BufferSize<usize>>) -> (Self, Self) {
-        let BufferSize::Size(at) = at.into() else {
-            panic!("Slices cannot have more than isize::MAX elements");
-        };
-        self.split_at(at)
+    fn split_at(self, at: usize) -> (Self, Self) {
+        (*self).split_at(at)
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
@@ -281,8 +210,8 @@ impl<'a> Buffer<'a> for &'a [u8] {
 
 impl<'a> Buffer<'a> for &'a mut [u8] {
     type Idx = usize;
-    fn size(&self) -> BufferSize<Self::Idx> {
-        BufferSize::Size(self.len())
+    fn size(&self) -> usize {
+        self.len()
     }
     fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
         let start = match range.start_bound() {
@@ -298,10 +227,7 @@ impl<'a> Buffer<'a> for &'a mut [u8] {
         &mut self[start..end]
     }
 
-    fn split_at(self, at: impl Into<BufferSize<usize>>) -> (Self, Self) {
-        let BufferSize::Size(at) = at.into() else {
-            panic!("Slices cannot have more than isize::MAX elements");
-        };
+    fn split_at(self, at: usize) -> (Self, Self) {
         self.split_at_mut(at)
     }
 
@@ -319,10 +245,11 @@ pub struct NarrowedIndexBuffer<'a, Idx, B> {
 impl<'a, Idx, B> NarrowedIndexBuffer<'a, Idx, B>
 where
     B: Buffer<'a>,
-    Idx: NarrowedIndex<B::Idx>,
+    Idx: NarrowedIndex,
 {
     pub fn new(buffer: B) -> Self {
-        assert!(Idx::narrow_size_from(buffer.size()).is_some());
+        assert!(buffer.size() <= Idx::widened_max_size());
+        assert!(B::Idx::BITS >= Idx::BITS);
         NarrowedIndexBuffer {
             buffer,
             _phantom: std::marker::PhantomData,
@@ -350,12 +277,12 @@ where
 impl<'a, Idx, B> Buffer<'a> for NarrowedIndexBuffer<'a, Idx, B>
 where
     B: Buffer<'a>,
-    Idx: NarrowedIndex<B::Idx> + num::Zero,
+    Idx: NarrowedIndex + num::Zero,
 {
     type Idx = Idx;
 
-    fn size(&self) -> BufferSize<Self::Idx> {
-        Idx::narrow_size_from(self.buffer.size()).unwrap()
+    fn size(&self) -> usize {
+        self.buffer.size()
     }
 
     fn sub_buffer<R: RangeBounds<Self::Idx>>(self, range: R) -> Self {
@@ -376,12 +303,8 @@ where
         }
     }
 
-    fn split_at(self, at: impl Into<BufferSize<Self::Idx>>) -> (Self, Self) {
-        let widened_size = match at.into() {
-            BufferSize::Size(size) => BufferSize::Size(size.widen_to()),
-            BufferSize::Max => Idx::widened_max_size(),
-        };
-        let (first, second) = self.buffer.split_at(widened_size);
+    fn split_at(self, at: Idx) -> (Self, Self) {
+        let (first, second) = self.buffer.split_at(at.widen_to());
         (
             NarrowedIndexBuffer {
                 buffer: first,

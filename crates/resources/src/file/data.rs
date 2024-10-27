@@ -102,7 +102,7 @@ impl TryFrom<RawContents> for Contents {
             }
         };
         let decompressed_data = decompressed_data.with_check(move |block| {
-            if block.size() != raw_contents.unpacked_size as u64 {
+            if block.size() != raw_contents.unpacked_size as usize {
                 return Err(io::Error::other("Decompressed data size mismatch").into());
             }
             Ok(())

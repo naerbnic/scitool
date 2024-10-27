@@ -39,9 +39,11 @@ impl Heap {
         let relocations_offset = resource_data.read_u16_le_at(0);
         let heap_data = resource_data
             .clone()
-            .sub_buffer(..relocations_offset as u64);
+            .sub_buffer(..relocations_offset as usize);
         let num_locals = heap_data.read_u16_le_at(2);
-        let (locals, mut heap_data) = heap_data.sub_buffer(4..).split_at((num_locals * 2) as u64);
+        let (locals, mut heap_data) = heap_data
+            .sub_buffer(4..)
+            .split_at((num_locals * 2) as usize);
 
         let mut objects = Vec::new();
         // Find all objects
@@ -56,7 +58,7 @@ impl Heap {
 
             anyhow::ensure!(magic == 0x1234u16);
             let object_size = heap_data.read_u16_le_at(2);
-            let (object_data, next_heap_data) = heap_data.split_at((object_size * 2) as u64);
+            let (object_data, next_heap_data) = heap_data.split_at((object_size * 2) as usize);
             let new_obj = Object::from_block(loaded_script, object_data)?;
             println!("Object: {:?}", new_obj);
             objects.push(new_obj);
@@ -74,7 +76,7 @@ impl Heap {
             let Some(null_pos) = heap_data.iter().position(|b| b == &0) else {
                 anyhow::bail!("No null terminator found in string heap");
             };
-            let (string_data, next_heap_data) = heap_data.split_at((null_pos + 1) as u64);
+            let (string_data, next_heap_data) = heap_data.split_at(null_pos + 1);
             eprintln!(
                 "String @{:04X}: {:?}",
                 resource_data.offset_in(&string_data),
@@ -135,11 +137,11 @@ impl Object {
 
         let var_selectors = loaded_data
             .clone()
-            .sub_buffer(var_selector_offfset as u64..method_record_offset as u64);
+            .sub_buffer(var_selector_offfset as usize..method_record_offset as usize);
         let (method_records, _) = read_length_delimited_records::<_, MethodRecord>(
             loaded_data
                 .clone()
-                .sub_buffer(method_record_offset as u64..),
+                .sub_buffer(method_record_offset as usize..),
         )?;
 
         let properties = obj_data.clone().sub_buffer(10..);
@@ -220,7 +222,7 @@ impl Script {
             let mut reader = BlockReader::new(data.clone());
             reader.read_u16_le()?
         };
-        let (script_data, relocations) = data.clone().split_at(relocation_offset as u64);
+        let (script_data, relocations) = data.clone().split_at(relocation_offset as usize);
         let (exports, _) = read_length_delimited_records::<_, u16>(script_data.sub_buffer(2..))?;
 
         Ok(Self {
@@ -232,7 +234,7 @@ impl Script {
 }
 
 fn extract_relocation_block(data: &Block) -> Block {
-    let relocation_offset = data.read_u16_le_at(0) as u64;
+    let relocation_offset = data.read_u16_le_at(0) as usize;
     data.clone().sub_buffer(relocation_offset..)
 }
 
@@ -257,7 +259,7 @@ pub fn load_script(script_data: &Block, heap_data: &Block) -> anyhow::Result<Loa
     loaded_script.extend_from_slice(heap_data);
 
     {
-        let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset as usize);
+        let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
         let script_relocation_block = extract_relocation_block(script_data);
         let heap_relocation_block = extract_relocation_block(heap_data);
 

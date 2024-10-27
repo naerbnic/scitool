@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use sci_utils::{
-    block::{Block, BlockReader}, buffer::Buffer, data_reader::DataReader
+    block::{Block, BlockReader},
+    buffer::Buffer,
+    data_reader::DataReader,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -108,7 +110,7 @@ fn parse_message_resource_v4(msg_res: Block) -> anyhow::Result<Vec<RawMessageRec
 }
 
 fn read_string_at_offset(msg_res: &Block, offset: u16) -> anyhow::Result<String> {
-    let mut reader = BlockReader::new(msg_res.clone().sub_buffer(offset as u64..));
+    let mut reader = BlockReader::new(msg_res.clone().sub_buffer(offset as usize..));
     let mut text = Vec::new();
     loop {
         let ch = reader.read_u8()?;
