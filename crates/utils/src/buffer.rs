@@ -1,3 +1,4 @@
+use num::Zero;
 use std::ops::{Bound, RangeBounds};
 
 pub trait BufferOpsExt {
@@ -47,12 +48,40 @@ impl_fixed_bytes_for_num!(u8, u16, u32, u64, u128, usize);
 
 /// A type that allows for the full range of buffer sizes for a given index
 /// type, including the maximum size.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BufferSize<T> {
     /// The buffer is a value in [0, MAX_SIZE).
     Size(T),
     /// The buffer is exactly MAX_SIZE bytes.
     Max,
+}
+
+impl<T> PartialOrd for BufferSize<T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (BufferSize::Size(a), BufferSize::Size(b)) => a.partial_cmp(b),
+            (BufferSize::Size(_), BufferSize::Max) => Some(std::cmp::Ordering::Less),
+            (BufferSize::Max, BufferSize::Size(_)) => Some(std::cmp::Ordering::Greater),
+            (BufferSize::Max, BufferSize::Max) => Some(std::cmp::Ordering::Equal),
+        }
+    }
+}
+
+impl<T> Ord for BufferSize<T>
+where
+    T: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (BufferSize::Size(a), BufferSize::Size(b)) => a.cmp(b),
+            (BufferSize::Size(_), BufferSize::Max) => std::cmp::Ordering::Less,
+            (BufferSize::Max, BufferSize::Size(_)) => std::cmp::Ordering::Greater,
+            (BufferSize::Max, BufferSize::Max) => std::cmp::Ordering::Equal,
+        }
+    }
 }
 
 impl<T> From<T> for BufferSize<T> {
@@ -61,7 +90,20 @@ impl<T> From<T> for BufferSize<T> {
     }
 }
 
-pub trait NarrowedIndex<LargerIdx>: Sized + Copy {
+pub trait Index: num::Num + std::fmt::Debug + Ord + Copy {}
+
+macro_rules! impl_index {
+    ($($ty:ty),*) => {
+        $(
+            impl Index for $ty {
+            }
+        )*
+    };
+}
+
+impl_index!(u8, u16, u32, u64, u128, usize);
+
+pub trait NarrowedIndex<LargerIdx>: Index + Sized + Copy {
     fn widened_max_size() -> BufferSize<LargerIdx>;
     fn widen_to(self) -> LargerIdx;
     fn narrow_from(idx: LargerIdx) -> Option<Self>;
@@ -142,14 +184,37 @@ impl_narrowed_index!(u64 => (usize));
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
 pub trait Buffer<'a>: Sized + AsRef<[u8]> {
-    type Idx;
+    type Idx: Index;
 
     fn size(&self) -> BufferSize<Self::Idx>;
     fn sub_buffer<R: RangeBounds<Self::Idx>>(self, range: R) -> Self;
-    fn buf_split_at(self, at: impl Into<BufferSize<Self::Idx>>) -> (Self, Self);
+    fn split_at(self, at: impl Into<BufferSize<Self::Idx>>) -> (Self, Self);
+
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)>;
+
+    // Functions that can be implemented in terms of the above functions.
+
+    /// Splits the block into chunks of the given size. Panics if the block size
+    /// is not a multiple of the chunk size.
+    fn split_chunks(self, chunk_size: impl Into<BufferSize<Self::Idx>>) -> Vec<Self> {
+        let chunk_size = chunk_size.into();
+        let BufferSize::Size(chunk_size) = chunk_size else {
+            assert!(self.size() == BufferSize::Max);
+            return vec![self];
+        };
+        let mut remaining = self;
+        let mut chunks = Vec::new();
+        while remaining.size() != BufferSize::Size(Self::Idx::zero()) {
+            assert!(remaining.size() < BufferSize::Size(chunk_size));
+            let (chunk, new_remaining) = remaining.split_at(chunk_size);
+            chunks.push(chunk);
+            remaining = new_remaining;
+        }
+        chunks
+    }
+
     /// Reads N values from the front of the buffer, returning the values and the
     /// remaining buffer.
     fn read_values<T: FromFixedBytes>(self, count: usize) -> anyhow::Result<(Vec<T>, Self)> {
@@ -164,6 +229,7 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
     }
 
     // Functions to create other dervied buffers.
+
     fn narrow<Idx: NarrowedIndex<Self::Idx>>(self) -> NarrowedIndexBuffer<'a, Idx, Self> {
         NarrowedIndexBuffer::new(self)
     }
@@ -189,7 +255,7 @@ impl<'a> Buffer<'a> for &'a [u8] {
         &self[start..end]
     }
 
-    fn buf_split_at(self, at: impl Into<BufferSize<usize>>) -> (Self, Self) {
+    fn split_at(self, at: impl Into<BufferSize<usize>>) -> (Self, Self) {
         let BufferSize::Size(at) = at.into() else {
             panic!("Slices cannot have more than isize::MAX elements");
         };
@@ -232,7 +298,7 @@ impl<'a> Buffer<'a> for &'a mut [u8] {
         &mut self[start..end]
     }
 
-    fn buf_split_at(self, at: impl Into<BufferSize<usize>>) -> (Self, Self) {
+    fn split_at(self, at: impl Into<BufferSize<usize>>) -> (Self, Self) {
         let BufferSize::Size(at) = at.into() else {
             panic!("Slices cannot have more than isize::MAX elements");
         };
@@ -284,7 +350,7 @@ where
 impl<'a, Idx, B> Buffer<'a> for NarrowedIndexBuffer<'a, Idx, B>
 where
     B: Buffer<'a>,
-    Idx: NarrowedIndex<B::Idx>,
+    Idx: NarrowedIndex<B::Idx> + num::Zero,
 {
     type Idx = Idx;
 
@@ -310,12 +376,12 @@ where
         }
     }
 
-    fn buf_split_at(self, at: impl Into<BufferSize<Self::Idx>>) -> (Self, Self) {
+    fn split_at(self, at: impl Into<BufferSize<Self::Idx>>) -> (Self, Self) {
         let widened_size = match at.into() {
             BufferSize::Size(size) => BufferSize::Size(size.widen_to()),
             BufferSize::Max => Idx::widened_max_size(),
         };
-        let (first, second) = self.buffer.buf_split_at(widened_size);
+        let (first, second) = self.buffer.split_at(widened_size);
         (
             NarrowedIndexBuffer {
                 buffer: first,

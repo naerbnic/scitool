@@ -216,7 +216,7 @@ impl Buffer<'static> for Block {
         self.subblock((start, end))
     }
 
-    fn buf_split_at(self, at: impl Into<BufferSize<u64>>) -> (Self, Self) {
+    fn split_at(self, at: impl Into<BufferSize<u64>>) -> (Self, Self) {
         let BufferSize::Size(at) = at.into() else {
             panic!("We cannot have a block that is larger than u64");
         };
