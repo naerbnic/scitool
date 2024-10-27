@@ -13,8 +13,11 @@ fn read_length_delimited_records<'a, B: Buffer<'a>, T: FromFixedBytes>(
     Ok((values, next))
 }
 
-fn apply_relocations(buffer: &mut [u8], relocations: &Block, offset: u16) -> anyhow::Result<()> {
-    let (relocation_entries, rest) = read_length_delimited_records::<_, u16>(relocations.clone())?;
+fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> anyhow::Result<()>
+where
+    B: Buffer<'static, Idx = u16>,
+{
+    let (relocation_entries, rest) = read_length_delimited_records::<_, u16>(relocations)?;
     anyhow::ensure!(rest.is_empty());
 
     for reloc_entry in relocation_entries {
@@ -233,9 +236,12 @@ impl Script {
     }
 }
 
-fn extract_relocation_block(data: &Block) -> Block {
-    let relocation_offset = data.read_u16_le_at(0) as usize;
-    data.clone().sub_buffer(relocation_offset..)
+fn extract_relocation_block<B>(data: B) -> B
+where
+    B: Buffer<'static, Idx = u16>,
+{
+    let relocation_offset = data.as_ref().read_u16_le_at(0);
+    data.sub_buffer(relocation_offset..)
 }
 
 pub struct LoadedScript {
@@ -249,26 +255,29 @@ pub struct LoadedScript {
     heap: Heap,
 }
 
-pub fn load_script(script_data: &Block, heap_data: &Block) -> anyhow::Result<LoadedScript> {
+pub fn load_script<B>(script_data: &B, heap_data: &B) -> anyhow::Result<LoadedScript>
+where
+    B: Buffer<'static, Idx = u16> + Clone,
+{
     let heap_offset = script_data.size();
     anyhow::ensure!(heap_offset % 2 == 0);
     // Concat the two blocks.
     //
     // It may be possible to get rid of the relocation block, but it's not clear.
-    let mut loaded_script: Vec<u8> = script_data.iter().copied().collect();
-    loaded_script.extend_from_slice(heap_data);
+    let mut loaded_script: Vec<u8> = script_data.as_ref().to_vec();
+    loaded_script.extend_from_slice(heap_data.as_ref());
 
     {
         let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
-        let script_relocation_block = extract_relocation_block(script_data);
-        let heap_relocation_block = extract_relocation_block(heap_data);
+        let script_relocation_block = extract_relocation_block(script_data.clone());
+        let heap_relocation_block = extract_relocation_block(heap_data.clone());
 
         apply_relocations(
             script_data_slice,
-            &script_relocation_block,
+            script_relocation_block,
             heap_offset as u16,
         )?;
-        apply_relocations(heap_data_slice, &heap_relocation_block, heap_offset as u16)?;
+        apply_relocations(heap_data_slice, heap_relocation_block, heap_offset as u16)?;
     }
 
     let loaded_script = Block::from_vec(loaded_script);

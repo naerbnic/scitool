@@ -1,4 +1,5 @@
 use sci_resources::{file::open_game_resources, types::script::load_script};
+use sci_utils::buffer::Buffer;
 
 fn main() {
     let arg = std::env::args().nth(1).unwrap();
@@ -14,8 +15,8 @@ fn main() {
         );
         let heap_res = resources.get_resource(&resource_id).unwrap();
         let _loaded_script = load_script(
-            &script_res.load_data().unwrap(),
-            &heap_res.load_data().unwrap(),
+            &script_res.load_data().unwrap().narrow(),
+            &heap_res.load_data().unwrap().narrow(),
         )
         .unwrap();
     }

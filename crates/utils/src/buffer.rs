@@ -132,6 +132,10 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
 
     // Functions that can be implemented in terms of the above functions.
 
+    fn is_empty(&self) -> bool {
+        self.size() == 0
+    }
+
     /// Splits the block into chunks of the given size. Panics if the block size
     /// is not a multiple of the chunk size.
     fn split_chunks(self, chunk_size: usize) -> Vec<Self> {
@@ -240,6 +244,18 @@ impl<'a> Buffer<'a> for &'a mut [u8] {
 pub struct NarrowedIndexBuffer<'a, Idx, B> {
     buffer: B,
     _phantom: std::marker::PhantomData<(Idx, &'a u8)>,
+}
+
+impl<'a, Idx, B> Clone for NarrowedIndexBuffer<'a, Idx, B>
+where
+    B: Clone,
+{
+    fn clone(&self) -> Self {
+        NarrowedIndexBuffer {
+            buffer: self.buffer.clone(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<'a, Idx, B> NarrowedIndexBuffer<'a, Idx, B>
