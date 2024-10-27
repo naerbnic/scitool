@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::buffer_ops::{Buffer, FromFixedBytes};
+use crate::buffer_ops::{Buffer, BufferSize, FromFixedBytes};
 
 use super::data_reader::DataReader;
 
@@ -190,23 +190,37 @@ impl std::ops::Deref for Block {
     }
 }
 
+impl AsRef<[u8]> for Block {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[self.start as usize..][..self.size as usize]
+    }
+}
+
 impl Buffer<'static> for Block {
-    fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
+    type Idx = u64;
+    fn size(&self) -> BufferSize<u64> {
+        BufferSize::Size(self.size)
+    }
+
+    fn sub_buffer<R: RangeBounds<u64>>(self, range: R) -> Self {
         let start: Bound<u64> = match range.start_bound() {
-            Bound::Included(&start) => Bound::Included(start.try_into().unwrap()),
-            Bound::Excluded(&start) => Bound::Excluded(start.try_into().unwrap()),
+            Bound::Included(&start) => Bound::Included(start),
+            Bound::Excluded(&start) => Bound::Excluded(start),
             Bound::Unbounded => Bound::Unbounded,
         };
         let end: Bound<u64> = match range.end_bound() {
-            Bound::Included(&end) => Bound::Included(end.try_into().unwrap()),
-            Bound::Excluded(&end) => Bound::Excluded(end.try_into().unwrap()),
+            Bound::Included(&end) => Bound::Included(end),
+            Bound::Excluded(&end) => Bound::Excluded(end),
             Bound::Unbounded => Bound::Unbounded,
         };
         self.subblock((start, end))
     }
 
-    fn buf_split_at(self, at: usize) -> (Self, Self) {
-        self.split_at(at.try_into().unwrap())
+    fn buf_split_at(self, at: impl Into<BufferSize<u64>>) -> (Self, Self) {
+        let BufferSize::Size(at) = at.into() else {
+            panic!("We cannot have a block that is larger than u64");
+        };
+        self.split_at(at)
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
