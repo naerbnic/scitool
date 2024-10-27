@@ -1,10 +1,12 @@
 use std::{
     any::Any,
     io::{self, Seek},
-    ops::RangeBounds,
+    ops::{Bound, RangeBounds},
     path::Path,
     sync::{Arc, Mutex},
 };
+
+use crate::buffer_ops::{Buffer, FromFixedBytes};
 
 use super::data_reader::DataReader;
 
@@ -185,6 +187,33 @@ impl std::ops::Deref for Block {
 
     fn deref(&self) -> &Self::Target {
         &self.data[self.start as usize..][..self.size as usize]
+    }
+}
+
+impl Buffer<'static> for Block {
+    fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
+        let start: Bound<u64> = match range.start_bound() {
+            Bound::Included(&start) => Bound::Included(start.try_into().unwrap()),
+            Bound::Excluded(&start) => Bound::Excluded(start.try_into().unwrap()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let end: Bound<u64> = match range.end_bound() {
+            Bound::Included(&end) => Bound::Included(end.try_into().unwrap()),
+            Bound::Excluded(&end) => Bound::Excluded(end.try_into().unwrap()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        self.subblock((start, end))
+    }
+
+    fn buf_split_at(self, at: usize) -> (Self, Self) {
+        self.split_at(at.try_into().unwrap())
+    }
+
+    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
+        let value_bytes: &[u8] = &self[..T::SIZE];
+        let value = T::parse(value_bytes)?;
+        let remaining = self.subblock(T::SIZE as u64..);
+        Ok((value, remaining))
     }
 }
 
