@@ -65,6 +65,10 @@ pub fn read_u16_le_from_slice(slice: &[u8], at: usize) -> u16 {
     u16::from_le_bytes(slice[at..][..2].try_into().unwrap())
 }
 
+pub fn write_u16_le_to_slice(slice: &mut [u8], at: usize, value: u16) {
+    slice[at..][..2].copy_from_slice(&value.to_le_bytes());
+}
+
 pub fn modify_u16_le_in_slice(
     slice: &mut [u8],
     at: usize,
