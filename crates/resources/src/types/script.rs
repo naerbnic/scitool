@@ -1,6 +1,6 @@
 use sci_utils::{
     block::{Block, BlockReader},
-    buffer_ops::BufferOpsExt,
+    buffer::BufferOpsExt,
     data_reader::DataReader,
     numbers::{modify_u16_le_in_slice, read_u16_le_from_slice},
 };

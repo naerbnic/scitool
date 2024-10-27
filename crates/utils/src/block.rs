@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::buffer_ops::{Buffer, BufferSize, FromFixedBytes};
+use crate::buffer::{Buffer, BufferSize, FromFixedBytes};
 
 use super::data_reader::DataReader;
 
