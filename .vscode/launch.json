@@ -1,0 +1,148 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_heap_read",
+            "program": "${workspaceFolder}/target/debug/test_heap_read",
+            "args": ["./game_files"],
+            "cwd": "${workspaceFolder}"
+        },
+    
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'sci_codegen'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=sci-codegen"
+                ],
+                "filter": {
+                    "name": "sci_codegen",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'sci_utils'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=sci-utils"
+                ],
+                "filter": {
+                    "name": "sci_utils",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'sci_resources'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=sci-resources"
+                ],
+                "filter": {
+                    "name": "sci_resources",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'test_heap_read'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=test_heap_read",
+                    "--package=sci-resources"
+                ],
+                "filter": {
+                    "name": "test_heap_read",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'test_heap_read'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=test_heap_read",
+                    "--package=sci-resources"
+                ],
+                "filter": {
+                    "name": "test_heap_read",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'scitool'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=scitool",
+                    "--package=scitool"
+                ],
+                "filter": {
+                    "name": "scitool",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'scitool'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=scitool",
+                    "--package=scitool"
+                ],
+                "filter": {
+                    "name": "scitool",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

@@ -1,6 +1,6 @@
 use sci_utils::{
     block::{Block, BlockReader},
-    buffer::BufferOpsExt,
+    buffer::{Buffer, BufferOpsExt},
     data_reader::DataReader,
     numbers::{modify_u16_le_in_slice, read_u16_le_from_slice},
 };
@@ -11,7 +11,7 @@ fn read_length_delimited_records(
 ) -> anyhow::Result<(Vec<Block>, Block)> {
     let num_records = data.read_u16_le_at(0);
     let (record_data, data) = data
-        .subblock(2..)
+        .sub_buffer(2..)
         .split_at((num_records * record_size) as u64);
     let records = record_data.split_chunks(record_size as u64);
     Ok((records, data))
@@ -45,16 +45,18 @@ pub struct Heap {
 impl Heap {
     pub fn from_block(loaded_script: &Block, resource_data: Block) -> anyhow::Result<Heap> {
         let relocations_offset = resource_data.read_u16_le_at(0);
-        let heap_data = resource_data.subblock(..relocations_offset as u64);
+        let heap_data = resource_data
+            .clone()
+            .sub_buffer(..relocations_offset as u64);
         let num_locals = heap_data.read_u16_le_at(2);
-        let (locals, mut heap_data) = heap_data.subblock(4..).split_at((num_locals * 2) as u64);
+        let (locals, mut heap_data) = heap_data.sub_buffer(4..).split_at((num_locals * 2) as u64);
 
         let mut objects = Vec::new();
         // Find all objects
         loop {
             let magic = heap_data.read_u16_le_at(0);
             if magic == 0 {
-                heap_data = heap_data.subblock(2..);
+                heap_data = heap_data.sub_buffer(2..);
                 break;
             }
 
@@ -115,12 +117,17 @@ impl Object {
         let padding = obj_data.read_u16_le_at(8);
         anyhow::ensure!(padding == 0);
 
-        let var_selectors =
-            loaded_data.subblock(var_selector_offfset as u64..method_record_offset as u64);
-        let (method_records, _) =
-            read_length_delimited_records(loaded_data.subblock(method_record_offset as u64..), 4)?;
+        let var_selectors = loaded_data
+            .clone()
+            .sub_buffer(var_selector_offfset as u64..method_record_offset as u64);
+        let (method_records, _) = read_length_delimited_records(
+            loaded_data
+                .clone()
+                .sub_buffer(method_record_offset as u64..),
+            4,
+        )?;
 
-        let properties = obj_data.subblock(10..);
+        let properties = obj_data.clone().sub_buffer(10..);
 
         let is_class = properties.read_u16_le_at(4) & 0x8000 != 0;
 
@@ -198,8 +205,8 @@ impl Script {
             let mut reader = BlockReader::new(data.clone());
             reader.read_u16_le()?
         };
-        let (script_data, relocations) = data.split_at(relocation_offset as u64);
-        let (exports, _) = read_length_delimited_records(script_data.subblock(2..), 2)?;
+        let (script_data, relocations) = data.clone().split_at(relocation_offset as u64);
+        let (exports, _) = read_length_delimited_records(script_data.sub_buffer(2..), 2)?;
 
         Ok(Self {
             data,
@@ -211,7 +218,7 @@ impl Script {
 
 fn extract_relocation_block(data: &Block) -> Block {
     let relocation_offset = data.read_u16_le_at(0) as u64;
-    data.subblock(relocation_offset..)
+    data.clone().sub_buffer(relocation_offset..)
 }
 
 pub struct LoadedScript {
@@ -248,7 +255,7 @@ pub fn load_script(script_data: &Block, heap_data: &Block) -> anyhow::Result<Loa
     }
 
     let loaded_script = Block::from_vec(loaded_script);
-    let (script_data, heap_data) = loaded_script.split_at(heap_offset);
+    let (script_data, heap_data) = loaded_script.clone().split_at(heap_offset);
     let script = Script::from_block(script_data)?;
     let heap = Heap::from_block(&loaded_script, heap_data)?;
 

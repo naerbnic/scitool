@@ -207,7 +207,7 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
         let mut remaining = self;
         let mut chunks = Vec::new();
         while remaining.size() != BufferSize::Size(Self::Idx::zero()) {
-            assert!(remaining.size() < BufferSize::Size(chunk_size));
+            assert!(remaining.size() >= BufferSize::Size(chunk_size));
             let (chunk, new_remaining) = remaining.split_at(chunk_size);
             chunks.push(chunk);
             remaining = new_remaining;

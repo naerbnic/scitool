@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     io::{self, Seek},
-    ops::{Bound, RangeBounds},
+    ops::RangeBounds,
     path::Path,
     sync::{Arc, Mutex},
 };
@@ -112,64 +112,6 @@ impl Block {
         Ok(buf)
     }
 
-    pub fn subblock<R>(&self, range: R) -> Self
-    where
-        R: RangeBounds<u64>,
-    {
-        let start = match range.start_bound() {
-            std::ops::Bound::Included(&start) => start,
-            std::ops::Bound::Excluded(&start) => start + 1,
-            std::ops::Bound::Unbounded => 0,
-        };
-
-        let end = match range.end_bound() {
-            std::ops::Bound::Included(&end) => end + 1,
-            std::ops::Bound::Excluded(&end) => end,
-            std::ops::Bound::Unbounded => self.size,
-        };
-
-        // Actual start/end are offsets from self.start
-        let start = self.start + start;
-        let end = self.start + end;
-
-        assert!(start <= end);
-        assert!(
-            end <= self.start + self.size,
-            "End: {} Size: {}",
-            end,
-            self.start + self.size
-        );
-
-        Self {
-            start,
-            size: end - start,
-            data: self.data.clone(),
-        }
-    }
-
-    /// Splits the block at the given offset, returning two blocks: the first
-    /// containing the data before the offset, and the second containing the
-    /// data after the offset.
-    pub fn split_at(&self, offset: u64) -> (Self, Self) {
-        assert!(
-            offset <= self.size,
-            "Tried to split a block of size {} at offset {}",
-            self.size,
-            offset
-        );
-        (self.subblock(..offset), self.subblock(offset..))
-    }
-
-    /// Splits the block into chunks of the given size. Panics if the block size
-    /// is not a multiple of the chunk size.
-    pub fn split_chunks(&self, chunk_size: u64) -> Vec<Self> {
-        assert_eq!(self.size % chunk_size, 0);
-        (0..self.size)
-            .step_by(chunk_size as usize)
-            .map(|start| self.subblock(start..).subblock(..chunk_size))
-            .collect()
-    }
-
     /// Returns the offset of the contained block within the current block.
     ///
     /// Panics if the argument originated from another block, and is not fully
@@ -203,30 +145,54 @@ impl Buffer<'static> for Block {
     }
 
     fn sub_buffer<R: RangeBounds<u64>>(self, range: R) -> Self {
-        let start: Bound<u64> = match range.start_bound() {
-            Bound::Included(&start) => Bound::Included(start),
-            Bound::Excluded(&start) => Bound::Excluded(start),
-            Bound::Unbounded => Bound::Unbounded,
+        let start = match range.start_bound() {
+            std::ops::Bound::Included(&start) => start,
+            std::ops::Bound::Excluded(&start) => start + 1,
+            std::ops::Bound::Unbounded => 0,
         };
-        let end: Bound<u64> = match range.end_bound() {
-            Bound::Included(&end) => Bound::Included(end),
-            Bound::Excluded(&end) => Bound::Excluded(end),
-            Bound::Unbounded => Bound::Unbounded,
+
+        let end = match range.end_bound() {
+            std::ops::Bound::Included(&end) => end + 1,
+            std::ops::Bound::Excluded(&end) => end,
+            std::ops::Bound::Unbounded => self.size,
         };
-        self.subblock((start, end))
+
+        // Actual start/end are offsets from self.start
+        let start = self.start + start;
+        let end = self.start + end;
+
+        assert!(start <= end);
+        assert!(
+            end <= self.start + self.size,
+            "End: {} Size: {}",
+            end,
+            self.start + self.size
+        );
+
+        Self {
+            start,
+            size: end - start,
+            data: self.data,
+        }
     }
 
     fn split_at(self, at: impl Into<BufferSize<u64>>) -> (Self, Self) {
         let BufferSize::Size(at) = at.into() else {
             panic!("We cannot have a block that is larger than u64");
         };
-        self.split_at(at)
+        assert!(
+            at <= self.size,
+            "Tried to split a block of size {} at offset {}",
+            self.size,
+            at
+        );
+        (self.clone().sub_buffer(..at), self.sub_buffer(at..))
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
         let value_bytes: &[u8] = &self[..T::SIZE];
         let value = T::parse(value_bytes)?;
-        let remaining = self.subblock(T::SIZE as u64..);
+        let remaining = self.sub_buffer(T::SIZE as u64..);
         Ok((value, remaining))
     }
 }
@@ -449,7 +415,7 @@ impl BlockReader {
     }
 
     pub fn into_rest(self) -> Block {
-        self.block.subblock(self.curr_pos..)
+        self.block.sub_buffer(self.curr_pos..)
     }
 }
 
