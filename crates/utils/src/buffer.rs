@@ -164,6 +164,14 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
         Ok((values, remaining))
     }
 
+    /// Reads a sequence of values, where the first value is a little endian
+    /// u16 indicating the number of values to read.
+    fn read_length_delimited_records<T: FromFixedBytes>(self) -> anyhow::Result<(Vec<T>, Self)> {
+        let (num_records, next) = self.read_value::<u16>()?;
+        let (values, next) = next.read_values::<T>(num_records as usize)?;
+        Ok((values, next))
+    }
+
     // Functions to create other dervied buffers.
 
     fn narrow<Idx: NarrowedIndex>(self) -> NarrowedIndexBuffer<'a, Idx, Self> {

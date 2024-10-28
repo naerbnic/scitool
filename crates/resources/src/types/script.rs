@@ -5,19 +5,11 @@ use sci_utils::{
     numbers::{modify_u16_le_in_slice, read_u16_le_from_slice, write_u16_le_to_slice},
 };
 
-fn read_length_delimited_records<'a, B: Buffer<'a>, T: FromFixedBytes>(
-    data: B,
-) -> anyhow::Result<(Vec<T>, B)> {
-    let (num_records, next) = data.read_value::<u16>()?;
-    let (values, next) = next.read_values::<T>(num_records as usize)?;
-    Ok((values, next))
-}
-
 fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> anyhow::Result<()>
 where
     B: Buffer<'static, Idx = u16>,
 {
-    let (relocation_entries, rest) = read_length_delimited_records::<_, u16>(relocations)?;
+    let (relocation_entries, rest) = relocations.read_length_delimited_records::<u16>()?;
     anyhow::ensure!(rest.is_empty());
 
     for reloc_entry in relocation_entries {
@@ -99,16 +91,16 @@ impl Heap {
 }
 
 struct MethodRecord {
-    field1: u16,
-    field2: u16,
+    selector_id: u16,
+    method_offset: u16,
 }
 
 impl ToFixedBytes for MethodRecord {
     const SIZE: usize = 4;
 
     fn to_bytes(&self, dest: &mut [u8]) -> anyhow::Result<()> {
-        write_u16_le_to_slice(dest, 0, self.field1);
-        write_u16_le_to_slice(dest, 2, self.field2);
+        write_u16_le_to_slice(dest, 0, self.selector_id);
+        write_u16_le_to_slice(dest, 2, self.method_offset);
         Ok(())
     }
 }
@@ -116,8 +108,8 @@ impl ToFixedBytes for MethodRecord {
 impl FromFixedBytes for MethodRecord {
     fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
         Ok(Self {
-            field1: read_u16_le_from_slice(bytes, 0),
-            field2: read_u16_le_from_slice(bytes, 2),
+            selector_id: read_u16_le_from_slice(bytes, 0),
+            method_offset: read_u16_le_from_slice(bytes, 2),
         })
     }
 }
@@ -141,11 +133,10 @@ impl Object {
         let var_selectors = loaded_data
             .clone()
             .sub_buffer(var_selector_offfset as usize..method_record_offset as usize);
-        let (method_records, _) = read_length_delimited_records::<_, MethodRecord>(
-            loaded_data
-                .clone()
-                .sub_buffer(method_record_offset as usize..),
-        )?;
+        let (method_records, _) = loaded_data
+            .clone()
+            .sub_buffer(method_record_offset as usize..)
+            .read_length_delimited_records::<MethodRecord>()?;
 
         let properties = obj_data.clone().sub_buffer(10..);
 
@@ -226,7 +217,9 @@ impl Script {
             reader.read_u16_le()?
         };
         let (script_data, relocations) = data.clone().split_at(relocation_offset as usize);
-        let (exports, _) = read_length_delimited_records::<_, u16>(script_data.sub_buffer(2..))?;
+        let (exports, _) = script_data
+            .sub_buffer(2..)
+            .read_length_delimited_records::<u16>()?;
 
         Ok(Self {
             data,
