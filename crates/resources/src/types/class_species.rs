@@ -19,12 +19,15 @@ impl FromFixedBytes for RawClassSpeciesEntry {
 
 #[derive(Clone, Copy, Debug)]
 struct ClassSpeciesEntry {
+    #[expect(dead_code)]
     species_id: u16,
+    #[expect(dead_code)]
     script_id: u16,
 }
 
 #[derive(Clone, Debug)]
 pub struct ClassSpeciesTable {
+    #[expect(dead_code)]
     species_entries: Vec<ClassSpeciesEntry>,
 }
 

@@ -1,8 +1,8 @@
 use sci_utils::{
     block::{Block, BlockReader},
-    buffer::{Buffer, BufferOpsExt, FromFixedBytes, ToFixedBytes},
+    buffer::{Buffer, BufferOpsExt, FromFixedBytes},
     data_reader::DataReader,
-    numbers::{modify_u16_le_in_slice, read_u16_le_from_slice, write_u16_le_to_slice},
+    numbers::{modify_u16_le_in_slice, read_u16_le_from_slice},
 };
 
 use super::selector_table::SelectorTable;
@@ -20,6 +20,7 @@ where
     Ok(())
 }
 
+#[expect(dead_code)]
 fn read_null_terminated_string_at(buffer: &[u8], offset: usize) -> anyhow::Result<&str> {
     let null_pos = buffer[offset..]
         .iter()
@@ -132,6 +133,7 @@ impl PropertySelectors {
         self.var_selector_ids.len()
     }
 
+    #[expect(dead_code)]
     pub fn get_prop_index_by_id(&self, id: u16) -> Option<usize> {
         self.var_selector_ids.iter().position(|&v| v == id)
     }
