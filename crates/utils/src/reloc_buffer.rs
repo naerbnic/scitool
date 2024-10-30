@@ -1,21 +1,22 @@
+pub mod expr;
 pub mod writer;
 
-use std::collections::{btree_map, BTreeMap};
 use crate::numbers::safe_signed_narrow;
+use std::collections::{btree_map, BTreeMap};
 
 use writer::RelocWriter;
 
 #[derive(Clone, Copy, Debug)]
 pub enum RelocSize {
-    Byte,
-    Word,
+    I8,
+    I16,
 }
 
 impl RelocSize {
     pub fn byte_size(&self) -> usize {
         match self {
-            RelocSize::Byte => 1,
-            RelocSize::Word => 2,
+            RelocSize::I8 => 1,
+            RelocSize::I16 => 2,
         }
     }
 }
@@ -67,12 +68,12 @@ impl<RelocSymbol> Relocation<RelocSymbol> {
         };
 
         match self.size {
-            RelocSize::Byte => {
+            RelocSize::I8 => {
                 let offset = data[self.offset] as i8 as i16 as u16;
                 let modified_value = self.reloc_type.apply(offset, target_address);
                 data[self.offset] = safe_signed_narrow(modified_value)?;
             }
-            RelocSize::Word => {
+            RelocSize::I16 => {
                 let data_slice: &mut [u8; 2] = (&mut data[self.offset..][..2]).try_into()?;
                 let offset = u16::from_le_bytes(*data_slice);
                 let modified_value = self.reloc_type.apply(offset, target_address);
@@ -281,7 +282,7 @@ where
         self.section.relocations.push(Relocation {
             reloc_type,
             offset: pos,
-            size: RelocSize::Byte,
+            size: RelocSize::I8,
             symbol: reloc,
         });
     }
@@ -292,7 +293,7 @@ where
         self.section.relocations.push(Relocation {
             reloc_type,
             offset: pos,
-            size: RelocSize::Word,
+            size: RelocSize::I16,
             symbol: reloc,
         });
     }
