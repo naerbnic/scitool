@@ -3,7 +3,7 @@ pub mod writer;
 use std::collections::{btree_map, BTreeMap};
 use crate::numbers::safe_signed_narrow;
 
-use writer::BytecodeWriter;
+use writer::RelocWriter;
 
 #[derive(Clone, Copy, Debug)]
 pub enum RelocSize {
@@ -92,7 +92,7 @@ impl<RelocSymbol> Relocation<RelocSymbol> {
 
 /// Represents an unlinked section of the object code.
 #[derive(Clone, Debug)]
-pub struct Section<TargetSymbol, RelocSymbol> {
+pub struct RelocatableBuffer<TargetSymbol, RelocSymbol> {
     /// The data in this section.
     data: Vec<u8>,
     /// The list of symbols defined in this section. Keys are symbol names,
@@ -123,7 +123,7 @@ pub trait RelocResolver<SourceSymbol> {
     fn resolve(&self, symbol: &SourceSymbol) -> anyhow::Result<RelocResult<Self::TargetSymbol>>;
 }
 
-impl<SymbolT, RelocT> Section<SymbolT, RelocT>
+impl<SymbolT, RelocT> RelocatableBuffer<SymbolT, RelocT>
 where
     SymbolT: Ord + std::fmt::Debug,
 {
@@ -139,7 +139,7 @@ where
     pub fn resolve_into<ResolverT: RelocResolver<RelocT>>(
         mut self,
         resolver: &ResolverT,
-    ) -> anyhow::Result<Section<SymbolT, ResolverT::TargetSymbol>> {
+    ) -> anyhow::Result<RelocatableBuffer<SymbolT, ResolverT::TargetSymbol>> {
         let mut errors = Vec::new();
         let mut new_relocs = Vec::new();
         for reloc in &self.relocations {
@@ -152,7 +152,7 @@ where
         if !errors.is_empty() {
             anyhow::bail!("relocation errors: {:?}", errors);
         }
-        Ok(Section {
+        Ok(RelocatableBuffer {
             data: self.data,
             symbols: self.symbols,
             relocations: new_relocs,
@@ -212,7 +212,7 @@ where
 }
 
 pub struct SectionBuilder<TargetSymbol, RelocSymbol> {
-    section: Section<TargetSymbol, RelocSymbol>,
+    section: RelocatableBuffer<TargetSymbol, RelocSymbol>,
 }
 
 impl<TargetSymbol, RelocSymbol> SectionBuilder<TargetSymbol, RelocSymbol>
@@ -221,7 +221,7 @@ where
 {
     pub fn new() -> Self {
         Self {
-            section: Section {
+            section: RelocatableBuffer {
                 data: Vec::new(),
                 symbols: BTreeMap::new(),
                 relocations: Vec::new(),
@@ -230,7 +230,7 @@ where
         }
     }
 
-    pub fn build(self) -> Section<TargetSymbol, RelocSymbol> {
+    pub fn build(self) -> RelocatableBuffer<TargetSymbol, RelocSymbol> {
         self.section
     }
 }
@@ -244,7 +244,7 @@ where
     }
 }
 
-impl<TargetSymbol, RelocSymbol> BytecodeWriter<TargetSymbol, RelocSymbol>
+impl<TargetSymbol, RelocSymbol> RelocWriter<TargetSymbol, RelocSymbol>
     for SectionBuilder<TargetSymbol, RelocSymbol>
 where
     TargetSymbol: Ord,

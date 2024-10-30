@@ -1,6 +1,6 @@
 //! The definition of instruction traits, and types.
 
-use sci_utils::reloc_buffer::writer::BytecodeWriter;
+use sci_utils::reloc_buffer::writer::RelocWriter;
 
 use crate::{args::ArgsWidth, opcode::Opcode};
 
@@ -21,7 +21,7 @@ pub trait Inst: InstBase {
 pub trait AsmInst<T>: InstBase {
     /// Writes the entire instruction to the buffer, including the opcode byte. This
     /// may also include relocation information.
-    fn write_inst<Sym, W: BytecodeWriter<Sym, T>>(
+    fn write_inst<Sym, W: RelocWriter<Sym, T>>(
         &self,
         arg_width: ArgsWidth,
         buf: W,
@@ -72,7 +72,7 @@ where
         self.inst.opcode()
     }
 
-    pub fn write_inst<Sym, W: BytecodeWriter<Sym, T>>(&self, buf: W) -> anyhow::Result<()> {
+    pub fn write_inst<Sym, W: RelocWriter<Sym, T>>(&self, buf: W) -> anyhow::Result<()> {
         self.inst.write_inst(self.args_width, buf)
     }
 }

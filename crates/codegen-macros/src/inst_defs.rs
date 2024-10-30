@@ -540,7 +540,7 @@ impl InstDefListParsed {
             .iter()
             .map(|def| def.impl_asm_write_inst_clause());
         quote! {
-            fn write_inst<Sym, W: BytecodeWriter<Sym, #label_type>>(&self, arg_width: ArgsWidth, mut buf: W) -> anyhow::Result<()> {
+            fn write_inst<Sym, W: RelocWriter<Sym, #label_type>>(&self, arg_width: ArgsWidth, mut buf: W) -> anyhow::Result<()> {
                 match self {
                     #(#asm_write_inst_clauses)*
                 }

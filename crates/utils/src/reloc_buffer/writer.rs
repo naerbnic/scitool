@@ -1,6 +1,6 @@
 use super::RelocType;
 
-pub trait BytecodeWriter<SymbolT, RelocT> {
+pub trait RelocWriter<SymbolT, RelocT> {
     // Writes a single byte to the output.
     fn write_u8(&mut self, value: u8);
     // Writes a 16-bit little-endian value to the output. No alignment is done

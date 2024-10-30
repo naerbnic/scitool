@@ -3,7 +3,7 @@ use sci_utils::{
         read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow, safe_unsigned_narrow,
         signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
     },
-    reloc_buffer::{writer::BytecodeWriter, RelocType},
+    reloc_buffer::{writer::RelocWriter, RelocType},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -45,7 +45,7 @@ pub trait InstAsmArg<RelocSymbol>: InstArgBase {
     ///
     /// bytes_to_end gives the number of bytes to the end of the instruction.
     /// This is necessary to compute correct offsets for the argument.
-    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, RelocSymbol>>(
+    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, RelocSymbol>>(
         &self,
         inst_args_width: ArgsWidth,
         bytes_to_inst_end: usize,
@@ -98,7 +98,7 @@ impl InstArg for VarUWord {
 impl<T> InstAsmArg<T> for VarUWord {
     type InstArg = VarUWord;
 
-    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
         &self,
         inst_args_width: ArgsWidth,
         _bytes_to_inst_end: usize,
@@ -158,7 +158,7 @@ impl InstArg for VarSWord {
 impl<T> InstAsmArg<T> for VarSWord {
     type InstArg = VarSWord;
 
-    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
         &self,
         inst_args_width: ArgsWidth,
         _bytes_to_inst_end: usize,
@@ -203,7 +203,7 @@ impl InstArg for Word {
 impl<T> InstAsmArg<T> for Word {
     type InstArg = VarSWord;
 
-    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
         &self,
         _inst_args_width: ArgsWidth,
         _bytes_to_inst_end: usize,
@@ -244,7 +244,7 @@ impl InstArg for Byte {
 impl<T> InstAsmArg<T> for Byte {
     type InstArg = VarSWord;
 
-    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
         &self,
         _inst_args_width: ArgsWidth,
         _bytes_to_inst_end: usize,
@@ -276,7 +276,7 @@ where
 {
     type InstArg = VarSWord;
 
-    fn write_asm_arg<SourceSymbol, W: BytecodeWriter<SourceSymbol, T>>(
+    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
         &self,
         inst_args_width: ArgsWidth,
         bytes_to_inst_end: usize,
