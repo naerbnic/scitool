@@ -1,7 +1,9 @@
-use crate::{reloc::RelocType, writer::BytecodeWriter};
-use sci_utils::numbers::{
-    read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow, safe_unsigned_narrow,
-    signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
+use sci_utils::{
+    numbers::{
+        read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow, safe_unsigned_narrow,
+        signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
+    },
+    reloc_buffer::{writer::BytecodeWriter, RelocType},
 };
 
 #[derive(Clone, Copy, Debug)]

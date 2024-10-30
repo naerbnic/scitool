@@ -1,6 +1,8 @@
 //! The definition of instruction traits, and types.
 
-use crate::{args::ArgsWidth, opcode::Opcode, writer::BytecodeWriter};
+use sci_utils::reloc_buffer::writer::BytecodeWriter;
+
+use crate::{args::ArgsWidth, opcode::Opcode};
 
 pub trait InstBase {
     type Opcode: Opcode;

@@ -8,9 +8,9 @@ use crate::{
     args::{ArgsWidth, Byte, InstArg, InstArgBase, InstAsmArg, Label, VarSWord, VarUWord},
     insts::{AsmInst, Inst, InstBase},
     opcode::Opcode,
-    writer::BytecodeWriter,
 };
 use sci_utils::numbers::write_byte;
+use sci_utils::reloc_buffer::writer::BytecodeWriter;
 use var_access::VarAccessOp;
 
 sci_codegen_macros::define_insts! {
