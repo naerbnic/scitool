@@ -5,6 +5,8 @@ use sci_utils::{
     numbers::{modify_u16_le_in_slice, read_u16_le_from_slice, write_u16_le_to_slice},
 };
 
+use super::selector_table::SelectorTable;
+
 fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> anyhow::Result<()>
 where
     B: Buffer<'static, Idx = u16>,
@@ -16,6 +18,14 @@ where
         modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| Ok(v.wrapping_add(offset)))?;
     }
     Ok(())
+}
+
+fn read_null_terminated_string_at(buffer: &[u8], offset: usize) -> anyhow::Result<&str> {
+    let null_pos = buffer[offset..]
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or_else(|| anyhow::anyhow!("No null terminator found in string"))?;
+    Ok(std::str::from_utf8(&buffer[offset..offset + null_pos])?)
 }
 
 pub struct Heap {
@@ -30,7 +40,11 @@ pub struct Heap {
 }
 
 impl Heap {
-    pub fn from_block(loaded_script: &Block, resource_data: Block) -> anyhow::Result<Heap> {
+    pub fn from_block(
+        selector_table: &SelectorTable,
+        loaded_script: &Block,
+        resource_data: Block,
+    ) -> anyhow::Result<Heap> {
         let relocations_offset = resource_data.read_u16_le_at(0);
         let heap_data = resource_data
             .clone()
@@ -49,18 +63,18 @@ impl Heap {
                 break;
             }
 
-            eprintln!("Object: {:04X}", resource_data.offset_in(&heap_data));
+            println!("Object: {:04X}", resource_data.offset_in(&heap_data));
 
             anyhow::ensure!(magic == 0x1234u16);
             let object_size = heap_data.read_u16_le_at(2);
             let (object_data, next_heap_data) = heap_data.split_at((object_size * 2) as usize);
-            let new_obj = Object::from_block(loaded_script, object_data)?;
+            let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
             println!("Object: {:?}", new_obj);
             objects.push(new_obj);
             heap_data = next_heap_data;
         }
 
-        eprintln!(
+        println!(
             "Strings offset: {:04X}",
             resource_data.offset_in(&heap_data)
         );
@@ -72,7 +86,7 @@ impl Heap {
                 anyhow::bail!("No null terminator found in string heap");
             };
             let (string_data, next_heap_data) = heap_data.split_at(null_pos + 1);
-            eprintln!(
+            println!(
                 "String @{:04X}: {:?}",
                 resource_data.offset_in(&string_data),
                 std::str::from_utf8(&string_data[..string_data.len() - 1]).unwrap()
@@ -95,17 +109,8 @@ struct MethodRecord {
     method_offset: u16,
 }
 
-impl ToFixedBytes for MethodRecord {
-    const SIZE: usize = 4;
-
-    fn to_bytes(&self, dest: &mut [u8]) -> anyhow::Result<()> {
-        write_u16_le_to_slice(dest, 0, self.selector_id);
-        write_u16_le_to_slice(dest, 2, self.method_offset);
-        Ok(())
-    }
-}
-
 impl FromFixedBytes for MethodRecord {
+    const SIZE: usize = 4;
     fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
         Ok(Self {
             selector_id: read_u16_le_from_slice(bytes, 0),
@@ -114,33 +119,75 @@ impl FromFixedBytes for MethodRecord {
     }
 }
 
+struct PropertySelectors {
+    var_selector_ids: Vec<u16>,
+}
+
+impl PropertySelectors {
+    pub fn new(var_selector_ids: Vec<u16>) -> Self {
+        Self { var_selector_ids }
+    }
+
+    pub fn len(&self) -> usize {
+        self.var_selector_ids.len()
+    }
+
+    pub fn get_prop_index_by_id(&self, id: u16) -> Option<usize> {
+        self.var_selector_ids.iter().position(|&v| v == id)
+    }
+}
+
 pub struct Object {
     #[expect(dead_code)]
     obj_data: Block,
-    var_selectors: Block,
+    var_selector_ids: PropertySelectors,
     #[expect(dead_code)]
     method_records: Vec<MethodRecord>,
-    properties: Block,
+    properties: Vec<u16>,
 }
 
 impl Object {
-    pub fn from_block(loaded_data: &Block, obj_data: Block) -> anyhow::Result<Object> {
+    pub fn from_block(
+        selector_table: &SelectorTable,
+        loaded_data: &Block,
+        obj_data: Block,
+    ) -> anyhow::Result<Object> {
         let var_selector_offfset = obj_data.read_u16_le_at(4);
         let method_record_offset = obj_data.read_u16_le_at(6);
         let padding = obj_data.read_u16_le_at(8);
         anyhow::ensure!(padding == 0);
 
-        let var_selectors = loaded_data
+        let var_selector_ids = loaded_data
             .clone()
-            .sub_buffer(var_selector_offfset as usize..method_record_offset as usize);
+            .sub_buffer(var_selector_offfset as usize..method_record_offset as usize)
+            .split_values::<u16>()?;
+
+        for var_selector_id in &var_selector_ids {
+            let selector = selector_table.get_selector_by_id(*var_selector_id);
+            println!("Var selector: {:04X}: {:?}", *var_selector_id, selector);
+        }
+
+        let var_selector_ids = PropertySelectors::new(var_selector_ids);
+
         let (method_records, _) = loaded_data
             .clone()
             .sub_buffer(method_record_offset as usize..)
             .read_length_delimited_records::<MethodRecord>()?;
 
-        let properties = obj_data.clone().sub_buffer(10..);
+        for method_record in &method_records {
+            let selector = selector_table.get_selector_by_id(method_record.selector_id);
+            println!(
+                "Method: {:04X}: {:?}, offset: {:04X}",
+                method_record.selector_id, selector, method_record.method_offset
+            );
+        }
 
-        let is_class = properties.read_u16_le_at(4) & 0x8000 != 0;
+        let properties = obj_data.clone().split_values::<u16>()?;
+
+        println!("Num variable selectors: {:?}", var_selector_ids.len());
+        println!("Num object properties: {:?}", properties.len());
+
+        let is_class = properties[7] & 0x8000 != 0;
 
         if is_class {
             assert!(
@@ -159,14 +206,14 @@ impl Object {
 
         Ok(Self {
             obj_data,
-            var_selectors,
+            var_selector_ids,
             method_records,
             properties,
         })
     }
 
     pub fn is_class(&self) -> bool {
-        self.properties.read_u16_le_at(4) & 0x8000 != 0
+        self.properties[7] & 0x8000 != 0
     }
 }
 
@@ -175,15 +222,9 @@ impl std::fmt::Debug for Object {
         f.debug_struct("Object")
             .field("is_class", &self.is_class())
             .field("num_properties", &(self.properties.len() / 2))
-            .field("var_entries", &(self.var_selectors.size() / 2))
-            .field(
-                "species",
-                &format!("{:04X}", self.properties.read_u16_le_at(0)),
-            )
-            .field(
-                "parent",
-                &format!("{:04X}", self.properties.read_u16_le_at(2)),
-            )
+            .field("var_entries", &(self.var_selector_ids.len()))
+            .field("species", &format!("{:04X}", self.properties[5]))
+            .field("parent", &format!("{:04X}", self.properties[7]))
             .finish()
     }
 }
@@ -248,7 +289,11 @@ pub struct LoadedScript {
     heap: Heap,
 }
 
-pub fn load_script<B>(script_data: &B, heap_data: &B) -> anyhow::Result<LoadedScript>
+pub fn load_script<B>(
+    selector_table: &SelectorTable,
+    script_data: &B,
+    heap_data: &B,
+) -> anyhow::Result<LoadedScript>
 where
     B: Buffer<'static, Idx = u16> + Clone,
 {
@@ -276,7 +321,7 @@ where
     let loaded_script = Block::from_vec(loaded_script);
     let (script_data, heap_data) = loaded_script.clone().split_at(heap_offset);
     let script = Script::from_block(script_data)?;
-    let heap = Heap::from_block(&loaded_script, heap_data)?;
+    let heap = Heap::from_block(selector_table, &loaded_script, heap_data)?;
 
     Ok(LoadedScript {
         heap_offset: heap_offset as u16,

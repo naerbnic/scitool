@@ -16,7 +16,8 @@ pub trait ToFixedBytes {
     fn to_bytes(&self, dest: &mut [u8]) -> anyhow::Result<()>;
 }
 
-pub trait FromFixedBytes: ToFixedBytes + Sized {
+pub trait FromFixedBytes: Sized {
+    const SIZE: usize;
     fn parse(bytes: &[u8]) -> anyhow::Result<Self>;
 }
 
@@ -33,6 +34,8 @@ macro_rules! impl_fixed_bytes_for_num {
             }
 
             impl FromFixedBytes for $num {
+                const SIZE: usize = std::mem::size_of::<$num>();
+
                 fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
                     let bytes = bytes.try_into().unwrap();
                     Ok(Self::from_le_bytes(bytes))
@@ -149,6 +152,14 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
             remaining = new_remaining;
         }
         chunks
+    }
+
+    fn split_values<T: FromFixedBytes>(self) -> anyhow::Result<Vec<T>> {
+        let buf_size = self.size();
+        assert!(buf_size % T::SIZE == 0);
+        let (values, rest) = self.read_values::<T>(buf_size / T::SIZE)?;
+        assert!(rest.is_empty());
+        Ok(values)
     }
 
     /// Reads N values from the front of the buffer, returning the values and the

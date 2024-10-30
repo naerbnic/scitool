@@ -54,6 +54,7 @@ struct Object {
     /// A pointer to a MethodRecord location, in the script portion.
     method_record_offset: *MethodRecord,
     /// Apparently a padding and/or reserved_value, should be 0.
+    /// This is named "-classScript-" as a selector
     _padding: u16
     /// Default property values
     /// 

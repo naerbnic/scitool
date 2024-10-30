@@ -33,41 +33,74 @@ impl std::borrow::Borrow<str> for SharedString {
     }
 }
 
+struct SelectorInner {
+    name: SharedString,
+    id: u16,
+}
+
+#[derive(Clone)]
+pub struct Selector(Arc<SelectorInner>);
+
+impl Selector {
+    pub fn name(&self) -> &str {
+        self.0.name.as_str()
+    }
+
+    pub fn id(&self) -> u16 {
+        self.0.id
+    }
+}
+
+impl std::fmt::Debug for Selector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Selector")
+            .field("name", &self.name())
+            .field("id", &self.id())
+            .finish()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SelectorTable {
-    entries: Vec<SharedString>,
-    reverse_entries: HashMap<SharedString, Vec<u16>>,
+    entries: Vec<Selector>,
+    reverse_entries: HashMap<SharedString, Vec<Selector>>,
 }
 
 impl SelectorTable {
     pub fn load_from<'a, B: Buffer<'a, Idx = u16> + Clone>(data: B) -> anyhow::Result<Self> {
-        let (selector_offsets, _) = data.clone().read_length_delimited_records::<u16>()?;
+        // A weird property: The number of entries given in Vocab 997 appears to be one
+        // _less_ than the actual number of entries.
+        let (num_entries_minus_one, entries_table) = data.clone().read_value::<u16>()?;
+        let num_entries = num_entries_minus_one + 1;
+        let (selector_offsets, _) = entries_table.read_values(num_entries as usize)?;
         let mut entries = Vec::with_capacity(selector_offsets.len());
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();
 
-        for selector_offset in selector_offsets {
-            let string = match offset_map.entry(selector_offset) {
+        for (id, selector_offset) in selector_offsets.into_iter().enumerate() {
+            let name = match offset_map.entry(selector_offset) {
                 hash_map::Entry::Occupied(occupied_entry) => occupied_entry.get().clone(),
                 hash_map::Entry::Vacant(vacant_entry) => {
                     let entry_data = data.clone().sub_buffer(selector_offset..);
                     let (string_length, entry_data) = entry_data.read_value::<u16>()?;
-                    vacant_entry
-                        .insert(SharedString::new(String::from_utf8(
-                            entry_data.sub_buffer(..string_length).as_ref().to_vec(),
-                        )?))
-                        .clone()
+                    let name = SharedString::new(String::from_utf8(
+                        entry_data.sub_buffer(..string_length).as_ref().to_vec(),
+                    )?);
+                    vacant_entry.insert(name).clone()
                 }
             };
-            entries.push(string);
+            entries.push(Selector(Arc::new(SelectorInner {
+                name,
+                id: id.try_into().unwrap(),
+            })));
         }
 
         let mut reverse_entries = HashMap::new();
 
-        for (index, string) in entries.iter().enumerate() {
+        for selector in entries.iter() {
             reverse_entries
-                .entry(string.clone())
+                .entry(selector.0.name.clone())
                 .or_insert_with(Vec::new)
-                .push(index as u16);
+                .push(selector.clone());
         }
         Ok(Self {
             entries,
@@ -75,13 +108,13 @@ impl SelectorTable {
         })
     }
 
-    pub fn get_selector_name(&self, index: u16) -> Option<&str> {
-        self.entries.get(index as usize).map(|s| s.as_str())
+    pub fn get_selector_by_id(&self, index: u16) -> Option<&Selector> {
+        self.entries.get(index as usize)
     }
 
-    pub fn get_selector_for_name(&self, name: &str) -> Option<u16> {
+    pub fn get_selector_by_name(&self, name: &str) -> Option<&Selector> {
         self.reverse_entries
             .get(name)
-            .and_then(|v| if v.len() == 1 { Some(v[0]) } else { None })
+            .and_then(|v| if v.len() == 1 { Some(&v[0]) } else { None })
     }
 }
