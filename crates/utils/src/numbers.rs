@@ -1,3 +1,5 @@
+pub mod bit_convert;
+
 /// Returns the number as a signed byte if it can be safely narrowed.
 pub fn safe_signed_narrow(number: u16) -> anyhow::Result<u8> {
     let sign_part = number & 0xFF80;

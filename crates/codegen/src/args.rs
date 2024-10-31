@@ -1,9 +1,9 @@
 use sci_utils::{
     numbers::{
-        read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow, safe_unsigned_narrow,
-        signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
+        bit_convert::WidenTo, read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow,
+        safe_unsigned_narrow, signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
     },
-    reloc_buffer::{writer::RelocWriter, RelocType},
+    reloc_buffer::{expr::Expr, writer::RelocWriter, RelocSize, RelocType},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -32,7 +32,7 @@ pub trait InstArg: InstArgBase {
 /// An instruction argument created by the assembler, or during compilation.
 /// This value may not have the final value, and can write a relocation action
 /// to the output.
-pub trait InstAsmArg<RelocSymbol>: InstArgBase {
+pub trait InstAsmArg<Sym>: InstArgBase {
     /// The InstArg that this instruction argument will be converted to after
     /// relocation.
     ///
@@ -45,12 +45,15 @@ pub trait InstAsmArg<RelocSymbol>: InstArgBase {
     ///
     /// bytes_to_end gives the number of bytes to the end of the instruction.
     /// This is necessary to compute correct offsets for the argument.
-    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, RelocSymbol>>(
+    fn write_asm_arg<Ext, W>(
         &self,
         inst_args_width: ArgsWidth,
         bytes_to_inst_end: usize,
         writer: &mut W,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<()>
+    where
+        Ext: Clone,
+        W: RelocWriter<Ext, Sym>;
 }
 
 /// A variable length unsigned word. When extending from a byte, no sign extension is
@@ -270,18 +273,21 @@ impl<T> InstArgBase for Label<T> {
     }
 }
 
-impl<T> InstAsmArg<T> for Label<T>
+impl<Sym> InstAsmArg<Sym> for Label<Sym>
 where
-    T: Clone,
+    Sym: Clone,
 {
     type InstArg = VarSWord;
 
-    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
+    fn write_asm_arg<Ext, W: RelocWriter<Ext, Sym>>(
         &self,
         inst_args_width: ArgsWidth,
         bytes_to_inst_end: usize,
         writer: &mut W,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        Ext: Clone,
+    {
         // Labels are in reference to the location after the instruction, so
         // we need to add a _negative_ offset to this relocation entry.
         //
@@ -301,13 +307,20 @@ where
         let offset: u16 = safe_narrow_from_isize(offset)?;
 
         match inst_args_width {
-            ArgsWidth::Byte => writer.add_byte_reloc(
+            ArgsWidth::Byte => writer.add_reloc(
                 RelocType::Relative,
-                safe_signed_narrow(offset)?,
-                self.label.clone(),
+                RelocSize::I8,
+                Expr::new_add(
+                    Expr::new_subtract(
+                        Expr::new_local(self.label.clone()),
+                        Expr::new_current_address(),
+                    ),
+                    Expr::new_literal(offset.safe_widen_to()),
+                ),
             ),
             ArgsWidth::Word => {
-                writer.add_word_reloc(RelocType::Relative, offset, self.label.clone())
+                todo!()
+                //writer.add_word_reloc(RelocType::Relative, offset, self.label.clone())
             }
         }
         Ok(())

@@ -25,7 +25,9 @@ pub trait AsmInst<T>: InstBase {
         &self,
         arg_width: ArgsWidth,
         buf: W,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<()>
+    where
+        Sym: Clone;
 }
 
 pub struct SizedInst<K> {
@@ -72,7 +74,7 @@ where
         self.inst.opcode()
     }
 
-    pub fn write_inst<Sym, W: RelocWriter<Sym, T>>(&self, buf: W) -> anyhow::Result<()> {
+    pub fn write_inst<Sym: Clone, W: RelocWriter<Sym, T>>(&self, buf: W) -> anyhow::Result<()> {
         self.inst.write_inst(self.args_width, buf)
     }
 }
