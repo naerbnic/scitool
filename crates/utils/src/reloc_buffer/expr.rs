@@ -78,7 +78,7 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
     {
         let result = match self {
             LeafValue::CurrentAddress => {
-                IntermediateValue::new_base_relative(current_address.try_into().unwrap())
+                IntermediateValue::new_base_relative(current_address.convert_num_to().unwrap())
             }
             LeafValue::Immediate(value) => IntermediateValue::new_exact(*value),
             LeafValue::LocalSymbol(sym) => {
@@ -109,6 +109,24 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
             LeafValue::Immediate(value) => Some(*value),
             _ => None,
         }
+    }
+    pub fn filter_map_local<F, T>(self, mut body: F) -> anyhow::Result<LeafValue<Ext, T>>
+    where
+        F: FnMut(Sym) -> Option<T>,
+        T: Clone,
+    {
+        Ok(match self {
+            LeafValue::LocalSymbol(sym) => {
+                if let Some(new_sym) = body(sym) {
+                    LeafValue::LocalSymbol(new_sym)
+                } else {
+                    return Err(anyhow::anyhow!("failed to map local symbol"));
+                }
+            }
+            LeafValue::CurrentAddress => LeafValue::CurrentAddress,
+            LeafValue::Immediate(value) => LeafValue::Immediate(value),
+            LeafValue::ExternalValue(value) => LeafValue::ExternalValue(value),
+        })
     }
 }
 
@@ -299,14 +317,18 @@ where
         Some(result)
     }
 
-    pub fn exact_value(&self) -> Option<i64> {
+    pub(super) fn exact_value(&self) -> Option<i64> {
         match &self.0 {
             ExprInner::Value(v) => v.exact_value(),
             _ => None,
         }
     }
 
-    pub(super) fn full_resolve<R>(&self, current_address: usize, full_resolver: &R) -> anyhow::Result<i64>
+    pub(super) fn full_resolve<R>(
+        &self,
+        current_address: usize,
+        full_resolver: &R,
+    ) -> anyhow::Result<i64>
     where
         Sym: std::fmt::Debug,
         R: super::FullResolver<Ext, Sym>,
@@ -334,5 +356,29 @@ where
                 })
             }
         }
+    }
+
+    pub(super) fn filter_map_local<F, T>(self, body: &mut F) -> anyhow::Result<Expr<Ext, T>>
+    where
+        F: FnMut(Sym) -> Option<T>,
+        T: Clone,
+    {
+        Ok(Expr(match self.0 {
+            ExprInner::Value(v) => ExprInner::Value(v.filter_map_local(body)?),
+            ExprInner::Difference(a, b) => {
+                let a = a.filter_map_local(body)?;
+                let b = b.filter_map_local(body)?;
+                ExprInner::Difference(Box::new(a), Box::new(b))
+            }
+            ExprInner::Sum(a, b) => {
+                let a = a.filter_map_local(body)?;
+                let b = b.filter_map_local(body)?;
+                ExprInner::Sum(Box::new(a), Box::new(b))
+            }
+            ExprInner::ScalarProduct(coeff, expr) => {
+                let expr = expr.filter_map_local(body)?;
+                ExprInner::ScalarProduct(coeff, Box::new(expr))
+            }
+        }))
     }
 }

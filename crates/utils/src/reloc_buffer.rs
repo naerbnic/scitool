@@ -91,8 +91,9 @@ where
                 }));
             };
             self.write_value_to_slice(value, data)?;
+            return Ok(None);
         }
-        Ok(None)
+        Ok(Some(self.clone()))
     }
 
     pub fn full_resolve<R>(&self, full_resolver: &R, data: &mut [u8]) -> anyhow::Result<()>
@@ -110,13 +111,19 @@ where
             ..self
         }
     }
-}
 
-pub enum RelocResult<TargetSymbol> {
-    /// The relocation was successful. Returns the target address.
-    Success(u16),
-    /// The relocation was bypassed, creating a target relocation.
-    Modified(TargetSymbol),
+    pub fn filter_map_local<F, T>(self, body: &mut F) -> anyhow::Result<Relocation<Ext, T>>
+    where
+        F: FnMut(Sym) -> Option<T>,
+        T: Clone,
+    {
+        Ok(Relocation {
+            expr: self.expr.filter_map_local(body)?,
+            pos: self.pos,
+            size: self.size,
+            reloc_type: self.reloc_type,
+        })
+    }
 }
 
 /// A symbol resolver for external symbols.
@@ -130,7 +137,7 @@ trait LocalResolver<Sym> {
     fn resolve_local_symbol(&self, symbol: &Sym) -> Option<i64>;
 }
 
-pub struct LocalOnlyResolver<'a, Sym> {
+struct LocalOnlyResolver<'a, Sym> {
     symbols: &'a BTreeMap<Sym, usize>,
 }
 
@@ -141,7 +148,6 @@ where
     fn resolve_local_symbol(&self, symbol: &Sym) -> Option<i64> {
         self.symbols
             .get(symbol)
-            .copied()
             .map(|x| x.convert_num_to().unwrap())
     }
 }
@@ -310,13 +316,43 @@ where
         }
         Ok(self.data)
     }
+
+    pub fn filter_map_local<F, NewSym>(
+        self,
+        mut f: F,
+    ) -> anyhow::Result<RelocatableBuffer<Ext, NewSym>>
+    where
+        F: FnMut(Sym) -> Option<NewSym>,
+        NewSym: Ord + Clone + std::fmt::Debug,
+    {
+        // It's fine if we lose symbols, as that's part of the intent of this filtering.
+        let symbols = self
+            .symbols
+            .into_iter()
+            .filter_map(|(sym, offset)| f(sym).map(|new_sym| (new_sym, offset)))
+            .collect();
+
+        // It's NOT fine if we lose expressions with relocations, as that indicates that
+        // relocations that should have been resolved were not.
+        let relocations = self
+            .relocations
+            .into_iter()
+            .map(|reloc| reloc.filter_map_local(&mut f))
+            .collect::<Result<_, _>>()?;
+        Ok(RelocatableBuffer {
+            data: self.data,
+            symbols,
+            relocations,
+            alignment: self.alignment,
+        })
+    }
 }
 
-pub struct SectionBuilder<Ext, Sym> {
+pub struct RelocatableBufferBuilder<Ext, Sym> {
     section: RelocatableBuffer<Ext, Sym>,
 }
 
-impl<Ext, Sym> SectionBuilder<Ext, Sym>
+impl<Ext, Sym> RelocatableBufferBuilder<Ext, Sym>
 where
     Ext: Clone,
     Sym: Ord + Clone + std::fmt::Debug,
@@ -332,7 +368,7 @@ where
     }
 }
 
-impl<Ext, Sym> Default for SectionBuilder<Ext, Sym>
+impl<Ext, Sym> Default for RelocatableBufferBuilder<Ext, Sym>
 where
     Ext: Clone,
     Sym: Ord + Clone + std::fmt::Debug,
@@ -342,7 +378,7 @@ where
     }
 }
 
-impl<Ext, Sym> RelocWriter<Ext, Sym> for SectionBuilder<Ext, Sym>
+impl<Ext, Sym> RelocWriter<Ext, Sym> for RelocatableBufferBuilder<Ext, Sym>
 where
     Ext: Clone,
     Sym: Ord + Clone,
@@ -390,32 +426,45 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::reloc_buffer::expr::Expr;
-    use crate::reloc_buffer::RelocSize;
-    use crate::reloc_buffer::RelocType;
+    use std::collections::BTreeMap;
 
-    use super::writer::RelocWriter;
-    use super::RelocatableBuffer;
-    use super::SectionBuilder;
+    use super::{
+        expr::Expr, writer::RelocWriter, ExternalResolver, RelocSize, RelocType, RelocatableBuffer,
+        RelocatableBufferBuilder,
+    };
 
     struct NullExternalResolver;
 
-    impl super::ExternalResolver<()> for NullExternalResolver {
+    impl ExternalResolver<()> for NullExternalResolver {
         fn resolve(&self, _: &()) -> anyhow::Result<i64> {
             anyhow::bail!("no external symbols should be resolved")
         }
     }
 
+    struct SimpleMapExtResolver<'a, K>(&'a BTreeMap<K, i64>);
+
+    impl<K> ExternalResolver<K> for SimpleMapExtResolver<'_, K>
+    where
+        K: Ord + Clone + std::fmt::Debug,
+    {
+        fn resolve(&self, ext: &K) -> anyhow::Result<i64> {
+            self.0
+                .get(ext)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("symbol {:?} not found", ext))
+        }
+    }
+
     #[test]
     fn can_build_empty_buffer() -> anyhow::Result<()> {
-        let buffer: RelocatableBuffer<(), ()> = SectionBuilder::new().build();
+        let buffer: RelocatableBuffer<(), ()> = RelocatableBufferBuilder::new().build();
         buffer.resolve_all(&NullExternalResolver)?;
         Ok(())
     }
 
     #[test]
     fn can_build_no_symbol_buffer() -> anyhow::Result<()> {
-        let mut writer = SectionBuilder::new();
+        let mut writer = RelocatableBufferBuilder::new();
         writer.write_u8(0);
         writer.write_u16_le(0x1234);
 
@@ -427,7 +476,7 @@ mod tests {
 
     #[test]
     fn can_build_simple_symbol() -> anyhow::Result<()> {
-        let mut writer = SectionBuilder::new();
+        let mut writer = RelocatableBufferBuilder::new();
         writer.add_reloc(RelocType::Absolute, RelocSize::I16, Expr::new_local("abc"));
         writer.mark_symbol("abc");
 
@@ -441,7 +490,7 @@ mod tests {
     fn merge_advances_addresses() -> anyhow::Result<()> {
         let buffer1 = RelocatableBuffer::from_vec(vec![0x01, 0x02], 1);
 
-        let mut writer = SectionBuilder::new();
+        let mut writer = RelocatableBufferBuilder::new();
         writer.add_reloc(RelocType::Absolute, RelocSize::I16, Expr::new_local("abc"));
         writer.mark_symbol("abc");
         let buffer2: RelocatableBuffer<(), &'static str> = writer.build();
@@ -454,7 +503,7 @@ mod tests {
 
     #[test]
     fn relative_address_is_resolved_partially() -> anyhow::Result<()> {
-        let mut writer = SectionBuilder::new();
+        let mut writer = RelocatableBufferBuilder::new();
         writer.mark_symbol("a");
         writer.add_reloc(
             RelocType::Relative,
@@ -472,7 +521,7 @@ mod tests {
 
     #[test]
     fn negative_relative_addresses_resolve_partially() -> anyhow::Result<()> {
-        let mut writer = SectionBuilder::new();
+        let mut writer = RelocatableBufferBuilder::new();
         writer.mark_symbol("a");
         writer.add_reloc(
             RelocType::Relative,
@@ -485,6 +534,81 @@ mod tests {
         let buffer = buffer.local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0xFE, 0xFF]);
+        Ok(())
+    }
+
+    #[test]
+    fn filter_map_allows_local_resolutions() -> anyhow::Result<()> {
+        let mut writer = RelocatableBufferBuilder::new();
+        writer.mark_symbol("a");
+        writer.add_reloc(
+            RelocType::Relative,
+            RelocSize::I16,
+            Expr::new_subtract(Expr::new_local("a"), Expr::new_local("b")),
+        );
+        writer.mark_symbol("b");
+
+        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
+        let buffer = buffer.local_resolve()?;
+        let buffer = buffer.filter_map_local(|sym| if sym == "a" { None } else { Some(sym) })?;
+        assert!(buffer.relocations.is_empty());
+        assert_eq!(buffer.data, vec![0xFE, 0xFF]);
+        Ok(())
+    }
+
+    #[test]
+    fn filter_map_forbids_remaining_exprs() -> anyhow::Result<()> {
+        let mut writer = RelocatableBufferBuilder::new();
+        writer.mark_symbol("a");
+        writer.add_reloc(
+            RelocType::Relative,
+            RelocSize::I16,
+            Expr::new_subtract(Expr::new_local("a"), Expr::new_local("c")),
+        );
+        writer.mark_symbol("b");
+
+        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
+        let buffer = buffer.local_resolve()?;
+        assert!(buffer
+            .filter_map_local(|sym| if sym == "a" { None } else { Some(sym) })
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn ext_resolution_works() -> anyhow::Result<()> {
+        let mut writer = RelocatableBufferBuilder::new();
+        writer.write_u8(0);
+        writer.add_reloc(
+            RelocType::Absolute,
+            RelocSize::I16,
+            Expr::new_external("abc"),
+        );
+
+        let buffer: RelocatableBuffer<&'static str, ()> = writer.build();
+        let buffer = buffer.resolve_all(&SimpleMapExtResolver(
+            &[("abc", 0x1234)].iter().cloned().collect(),
+        ))?;
+        assert_eq!(buffer, vec![0x00, 0x34, 0x12]);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_narrowing_causes_error() -> anyhow::Result<()> {
+        let mut writer = RelocatableBufferBuilder::new();
+        writer.write_u8(0);
+        writer.add_reloc(
+            RelocType::Absolute,
+            RelocSize::I8,
+            Expr::new_external("abc"),
+        );
+
+        let buffer: RelocatableBuffer<&'static str, ()> = writer.build();
+        assert!(buffer
+            .resolve_all(&SimpleMapExtResolver(
+                &[("abc", 0x1234)].iter().cloned().collect(),
+            ))
+            .is_err());
         Ok(())
     }
 }
