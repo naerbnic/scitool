@@ -8,48 +8,88 @@ use super::LocalResolver;
 
 /// A value for a symbol, before it has been fully resolved.
 #[derive(Clone, Copy, Debug)]
-struct IntermediateValue(Option<(i64, i64)>);
+struct IntermediateValue {
+    base_address_coefficient: i64,
+    // An absolute offset from the base address.
+    offset: i64,
+}
 
 impl IntermediateValue {
     pub fn new_base_relative(offset: i64) -> Self {
-        IntermediateValue(Some((offset, 1)))
+        IntermediateValue {
+            base_address_coefficient: 1,
+            offset,
+        }
     }
 
     pub fn new_exact(offset: i64) -> Self {
-        IntermediateValue(Some((offset, 0)))
-    }
-
-    pub fn new_unknown() -> Self {
-        IntermediateValue(None)
+        IntermediateValue {
+            base_address_coefficient: 0,
+            offset,
+        }
     }
 
     pub fn add(self, other: Self) -> Self {
-        match (self.0, other.0) {
-            (Some((a, b)), Some((c, d))) => IntermediateValue(Some((a + c, b + d))),
-            _ => IntermediateValue(None),
+        IntermediateValue {
+            base_address_coefficient: self
+                .base_address_coefficient
+                .checked_add(other.base_address_coefficient)
+                .expect("overflow in addition"),
+            offset: self
+                .offset
+                .checked_add(other.offset)
+                .expect("overflow in addition"),
         }
     }
 
     pub fn sub(self, other: Self) -> Self {
-        match (self.0, other.0) {
-            (Some((a, b)), Some((c, d))) => IntermediateValue(Some((a - c, b - d))),
-            _ => IntermediateValue(None),
+        IntermediateValue {
+            base_address_coefficient: self
+                .base_address_coefficient
+                .checked_sub(other.base_address_coefficient)
+                .expect("overflow in subtraction"),
+            offset: self
+                .offset
+                .checked_sub(other.offset)
+                .expect("overflow in subtraction"),
         }
     }
 
     pub fn scalar_multiply(self, other: i64) -> Self {
-        match self.0 {
-            Some((a, b)) => IntermediateValue(Some((a * other, b * other))),
-            None => IntermediateValue(None),
+        IntermediateValue {
+            base_address_coefficient: self
+                .base_address_coefficient
+                .checked_mul(other)
+                .expect("overflow in scalar multiplication"),
+            offset: self
+                .offset
+                .checked_mul(other)
+                .expect("overflow in scalar multiplication"),
         }
     }
 
     pub fn exact_value(&self) -> Option<i64> {
-        let (offset, coefficient) = self.0?;
-        if coefficient == 0 {
-            Some(offset)
+        if self.base_address_coefficient == 0 {
+            Some(self.offset)
         } else {
             None
+        }
+    }
+
+    pub fn eval_with_base_address(&self, base: i64) -> i64 {
+        base.checked_mul(self.base_address_coefficient)
+            .and_then(|base_offset| base_offset.checked_add(self.offset))
+            .expect("overflow in relocation evaluation")
+    }
+
+    fn with_added_offset(&self, offset: i64) -> IntermediateValue {
+        IntermediateValue {
+            base_address_coefficient: self.base_address_coefficient,
+            offset: self
+                .base_address_coefficient
+                .checked_mul(offset)
+                .and_then(|value_offset| self.offset.checked_add(value_offset))
+                .expect("overflow in relocation evaluation"),
         }
     }
 }
@@ -61,7 +101,10 @@ enum LeafValue<Ext, Sym> {
     CurrentAddress,
 
     /// An immediate value.
-    Immediate(i64),
+    /// 
+    /// This can be an exact value, or a value that is a linear combination of
+    /// an offset and a multiple of the base address.
+    Immediate(IntermediateValue),
 
     /// The location value of the symbol within this relocatable buffer.
     LocalSymbol(Sym),
@@ -76,17 +119,16 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
     where
         R: LocalResolver<Sym>,
     {
-        let result = match self {
-            LeafValue::CurrentAddress => {
-                IntermediateValue::new_base_relative(current_address.convert_num_to().unwrap())
-            }
-            LeafValue::Immediate(value) => IntermediateValue::new_exact(*value),
-            LeafValue::LocalSymbol(sym) => {
-                IntermediateValue::new_base_relative(resolver.resolve_local_symbol(sym)?)
-            }
-            LeafValue::ExternalValue(_) => IntermediateValue::new_unknown(),
-        };
-        Some(result)
+        match self {
+            LeafValue::CurrentAddress => Some(IntermediateValue::new_base_relative(
+                current_address.convert_num_to().unwrap(),
+            )),
+            LeafValue::Immediate(value) => Some(*value),
+            LeafValue::LocalSymbol(sym) => Some(IntermediateValue::new_base_relative(
+                resolver.resolve_local_symbol(sym)?,
+            )),
+            LeafValue::ExternalValue(_) => None,
+        }
     }
 
     pub fn full_eval<R>(&self, resolver: &R, current_address: usize) -> anyhow::Result<i64>
@@ -96,7 +138,7 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
     {
         match self {
             LeafValue::CurrentAddress => current_address.convert_num_to(),
-            LeafValue::Immediate(value) => Ok(*value),
+            LeafValue::Immediate(value) => Ok(value.eval_with_base_address(0)),
             LeafValue::LocalSymbol(sym) => resolver
                 .resolve_local_symbol(sym)
                 .ok_or_else(|| anyhow::anyhow!("failed to resolve local symbol {:?}", sym)),
@@ -106,7 +148,7 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
 
     pub fn exact_value(&self) -> Option<i64> {
         match self {
-            LeafValue::Immediate(value) => Some(*value),
+            LeafValue::Immediate(value) => value.exact_value(),
             _ => None,
         }
     }
@@ -152,6 +194,21 @@ where
             LeafValue::ExternalValue(value) => LeafValue::ExternalValue(value.clone()),
         }
     }
+
+    fn with_added_offset(&self, offset: i64) -> Self
+    where
+        Ext: Clone,
+        Sym: Clone,
+    {
+        match self {
+            LeafValue::CurrentAddress => LeafValue::CurrentAddress,
+            LeafValue::Immediate(intermediate_value) => {
+                LeafValue::Immediate(intermediate_value.with_added_offset(offset))
+            }
+            LeafValue::LocalSymbol(sym) => LeafValue::LocalSymbol(sym.clone()),
+            LeafValue::ExternalValue(ext) => LeafValue::ExternalValue(ext.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -179,7 +236,9 @@ where
     }
 
     pub fn new_literal(value: i64) -> Self {
-        Expr(ExprInner::Value(LeafValue::Immediate(value)))
+        Expr(ExprInner::Value(LeafValue::Immediate(
+            IntermediateValue::new_exact(value),
+        )))
     }
 
     pub fn new_current_address() -> Self {
@@ -257,13 +316,7 @@ where
             ExprInner::Value(leaf_value) => {
                 let intermediate = leaf_value.partial_eval(resolver, current_address)?;
                 Some((
-                    Expr(ExprInner::Value(
-                        if let Some(exact_value) = intermediate.exact_value() {
-                            LeafValue::Immediate(exact_value)
-                        } else {
-                            leaf_value.clone()
-                        },
-                    )),
+                    Expr(ExprInner::Value(LeafValue::Immediate(intermediate))),
                     intermediate,
                 ))
             }
@@ -380,5 +433,24 @@ where
                 ExprInner::ScalarProduct(coeff, Box::new(expr))
             }
         }))
+    }
+
+    pub(super) fn with_added_offset(&self, offset: i64) -> Self {
+        Expr(match &self.0 {
+            ExprInner::Value(leaf_value) => {
+                ExprInner::Value(leaf_value.with_added_offset(offset))
+            }
+            ExprInner::Difference(expr, expr1) => ExprInner::Difference(
+                Box::new(expr.with_added_offset(offset)),
+                Box::new(expr1.with_added_offset(offset)),
+            ),
+            ExprInner::Sum(expr, expr1) => ExprInner::Sum(
+                Box::new(expr.with_added_offset(offset)),
+                Box::new(expr1.with_added_offset(offset)),
+            ),
+            ExprInner::ScalarProduct(coeff, expr) => {
+                ExprInner::ScalarProduct(*coeff, Box::new(expr.with_added_offset(offset)))
+            }
+        })
     }
 }

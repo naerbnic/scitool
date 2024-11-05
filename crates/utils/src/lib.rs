@@ -7,4 +7,4 @@ pub mod buffer;
 pub mod debug;
 pub mod numbers;
 pub mod reloc_buffer;
-pub mod symbol;
+pub mod unique_id;

@@ -108,6 +108,9 @@ where
     pub fn with_added_offset(self, offset: usize) -> Self {
         Self {
             pos: self.pos + offset,
+            expr: self
+                .expr
+                .with_added_offset(offset.convert_num_to().unwrap()),
             ..self
         }
     }

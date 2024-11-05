@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use sci_utils::{
     numbers::{
-        bit_convert::WidenTo, read_byte, read_word, safe_narrow_from_isize, safe_signed_narrow,
-        safe_unsigned_narrow, signed_extend_byte, unsigned_extend_byte, write_byte, write_word,
+        read_byte, read_word, safe_signed_narrow, safe_unsigned_narrow, signed_extend_byte,
+        unsigned_extend_byte, write_byte, write_word,
     },
     reloc_buffer::{expr::Expr, writer::RelocWriter, RelocSize, RelocType},
 };
@@ -12,317 +14,172 @@ pub enum ArgsWidth {
     Word,
 }
 
-pub trait InstArgBase: Sized {
-    fn byte_size(inst_args_width: ArgsWidth) -> usize;
+pub trait ArgValueObject<Ext, Sym>: std::fmt::Debug {
+    /// Resolves the value of this argument to an expression that should
+    /// be written to the output.
+    fn make_value_expr(&self, end_of_inst_pos: &Sym) -> Expr<Ext, Sym>;
 }
 
-pub trait InstArg: InstArgBase {
-    fn read_arg<R: std::io::Read + std::io::Seek>(
-        inst_args_width: ArgsWidth,
-        buf: R,
-    ) -> anyhow::Result<Self>;
+#[derive(Debug)]
+pub struct ArgValue<Ext, Sym>(Arc<dyn ArgValueObject<Ext, Sym>>);
 
-    fn write_arg<W: std::io::Write>(
-        &self,
-        inst_args_width: ArgsWidth,
-        buf: W,
-    ) -> anyhow::Result<()>;
+impl<Ext, Sym> Clone for ArgValue<Ext, Sym> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
 }
 
-/// An instruction argument created by the assembler, or during compilation.
-/// This value may not have the final value, and can write a relocation action
-/// to the output.
-pub trait InstAsmArg<Sym>: InstArgBase {
-    /// The InstArg that this instruction argument will be converted to after
-    /// relocation.
-    ///
-    /// This is used in the instruction set generation to determine the raw
-    /// arg type for the instruction.
-    type InstArg: InstArg;
-
-    /// Writes the argument to the output. If needed, writes a relocation entry
-    /// to the output.
-    ///
-    /// bytes_to_end gives the number of bytes to the end of the instruction.
-    /// This is necessary to compute correct offsets for the argument.
-    fn write_asm_arg<Ext, W>(
-        &self,
-        inst_args_width: ArgsWidth,
-        bytes_to_inst_end: usize,
-        writer: &mut W,
-    ) -> anyhow::Result<()>
+impl<Ext, Sym> ArgValue<Ext, Sym> {
+    pub fn new<T>(value: T) -> Self
     where
-        Ext: Clone,
-        W: RelocWriter<Ext, Sym>;
-}
-
-/// A variable length unsigned word. When extending from a byte, no sign extension is
-/// done. When converted to a byte, the high byte must be 0.
-#[derive(Clone, Copy, Debug)]
-pub struct VarUWord(u16);
-
-impl InstArgBase for VarUWord {
-    fn byte_size(inst_args_width: ArgsWidth) -> usize {
-        match inst_args_width {
-            ArgsWidth::Byte => 1,
-            ArgsWidth::Word => 2,
-        }
-    }
-}
-
-impl InstArg for VarUWord {
-    fn read_arg<R: std::io::Read + std::io::Seek>(
-        inst_args_width: ArgsWidth,
-        buf: R,
-    ) -> anyhow::Result<Self> {
-        match inst_args_width {
-            ArgsWidth::Byte => Ok(VarUWord(unsigned_extend_byte(read_byte(buf)?))),
-            ArgsWidth::Word => Ok(VarUWord(read_word(buf)?)),
-        }
-    }
-
-    fn write_arg<W: std::io::Write>(
-        &self,
-        inst_args_width: ArgsWidth,
-        buf: W,
-    ) -> anyhow::Result<()> {
-        match inst_args_width {
-            ArgsWidth::Byte => {
-                write_byte(buf, safe_unsigned_narrow(self.0)?)?;
-            }
-            ArgsWidth::Word => {
-                write_word(buf, self.0)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<T> InstAsmArg<T> for VarUWord {
-    type InstArg = VarUWord;
-
-    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
-        &self,
-        inst_args_width: ArgsWidth,
-        _bytes_to_inst_end: usize,
-        writer: &mut W,
-    ) -> anyhow::Result<()> {
-        match inst_args_width {
-            ArgsWidth::Byte => writer.write_u8(safe_unsigned_narrow(self.0)?),
-            ArgsWidth::Word => writer.write_u16_le(self.0),
-        }
-        Ok(())
-    }
-}
-
-/// A variable length Word. When extending from a byte, sign extension is
-/// done. When converted to a byte, all of the bits of the high byte must match
-/// the sign bit of the lower byte.
-#[derive(Clone, Copy, Debug)]
-pub struct VarSWord(u16);
-
-impl InstArgBase for VarSWord {
-    fn byte_size(inst_args_width: ArgsWidth) -> usize {
-        match inst_args_width {
-            ArgsWidth::Byte => 1,
-            ArgsWidth::Word => 2,
-        }
-    }
-}
-
-impl InstArg for VarSWord {
-    fn read_arg<R: std::io::Read + std::io::Seek>(
-        inst_args_width: ArgsWidth,
-        buf: R,
-    ) -> anyhow::Result<Self> {
-        Ok(VarSWord(match inst_args_width {
-            ArgsWidth::Byte => signed_extend_byte(read_byte(buf)?),
-            ArgsWidth::Word => read_word(buf)?,
-        }))
-    }
-
-    fn write_arg<W: std::io::Write>(
-        &self,
-        inst_args_width: ArgsWidth,
-        buf: W,
-    ) -> anyhow::Result<()> {
-        match inst_args_width {
-            ArgsWidth::Byte => {
-                write_byte(buf, safe_signed_narrow(self.0)?)?;
-            }
-            ArgsWidth::Word => {
-                write_word(buf, self.0)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<T> InstAsmArg<T> for VarSWord {
-    type InstArg = VarSWord;
-
-    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
-        &self,
-        inst_args_width: ArgsWidth,
-        _bytes_to_inst_end: usize,
-        writer: &mut W,
-    ) -> anyhow::Result<()> {
-        match inst_args_width {
-            ArgsWidth::Byte => writer.write_u8(safe_signed_narrow(self.0)?),
-            ArgsWidth::Word => writer.write_u16_le(self.0),
-        }
-        Ok(())
-    }
-}
-
-/// A static length word. Signedness doesn't matter, as we don't do any sign
-/// extension.
-#[derive(Clone, Copy, Debug)]
-pub struct Word(u16);
-
-impl InstArgBase for Word {
-    fn byte_size(_inst_args_width: ArgsWidth) -> usize {
-        2
-    }
-}
-
-impl InstArg for Word {
-    fn read_arg<R: std::io::Read + std::io::Seek>(
-        _inst_args_width: ArgsWidth,
-        buf: R,
-    ) -> anyhow::Result<Self> {
-        Ok(Word(read_word(buf)?))
-    }
-
-    fn write_arg<W: std::io::Write>(
-        &self,
-        _inst_args_width: ArgsWidth,
-        buf: W,
-    ) -> anyhow::Result<()> {
-        write_word(buf, self.0)
-    }
-}
-
-impl<T> InstAsmArg<T> for Word {
-    type InstArg = VarSWord;
-
-    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
-        &self,
-        _inst_args_width: ArgsWidth,
-        _bytes_to_inst_end: usize,
-        writer: &mut W,
-    ) -> anyhow::Result<()> {
-        writer.write_u16_le(self.0);
-        Ok(())
-    }
-}
-
-/// A static length byte.
-#[derive(Clone, Copy, Debug)]
-pub struct Byte(u8);
-
-impl InstArgBase for Byte {
-    fn byte_size(_inst_args_width: ArgsWidth) -> usize {
-        1
-    }
-}
-
-impl InstArg for Byte {
-    fn read_arg<R: std::io::Read + std::io::Seek>(
-        _inst_args_width: ArgsWidth,
-        buf: R,
-    ) -> anyhow::Result<Self> {
-        Ok(Byte(read_byte(buf)?))
-    }
-
-    fn write_arg<W: std::io::Write>(
-        &self,
-        _inst_args_width: ArgsWidth,
-        buf: W,
-    ) -> anyhow::Result<()> {
-        write_byte(buf, self.0)
-    }
-}
-
-impl<T> InstAsmArg<T> for Byte {
-    type InstArg = VarSWord;
-
-    fn write_asm_arg<SourceSymbol, W: RelocWriter<SourceSymbol, T>>(
-        &self,
-        _inst_args_width: ArgsWidth,
-        _bytes_to_inst_end: usize,
-        writer: &mut W,
-    ) -> anyhow::Result<()> {
-        writer.write_u8(self.0);
-        Ok(())
-    }
-}
-
-/// A relocated symbol.
-#[derive(Clone, Copy, Debug)]
-pub struct Label<T> {
-    label: T,
-}
-
-impl<T> InstArgBase for Label<T> {
-    fn byte_size(inst_args_width: ArgsWidth) -> usize {
-        match inst_args_width {
-            ArgsWidth::Byte => 1,
-            ArgsWidth::Word => 2,
-        }
-    }
-}
-
-impl<Sym> InstAsmArg<Sym> for Label<Sym>
-where
-    Sym: Clone,
-{
-    type InstArg = VarSWord;
-
-    fn write_asm_arg<Ext, W: RelocWriter<Ext, Sym>>(
-        &self,
-        inst_args_width: ArgsWidth,
-        bytes_to_inst_end: usize,
-        writer: &mut W,
-    ) -> anyhow::Result<()>
-    where
-        Ext: Clone,
+        T: ArgValueObject<Ext, Sym> + 'static,
     {
-        // Labels are in reference to the location after the instruction, so
-        // we need to add a _negative_ offset to this relocation entry.
-        //
-        // For example, say that we had the sequence
-        //
-        // #0    #1    #2    #3
-        // OP1 . AG1   AG2 | OP2
-        //     ^src        ^dst
-        //
-        // where the writer cursor is just before AG1 (at the dot), and want to
-        // reference the offset from the end of this instruction the bar (which
-        // is the same location). We want `dst - src + offset = 0`. So,
-        // offset must equal `src - dst`, a negative value to the end of the
-        // instruction.
+        Self(Arc::new(value))
+    }
 
-        let offset: isize = -isize::try_from(bytes_to_inst_end)?;
-        let offset: u16 = safe_narrow_from_isize(offset)?;
+    pub fn make_value_expr(&self, end_of_inst_pos: &Sym) -> Expr<Ext, Sym> {
+        self.0.make_value_expr(end_of_inst_pos)
+    }
+}
 
-        match inst_args_width {
-            ArgsWidth::Byte => writer.add_reloc(
-                RelocType::Relative,
-                RelocSize::I8,
-                Expr::new_add(
-                    Expr::new_subtract(
-                        Expr::new_local(self.label.clone()),
-                        Expr::new_current_address(),
-                    ),
-                    Expr::new_literal(offset.safe_widen_to()),
-                ),
-            ),
-            ArgsWidth::Word => {
-                todo!()
-                //writer.add_word_reloc(RelocType::Relative, offset, self.label.clone())
-            }
+#[derive(Clone, Copy, Debug)]
+pub enum Signedness {
+    Signed,
+    Unsigned,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ArgType {
+    Byte,
+    Word,
+    VarWord(Signedness),
+}
+
+impl ArgType {
+    pub fn byte_size(self, inst_args_width: ArgsWidth) -> usize {
+        match self {
+            ArgType::Byte => 1,
+            ArgType::Word => 2,
+            ArgType::VarWord(_) => match inst_args_width {
+                ArgsWidth::Byte => 1,
+                ArgsWidth::Word => 2,
+            },
+        }
+    }
+
+    pub fn read_widened_value<R: std::io::Read>(
+        self,
+        inst_args_width: ArgsWidth,
+        reader: R,
+    ) -> anyhow::Result<u16> {
+        Ok(match self {
+            ArgType::Byte => unsigned_extend_byte(read_byte(reader)?),
+            ArgType::Word => read_word(reader)?,
+            ArgType::VarWord(signedness) => match inst_args_width {
+                ArgsWidth::Word => read_word(reader)?,
+                ArgsWidth::Byte => {
+                    let byte = read_byte(reader)?;
+                    match signedness {
+                        Signedness::Signed => signed_extend_byte(byte),
+                        Signedness::Unsigned => unsigned_extend_byte(byte),
+                    }
+                }
+            },
+        })
+    }
+
+    pub fn write_narrowed_value<W: std::io::Write>(
+        self,
+        inst_args_width: ArgsWidth,
+        value: u16,
+        writer: W,
+    ) -> anyhow::Result<()> {
+        match self {
+            ArgType::Byte => write_byte(writer, safe_unsigned_narrow(value)?)?,
+            ArgType::Word => write_word(writer, value)?,
+            ArgType::VarWord(signedness) => match inst_args_width {
+                ArgsWidth::Word => write_word(writer, value)?,
+                ArgsWidth::Byte => {
+                    let byte = match signedness {
+                        Signedness::Signed => safe_signed_narrow(value)?,
+                        Signedness::Unsigned => safe_unsigned_narrow(value)?,
+                    };
+                    write_byte(writer, byte)?;
+                }
+            },
         }
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Arg {
+    arg_type: ArgType,
+    value: u16,
+}
+
+impl Arg {
+    pub fn read_arg<R: std::io::Read>(
+        arg_type: ArgType,
+        inst_args_width: ArgsWidth,
+        buf: R,
+    ) -> anyhow::Result<Self> {
+        let value = arg_type.read_widened_value(inst_args_width, buf)?;
+
+        Ok(Self { arg_type, value })
+    }
+
+    pub fn write_arg<W: std::io::Write>(
+        &self,
+        inst_args_width: ArgsWidth,
+        buf: W,
+    ) -> anyhow::Result<()> {
+        self.arg_type
+            .write_narrowed_value(inst_args_width, self.value, buf)
+    }
+}
+
+#[derive(Debug)]
+pub struct AsmArg<Ext, Sym> {
+    arg_type: ArgType,
+    value: ArgValue<Ext, Sym>,
+}
+
+impl<Ext, Sym> AsmArg<Ext, Sym> {
+    pub fn write_asm_arg<W>(
+        &self,
+        inst_args_width: ArgsWidth,
+        inst_end: &Sym,
+        writer: &mut W,
+    ) -> anyhow::Result<()>
+    where
+        W: RelocWriter<Ext, Sym>,
+    {
+        let value_expr = self.value.make_value_expr(inst_end);
+        let (reloc_width, reloc_type) = match self.arg_type {
+            ArgType::Byte => (RelocSize::I8, RelocType::Absolute),
+            ArgType::Word => (RelocSize::I16, RelocType::Absolute),
+            ArgType::VarWord(signedness) => (
+                match inst_args_width {
+                    ArgsWidth::Byte => RelocSize::I8,
+                    ArgsWidth::Word => RelocSize::I16,
+                },
+                match signedness {
+                    Signedness::Signed => RelocType::Relative,
+                    Signedness::Unsigned => RelocType::Absolute,
+                },
+            ),
+        };
+        writer.add_reloc(reloc_type, reloc_width, value_expr);
+        Ok(())
+    }
+}
+
+impl<Ext, Sym> Clone for AsmArg<Ext, Sym> {
+    fn clone(&self) -> Self {
+        Self {
+            arg_type: self.arg_type,
+            value: self.value.clone(),
+        }
     }
 }

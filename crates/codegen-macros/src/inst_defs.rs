@@ -3,7 +3,6 @@ use quote::quote;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ArgType {
-    Label,
     VarUWord,
     VarSWord,
     Byte,
@@ -32,22 +31,23 @@ impl<T> NamesList<T> {
 }
 
 impl ArgType {
-    pub fn asm_arg_type_name(&self, label_type_var: &syn::Ident) -> TokenStream {
-        match self {
-            ArgType::Label => quote! { Label<#label_type_var> },
-            ArgType::VarUWord => quote! { VarUWord },
-            ArgType::VarSWord => quote! { VarSWord },
-            ArgType::Byte => quote! { Byte },
-        }
+    pub fn asm_arg_type_name(
+        &self,
+        ext_type_var: &syn::Ident,
+        sym_type_var: &syn::Ident,
+    ) -> TokenStream {
+        quote! { AsmArg<#ext_type_var, #sym_type_var> }
     }
 
     pub fn arg_type_name(&self) -> TokenStream {
+        quote! { Arg }
+    }
+
+    pub fn arg_type_value(&self) -> TokenStream {
         match self {
-            // Labels are variable width signed words.
-            ArgType::Label => quote! { VarSWord },
-            ArgType::VarUWord => quote! { VarUWord },
-            ArgType::VarSWord => quote! { VarSWord },
-            ArgType::Byte => quote! { Byte },
+            ArgType::VarUWord => quote! { ArgType::VarWord(Signedness::Unsigned) },
+            ArgType::VarSWord => quote! { ArgType::VarWord(Signedness::Signed) },
+            ArgType::Byte => quote! { ArgType::Byte },
         }
     }
 }
@@ -56,7 +56,6 @@ impl syn::parse::Parse for ArgType {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let ident: syn::Ident = input.parse()?;
         match ident.to_string().as_str() {
-            "Label" => Ok(ArgType::Label),
             "VarUWord" => Ok(ArgType::VarUWord),
             "VarSWord" => Ok(ArgType::VarSWord),
             "Byte" => Ok(ArgType::Byte),
@@ -69,17 +68,10 @@ fn impl_write_asm_arg_expr(
     buf_var: &syn::Ident,
     arg_var: &syn::Ident,
     arg_width_var: &syn::Ident,
-    rest_args: &[&ArgType],
+    end_of_inst_var: &syn::Ident,
 ) -> TokenStream {
-    let rest_arg_type_names = rest_args.iter().map(|ty| ty.arg_type_name());
-    let rest_size_expr = quote! {
-        {
-            0 #(+ <#rest_arg_type_names as InstArgBase>::byte_size(#arg_width_var))*
-        }
-    };
-
     quote! {
-        #arg_var.write_asm_arg(#arg_width_var, #rest_size_expr, &mut #buf_var)?;
+        #arg_var.write_asm_arg(#arg_width_var, &#end_of_inst_var, &mut *#buf_var)?;
     }
 }
 
@@ -138,12 +130,16 @@ impl InstDefParsed {
         }
     }
 
-    pub fn asm_inst_enum_item(&self, label_type_var: &syn::Ident) -> TokenStream {
+    pub fn asm_inst_enum_item(
+        &self,
+        ext_type_var: &syn::Ident,
+        sym_type_var: &syn::Ident,
+    ) -> TokenStream {
         let id = &self.id;
         let asm_args = self
             .arg_types
             .iter()
-            .map(|arg_type| arg_type.asm_arg_type_name(label_type_var));
+            .map(|arg_type| arg_type.asm_arg_type_name(ext_type_var, sym_type_var));
         match &self.opcode {
             OpcodeDefParsed::LocalDef { type_name } => {
                 // A locally defined opcode takes the opcode type as an argument.
@@ -252,14 +248,14 @@ impl InstDefParsed {
     pub fn impl_inst_byte_size_clause(&self, enum_name: &syn::Ident) -> TokenStream {
         let id = &self.id;
         let arg_wildcards = self.arg_types.iter().map(|_| quote! { _ });
-        let arg_types = self.arg_types.iter().map(ArgType::arg_type_name);
+        let arg_types = self.arg_types.iter().map(ArgType::arg_type_value);
         match &self.opcode {
             OpcodeDefParsed::LocalDef { .. } => {
                 quote! {
                     #enum_name::#id(opcode, #(#arg_wildcards),*) => {
                         let mut byte_size = 0;
                         #(
-                            byte_size += #arg_types::byte_size(arg_width);
+                            byte_size += #arg_types.byte_size(arg_width);
                         )*
                         byte_size
                     }
@@ -270,7 +266,7 @@ impl InstDefParsed {
                     #enum_name::#id(#(#arg_wildcards),*) => {
                         let mut byte_size = 0;
                         #(
-                            byte_size += #arg_types::byte_size(arg_width);
+                            byte_size += #arg_types.byte_size(arg_width);
                         )*
                         byte_size
                     }
@@ -288,9 +284,9 @@ impl InstDefParsed {
                 quote! {
                     PMachineInst::#id(opcode, #(#arg_names),*) => {
                         let width_bit = if let ArgsWidth::Word = arg_width { 0x00 } else { 0x01 };
-                        write_byte(&mut buf, opcode.opcode_byte() | width_bit)?;
+                        write_byte(&mut *buf, opcode.opcode_byte() | width_bit)?;
                         #(
-                            #arg_names.write_arg(arg_width, &mut buf)?;
+                            #arg_names.write_arg(arg_width, &mut *buf)?;
                         )*
                     }
                 }
@@ -300,9 +296,9 @@ impl InstDefParsed {
                 quote! {
                     PMachineInst::#id(#(#arg_names),*) => {
                         let width_bit = if let ArgsWidth::Word = arg_width { 0x00 } else { 0x01 };
-                        write_byte(&mut buf, #high_bits | width_bit)?;
+                        write_byte(&mut *buf, #high_bits | width_bit)?;
                         #(
-                            #arg_names.write_arg(arg_width, &mut buf)?;
+                            #arg_names.write_arg(arg_width, &mut *buf)?;
                         )*
                     }
                 }
@@ -310,18 +306,16 @@ impl InstDefParsed {
         }
     }
 
-    pub fn impl_asm_write_inst_clause(&self) -> TokenStream {
+    pub fn impl_asm_write_inst_clause(&self, end_of_inst_var: &syn::Ident) -> TokenStream {
         let id = &self.id;
-        let arg_types_vec = self.arg_types.iter().collect::<Vec<_>>();
         let args = NamesList::from_iter("arg", self.arg_types.iter());
         let arg_names = args.name_iter();
-        let arg_write_exprs = arg_names.iter().enumerate().map(|(i, arg_name)| {
-            let rest_arg_types = &arg_types_vec[i..];
+        let arg_write_exprs = arg_names.iter().map(|arg_name| {
             impl_write_asm_arg_expr(
                 &syn::Ident::new("buf", Span::call_site()),
                 arg_name,
                 &syn::Ident::new("arg_width", Span::call_site()),
-                rest_arg_types,
+                end_of_inst_var,
             )
         });
         match &self.opcode {
@@ -389,7 +383,8 @@ impl InstDefListParsed {
         // Type names to be able to reuse code over multiple implementations.
         let inst_type_name = syn::Ident::new("PMachineInst", Span::call_site());
         let asm_inst_type_name = syn::Ident::new("PMachineAsmInst", Span::call_site());
-        let label_type_var = syn::Ident::new("LabelT", Span::call_site());
+        let ext_type_var = syn::Ident::new("Ext", Span::call_site());
+        let sym_type_var = syn::Ident::new("Sym", Span::call_site());
 
         let opcode_enum_items = self.inst_defs.iter().map(InstDefParsed::opcode_enum_item);
         let inst_enum_items = self.inst_defs.iter().map(InstDefParsed::inst_enum_item);
@@ -401,11 +396,11 @@ impl InstDefListParsed {
         let inst_size_impl = self.impl_inst_size(&inst_type_name);
         let asm_inst_size_impl = self.impl_inst_size(&asm_inst_type_name);
         let write_inst_impl = self.impl_write_inst();
-        let asm_write_inst_impl = self.impl_asm_write_inst(&label_type_var);
+        let asm_write_inst_impl = self.impl_asm_write_inst(&ext_type_var, &sym_type_var);
         let asm_inst_enum_items = self
             .inst_defs
             .iter()
-            .map(|inst| inst.asm_inst_enum_item(&label_type_var));
+            .map(|inst| inst.asm_inst_enum_item(&ext_type_var, &sym_type_var));
         quote! {
             #[derive(Clone, Copy, Debug)]
             pub enum PMachineOpcode {
@@ -433,18 +428,18 @@ impl InstDefListParsed {
                 #write_inst_impl
             }
 
-            #[derive(Clone, Copy, Debug)]
-            pub enum PMachineAsmInst<#label_type_var> {
+            #[derive(Clone, Debug)]
+            pub enum PMachineAsmInst<#ext_type_var, #sym_type_var> {
                 #(#asm_inst_enum_items),*
             }
 
-            impl<#label_type_var> InstBase for PMachineAsmInst<#label_type_var> {
+            impl<#ext_type_var, #sym_type_var> InstBase for PMachineAsmInst<#ext_type_var, #sym_type_var> {
                 type Opcode = PMachineOpcode;
                 #asm_inst_size_impl
                 #asm_opcode_impl
             }
 
-            impl<#label_type_var> AsmInst<#label_type_var> for PMachineAsmInst<#label_type_var> where #label_type_var: Clone{
+            impl<#ext_type_var, #sym_type_var> AsmInst<#ext_type_var, #sym_type_var> for PMachineAsmInst<#ext_type_var, #sym_type_var> where #sym_type_var: Clone{
                 #asm_write_inst_impl
             }
         }
@@ -525,7 +520,7 @@ impl InstDefListParsed {
             .iter()
             .map(InstDefParsed::impl_write_inst_clause);
         quote! {
-            fn write_inst<W: std::io::Write>(&self, arg_width: ArgsWidth, mut buf: W) -> anyhow::Result<()> {
+            fn write_inst<W: std::io::Write>(&self, arg_width: ArgsWidth, buf: &mut W) -> anyhow::Result<()> {
                 match self {
                     #(#inst_enum_items)*
                 }
@@ -534,13 +529,17 @@ impl InstDefListParsed {
         }
     }
 
-    fn impl_asm_write_inst(&self, label_type: &syn::Ident) -> TokenStream {
+    fn impl_asm_write_inst(&self, ext_type: &syn::Ident, sym_type: &syn::Ident) -> TokenStream {
+        let end_of_inst_var = syn::Ident::new("end_of_inst", Span::call_site());
         let asm_write_inst_clauses = self
             .inst_defs
             .iter()
-            .map(|def| def.impl_asm_write_inst_clause());
+            .map(|def| def.impl_asm_write_inst_clause(&end_of_inst_var));
         quote! {
-            fn write_inst<Sym: Clone, W: RelocWriter<Sym, #label_type>>(&self, arg_width: ArgsWidth, mut buf: W) -> anyhow::Result<()> {
+            fn write_inst<G: SymbolGenerator<#sym_type>, W: RelocWriter<#ext_type, #sym_type>>(
+                &self, sym_gen: &mut G, arg_width: ArgsWidth, buf: &mut W) -> anyhow::Result<()>
+            {
+                let #end_of_inst_var = sym_gen.generate();
                 match self {
                     #(#asm_write_inst_clauses)*
                 }

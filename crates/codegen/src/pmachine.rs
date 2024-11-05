@@ -5,12 +5,12 @@ pub mod var_access;
 use std::borrow::Cow;
 
 use crate::{
-    args::{ArgsWidth, Byte, InstArg, InstArgBase, InstAsmArg, Label, VarSWord, VarUWord},
+    args::{Arg, ArgType, ArgsWidth, AsmArg, Signedness},
     insts::{AsmInst, Inst, InstBase},
     opcode::Opcode,
 };
 use sci_utils::numbers::write_byte;
-use sci_utils::reloc_buffer::writer::RelocWriter;
+use sci_utils::reloc_buffer::writer::{RelocWriter, SymbolGenerator};
 use var_access::VarAccessOp;
 
 sci_codegen_macros::define_insts! {
@@ -37,16 +37,16 @@ sci_codegen_macros::define_insts! {
     UGE("uge?", 0x14, ());  // prev = acc; acc = (pop() >= acc) (unsigned)
     ULT("ult?", 0x15, ());  // prev = acc; acc = (pop() < acc) (unsigned)
     ULE("ule?", 0x16, ());  // prev = acc; acc = (pop() <= acc) (unsigned)
-    BT("bt", 0x17, (Label));      // if (acc) goto label
-    BNT("bnt", 0x18, (Label));     // if (!acc) goto label
-    JMP("jmp", 0x19, (Label));     // goto label
+    BT("bt", 0x17, (VarSWord));      // if (acc) goto label
+    BNT("bnt", 0x18, (VarSWord));     // if (!acc) goto label
+    JMP("jmp", 0x19, (VarSWord));     // goto label
     LDI("ldi", 0x1A, (VarSWord));     // acc = immediate (sign extended)
     PUSH("push", 0x1B, ());    // push(acc)
-    PUSHI("pushi", 0x1C, (Label));   // push(immediate) (sign extended)
+    PUSHI("pushi", 0x1C, (VarSWord));   // push(immediate) (sign extended)
     TOSS("toss", 0x1D, ());  // pop() (discard top of stack)
     DUP("dup", 0x1E, ());   // push(peek())
     LINK("link", 0x1F, (VarUWord));    // add n arbitrary values to stack
-    CALL("call", 0x20, (Label, Byte));    // call local proc
+    CALL("call", 0x20, (VarSWord, Byte));    // call local proc
     CALLK("callk", 0x21, (VarUWord, Byte));   // call kernel
     CALLB("callb", 0x22, (VarUWord, Byte));   // call public proc in main script
     CALLE("calle", 0x23, (VarUWord, VarUWord, Byte));   // call public proc in external script
@@ -74,6 +74,4 @@ sci_codegen_macros::define_insts! {
     PUSH2("push2", 0x3D, ());
     PUSHSELF("pushSelf", 0x3E, ());
     VARACCESS(VarAccessOp, (VarUWord));
-    // Add the VarAccessOp family of opcodes
-    // TODO: Implement this
 }
