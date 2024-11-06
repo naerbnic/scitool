@@ -1,6 +1,6 @@
 //! The definition of instruction traits, and types.
 
-use sci_utils::reloc_buffer::writer::{RelocWriter, SymbolGenerator};
+use sci_utils::reloc_buffer::writer::RelocWriter;
 
 use crate::{args::ArgsWidth, opcode::Opcode};
 
@@ -15,20 +15,17 @@ pub trait InstBase {
 /// further resolution.
 pub trait Inst: InstBase {
     /// Writes the entire instruction to the buffer, including the opcode byte.
-    fn write_inst<W: std::io::Write>(&self, arg_width: ArgsWidth, buf: &mut W) -> anyhow::Result<()>;
-}
-
-pub trait AsmInst<Ext, Sym>: InstBase {
-    /// Writes the entire instruction to the buffer, including the opcode byte. This
-    /// may also include relocation information.
-    fn write_inst<G: SymbolGenerator<Sym>, W: RelocWriter<Ext, Sym>>(
+    fn write_inst<W: std::io::Write>(
         &self,
-        sym_gen: &mut G,
         arg_width: ArgsWidth,
         buf: &mut W,
-    ) -> anyhow::Result<()>
-    where
-        Sym: Clone;
+    ) -> anyhow::Result<()>;
+}
+
+pub trait AsmInst: InstBase {
+    /// Writes the entire instruction to the buffer, including the opcode byte. This
+    /// may also include relocation information.
+    fn write_inst<W: RelocWriter>(&self, arg_width: ArgsWidth, buf: &mut W) -> anyhow::Result<()>;
 }
 
 pub struct SizedInst<K> {
@@ -36,10 +33,9 @@ pub struct SizedInst<K> {
     args_width: ArgsWidth,
 }
 
-pub struct SizedAsmInst<K, Ext, Sym> {
+pub struct SizedAsmInst<K> {
     inst: K,
     args_width: ArgsWidth,
-    _phantom: std::marker::PhantomData<(Ext, Sym)>,
 }
 
 impl<K> SizedInst<K>
@@ -59,28 +55,19 @@ where
     }
 }
 
-impl<K, Ext, Sym> SizedAsmInst<K, Ext, Sym>
+impl<K> SizedAsmInst<K>
 where
-    K: AsmInst<Ext, Sym>,
-    Sym: Clone,
+    K: AsmInst,
 {
     pub fn new(inst: K, args_width: ArgsWidth) -> Self {
-        SizedAsmInst {
-            inst,
-            args_width,
-            _phantom: std::marker::PhantomData,
-        }
+        SizedAsmInst { inst, args_width }
     }
 
     pub fn opcode(&self) -> <K as InstBase>::Opcode {
         self.inst.opcode()
     }
 
-    pub fn write_inst<G: SymbolGenerator<Sym>, W: RelocWriter<Ext, Sym>>(
-        &self,
-        sym_gen: &mut G,
-        buf: &mut W,
-    ) -> anyhow::Result<()> {
-        self.inst.write_inst(sym_gen, self.args_width, buf)
+    pub fn write_inst<W: RelocWriter>(&self, buf: &mut W) -> anyhow::Result<()> {
+        self.inst.write_inst(self.args_width, buf)
     }
 }

@@ -2,7 +2,10 @@
 //! We allow the relocation values to be simple expressions, which are
 //! partially evaluated at the time of the relocation.
 
-use crate::numbers::bit_convert::{NumConvert, WidenTo};
+use crate::{
+    numbers::bit_convert::{NumConvert, WidenTo},
+    symbol::Symbol,
+};
 
 use super::LocalResolver;
 
@@ -96,28 +99,28 @@ impl IntermediateValue {
 
 /// A primitive expression value that yields a single value.
 #[derive(Clone, Debug)]
-enum LeafValue<Ext, Sym> {
+enum LeafValue {
     /// The current address of the relocation entry.
     CurrentAddress,
 
     /// An immediate value.
-    /// 
+    ///
     /// This can be an exact value, or a value that is a linear combination of
     /// an offset and a multiple of the base address.
     Immediate(IntermediateValue),
 
     /// The location value of the symbol within this relocatable buffer.
-    LocalSymbol(Sym),
+    LocalSymbol(Symbol),
 
     /// A value that comes from an external source, and may not be an
     /// address.
-    ExternalValue(Ext),
+    ExternalValue(Symbol),
 }
 
-impl<Ext, Sym> LeafValue<Ext, Sym> {
+impl LeafValue {
     fn partial_eval<R>(&self, resolver: &R, current_address: usize) -> Option<IntermediateValue>
     where
-        R: LocalResolver<Sym>,
+        R: LocalResolver,
     {
         match self {
             LeafValue::CurrentAddress => Some(IntermediateValue::new_base_relative(
@@ -133,8 +136,7 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
 
     pub fn full_eval<R>(&self, resolver: &R, current_address: usize) -> anyhow::Result<i64>
     where
-        Sym: std::fmt::Debug,
-        R: super::FullResolver<Ext, Sym>,
+        R: super::FullResolver,
     {
         match self {
             LeafValue::CurrentAddress => current_address.convert_num_to(),
@@ -152,10 +154,9 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
             _ => None,
         }
     }
-    pub fn filter_map_local<F, T>(self, mut body: F) -> anyhow::Result<LeafValue<Ext, T>>
+    pub fn filter_map_local<F>(self, mut body: F) -> anyhow::Result<LeafValue>
     where
-        F: FnMut(Sym) -> Option<T>,
-        T: Clone,
+        F: FnMut(Symbol) -> Option<Symbol>,
     {
         Ok(match self {
             LeafValue::LocalSymbol(sym) => {
@@ -172,12 +173,8 @@ impl<Ext, Sym> LeafValue<Ext, Sym> {
     }
 }
 
-impl<Ext, Sym> LeafValue<Ext, Sym>
-where
-    Sym: Clone,
-    Ext: Clone,
-{
-    pub fn map_external<Ext2>(&self, f: &impl Fn(&Ext) -> Ext2) -> LeafValue<Ext2, Sym> {
+impl LeafValue {
+    pub fn map_external(&self, f: &impl Fn(&Symbol) -> Symbol) -> LeafValue {
         match self {
             LeafValue::CurrentAddress => LeafValue::CurrentAddress,
             LeafValue::Immediate(value) => LeafValue::Immediate(*value),
@@ -186,7 +183,7 @@ where
         }
     }
 
-    pub fn map_local<Sym2>(&self, f: &impl Fn(&Sym) -> Sym2) -> LeafValue<Ext, Sym2> {
+    pub fn map_local(&self, f: &impl Fn(&Symbol) -> Symbol) -> LeafValue {
         match self {
             LeafValue::CurrentAddress => LeafValue::CurrentAddress,
             LeafValue::Immediate(value) => LeafValue::Immediate(*value),
@@ -195,11 +192,7 @@ where
         }
     }
 
-    fn with_added_offset(&self, offset: i64) -> Self
-    where
-        Ext: Clone,
-        Sym: Clone,
-    {
+    fn with_added_offset(&self, offset: i64) -> Self {
         match self {
             LeafValue::CurrentAddress => LeafValue::CurrentAddress,
             LeafValue::Immediate(intermediate_value) => {
@@ -212,26 +205,22 @@ where
 }
 
 #[derive(Clone, Debug)]
-enum ExprInner<Ext, Sym> {
-    Value(LeafValue<Ext, Sym>),
-    Difference(Box<Expr<Ext, Sym>>, Box<Expr<Ext, Sym>>),
-    Sum(Box<Expr<Ext, Sym>>, Box<Expr<Ext, Sym>>),
-    ScalarProduct(i64, Box<Expr<Ext, Sym>>),
+enum ExprInner {
+    Value(LeafValue),
+    Difference(Box<Expr>, Box<Expr>),
+    Sum(Box<Expr>, Box<Expr>),
+    ScalarProduct(i64, Box<Expr>),
 }
 
 #[derive(Clone, Debug)]
-pub struct Expr<Ext, Sym>(ExprInner<Ext, Sym>);
+pub struct Expr(ExprInner);
 
-impl<Ext, Sym> Expr<Ext, Sym>
-where
-    Ext: Clone,
-    Sym: Clone,
-{
-    pub fn new_local(symbol: Sym) -> Self {
+impl Expr {
+    pub fn new_local(symbol: Symbol) -> Self {
         Expr(ExprInner::Value(LeafValue::LocalSymbol(symbol)))
     }
 
-    pub fn new_external(value: Ext) -> Self {
+    pub fn new_external(value: Symbol) -> Self {
         Expr(ExprInner::Value(LeafValue::ExternalValue(value)))
     }
 
@@ -257,21 +246,23 @@ where
         Expr(ExprInner::ScalarProduct(coeff, Box::new(expr)))
     }
 
-    pub fn local_symbols(&self) -> impl Iterator<Item = &Sym> {
+    pub fn local_symbols(&self) -> impl Iterator<Item = &Symbol> {
         match &self.0 {
             ExprInner::Value(LeafValue::LocalSymbol(sym)) => {
-                Box::new(std::iter::once(sym)) as Box<dyn Iterator<Item = &Sym>>
+                Box::new(std::iter::once(sym)) as Box<dyn Iterator<Item = &Symbol>>
             }
-            ExprInner::Value(_) => Box::new(std::iter::empty()) as Box<dyn Iterator<Item = &Sym>>,
+            ExprInner::Value(_) => {
+                Box::new(std::iter::empty()) as Box<dyn Iterator<Item = &Symbol>>
+            }
             ExprInner::Difference(a, b) | ExprInner::Sum(a, b) => {
                 Box::new(a.local_symbols().chain(b.local_symbols()))
-                    as Box<dyn Iterator<Item = &Sym>>
+                    as Box<dyn Iterator<Item = &Symbol>>
             }
             ExprInner::ScalarProduct(_, a) => a.local_symbols(),
         }
     }
 
-    pub fn map_external<Ext2>(&self, f: &impl Fn(&Ext) -> Ext2) -> Expr<Ext2, Sym> {
+    pub fn map_external(&self, f: &impl Fn(&Symbol) -> Symbol) -> Expr {
         Expr(match &self.0 {
             ExprInner::Value(v) => ExprInner::Value(v.map_external(f)),
             ExprInner::Difference(a, b) => {
@@ -286,7 +277,7 @@ where
         })
     }
 
-    pub fn map_local<Sym2>(&self, f: &impl Fn(&Sym) -> Sym2) -> Expr<Ext, Sym2> {
+    pub fn map_local(&self, f: &impl Fn(&Symbol) -> Symbol) -> Expr {
         Expr(match &self.0 {
             ExprInner::Value(v) => ExprInner::Value(v.map_local(f)),
             ExprInner::Difference(a, b) => {
@@ -307,7 +298,7 @@ where
     /// As this is done before the final build, all local addresses are assumed
     /// to have some base offset. For those values that can be computed, the
     /// expression is resolved to an immediate value.
-    fn partial_local_resolve_inner<R: LocalResolver<Sym>>(
+    fn partial_local_resolve_inner<R: LocalResolver>(
         &self,
         current_address: usize,
         resolver: &R,
@@ -361,7 +352,7 @@ where
         }
     }
 
-    pub(super) fn partial_local_resolve<R: LocalResolver<Sym>>(
+    pub(super) fn partial_local_resolve<R: LocalResolver>(
         &self,
         current_address: usize,
         resolver: &R,
@@ -383,8 +374,7 @@ where
         full_resolver: &R,
     ) -> anyhow::Result<i64>
     where
-        Sym: std::fmt::Debug,
-        R: super::FullResolver<Ext, Sym>,
+        R: super::FullResolver,
     {
         match &self.0 {
             ExprInner::Value(leaf_value) => leaf_value.full_eval(full_resolver, current_address),
@@ -411,10 +401,9 @@ where
         }
     }
 
-    pub(super) fn filter_map_local<F, T>(self, body: &mut F) -> anyhow::Result<Expr<Ext, T>>
+    pub(super) fn filter_map_local<F>(self, body: &mut F) -> anyhow::Result<Expr>
     where
-        F: FnMut(Sym) -> Option<T>,
-        T: Clone,
+        F: FnMut(Symbol) -> Option<Symbol>,
     {
         Ok(Expr(match self.0 {
             ExprInner::Value(v) => ExprInner::Value(v.filter_map_local(body)?),
@@ -437,9 +426,7 @@ where
 
     pub(super) fn with_added_offset(&self, offset: i64) -> Self {
         Expr(match &self.0 {
-            ExprInner::Value(leaf_value) => {
-                ExprInner::Value(leaf_value.with_added_offset(offset))
-            }
+            ExprInner::Value(leaf_value) => ExprInner::Value(leaf_value.with_added_offset(offset)),
             ExprInner::Difference(expr, expr1) => ExprInner::Difference(
                 Box::new(expr.with_added_offset(offset)),
                 Box::new(expr1.with_added_offset(offset)),

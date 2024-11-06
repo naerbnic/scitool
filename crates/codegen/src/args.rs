@@ -6,6 +6,7 @@ use sci_utils::{
         unsigned_extend_byte, write_byte, write_word,
     },
     reloc_buffer::{expr::Expr, writer::RelocWriter, RelocSize, RelocType},
+    symbol::Symbol,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -14,30 +15,30 @@ pub enum ArgsWidth {
     Word,
 }
 
-pub trait ArgValueObject<Ext, Sym>: std::fmt::Debug {
+pub trait ArgValueObject: std::fmt::Debug {
     /// Resolves the value of this argument to an expression that should
     /// be written to the output.
-    fn make_value_expr(&self, end_of_inst_pos: &Sym) -> Expr<Ext, Sym>;
+    fn make_value_expr(&self, end_of_inst_pos: &Symbol) -> Expr;
 }
 
 #[derive(Debug)]
-pub struct ArgValue<Ext, Sym>(Arc<dyn ArgValueObject<Ext, Sym>>);
+pub struct ArgValue(Arc<dyn ArgValueObject>);
 
-impl<Ext, Sym> Clone for ArgValue<Ext, Sym> {
+impl Clone for ArgValue {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<Ext, Sym> ArgValue<Ext, Sym> {
+impl ArgValue {
     pub fn new<T>(value: T) -> Self
     where
-        T: ArgValueObject<Ext, Sym> + 'static,
+        T: ArgValueObject + 'static,
     {
         Self(Arc::new(value))
     }
 
-    pub fn make_value_expr(&self, end_of_inst_pos: &Sym) -> Expr<Ext, Sym> {
+    pub fn make_value_expr(&self, end_of_inst_pos: &Symbol) -> Expr {
         self.0.make_value_expr(end_of_inst_pos)
     }
 }
@@ -140,20 +141,20 @@ impl Arg {
 }
 
 #[derive(Debug)]
-pub struct AsmArg<Ext, Sym> {
+pub struct AsmArg {
     arg_type: ArgType,
-    value: ArgValue<Ext, Sym>,
+    value: ArgValue,
 }
 
-impl<Ext, Sym> AsmArg<Ext, Sym> {
+impl AsmArg {
     pub fn write_asm_arg<W>(
         &self,
         inst_args_width: ArgsWidth,
-        inst_end: &Sym,
+        inst_end: &Symbol,
         writer: &mut W,
     ) -> anyhow::Result<()>
     where
-        W: RelocWriter<Ext, Sym>,
+        W: RelocWriter,
     {
         let value_expr = self.value.make_value_expr(inst_end);
         let (reloc_width, reloc_type) = match self.arg_type {
@@ -175,7 +176,7 @@ impl<Ext, Sym> AsmArg<Ext, Sym> {
     }
 }
 
-impl<Ext, Sym> Clone for AsmArg<Ext, Sym> {
+impl Clone for AsmArg {
     fn clone(&self) -> Self {
         Self {
             arg_type: self.arg_type,

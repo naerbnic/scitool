@@ -31,12 +31,8 @@ impl<T> NamesList<T> {
 }
 
 impl ArgType {
-    pub fn asm_arg_type_name(
-        &self,
-        ext_type_var: &syn::Ident,
-        sym_type_var: &syn::Ident,
-    ) -> TokenStream {
-        quote! { AsmArg<#ext_type_var, #sym_type_var> }
+    pub fn asm_arg_type_name(&self) -> TokenStream {
+        quote! { AsmArg }
     }
 
     pub fn arg_type_name(&self) -> TokenStream {
@@ -130,16 +126,12 @@ impl InstDefParsed {
         }
     }
 
-    pub fn asm_inst_enum_item(
-        &self,
-        ext_type_var: &syn::Ident,
-        sym_type_var: &syn::Ident,
-    ) -> TokenStream {
+    pub fn asm_inst_enum_item(&self) -> TokenStream {
         let id = &self.id;
         let asm_args = self
             .arg_types
             .iter()
-            .map(|arg_type| arg_type.asm_arg_type_name(ext_type_var, sym_type_var));
+            .map(|arg_type| arg_type.asm_arg_type_name());
         match &self.opcode {
             OpcodeDefParsed::LocalDef { type_name } => {
                 // A locally defined opcode takes the opcode type as an argument.
@@ -383,8 +375,6 @@ impl InstDefListParsed {
         // Type names to be able to reuse code over multiple implementations.
         let inst_type_name = syn::Ident::new("PMachineInst", Span::call_site());
         let asm_inst_type_name = syn::Ident::new("PMachineAsmInst", Span::call_site());
-        let ext_type_var = syn::Ident::new("Ext", Span::call_site());
-        let sym_type_var = syn::Ident::new("Sym", Span::call_site());
 
         let opcode_enum_items = self.inst_defs.iter().map(InstDefParsed::opcode_enum_item);
         let inst_enum_items = self.inst_defs.iter().map(InstDefParsed::inst_enum_item);
@@ -396,11 +386,8 @@ impl InstDefListParsed {
         let inst_size_impl = self.impl_inst_size(&inst_type_name);
         let asm_inst_size_impl = self.impl_inst_size(&asm_inst_type_name);
         let write_inst_impl = self.impl_write_inst();
-        let asm_write_inst_impl = self.impl_asm_write_inst(&ext_type_var, &sym_type_var);
-        let asm_inst_enum_items = self
-            .inst_defs
-            .iter()
-            .map(|inst| inst.asm_inst_enum_item(&ext_type_var, &sym_type_var));
+        let asm_write_inst_impl = self.impl_asm_write_inst();
+        let asm_inst_enum_items = self.inst_defs.iter().map(|inst| inst.asm_inst_enum_item());
         quote! {
             #[derive(Clone, Copy, Debug)]
             pub enum PMachineOpcode {
@@ -429,17 +416,17 @@ impl InstDefListParsed {
             }
 
             #[derive(Clone, Debug)]
-            pub enum PMachineAsmInst<#ext_type_var, #sym_type_var> {
+            pub enum PMachineAsmInst {
                 #(#asm_inst_enum_items),*
             }
 
-            impl<#ext_type_var, #sym_type_var> InstBase for PMachineAsmInst<#ext_type_var, #sym_type_var> {
+            impl InstBase for PMachineAsmInst {
                 type Opcode = PMachineOpcode;
                 #asm_inst_size_impl
                 #asm_opcode_impl
             }
 
-            impl<#ext_type_var, #sym_type_var> AsmInst<#ext_type_var, #sym_type_var> for PMachineAsmInst<#ext_type_var, #sym_type_var> where #sym_type_var: Clone{
+            impl AsmInst for PMachineAsmInst{
                 #asm_write_inst_impl
             }
         }
@@ -529,17 +516,17 @@ impl InstDefListParsed {
         }
     }
 
-    fn impl_asm_write_inst(&self, ext_type: &syn::Ident, sym_type: &syn::Ident) -> TokenStream {
+    fn impl_asm_write_inst(&self) -> TokenStream {
         let end_of_inst_var = syn::Ident::new("end_of_inst", Span::call_site());
         let asm_write_inst_clauses = self
             .inst_defs
             .iter()
             .map(|def| def.impl_asm_write_inst_clause(&end_of_inst_var));
         quote! {
-            fn write_inst<G: SymbolGenerator<#sym_type>, W: RelocWriter<#ext_type, #sym_type>>(
-                &self, sym_gen: &mut G, arg_width: ArgsWidth, buf: &mut W) -> anyhow::Result<()>
+            fn write_inst<W: RelocWriter>(
+                &self, arg_width: ArgsWidth, buf: &mut W) -> anyhow::Result<()>
             {
-                let #end_of_inst_var = sym_gen.generate();
+                let #end_of_inst_var = Symbol::new();
                 match self {
                     #(#asm_write_inst_clauses)*
                 }

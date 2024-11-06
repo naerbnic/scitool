@@ -6,7 +6,7 @@ use std::collections::{btree_map, BTreeMap};
 use expr::Expr;
 use writer::RelocWriter;
 
-use crate::{buffer::ToFixedBytes, numbers::bit_convert::NumConvert as _};
+use crate::{buffer::ToFixedBytes, numbers::bit_convert::NumConvert as _, symbol::Symbol};
 
 #[derive(Clone, Copy, Debug)]
 pub enum RelocSize {
@@ -43,18 +43,14 @@ impl RelocType {
 }
 
 #[derive(Clone, Debug)]
-struct Relocation<Ext, Sym> {
-    expr: expr::Expr<Ext, Sym>,
+struct Relocation {
+    expr: expr::Expr,
     pos: usize,
     size: RelocSize,
     reloc_type: RelocType,
 }
 
-impl<Ext, Sym> Relocation<Ext, Sym>
-where
-    Ext: Clone,
-    Sym: Clone,
-{
+impl Relocation {
     fn write_value_to_slice(&self, value: i64, data: &mut [u8]) -> anyhow::Result<()> {
         match (self.reloc_type, self.size) {
             (RelocType::Absolute, RelocSize::I8) => {
@@ -77,11 +73,11 @@ where
         Ok(())
     }
     // Either resolves this relocation in place, or returns a new relocation
-    pub fn partial_resolve<R: LocalResolver<Sym>>(
+    pub fn partial_resolve<R: LocalResolver>(
         &self,
         resolver: &R,
         data: &mut [u8],
-    ) -> anyhow::Result<Option<Relocation<Ext, Sym>>> {
+    ) -> anyhow::Result<Option<Relocation>> {
         if let Some(new_expr) = self.expr.partial_local_resolve(self.pos, resolver) {
             let Some(value) = new_expr.exact_value() else {
                 // We can't fully simplify this expression yet. Return what we have.
@@ -98,8 +94,7 @@ where
 
     pub fn full_resolve<R>(&self, full_resolver: &R, data: &mut [u8]) -> anyhow::Result<()>
     where
-        Sym: std::fmt::Debug,
-        R: FullResolver<Ext, Sym>,
+        R: FullResolver,
     {
         let value = self.expr.full_resolve(self.pos, full_resolver)?;
         self.write_value_to_slice(value, data)
@@ -115,10 +110,9 @@ where
         }
     }
 
-    pub fn filter_map_local<F, T>(self, body: &mut F) -> anyhow::Result<Relocation<Ext, T>>
+    pub fn filter_map_local<F>(self, body: &mut F) -> anyhow::Result<Relocation>
     where
-        F: FnMut(Sym) -> Option<T>,
-        T: Clone,
+        F: FnMut(Symbol) -> Option<Symbol>,
     {
         Ok(Relocation {
             expr: self.expr.filter_map_local(body)?,
@@ -130,45 +124,40 @@ where
 }
 
 /// A symbol resolver for external symbols.
-pub trait ExternalResolver<Ext> {
+pub trait ExternalResolver {
     /// Resolves an external symbol to an address. The address is expected to
     /// be a numeric value that can safely be converted to an `i64`.
-    fn resolve(&self, expr: &Ext) -> anyhow::Result<i64>;
+    fn resolve(&self, expr: &Symbol) -> anyhow::Result<i64>;
 }
 
-trait LocalResolver<Sym> {
-    fn resolve_local_symbol(&self, symbol: &Sym) -> Option<i64>;
+trait LocalResolver {
+    fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64>;
 }
 
-struct LocalOnlyResolver<'a, Sym> {
-    symbols: &'a BTreeMap<Sym, usize>,
+struct LocalOnlyResolver<'a> {
+    symbols: &'a BTreeMap<Symbol, usize>,
 }
 
-impl<Sym> LocalResolver<Sym> for LocalOnlyResolver<'_, Sym>
-where
-    Sym: Ord,
-{
-    fn resolve_local_symbol(&self, symbol: &Sym) -> Option<i64> {
+impl LocalResolver for LocalOnlyResolver<'_> {
+    fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64> {
         self.symbols
             .get(symbol)
             .map(|x| x.convert_num_to().unwrap())
     }
 }
 
-trait FullResolver<Ext, Sym>: ExternalResolver<Ext> + LocalResolver<Sym> {}
+trait FullResolver: ExternalResolver + LocalResolver {}
 
-struct FullResolverImpl<'a, Ext, Sym, R> {
+struct FullResolverImpl<'a, R> {
     external: &'a R,
-    local: &'a BTreeMap<Sym, usize>,
-    _phantom: std::marker::PhantomData<Ext>,
+    local: &'a BTreeMap<Symbol, usize>,
 }
 
-impl<'a, Ext, Sym, R> LocalResolver<Sym> for FullResolverImpl<'a, Ext, Sym, R>
+impl<'a, R> LocalResolver for FullResolverImpl<'a, R>
 where
-    Sym: Ord,
-    R: ExternalResolver<Ext>,
+    R: ExternalResolver,
 {
-    fn resolve_local_symbol(&self, symbol: &Sym) -> Option<i64> {
+    fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64> {
         self.local
             .get(symbol)
             .copied()
@@ -176,43 +165,33 @@ where
     }
 }
 
-impl<'a, Ext, Sym, R> ExternalResolver<Ext> for FullResolverImpl<'a, Ext, Sym, R>
+impl<'a, R> ExternalResolver for FullResolverImpl<'a, R>
 where
-    Sym: Ord,
-    R: ExternalResolver<Ext>,
+    R: ExternalResolver,
 {
-    fn resolve(&self, expr: &Ext) -> anyhow::Result<i64> {
+    fn resolve(&self, expr: &Symbol) -> anyhow::Result<i64> {
         self.external.resolve(expr)
     }
 }
 
-impl<'a, Ext, Sym, R> FullResolver<Ext, Sym> for FullResolverImpl<'a, Ext, Sym, R>
-where
-    Sym: Ord,
-    R: ExternalResolver<Ext>,
-{
-}
+impl<'a, R> FullResolver for FullResolverImpl<'a, R> where R: ExternalResolver {}
 
 /// Represents an unlinked section of the object code.
 #[derive(Clone, Debug)]
-pub struct RelocatableBuffer<Ext, Sym> {
+pub struct RelocatableBuffer {
     /// The data in this section.
     data: Vec<u8>,
     /// The list of symbols defined in this section. Keys are symbol names,
     /// and values are offsets in `self.data` that map to that symbol.
-    symbols: BTreeMap<Sym, usize>,
+    symbols: BTreeMap<Symbol, usize>,
     /// The relocations that have to happen in this section before being
     /// fully linked.
-    relocations: Vec<Relocation<Ext, Sym>>,
+    relocations: Vec<Relocation>,
     /// The overall byte alignment of this section.
     alignment: usize,
 }
 
-impl<Ext, Sym> RelocatableBuffer<Ext, Sym>
-where
-    Sym: Ord + Clone + std::fmt::Debug,
-    Ext: Clone,
-{
+impl RelocatableBuffer {
     fn new(alignment: usize) -> Self {
         Self {
             data: Vec::new(),
@@ -231,7 +210,7 @@ where
         }
     }
 
-    pub fn local_resolve(mut self) -> anyhow::Result<RelocatableBuffer<Ext, Sym>> {
+    pub fn local_resolve(mut self) -> anyhow::Result<RelocatableBuffer> {
         let resolver = LocalOnlyResolver {
             symbols: &self.symbols,
         };
@@ -305,14 +284,10 @@ where
         }
     }
 
-    pub fn resolve_all<R: ExternalResolver<Ext>>(
-        mut self,
-        resolver: &R,
-    ) -> anyhow::Result<Vec<u8>> {
+    pub fn resolve_all<R: ExternalResolver>(mut self, resolver: &R) -> anyhow::Result<Vec<u8>> {
         let full_resolver = FullResolverImpl {
             external: resolver,
             local: &self.symbols,
-            _phantom: std::marker::PhantomData,
         };
         for reloc in &self.relocations {
             reloc.full_resolve(&full_resolver, &mut self.data)?;
@@ -320,13 +295,9 @@ where
         Ok(self.data)
     }
 
-    pub fn filter_map_local<F, NewSym>(
-        self,
-        mut f: F,
-    ) -> anyhow::Result<RelocatableBuffer<Ext, NewSym>>
+    pub fn filter_map_local<F>(self, mut f: F) -> anyhow::Result<RelocatableBuffer>
     where
-        F: FnMut(Sym) -> Option<NewSym>,
-        NewSym: Ord + Clone + std::fmt::Debug,
+        F: FnMut(Symbol) -> Option<Symbol>,
     {
         // It's fine if we lose symbols, as that's part of the intent of this filtering.
         let symbols = self
@@ -351,41 +322,29 @@ where
     }
 }
 
-pub struct RelocatableBufferBuilder<Ext, Sym> {
-    section: RelocatableBuffer<Ext, Sym>,
+pub struct RelocatableBufferBuilder {
+    section: RelocatableBuffer,
 }
 
-impl<Ext, Sym> RelocatableBufferBuilder<Ext, Sym>
-where
-    Ext: Clone,
-    Sym: Ord + Clone + std::fmt::Debug,
-{
+impl RelocatableBufferBuilder {
     pub fn new() -> Self {
         Self {
             section: RelocatableBuffer::new(1),
         }
     }
 
-    pub fn build(self) -> RelocatableBuffer<Ext, Sym> {
+    pub fn build(self) -> RelocatableBuffer {
         self.section
     }
 }
 
-impl<Ext, Sym> Default for RelocatableBufferBuilder<Ext, Sym>
-where
-    Ext: Clone,
-    Sym: Ord + Clone + std::fmt::Debug,
-{
+impl Default for RelocatableBufferBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Ext, Sym> RelocWriter<Ext, Sym> for RelocatableBufferBuilder<Ext, Sym>
-where
-    Ext: Clone,
-    Sym: Ord + Clone,
-{
+impl RelocWriter for RelocatableBufferBuilder {
     fn write_u8(&mut self, value: u8) {
         self.section.data.push(value);
     }
@@ -408,11 +367,11 @@ where
         }
     }
 
-    fn mark_symbol(&mut self, symbol: Sym) {
+    fn mark_symbol(&mut self, symbol: Symbol) {
         self.section.symbols.insert(symbol, self.section.data.len());
     }
 
-    fn add_reloc(&mut self, reloc_type: RelocType, size: RelocSize, expr: Expr<Ext, Sym>) {
+    fn add_reloc(&mut self, reloc_type: RelocType, size: RelocSize, expr: Expr) {
         let pos = self.section.data.len();
         match size {
             RelocSize::I8 => self.write_u8(0),
@@ -431,6 +390,8 @@ where
 mod tests {
     use std::collections::BTreeMap;
 
+    use crate::symbol::Symbol;
+
     use super::{
         expr::Expr, writer::RelocWriter, ExternalResolver, RelocSize, RelocType, RelocatableBuffer,
         RelocatableBufferBuilder,
@@ -438,19 +399,16 @@ mod tests {
 
     struct NullExternalResolver;
 
-    impl ExternalResolver<()> for NullExternalResolver {
-        fn resolve(&self, _: &()) -> anyhow::Result<i64> {
+    impl ExternalResolver for NullExternalResolver {
+        fn resolve(&self, _: &Symbol) -> anyhow::Result<i64> {
             anyhow::bail!("no external symbols should be resolved")
         }
     }
 
-    struct SimpleMapExtResolver<'a, K>(&'a BTreeMap<K, i64>);
+    struct SimpleMapExtResolver<'a>(&'a BTreeMap<Symbol, i64>);
 
-    impl<K> ExternalResolver<K> for SimpleMapExtResolver<'_, K>
-    where
-        K: Ord + Clone + std::fmt::Debug,
-    {
-        fn resolve(&self, ext: &K) -> anyhow::Result<i64> {
+    impl ExternalResolver for SimpleMapExtResolver<'_> {
+        fn resolve(&self, ext: &Symbol) -> anyhow::Result<i64> {
             self.0
                 .get(ext)
                 .copied()
@@ -460,7 +418,7 @@ mod tests {
 
     #[test]
     fn can_build_empty_buffer() -> anyhow::Result<()> {
-        let buffer: RelocatableBuffer<(), ()> = RelocatableBufferBuilder::new().build();
+        let buffer: RelocatableBuffer = RelocatableBufferBuilder::new().build();
         buffer.resolve_all(&NullExternalResolver)?;
         Ok(())
     }
@@ -471,7 +429,7 @@ mod tests {
         writer.write_u8(0);
         writer.write_u16_le(0x1234);
 
-        let buffer: RelocatableBuffer<(), ()> = writer.build();
+        let buffer: RelocatableBuffer = writer.build();
         let data = buffer.resolve_all(&NullExternalResolver)?;
         assert_eq!(data, vec![0x00, 0x34, 0x12]);
         Ok(())
@@ -480,10 +438,15 @@ mod tests {
     #[test]
     fn can_build_simple_symbol() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
-        writer.add_reloc(RelocType::Absolute, RelocSize::I16, Expr::new_local("abc"));
-        writer.mark_symbol("abc");
+        let sym = Symbol::new();
+        writer.add_reloc(
+            RelocType::Absolute,
+            RelocSize::I16,
+            Expr::new_local(sym.clone()),
+        );
+        writer.mark_symbol(sym);
 
-        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
+        let buffer: RelocatableBuffer = writer.build();
         let data = buffer.resolve_all(&NullExternalResolver)?;
         assert_eq!(data, vec![0x02, 0x00]);
         Ok(())
@@ -492,11 +455,16 @@ mod tests {
     #[test]
     fn merge_advances_addresses() -> anyhow::Result<()> {
         let buffer1 = RelocatableBuffer::from_vec(vec![0x01, 0x02], 1);
+        let sym = Symbol::new();
 
         let mut writer = RelocatableBufferBuilder::new();
-        writer.add_reloc(RelocType::Absolute, RelocSize::I16, Expr::new_local("abc"));
-        writer.mark_symbol("abc");
-        let buffer2: RelocatableBuffer<(), &'static str> = writer.build();
+        writer.add_reloc(
+            RelocType::Absolute,
+            RelocSize::I16,
+            Expr::new_local(sym.clone()),
+        );
+        writer.mark_symbol(sym);
+        let buffer2: RelocatableBuffer = writer.build();
 
         let buffer = buffer1.merge(buffer2);
         let data = buffer.resolve_all(&NullExternalResolver)?;
@@ -507,15 +475,17 @@ mod tests {
     #[test]
     fn relative_address_is_resolved_partially() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
-        writer.mark_symbol("a");
+        let sym_a = Symbol::new();
+        let sym_b = Symbol::new();
+        writer.mark_symbol(sym_a.clone());
         writer.add_reloc(
             RelocType::Relative,
             RelocSize::I16,
-            Expr::new_subtract(Expr::new_local("b"), Expr::new_local("a")),
+            Expr::new_subtract(Expr::new_local(sym_b.clone()), Expr::new_local(sym_a)),
         );
-        writer.mark_symbol("b");
+        writer.mark_symbol(sym_b);
 
-        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
+        let buffer: RelocatableBuffer = writer.build();
         let buffer = buffer.local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0x02, 0x00]);
@@ -525,16 +495,17 @@ mod tests {
     #[test]
     fn negative_relative_addresses_resolve_partially() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
-        writer.mark_symbol("a");
+        let sym_a = Symbol::new();
+        let sym_b = Symbol::new();
+        writer.mark_symbol(sym_a.clone());
         writer.add_reloc(
             RelocType::Relative,
             RelocSize::I16,
-            Expr::new_subtract(Expr::new_local("a"), Expr::new_local("b")),
+            Expr::new_subtract(Expr::new_local(sym_a), Expr::new_local(sym_b.clone())),
         );
-        writer.mark_symbol("b");
+        writer.mark_symbol(sym_b);
 
-        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
-        let buffer = buffer.local_resolve()?;
+        let buffer = writer.build().local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0xFE, 0xFF]);
         Ok(())
@@ -543,17 +514,22 @@ mod tests {
     #[test]
     fn filter_map_allows_local_resolutions() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
-        writer.mark_symbol("a");
+        let sym_a = Symbol::with_name("a");
+        let sym_b = Symbol::with_name("b");
+        writer.mark_symbol(sym_a.clone());
         writer.add_reloc(
             RelocType::Relative,
             RelocSize::I16,
-            Expr::new_subtract(Expr::new_local("a"), Expr::new_local("b")),
+            Expr::new_subtract(
+                Expr::new_local(sym_a.clone()),
+                Expr::new_local(sym_b.clone()),
+            ),
         );
-        writer.mark_symbol("b");
+        writer.mark_symbol(sym_b);
 
-        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
+        let buffer = writer.build();
         let buffer = buffer.local_resolve()?;
-        let buffer = buffer.filter_map_local(|sym| if sym == "a" { None } else { Some(sym) })?;
+        let buffer = buffer.filter_map_local(|sym| if sym == sym_a { None } else { Some(sym) })?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0xFE, 0xFF]);
         Ok(())
@@ -562,18 +538,21 @@ mod tests {
     #[test]
     fn filter_map_forbids_remaining_exprs() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
-        writer.mark_symbol("a");
+        let sym_a = Symbol::with_name("a");
+        let sym_b = Symbol::with_name("b");
+        let sym_c = Symbol::with_name("c");
+        writer.mark_symbol(sym_a.clone());
         writer.add_reloc(
             RelocType::Relative,
             RelocSize::I16,
-            Expr::new_subtract(Expr::new_local("a"), Expr::new_local("c")),
+            Expr::new_subtract(Expr::new_local(sym_a.clone()), Expr::new_local(sym_c)),
         );
-        writer.mark_symbol("b");
+        writer.mark_symbol(sym_b);
 
-        let buffer: RelocatableBuffer<(), &'static str> = writer.build();
+        let buffer = writer.build();
         let buffer = buffer.local_resolve()?;
         assert!(buffer
-            .filter_map_local(|sym| if sym == "a" { None } else { Some(sym) })
+            .filter_map_local(|sym| if sym == sym_a { None } else { Some(sym) })
             .is_err());
         Ok(())
     }
@@ -581,16 +560,17 @@ mod tests {
     #[test]
     fn ext_resolution_works() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
+        let sym = Symbol::with_name("abc");
         writer.write_u8(0);
         writer.add_reloc(
             RelocType::Absolute,
             RelocSize::I16,
-            Expr::new_external("abc"),
+            Expr::new_external(sym.clone()),
         );
 
-        let buffer: RelocatableBuffer<&'static str, ()> = writer.build();
+        let buffer = writer.build();
         let buffer = buffer.resolve_all(&SimpleMapExtResolver(
-            &[("abc", 0x1234)].iter().cloned().collect(),
+            &[(sym, 0x1234)].iter().cloned().collect(),
         ))?;
         assert_eq!(buffer, vec![0x00, 0x34, 0x12]);
         Ok(())
@@ -599,17 +579,18 @@ mod tests {
     #[test]
     fn invalid_narrowing_causes_error() -> anyhow::Result<()> {
         let mut writer = RelocatableBufferBuilder::new();
+        let sym = Symbol::with_name("abc");
         writer.write_u8(0);
         writer.add_reloc(
             RelocType::Absolute,
             RelocSize::I8,
-            Expr::new_external("abc"),
+            Expr::new_external(sym.clone()),
         );
 
-        let buffer: RelocatableBuffer<&'static str, ()> = writer.build();
+        let buffer = writer.build();
         assert!(buffer
             .resolve_all(&SimpleMapExtResolver(
-                &[("abc", 0x1234)].iter().cloned().collect(),
+                &[(sym, 0x1234)].iter().cloned().collect(),
             ))
             .is_err());
         Ok(())

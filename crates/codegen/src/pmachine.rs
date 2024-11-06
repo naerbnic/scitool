@@ -10,7 +10,8 @@ use crate::{
     opcode::Opcode,
 };
 use sci_utils::numbers::write_byte;
-use sci_utils::reloc_buffer::writer::{RelocWriter, SymbolGenerator};
+use sci_utils::reloc_buffer::writer::RelocWriter;
+use sci_utils::symbol::Symbol;
 use var_access::VarAccessOp;
 
 sci_codegen_macros::define_insts! {
