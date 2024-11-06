@@ -242,7 +242,6 @@ impl RelocatableBuffer {
         // The self section is now aligned, with sufficient padding to
         // match the other section's alignment. The resulting sections will
         // simply append the data.
-
         let other_offset = data.len();
         data.extend(other.data);
         for (symbol, symbol_offset) in other.symbols {
@@ -252,7 +251,7 @@ impl RelocatableBuffer {
                     entry.insert(new_offset);
                 }
                 btree_map::Entry::Occupied(entry) => {
-                    panic!(
+                    anyhow::bail!(
                         "symbol {:?} already defined at offset {} (new offset: {})",
                         entry.key(),
                         entry.get(),
