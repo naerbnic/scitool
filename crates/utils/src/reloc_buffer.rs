@@ -76,24 +76,23 @@ impl Relocation {
         }
         Ok(())
     }
-    // Either resolves this relocation in place, or returns a new relocation
+    /// Either resolves this relocation in place. If the relocation can be
+    /// discarded afterwards, returns Ok(false).
     pub fn partial_resolve<R: LocalResolver>(
-        &self,
+        &mut self,
         resolver: &R,
         data: &mut [u8],
-    ) -> anyhow::Result<Option<Relocation>> {
+    ) -> anyhow::Result<bool> {
         if let Some(new_expr) = self.expr.partial_local_resolve(self.pos, resolver) {
             let Some(value) = new_expr.exact_value() else {
                 // We can't fully simplify this expression yet. Return what we have.
-                return Ok(Some(Relocation {
-                    expr: new_expr,
-                    ..self.clone()
-                }));
+                self.expr = new_expr;
+                return Ok(true);
             };
             self.write_value_to_slice(value, data)?;
-            return Ok(None);
+            return Ok(false);
         }
-        Ok(Some(self.clone()))
+        Ok(true)
     }
 
     pub fn full_resolve<R>(&self, full_resolver: &R, data: &mut [u8]) -> anyhow::Result<()>
@@ -209,30 +208,19 @@ impl RelocatableBuffer {
             symbols: &self.symbols,
         };
         let mut errors = Vec::new();
-        let mut new_relocs = Vec::new();
-        for reloc in &self.relocations {
+        self.relocations.retain_mut(|reloc| {
             match reloc.partial_resolve(&resolver, &mut self.data) {
-                Ok(Some(new_reloc)) => new_relocs.push(new_reloc),
-                Ok(None) => {}
-                Err(err) => errors.push(err),
+                Ok(should_retain) => should_retain,
+                Err(err) => {
+                    errors.push(err);
+                    true
+                }
             }
-        }
+        });
         if !errors.is_empty() {
             anyhow::bail!("relocation errors: {:?}", errors);
         }
-        let new_symbols = self
-            .symbols
-            .iter()
-            .filter_map(|(sym, loc)| {
-                if sym.strong_syms_exist() {
-                    Some((sym.clone(), *loc))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        self.relocations = new_relocs;
-        self.symbols = new_symbols;
+        self.symbols.retain(|sym, _| sym.strong_syms_exist());
         Ok(())
     }
 
@@ -313,8 +301,9 @@ impl RelocatableBufferBuilder {
         }
     }
 
-    pub fn build(self) -> RelocatableBuffer {
-        self.section
+    pub fn build(mut self) -> anyhow::Result<RelocatableBuffer> {
+        self.section.local_resolve()?;
+        Ok(self.section)
     }
 }
 
@@ -400,7 +389,7 @@ mod tests {
 
     #[test]
     fn can_build_empty_buffer() -> anyhow::Result<()> {
-        let buffer: RelocatableBuffer = RelocatableBufferBuilder::new().build();
+        let buffer: RelocatableBuffer = RelocatableBufferBuilder::new().build()?;
         buffer.resolve_all(&NullExternalResolver)?;
         Ok(())
     }
@@ -411,7 +400,7 @@ mod tests {
         writer.write_u8(0);
         writer.write_u16_le(0x1234);
 
-        let buffer: RelocatableBuffer = writer.build();
+        let buffer: RelocatableBuffer = writer.build()?;
         let data = buffer.resolve_all(&NullExternalResolver)?;
         assert_eq!(data, vec![0x00, 0x34, 0x12]);
         Ok(())
@@ -428,7 +417,7 @@ mod tests {
         );
         writer.mark_symbol(sym);
 
-        let buffer: RelocatableBuffer = writer.build();
+        let buffer: RelocatableBuffer = writer.build()?;
         let data = buffer.resolve_all(&NullExternalResolver)?;
         assert_eq!(data, vec![0x02, 0x00]);
         Ok(())
@@ -446,7 +435,7 @@ mod tests {
             Expr::new_local(sym.clone()),
         );
         writer.mark_symbol(sym);
-        let buffer2: RelocatableBuffer = writer.build();
+        let buffer2: RelocatableBuffer = writer.build()?;
 
         let buffer = buffer1.merge(buffer2)?;
         let data = buffer.resolve_all(&NullExternalResolver)?;
@@ -467,7 +456,7 @@ mod tests {
         );
         writer.mark_symbol(sym_b);
 
-        let mut buffer: RelocatableBuffer = writer.build();
+        let mut buffer: RelocatableBuffer = writer.build()?;
         buffer.local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0x02, 0x00]);
@@ -487,8 +476,7 @@ mod tests {
         );
         writer.mark_symbol(sym_b);
 
-        let mut buffer = writer.build();
-        buffer.local_resolve()?;
+        let buffer = writer.build()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0xFE, 0xFF]);
         Ok(())
@@ -505,7 +493,7 @@ mod tests {
             Expr::new_external(sym.clone()),
         );
 
-        let buffer = writer.build();
+        let buffer = writer.build()?;
         let buffer = buffer.resolve_all(&SimpleMapExtResolver(
             &[(sym, 0x1234)].iter().cloned().collect(),
         ))?;
@@ -524,7 +512,7 @@ mod tests {
             Expr::new_external(sym.clone()),
         );
 
-        let buffer = writer.build();
+        let buffer = writer.build()?;
         assert!(buffer
             .resolve_all(&SimpleMapExtResolver(
                 &[(sym, 0x1234)].iter().cloned().collect(),
