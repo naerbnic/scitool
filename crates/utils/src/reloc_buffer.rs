@@ -193,6 +193,8 @@ impl RelocatableBuffer {
         }
     }
 
+    /// Create a new buffer with no relocations or symbols that contains the
+    /// given data.
     pub fn from_vec(data: Vec<u8>, alignment: usize) -> Self {
         Self {
             data,
@@ -202,7 +204,7 @@ impl RelocatableBuffer {
         }
     }
 
-    pub fn local_resolve(&mut self) -> anyhow::Result<()> {
+    fn local_resolve(&mut self) -> anyhow::Result<()> {
         let resolver = LocalOnlyResolver {
             symbols: &self.symbols,
         };
@@ -236,7 +238,9 @@ impl RelocatableBuffer {
 
     /// Merge two sections together, concatenating their data and
     /// ensuring all symbols and reloc entries are valid.
-    pub fn merge(self, other: Self) -> Self {
+    ///
+    /// Returns an error if any symbol substitutions do not work.
+    pub fn merge(self, other: Self) -> anyhow::Result<Self> {
         let mut data = self.data;
         let mut symbols = self.symbols;
         let mut relocations = self.relocations;
@@ -276,12 +280,14 @@ impl RelocatableBuffer {
                 .map(|r| r.with_added_offset(other_offset)),
         );
 
-        Self {
+        let mut result = Self {
             data,
             symbols,
             relocations,
             alignment,
-        }
+        };
+        result.local_resolve()?;
+        Ok(result)
     }
 
     pub fn resolve_all<R: ExternalResolver>(mut self, resolver: &R) -> anyhow::Result<Vec<u8>> {
@@ -442,7 +448,7 @@ mod tests {
         writer.mark_symbol(sym);
         let buffer2: RelocatableBuffer = writer.build();
 
-        let buffer = buffer1.merge(buffer2);
+        let buffer = buffer1.merge(buffer2)?;
         let data = buffer.resolve_all(&NullExternalResolver)?;
         assert_eq!(data, vec![0x01, 0x02, 0x04, 0x00]);
         Ok(())
