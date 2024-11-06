@@ -154,44 +154,9 @@ impl LeafValue {
             _ => None,
         }
     }
-    pub fn filter_map_local<F>(self, mut body: F) -> anyhow::Result<LeafValue>
-    where
-        F: FnMut(Symbol) -> Option<Symbol>,
-    {
-        Ok(match self {
-            LeafValue::LocalSymbol(sym) => {
-                if let Some(new_sym) = body(sym) {
-                    LeafValue::LocalSymbol(new_sym)
-                } else {
-                    return Err(anyhow::anyhow!("failed to map local symbol"));
-                }
-            }
-            LeafValue::CurrentAddress => LeafValue::CurrentAddress,
-            LeafValue::Immediate(value) => LeafValue::Immediate(value),
-            LeafValue::ExternalValue(value) => LeafValue::ExternalValue(value),
-        })
-    }
 }
 
 impl LeafValue {
-    pub fn map_external(&self, f: &impl Fn(&Symbol) -> Symbol) -> LeafValue {
-        match self {
-            LeafValue::CurrentAddress => LeafValue::CurrentAddress,
-            LeafValue::Immediate(value) => LeafValue::Immediate(*value),
-            LeafValue::LocalSymbol(sym) => LeafValue::LocalSymbol(sym.clone()),
-            LeafValue::ExternalValue(value) => LeafValue::ExternalValue(f(value)),
-        }
-    }
-
-    pub fn map_local(&self, f: &impl Fn(&Symbol) -> Symbol) -> LeafValue {
-        match self {
-            LeafValue::CurrentAddress => LeafValue::CurrentAddress,
-            LeafValue::Immediate(value) => LeafValue::Immediate(*value),
-            LeafValue::LocalSymbol(sym) => LeafValue::LocalSymbol(f(sym)),
-            LeafValue::ExternalValue(value) => LeafValue::ExternalValue(value.clone()),
-        }
-    }
-
     fn with_added_offset(&self, offset: i64) -> Self {
         match self {
             LeafValue::CurrentAddress => LeafValue::CurrentAddress,
@@ -260,36 +225,6 @@ impl Expr {
             }
             ExprInner::ScalarProduct(_, a) => a.local_symbols(),
         }
-    }
-
-    pub fn map_external(&self, f: &impl Fn(&Symbol) -> Symbol) -> Expr {
-        Expr(match &self.0 {
-            ExprInner::Value(v) => ExprInner::Value(v.map_external(f)),
-            ExprInner::Difference(a, b) => {
-                ExprInner::Difference(Box::new(a.map_external(&f)), Box::new(b.map_external(&f)))
-            }
-            ExprInner::Sum(a, b) => {
-                ExprInner::Sum(Box::new(a.map_external(&f)), Box::new(b.map_external(&f)))
-            }
-            ExprInner::ScalarProduct(c, a) => {
-                ExprInner::ScalarProduct(*c, Box::new(a.map_external(&f)))
-            }
-        })
-    }
-
-    pub fn map_local(&self, f: &impl Fn(&Symbol) -> Symbol) -> Expr {
-        Expr(match &self.0 {
-            ExprInner::Value(v) => ExprInner::Value(v.map_local(f)),
-            ExprInner::Difference(a, b) => {
-                ExprInner::Difference(Box::new(a.map_local(&f)), Box::new(b.map_local(&f)))
-            }
-            ExprInner::Sum(a, b) => {
-                ExprInner::Sum(Box::new(a.map_local(&f)), Box::new(b.map_local(&f)))
-            }
-            ExprInner::ScalarProduct(c, a) => {
-                ExprInner::ScalarProduct(*c, Box::new(a.map_local(&f)))
-            }
-        })
     }
 
     /// Attempts to partially resolve the expression, given the current
@@ -399,29 +334,6 @@ impl Expr {
                 })
             }
         }
-    }
-
-    pub(super) fn filter_map_local<F>(self, body: &mut F) -> anyhow::Result<Expr>
-    where
-        F: FnMut(Symbol) -> Option<Symbol>,
-    {
-        Ok(Expr(match self.0 {
-            ExprInner::Value(v) => ExprInner::Value(v.filter_map_local(body)?),
-            ExprInner::Difference(a, b) => {
-                let a = a.filter_map_local(body)?;
-                let b = b.filter_map_local(body)?;
-                ExprInner::Difference(Box::new(a), Box::new(b))
-            }
-            ExprInner::Sum(a, b) => {
-                let a = a.filter_map_local(body)?;
-                let b = b.filter_map_local(body)?;
-                ExprInner::Sum(Box::new(a), Box::new(b))
-            }
-            ExprInner::ScalarProduct(coeff, expr) => {
-                let expr = expr.filter_map_local(body)?;
-                ExprInner::ScalarProduct(coeff, Box::new(expr))
-            }
-        }))
     }
 
     pub(super) fn with_added_offset(&self, offset: i64) -> Self {

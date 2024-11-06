@@ -109,18 +109,6 @@ impl Relocation {
             ..self
         }
     }
-
-    pub fn filter_map_local<F>(self, body: &mut F) -> anyhow::Result<Relocation>
-    where
-        F: FnMut(Symbol) -> Option<Symbol>,
-    {
-        Ok(Relocation {
-            expr: self.expr.filter_map_local(body)?,
-            pos: self.pos,
-            size: self.size,
-            reloc_type: self.reloc_type,
-        })
-    }
 }
 
 /// A symbol resolver for external symbols.
@@ -228,7 +216,17 @@ impl RelocatableBuffer {
         }
         Ok(RelocatableBuffer {
             data: self.data,
-            symbols: self.symbols,
+            symbols: self
+                .symbols
+                .into_iter()
+                .filter_map(|(mut sym, loc)| {
+                    if sym.is_unique() {
+                        Some((sym, loc))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             relocations: new_relocs,
             alignment: self.alignment,
         })
@@ -293,32 +291,6 @@ impl RelocatableBuffer {
             reloc.full_resolve(&full_resolver, &mut self.data)?;
         }
         Ok(self.data)
-    }
-
-    pub fn filter_map_local<F>(self, mut f: F) -> anyhow::Result<RelocatableBuffer>
-    where
-        F: FnMut(Symbol) -> Option<Symbol>,
-    {
-        // It's fine if we lose symbols, as that's part of the intent of this filtering.
-        let symbols = self
-            .symbols
-            .into_iter()
-            .filter_map(|(sym, offset)| f(sym).map(|new_sym| (new_sym, offset)))
-            .collect();
-
-        // It's NOT fine if we lose expressions with relocations, as that indicates that
-        // relocations that should have been resolved were not.
-        let relocations = self
-            .relocations
-            .into_iter()
-            .map(|reloc| reloc.filter_map_local(&mut f))
-            .collect::<Result<_, _>>()?;
-        Ok(RelocatableBuffer {
-            data: self.data,
-            symbols,
-            relocations,
-            alignment: self.alignment,
-        })
     }
 }
 
@@ -508,52 +480,6 @@ mod tests {
         let buffer = writer.build().local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0xFE, 0xFF]);
-        Ok(())
-    }
-
-    #[test]
-    fn filter_map_allows_local_resolutions() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
-        let sym_a = Symbol::with_name("a");
-        let sym_b = Symbol::with_name("b");
-        writer.mark_symbol(sym_a.clone());
-        writer.add_reloc(
-            RelocType::Relative,
-            RelocSize::I16,
-            Expr::new_subtract(
-                Expr::new_local(sym_a.clone()),
-                Expr::new_local(sym_b.clone()),
-            ),
-        );
-        writer.mark_symbol(sym_b);
-
-        let buffer = writer.build();
-        let buffer = buffer.local_resolve()?;
-        let buffer = buffer.filter_map_local(|sym| if sym == sym_a { None } else { Some(sym) })?;
-        assert!(buffer.relocations.is_empty());
-        assert_eq!(buffer.data, vec![0xFE, 0xFF]);
-        Ok(())
-    }
-
-    #[test]
-    fn filter_map_forbids_remaining_exprs() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
-        let sym_a = Symbol::with_name("a");
-        let sym_b = Symbol::with_name("b");
-        let sym_c = Symbol::with_name("c");
-        writer.mark_symbol(sym_a.clone());
-        writer.add_reloc(
-            RelocType::Relative,
-            RelocSize::I16,
-            Expr::new_subtract(Expr::new_local(sym_a.clone()), Expr::new_local(sym_c)),
-        );
-        writer.mark_symbol(sym_b);
-
-        let buffer = writer.build();
-        let buffer = buffer.local_resolve()?;
-        assert!(buffer
-            .filter_map_local(|sym| if sym == sym_a { None } else { Some(sym) })
-            .is_err());
         Ok(())
     }
 
