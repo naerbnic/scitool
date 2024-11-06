@@ -202,7 +202,7 @@ impl RelocatableBuffer {
         }
     }
 
-    pub fn local_resolve(mut self) -> anyhow::Result<RelocatableBuffer> {
+    pub fn local_resolve(&mut self) -> anyhow::Result<()> {
         let resolver = LocalOnlyResolver {
             symbols: &self.symbols,
         };
@@ -218,23 +218,20 @@ impl RelocatableBuffer {
         if !errors.is_empty() {
             anyhow::bail!("relocation errors: {:?}", errors);
         }
-        Ok(RelocatableBuffer {
-            data: self.data,
-            symbols: self
-                .symbols
-                .into_iter()
-                .filter_map(|(sym, loc)| {
-                    if sym.strong_syms_exist() {
-                        Some((sym, loc))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-
-            relocations: new_relocs,
-            alignment: self.alignment,
-        })
+        let new_symbols = self
+            .symbols
+            .iter()
+            .filter_map(|(sym, loc)| {
+                if sym.strong_syms_exist() {
+                    Some((sym.clone(), *loc))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        self.relocations = new_relocs;
+        self.symbols = new_symbols;
+        Ok(())
     }
 
     /// Merge two sections together, concatenating their data and
@@ -464,8 +461,8 @@ mod tests {
         );
         writer.mark_symbol(sym_b);
 
-        let buffer: RelocatableBuffer = writer.build();
-        let buffer = buffer.local_resolve()?;
+        let mut buffer: RelocatableBuffer = writer.build();
+        buffer.local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0x02, 0x00]);
         Ok(())
@@ -484,7 +481,8 @@ mod tests {
         );
         writer.mark_symbol(sym_b);
 
-        let buffer = writer.build().local_resolve()?;
+        let mut buffer = writer.build();
+        buffer.local_resolve()?;
         assert!(buffer.relocations.is_empty());
         assert_eq!(buffer.data, vec![0xFE, 0xFF]);
         Ok(())
