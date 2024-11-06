@@ -98,3 +98,86 @@ impl std::hash::Hash for Symbol {
         self.ptr().hash(state);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use super::*;
+
+    #[test]
+    fn test_new_symbols_are_unique() {
+        let sym1 = Symbol::new();
+        let sym2 = Symbol::new();
+        assert_ne!(sym1, sym2);
+    }
+
+    #[test]
+    fn test_named_symbols_are_unique() {
+        let sym1 = Symbol::with_name("test1");
+        let sym2 = Symbol::with_name("test1"); // Same name
+        assert_ne!(sym1, sym2);
+    }
+
+    #[test]
+    fn test_cloned_symbols_are_equal() {
+        let sym1 = Symbol::new();
+        let sym2 = sym1.clone();
+        assert_eq!(sym1, sym2);
+    }
+
+    #[test]
+    fn test_symbol_hash_consistency() {
+        let mut map = HashMap::new();
+        let sym1 = Symbol::new();
+        let sym2 = sym1.clone();
+
+        map.insert(sym1, "value");
+        assert_eq!(map.get(&sym2), Some(&"value"));
+    }
+
+    #[test]
+    fn test_symbol_debug_format() {
+        let sym = Symbol::with_name("test_symbol");
+        let debug_str = format!("{:?}", sym);
+        assert!(debug_str.contains("test_symbol"));
+        assert!(debug_str.starts_with("[#"));
+        assert!(debug_str.ends_with("]"));
+    }
+
+    #[test]
+    fn test_symbol_default() {
+        let sym1 = Symbol::default();
+        let sym2 = Symbol::default();
+        assert_ne!(sym1, sym2); // Default should create unique symbols
+    }
+
+    #[test]
+    fn test_symbol_ordering_consistency() {
+        let sym1 = Symbol::new();
+        let sym2 = Symbol::new();
+        let sym1_clone = sym1.clone();
+
+        // Test reflexivity
+        assert_eq!(sym1.cmp(&sym1), std::cmp::Ordering::Equal);
+
+        // Test clone ordering
+        assert_eq!(sym1.cmp(&sym1_clone), std::cmp::Ordering::Equal);
+
+        // Test consistency
+        let first_cmp = sym1.cmp(&sym2);
+        assert_eq!(sym1.cmp(&sym2), first_cmp); // Should be consistent
+    }
+
+    #[test]
+    fn test_symbol_in_collections() {
+        let mut set = HashSet::new();
+        let sym1 = Symbol::new();
+        let sym1_clone = sym1.clone();
+        let sym2 = Symbol::new();
+
+        set.insert(sym1);
+        assert!(set.contains(&sym1_clone));
+        assert!(!set.contains(&sym2));
+    }
+}
