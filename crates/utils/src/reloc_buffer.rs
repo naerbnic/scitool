@@ -6,7 +6,11 @@ use std::collections::{btree_map, BTreeMap};
 use expr::Expr;
 use writer::RelocWriter;
 
-use crate::{buffer::ToFixedBytes, numbers::bit_convert::NumConvert as _, symbol::Symbol};
+use crate::{
+    buffer::ToFixedBytes,
+    numbers::bit_convert::NumConvert as _,
+    symbol::{Symbol, WeakSymbol},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum RelocSize {
@@ -123,13 +127,13 @@ trait LocalResolver {
 }
 
 struct LocalOnlyResolver<'a> {
-    symbols: &'a BTreeMap<Symbol, usize>,
+    symbols: &'a BTreeMap<WeakSymbol, usize>,
 }
 
 impl LocalResolver for LocalOnlyResolver<'_> {
     fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64> {
         self.symbols
-            .get(symbol)
+            .get(symbol.id())
             .map(|x| x.convert_num_to().unwrap())
     }
 }
@@ -138,7 +142,7 @@ trait FullResolver: ExternalResolver + LocalResolver {}
 
 struct FullResolverImpl<'a, R> {
     external: &'a R,
-    local: &'a BTreeMap<Symbol, usize>,
+    local: &'a BTreeMap<WeakSymbol, usize>,
 }
 
 impl<'a, R> LocalResolver for FullResolverImpl<'a, R>
@@ -147,7 +151,7 @@ where
 {
     fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64> {
         self.local
-            .get(symbol)
+            .get(symbol.id())
             .copied()
             .map(|x| x.convert_num_to().unwrap())
     }
@@ -171,7 +175,7 @@ pub struct RelocatableBuffer {
     data: Vec<u8>,
     /// The list of symbols defined in this section. Keys are symbol names,
     /// and values are offsets in `self.data` that map to that symbol.
-    symbols: BTreeMap<Symbol, usize>,
+    symbols: BTreeMap<WeakSymbol, usize>,
     /// The relocations that have to happen in this section before being
     /// fully linked.
     relocations: Vec<Relocation>,
@@ -219,14 +223,15 @@ impl RelocatableBuffer {
             symbols: self
                 .symbols
                 .into_iter()
-                .filter_map(|(mut sym, loc)| {
-                    if sym.is_unique() {
+                .filter_map(|(sym, loc)| {
+                    if sym.strong_syms_exist() {
                         Some((sym, loc))
                     } else {
                         None
                     }
                 })
                 .collect(),
+
             relocations: new_relocs,
             alignment: self.alignment,
         })
@@ -340,7 +345,9 @@ impl RelocWriter for RelocatableBufferBuilder {
     }
 
     fn mark_symbol(&mut self, symbol: Symbol) {
-        self.section.symbols.insert(symbol, self.section.data.len());
+        self.section
+            .symbols
+            .insert(symbol.downgrade(), self.section.data.len());
     }
 
     fn add_reloc(&mut self, reloc_type: RelocType, size: RelocSize, expr: Expr) {

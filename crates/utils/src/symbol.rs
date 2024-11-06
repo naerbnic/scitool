@@ -4,7 +4,11 @@
 //! together different parts of the code, and they are used during debugging to
 //! provide the context they were made in.
 
-use std::sync::Arc;
+use std::{
+    borrow::Borrow,
+    fmt::Debug,
+    sync::{atomic::AtomicUsize, Arc},
+};
 
 // The main idea: Allocated memory is guaranteed to be unique, so we can use
 // the memory address as a unique identifier. We have to be able to
@@ -12,8 +16,110 @@ use std::sync::Arc;
 // they are dropped, so we use an Arc with our own use count to ensure that
 // the pointer stays valid until the last clone is dropped.
 
+// Because it's hard to manage ownership for key values, we need to manage a
+// separate WeakSymbol type, that can be used as a key in a HashMap or BTreeMap,
+// but still maintains the guarantees of the map type (i.e. still preserves the
+// same identity). We are using the pointer value itself, but Weak does not
+// guarantee that if there are no more strong references that as_ptr() will
+// return the same value, so we need to use separate tracking to manage it.
+//
+// Right now, we're using a technique that requries no unsafe code, but this
+// could be made more efficient, as we have to store the pointer twice.
+
 struct UniquePayload {
+    /// Keeps a count of the number of [`Symbol`]s that are still alive.
+    ///
+    /// Note that this does not carry any safety semantics, so ordering for
+    /// this value is not important.
+    strong_count: AtomicUsize,
     name: Option<String>,
+}
+
+pub struct SymbolId(Arc<UniquePayload>);
+
+/// All of the methods on SymbolId are private, as we're hiding the fact that
+/// the ID is the internal payload of an Arc.
+impl SymbolId {
+    fn new() -> Self {
+        Self(Arc::new(UniquePayload {
+            strong_count: AtomicUsize::new(0),
+            name: None,
+        }))
+    }
+
+    fn with_name(name: String) -> Self {
+        Self(Arc::new(UniquePayload {
+            strong_count: AtomicUsize::new(0),
+            name: Some(name),
+        }))
+    }
+
+    fn inc_strong_count(&self) {
+        self.0
+            .strong_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn dec_strong_count(&self) {
+        self.0
+            .strong_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn as_ptr(&self) -> *const UniquePayload {
+        Arc::as_ptr(&self.0)
+    }
+
+    fn strong_count(&self) -> usize {
+        self.0
+            .strong_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// This is a private method so that we can expose SymbolId as a borrowable
+    /// value without letting clients clone it.
+    fn do_clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+
+    fn fmt_dbg(&self, prefix: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0.name {
+            Some(name) => write!(f, "[{}#{:?}: {}]", prefix, self.as_ptr(), name),
+            None => write!(f, "[{}#{:?}]", prefix, self.as_ptr()),
+        }
+    }
+}
+
+impl Debug for SymbolId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_dbg("ID: ", f)
+    }
+}
+
+impl std::cmp::PartialEq for SymbolId {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ptr().eq(&other.as_ptr())
+    }
+}
+
+impl std::cmp::Eq for SymbolId {}
+
+impl std::cmp::PartialOrd for SymbolId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::cmp::Ord for SymbolId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_ptr().cmp(&other.as_ptr())
+    }
+}
+
+impl std::hash::Hash for SymbolId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_ptr().hash(state);
+    }
 }
 
 /// A unique symbol that can be used to identify a value.
@@ -23,16 +129,20 @@ struct UniquePayload {
 ///
 /// It can also be detected when it is the only clone left, to ensure that any
 /// values using it as a key are unreachable.
-#[derive(Clone)]
-pub struct Symbol(Arc<UniquePayload>);
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Symbol(SymbolId);
 
 impl Symbol {
+    fn new_from_id(contents: SymbolId) -> Self {
+        contents.inc_strong_count();
+        Self(contents)
+    }
     /// Creates a new unique symbol.
     ///
     /// It is guaranteed to be unique by comparison and hash with all other
     /// symbols at the time it's created.
     pub fn new() -> Self {
-        Self(Arc::new(UniquePayload { name: None }))
+        Self::new_from_id(SymbolId::new())
     }
 
     /// Creates a new unique symbol with a name.
@@ -40,21 +150,27 @@ impl Symbol {
     /// This is identical to new() above, but provides the created symbol with
     /// a name for debugging purposes.
     pub fn with_name(name: impl Into<String>) -> Self {
-        Self(Arc::new(UniquePayload {
-            name: Some(name.into()),
-        }))
+        Self::new_from_id(SymbolId::with_name(name.into()))
     }
 
-    fn ptr(&self) -> *const UniquePayload {
-        Arc::as_ptr(&self.0)
+    pub fn id(&self) -> &SymbolId {
+        &self.0
     }
 
-    /// Returns true iff this is the only clone of this symbol.
-    ///
-    /// This operates on a mutable value to ensure the symbol is not shared
-    /// with other threads through the same reference.
-    pub fn is_unique(&mut self) -> bool {
-        Arc::get_mut(&mut self.0).is_some()
+    pub fn downgrade(&self) -> WeakSymbol {
+        WeakSymbol::weak_from_id(self.0.do_clone())
+    }
+}
+
+impl Clone for Symbol {
+    fn clone(&self) -> Self {
+        Self::new_from_id(self.0.do_clone())
+    }
+}
+
+impl Drop for Symbol {
+    fn drop(&mut self) {
+        self.0.dec_strong_count();
     }
 }
 
@@ -66,36 +182,58 @@ impl Default for Symbol {
 
 impl std::fmt::Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.0.name {
-            Some(name) => write!(f, "[#{:0X?}: {}]", self.ptr(), name),
-            None => write!(f, "[#{:0X?}]", self.ptr()),
-        }
+        self.id().fmt_dbg("",f)
     }
 }
 
-impl std::cmp::PartialEq for Symbol {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+impl Borrow<SymbolId> for Symbol {
+    fn borrow(&self) -> &SymbolId {
+        self.id()
     }
 }
 
-impl std::cmp::Eq for Symbol {}
+/// A weak symbol that can be used as a key in a map.
+///
+/// This is a symbol that is guaranteed to be unique, and is associated with
+/// zero or more live instances of a [`Symbol`]. It can be used as a key in a
+/// map.
+///
+/// This can be used to handle weak keys in a map, where we want to detect when
+/// it is impossible to ever be given a symbol that maps to this key.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WeakSymbol(SymbolId);
 
-impl std::cmp::PartialOrd for Symbol {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+impl WeakSymbol {
+    fn weak_from_id(id: SymbolId) -> Self {
+        Self(id)
+    }
+
+    /// Returns true iff there are no strong symbol objects left for this object.
+    pub fn strong_syms_exist(&self) -> bool {
+        self.0.strong_count() > 0
+    }
+
+    /// Returns the ID of the weak symbol.
+    pub fn id(&self) -> &SymbolId {
+        &self.0
     }
 }
 
-impl std::cmp::Ord for Symbol {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.ptr().cmp(&other.ptr())
+impl Clone for WeakSymbol {
+    fn clone(&self) -> Self {
+        Self::weak_from_id(self.0.do_clone())
     }
 }
 
-impl std::hash::Hash for Symbol {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.ptr().hash(state);
+impl Debug for WeakSymbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id().fmt_dbg("Weak: ", f)
+    }
+}
+
+impl Borrow<SymbolId> for WeakSymbol {
+    fn borrow(&self) -> &SymbolId {
+        self.id()
     }
 }
 
@@ -141,8 +279,16 @@ mod tests {
         let sym = Symbol::with_name("test_symbol");
         let debug_str = format!("{:?}", sym);
         assert!(debug_str.contains("test_symbol"));
-        assert!(debug_str.starts_with("[#"));
-        assert!(debug_str.ends_with("]"));
+        assert!(
+            debug_str.starts_with("[#"),
+            "Expected \"[#\", got {:?}",
+            debug_str
+        );
+        assert!(
+            debug_str.ends_with("]"),
+            "Expected \"], got {:?}",
+            debug_str
+        );
     }
 
     #[test]
@@ -179,5 +325,51 @@ mod tests {
         set.insert(sym1);
         assert!(set.contains(&sym1_clone));
         assert!(!set.contains(&sym2));
+    }
+
+    #[test]
+    fn test_weak_symbol_creation() {
+        let sym = Symbol::new();
+        let weak_sym = sym.downgrade();
+        assert_eq!(sym.id(), weak_sym.id());
+    }
+
+    #[test]
+    fn test_weak_symbol_debug_format() {
+        let sym = Symbol::with_name("test_symbol");
+        let weak_sym = sym.downgrade();
+        let debug_str = format!("{:?}", weak_sym);
+        assert!(debug_str.contains("test_symbol"));
+        assert!(debug_str.starts_with("[Weak: #"));
+        assert!(debug_str.ends_with("]"));
+    }
+
+    #[test]
+    fn test_weak_symbol_ordering_consistency() {
+        let sym1 = Symbol::new();
+        let sym2 = Symbol::new();
+        let weak_sym1 = sym1.downgrade();
+        let weak_sym2 = sym2.downgrade();
+
+        // Test reflexivity
+        assert_eq!(weak_sym1.cmp(&weak_sym1), std::cmp::Ordering::Equal);
+
+        // Test consistency
+        let first_cmp = weak_sym1.cmp(&weak_sym2);
+        assert_eq!(weak_sym1.cmp(&weak_sym2), first_cmp); // Should be consistent
+    }
+
+    #[test]
+    fn test_weak_symbol_in_collections() {
+        let mut set = HashSet::new();
+        let sym1 = Symbol::new();
+        let weak_sym1 = sym1.downgrade();
+        let weak_sym1_clone = weak_sym1.clone();
+        let sym2 = Symbol::new();
+        let weak_sym2 = sym2.downgrade();
+
+        set.insert(weak_sym1);
+        assert!(set.contains(&weak_sym1_clone));
+        assert!(!set.contains(&weak_sym2));
     }
 }
