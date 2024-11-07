@@ -400,6 +400,9 @@ dependencies = [
 [[package]]
 name = "script_builder"
 version = "0.1.0"
+dependencies = [
+ "sci-utils",
+]
 
 [[package]]
 name = "serde"

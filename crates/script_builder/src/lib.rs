@@ -1,11 +1,14 @@
+use sci_utils::symbol::Symbol;
+
 pub mod symbols;
 
-pub struct StringRef(u32);
-pub struct ExportRef(u32);
-pub struct ObjectRef(u32);
-pub struct FunctionRef(u32);
-pub struct SelectorRef(u32);
-pub struct ClassRef(u32);
+#[derive(Clone)]
+pub struct StringRef(Symbol);
+pub struct ExportRef(Symbol);
+pub struct ObjectRef(Symbol);
+pub struct FunctionRef(Symbol);
+pub struct SelectorRef(Symbol);
+pub struct ClassRef(Symbol);
 
 pub enum Value {
     // A 16-bit integer.

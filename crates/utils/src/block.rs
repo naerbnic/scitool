@@ -1,3 +1,5 @@
+//! Types that are used to work with ranges of bytes data.
+
 use std::{
     any::Any,
     io::{self, Seek},
@@ -21,6 +23,7 @@ where
     }
 }
 
+/// An error that occurs while loading a block value.
 #[derive(thiserror::Error)]
 #[error(transparent)]
 pub struct ReadError(io::Error);
@@ -32,10 +35,12 @@ impl std::fmt::Debug for ReadError {
 }
 
 impl ReadError {
+    /// Create a new error from an [`io::Error`].
     pub fn new(err: io::Error) -> Self {
         Self(err)
     }
 
+    /// Create a new error from an implementation of [`std::error::Error`].
     pub fn from_std_err<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
@@ -60,8 +65,10 @@ impl From<io::Error> for ReadError {
     }
 }
 
+/// The result of a read operation.
 pub type ReadResult<T> = std::result::Result<T, ReadError>;
 
+/// An in-memory block of data that is cheap to clone, and create subranges of.
 #[derive(Clone)]
 pub struct Block {
     start: usize,
@@ -70,6 +77,7 @@ pub struct Block {
 }
 
 impl Block {
+    /// Create the block from a vector of bytes.
     pub fn from_vec(data: Vec<u8>) -> Self {
         let size = data.len();
         Self {
@@ -79,6 +87,7 @@ impl Block {
         }
     }
 
+    /// Read the entirety of a reader into a block.
     pub fn from_reader<R>(mut reader: R) -> io::Result<Self>
     where
         R: io::Read + io::Seek,
@@ -90,10 +99,13 @@ impl Block {
         Ok(Self::from_vec(data))
     }
 
+    /// Returns the size of the block.
     pub fn size(&self) -> usize {
         self.size
     }
 
+    /// Reads a slice of the block into a mutable slice. Returns a read error
+    /// if the slice is out of bounds.
     pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> ReadResult<()> {
         if offset + buf.len() > self.size {
             return Err(ReadError::new(io::Error::new(
@@ -106,6 +118,7 @@ impl Block {
         Ok(())
     }
 
+    /// Read the entirety of the buffer into a vector.
     pub fn read_all(&self) -> ReadResult<Vec<u8>> {
         let mut buf = vec![0; self.size];
         self.read_at(0, &mut buf)?;
@@ -202,7 +215,7 @@ impl std::fmt::Debug for Block {
     }
 }
 
-pub trait BlockSourceImpl: Send + Sync {
+trait BlockSourceImpl: Send + Sync {
     fn read_block(&self, start: u64, size: u64) -> ReadResult<Block>;
 }
 
@@ -222,6 +235,8 @@ where
     }
 }
 
+/// A source of blocks. These can be loaded lazily, and still can be split
+/// into sub-block-sources.
 #[derive(Clone)]
 pub struct BlockSource {
     start: u64,
@@ -230,6 +245,8 @@ pub struct BlockSource {
 }
 
 impl BlockSource {
+    /// Creates a block source that represents the contents of a path at the
+    /// given path. Returns an error if the file cannot be opened.
     pub fn from_path(path: &Path) -> io::Result<Self> {
         let mut file = std::fs::File::open(path)?;
         let size = file.seek(io::SeekFrom::End(0))?;
@@ -240,14 +257,19 @@ impl BlockSource {
         })
     }
 
+    /// Returns the size of the block source.
     pub fn size(&self) -> u64 {
         self.size
     }
 
+    /// Opens the block source, returning the block of data. Returns an error
+    /// if the data cannot be read and/or loaded.
     pub fn open(&self) -> ReadResult<Block> {
         self.source_impl.read_block(self.start, self.size)
     }
 
+    /// Returns a sub-block source that represents a subrange of the current
+    /// block source.
     pub fn subblock<R>(&self, range: R) -> Self
     where
         R: RangeBounds<u64>,
@@ -283,6 +305,8 @@ impl BlockSource {
         }
     }
 
+    /// Returns a lazy block that represents the current block source that can
+    /// be opened on demand.
     pub fn to_lazy_block(&self) -> LazyBlock {
         LazyBlock {
             source: Arc::new(RangeLazyBlockImpl {
@@ -345,12 +369,16 @@ where
     }
 }
 
+/// A block that is lazily loaded on demand.
+///
+/// This can be cheaply cloned, but cannot be split into smaller ranges.
 #[derive(Clone)]
 pub struct LazyBlock {
     source: Arc<dyn LazyBlockImpl>,
 }
 
 impl LazyBlock {
+    /// Creates a lazy block that is loaded from a factory on demand.
     pub fn from_factory<F>(factory: F) -> Self
     where
         F: Fn() -> ReadResult<Block> + 'static,
@@ -360,10 +388,14 @@ impl LazyBlock {
         }
     }
 
+    /// Opens a block from the lazy block source. Returns an error if the block
+    /// cannot be loaded.
     pub fn open(&self) -> ReadResult<Block> {
         self.source.open()
     }
 
+    /// Creates a new LazyBlock that transforms the result of the current block
+    /// with the given function when opened.
     pub fn map<F>(self, map_fn: F) -> Self
     where
         F: Fn(Block) -> ReadResult<Block> + 'static,
@@ -376,6 +408,8 @@ impl LazyBlock {
         }
     }
 
+    /// Creates a new lazy block that checks properties about the resulting
+    /// block.
     pub fn with_check<F>(&self, check_fn: F) -> Self
     where
         F: Fn(&Block) -> ReadResult<()> + 'static,
@@ -400,6 +434,7 @@ impl std::fmt::Debug for LazyBlock {
     }
 }
 
+/// A [`DataReader`] that reads from a block.
 #[derive(Debug, Clone)]
 pub struct BlockReader {
     curr_pos: usize,
@@ -407,10 +442,12 @@ pub struct BlockReader {
 }
 
 impl BlockReader {
+    /// Creates a new reader from the block.
     pub fn new(block: Block) -> Self {
         Self { curr_pos: 0, block }
     }
 
+    /// Returns the portion of the block that has not yet been read.
     pub fn into_rest(self) -> Block {
         self.block.sub_buffer(self.curr_pos..)
     }

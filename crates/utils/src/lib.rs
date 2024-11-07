@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 pub mod block;
 pub mod buffer;
 pub mod compression;
