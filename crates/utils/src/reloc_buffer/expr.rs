@@ -177,54 +177,49 @@ enum ExprInner {
     ScalarProduct(i64, Box<Expr>),
 }
 
+/// An expression that will be written in a relocation once fully resolved.
 #[derive(Clone, Debug)]
 pub struct Expr(ExprInner);
 
 impl Expr {
+    /// Create a new expression that references a local symbol.
     pub fn new_local(symbol: Symbol) -> Self {
         Expr(ExprInner::Value(LeafValue::LocalSymbol(symbol)))
     }
 
+    /// Create a new expression that references an external symbol
+    /// (which does not have to be an address).
     pub fn new_external(value: Symbol) -> Self {
         Expr(ExprInner::Value(LeafValue::ExternalValue(value)))
     }
 
-    pub fn new_literal(value: i64) -> Self {
+    /// Create a new expression that references an arbitrary
+    /// constant value.
+    pub fn new_const(value: i64) -> Self {
         Expr(ExprInner::Value(LeafValue::Immediate(
             IntermediateValue::new_exact(value),
         )))
     }
 
+    /// Create a new expression that references the address
+    /// of the relocation itself.
     pub fn new_current_address() -> Self {
         Expr(ExprInner::Value(LeafValue::CurrentAddress))
     }
 
+    /// Create a new expression that is the sum of two other expressions.
     pub fn new_add(a: Self, b: Self) -> Self {
         Expr(ExprInner::Sum(Box::new(a), Box::new(b)))
     }
 
+    /// Create a new expression that is the difference of two other expressions.
     pub fn new_subtract(a: Self, b: Self) -> Self {
         Expr(ExprInner::Difference(Box::new(a), Box::new(b)))
     }
 
+    /// Create a new expression that is the constant scalar product of another expression.
     pub fn new_scalar_product(coeff: i64, expr: Self) -> Self {
         Expr(ExprInner::ScalarProduct(coeff, Box::new(expr)))
-    }
-
-    pub fn local_symbols(&self) -> impl Iterator<Item = &Symbol> {
-        match &self.0 {
-            ExprInner::Value(LeafValue::LocalSymbol(sym)) => {
-                Box::new(std::iter::once(sym)) as Box<dyn Iterator<Item = &Symbol>>
-            }
-            ExprInner::Value(_) => {
-                Box::new(std::iter::empty()) as Box<dyn Iterator<Item = &Symbol>>
-            }
-            ExprInner::Difference(a, b) | ExprInner::Sum(a, b) => {
-                Box::new(a.local_symbols().chain(b.local_symbols()))
-                    as Box<dyn Iterator<Item = &Symbol>>
-            }
-            ExprInner::ScalarProduct(_, a) => a.local_symbols(),
-        }
     }
 
     /// Attempts to partially resolve the expression, given the current
@@ -252,7 +247,7 @@ impl Expr {
                 let result = a_val.sub(b_val);
 
                 if let Some(exact_value) = result.exact_value() {
-                    return Some((Expr::new_literal(exact_value), result));
+                    return Some((Expr::new_const(exact_value), result));
                 }
 
                 Some((
@@ -266,7 +261,7 @@ impl Expr {
                 let result = a_val.add(b_val);
 
                 if let Some(exact_value) = result.exact_value() {
-                    return Some((Expr::new_literal(exact_value), result));
+                    return Some((Expr::new_const(exact_value), result));
                 }
 
                 Some((Expr(ExprInner::Sum(Box::new(a), Box::new(b))), result))
@@ -276,7 +271,7 @@ impl Expr {
                 let result = val.scalar_multiply((*coeff).safe_widen_to());
 
                 if let Some(exact_value) = result.exact_value() {
-                    return Some((Expr::new_literal(exact_value), result));
+                    return Some((Expr::new_const(exact_value), result));
                 }
 
                 Some((

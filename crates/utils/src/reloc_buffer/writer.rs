@@ -1,7 +1,9 @@
+//! Traits for writing to a relocatable buffer.
 use crate::symbol::Symbol;
 
 use super::{expr::Expr, RelocSize, RelocType};
 
+/// A trait that allows a relocatable buffer to be written to.
 pub trait RelocWriter {
     /// Writes a single byte to the output.
     fn write_u8(&mut self, value: u8);

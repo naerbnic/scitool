@@ -1,3 +1,6 @@
+//! Types for building and working with [`RelocationBuffer`]s.
+#![warn(missing_docs)]
+
 pub mod expr;
 pub mod writer;
 
@@ -15,13 +18,17 @@ use crate::{
     symbol::{Symbol, WeakSymbol},
 };
 
+/// The size of a relocation.
 #[derive(Clone, Copy, Debug)]
 pub enum RelocSize {
+    /// The relocation is 1 byte in size (8 bits)
     I8,
+    /// The relocation is 2 bytes in size (16 bits)
     I16,
 }
 
 impl RelocSize {
+    /// Returns the size of the reloc in bytes.
     pub fn byte_size(&self) -> usize {
         match self {
             RelocSize::I8 => 1,
@@ -30,6 +37,7 @@ impl RelocSize {
     }
 }
 
+/// Returns the type of value that is expected for the relocation.
 #[derive(Clone, Copy, Debug)]
 pub enum RelocType {
     /// The relocation should be written as an absolute address (independent
@@ -38,15 +46,6 @@ pub enum RelocType {
     /// The relocation should be written as a relative address (Subtracting
     /// the address of the relocation from the target address).
     Relative,
-}
-
-impl RelocType {
-    pub fn apply(&self, offset: u16, target: u16) -> u16 {
-        match self {
-            RelocType::Absolute => target,
-            RelocType::Relative => target.wrapping_sub(offset),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -195,6 +194,13 @@ impl RelocatableBuffer {
         }
     }
 
+    /// Creates a new buffer builder, for constructing a new buffer.
+    pub fn builder() -> RelocatableBufferBuilder {
+        RelocatableBufferBuilder {
+            section: Self::new(1),
+        }
+    }
+
     /// Create a new buffer with no relocations or symbols that contains the
     /// given data.
     pub fn from_vec(data: Vec<u8>, alignment: usize) -> Self {
@@ -283,6 +289,7 @@ impl RelocatableBuffer {
         Ok(result)
     }
 
+    /// Resolves all of the relocations in this buffer, returning the resulting byte vector.
     pub fn resolve_all<R: ExternalResolver>(mut self, resolver: &R) -> anyhow::Result<Vec<u8>> {
         let full_resolver = FullResolverImpl {
             external: resolver,
@@ -295,26 +302,16 @@ impl RelocatableBuffer {
     }
 }
 
+/// A builder for a relocatable buffer.
 pub struct RelocatableBufferBuilder {
     section: RelocatableBuffer,
 }
 
 impl RelocatableBufferBuilder {
-    pub fn new() -> Self {
-        Self {
-            section: RelocatableBuffer::new(1),
-        }
-    }
-
+    /// Builds the result of this buffer builder to a relocatable buffer.
     pub fn build(mut self) -> anyhow::Result<RelocatableBuffer> {
         self.section.local_resolve()?;
         Ok(self.section)
-    }
-}
-
-impl Default for RelocatableBufferBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -370,7 +367,6 @@ mod tests {
 
     use super::{
         expr::Expr, writer::RelocWriter, ExternalResolver, RelocSize, RelocType, RelocatableBuffer,
-        RelocatableBufferBuilder,
     };
 
     struct NullExternalResolver;
@@ -394,14 +390,14 @@ mod tests {
 
     #[test]
     fn can_build_empty_buffer() -> anyhow::Result<()> {
-        let buffer: RelocatableBuffer = RelocatableBufferBuilder::new().build()?;
+        let buffer: RelocatableBuffer = RelocatableBuffer::builder().build()?;
         buffer.resolve_all(&NullExternalResolver)?;
         Ok(())
     }
 
     #[test]
     fn can_build_no_symbol_buffer() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         writer.write_u8(0);
         writer.write_u16_le(0x1234);
 
@@ -413,7 +409,7 @@ mod tests {
 
     #[test]
     fn can_build_simple_symbol() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         let sym = Symbol::new();
         writer.add_reloc(
             RelocType::Absolute,
@@ -433,7 +429,7 @@ mod tests {
         let buffer1 = RelocatableBuffer::from_vec(vec![0x01, 0x02], 1);
         let sym = Symbol::new();
 
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         writer.add_reloc(
             RelocType::Absolute,
             RelocSize::I16,
@@ -450,7 +446,7 @@ mod tests {
 
     #[test]
     fn relative_address_is_resolved_partially() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         let sym_a = Symbol::new();
         let sym_b = Symbol::new();
         writer.mark_symbol(sym_a.clone());
@@ -470,7 +466,7 @@ mod tests {
 
     #[test]
     fn negative_relative_addresses_resolve_partially() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         let sym_a = Symbol::new();
         let sym_b = Symbol::new();
         writer.mark_symbol(sym_a.clone());
@@ -489,7 +485,7 @@ mod tests {
 
     #[test]
     fn ext_resolution_works() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         let sym = Symbol::with_name("abc");
         writer.write_u8(0);
         writer.add_reloc(
@@ -508,7 +504,7 @@ mod tests {
 
     #[test]
     fn invalid_narrowing_causes_error() -> anyhow::Result<()> {
-        let mut writer = RelocatableBufferBuilder::new();
+        let mut writer = RelocatableBuffer::builder();
         let sym = Symbol::with_name("abc");
         writer.write_u8(0);
         writer.add_reloc(
