@@ -1,7 +1,5 @@
 use super::Opcode;
 
-
-
 #[derive(Clone, Copy, Debug)]
 pub enum VarType {
     Local,

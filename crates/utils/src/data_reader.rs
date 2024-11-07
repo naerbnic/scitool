@@ -136,9 +136,7 @@ impl<R: Read + Seek> DataReader for IoDataReader<R> {
 
 pub trait FromBlockSource: Sized {
     fn from_block_source(source: &BlockSource) -> io::Result<(Self, BlockSource)> {
-        let block = source
-            .subblock(..Self::read_size() as u64)
-            .open()?;
+        let block = source.subblock(..Self::read_size() as u64).open()?;
         let header = Self::parse(BlockReader::new(block))?;
         let rest = source.subblock(Self::read_size() as u64..);
         Ok((header, rest))

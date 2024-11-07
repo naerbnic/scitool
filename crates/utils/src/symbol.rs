@@ -182,7 +182,7 @@ impl Default for Symbol {
 
 impl std::fmt::Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id().fmt_dbg("",f)
+        self.id().fmt_dbg("", f)
     }
 }
 

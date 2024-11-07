@@ -17,7 +17,7 @@ fn main() {
 
     let species_table =
         ClassSpeciesTable::load_from(species_table_resource.load_data().unwrap().narrow()).unwrap();
-    
+
     println!("Species Table: {:#?}", species_table);
 
     let selector_table_resource = resources
