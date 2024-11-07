@@ -1,7 +1,10 @@
 pub mod expr;
 pub mod writer;
 
-use std::collections::{btree_map, BTreeMap};
+use std::{
+    collections::{btree_map, BTreeMap},
+    fmt::Debug,
+};
 
 use expr::Expr;
 use writer::RelocWriter;
@@ -244,6 +247,9 @@ impl RelocatableBuffer {
         // simply append the data.
         let other_offset = data.len();
         data.extend(other.data);
+
+        // Update the locations of all recorded symbols in the other section
+        // to reflect the new offset.
         for (symbol, symbol_offset) in other.symbols {
             let new_offset = symbol_offset + other_offset;
             match symbols.entry(symbol) {
