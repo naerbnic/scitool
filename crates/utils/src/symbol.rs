@@ -6,6 +6,7 @@
 
 use std::{
     borrow::Borrow,
+    collections::hash_map,
     fmt::Debug,
     sync::{atomic::AtomicUsize, Arc},
 };
@@ -157,7 +158,7 @@ impl Symbol {
         &self.0
     }
 
-    pub fn downgrade(&self) -> WeakSymbol {
+    fn downgrade(&self) -> WeakSymbol {
         WeakSymbol::weak_from_id(self.0.do_clone())
     }
 }
@@ -201,7 +202,7 @@ impl Borrow<SymbolId> for Symbol {
 /// This can be used to handle weak keys in a map, where we want to detect when
 /// it is impossible to ever be given a symbol that maps to this key.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WeakSymbol(SymbolId);
+struct WeakSymbol(SymbolId);
 
 impl WeakSymbol {
     fn weak_from_id(id: SymbolId) -> Self {
@@ -216,6 +217,14 @@ impl WeakSymbol {
     /// Returns the ID of the weak symbol.
     pub fn id(&self) -> &SymbolId {
         &self.0
+    }
+
+    pub fn try_upgrade(&self) -> Option<Symbol> {
+        if self.strong_syms_exist() {
+            Some(Symbol::new_from_id(self.0.do_clone()))
+        } else {
+            None
+        }
     }
 }
 
@@ -234,6 +243,172 @@ impl Debug for WeakSymbol {
 impl Borrow<SymbolId> for WeakSymbol {
     fn borrow(&self) -> &SymbolId {
         self.id()
+    }
+}
+
+#[derive(Clone)]
+pub struct WeakSymbolMap<V> {
+    map: std::collections::HashMap<WeakSymbol, V>,
+}
+
+impl<V> WeakSymbolMap<V> {
+    pub fn new() -> Self {
+        Self {
+            map: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, key: &Symbol, value: V) -> Option<V> {
+        self.map.insert(key.downgrade(), value)
+    }
+
+    pub fn try_insert_mut(&mut self, key: &Symbol, value: V) -> Result<&mut V, &V> {
+        match self.map.entry(key.downgrade()) {
+            hash_map::Entry::Occupied(occ) => Err(occ.into_mut()),
+            hash_map::Entry::Vacant(vac) => Ok(vac.insert(value)),
+        }
+    }
+
+    pub fn insert_if_empty<F: FnOnce() -> V>(&mut self, key: &Symbol, value_fn: F) -> Option<&V> {
+        match self.map.entry(key.downgrade()) {
+            hash_map::Entry::Occupied(occ) => Some(occ.into_mut()),
+            hash_map::Entry::Vacant(vac) => {
+                vac.insert(value_fn());
+                None
+            }
+        }
+    }
+
+    pub fn get(&self, key: &Symbol) -> Option<&V> {
+        self.map.get(key.id())
+    }
+
+    pub fn remove(&mut self, key: &Symbol) -> Option<V> {
+        self.map.remove(key.id())
+    }
+
+    pub fn contains_key(&self, key: &Symbol) -> bool {
+        self.map.contains_key(key.id())
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.map.clear()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = Symbol> + '_ {
+        self.map.keys().filter_map(|k| k.try_upgrade())
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.map
+            .iter()
+            .filter_map(|(k, v)| k.try_upgrade().map(|_| v))
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.map
+            .iter_mut()
+            .filter_map(|(k, v)| k.try_upgrade().map(|_| v))
+    }
+
+    /// Cleans up the map by removing any entries that have no strong symbols.
+    pub fn clean(&mut self) {
+        self.map.retain(|k, _| k.strong_syms_exist());
+    }
+}
+
+impl<V: Debug> Debug for WeakSymbolMap<V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WeakSymbolMap")
+            .field(
+                "entries",
+                &self
+                    .map
+                    .iter()
+                    .filter_map(|(k, v)| k.try_upgrade().map(|_| v))
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
+pub struct WeakSymbolMapIntoIter<V> {
+    inner: hash_map::IntoIter<WeakSymbol, V>,
+}
+
+impl<V> Iterator for WeakSymbolMapIntoIter<V> {
+    type Item = (Symbol, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.inner.next() {
+                Some((k, v)) => {
+                    if let Some(k) = k.try_upgrade() {
+                        return Some((k, v));
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+}
+
+pub struct WeakSymbolMapIter<'a, V> {
+    inner: hash_map::Iter<'a, WeakSymbol, V>,
+}
+
+impl<'a, V> Iterator for WeakSymbolMapIter<'a, V> {
+    type Item = (Symbol, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.inner.next() {
+                Some((k, v)) => {
+                    if let Some(k) = k.try_upgrade() {
+                        return Some((k, v));
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+}
+
+impl<V> IntoIterator for WeakSymbolMap<V> {
+    type Item = (Symbol, V);
+
+    type IntoIter = WeakSymbolMapIntoIter<V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        WeakSymbolMapIntoIter {
+            inner: self.map.into_iter(),
+        }
+    }
+}
+
+impl<'a, V> IntoIterator for &'a WeakSymbolMap<V> {
+    type Item = (Symbol, &'a V);
+
+    type IntoIter = WeakSymbolMapIter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        WeakSymbolMapIter {
+            inner: self.map.iter(),
+        }
+    }
+}
+
+impl<V> Default for WeakSymbolMap<V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

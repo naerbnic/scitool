@@ -9,6 +9,8 @@ pub trait RelocWriter {
     fn write_u8(&mut self, value: u8);
     /// Writes a 16-bit little-endian value to the output. No alignment is done
     fn write_u16_le(&mut self, value: u16);
+    /// Write bytes directly to the output. No alignment is done.
+    fn write_bytes(&mut self, as_bytes: &[u8]);
     /// Aligns the current position to the given alignment. If padding is needed,
     /// it is filled with zeroes.
     fn align(&mut self, alignment: usize);

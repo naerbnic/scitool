@@ -4,10 +4,7 @@
 pub mod expr;
 pub mod writer;
 
-use std::{
-    collections::{btree_map, BTreeMap},
-    fmt::Debug,
-};
+use std::fmt::Debug;
 
 use expr::Expr;
 use writer::RelocWriter;
@@ -15,7 +12,7 @@ use writer::RelocWriter;
 use crate::{
     buffer::ToFixedBytes,
     numbers::bit_convert::NumConvert as _,
-    symbol::{Symbol, WeakSymbol},
+    symbol::{Symbol, WeakSymbolMap},
 };
 
 /// The size of a relocation.
@@ -128,13 +125,13 @@ trait LocalResolver {
 }
 
 struct LocalOnlyResolver<'a> {
-    symbols: &'a BTreeMap<WeakSymbol, usize>,
+    symbols: &'a WeakSymbolMap<usize>,
 }
 
 impl LocalResolver for LocalOnlyResolver<'_> {
     fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64> {
         self.symbols
-            .get(symbol.id())
+            .get(symbol)
             .map(|x| x.convert_num_to().unwrap())
     }
 }
@@ -143,7 +140,7 @@ trait FullResolver: ExternalResolver + LocalResolver {}
 
 struct FullResolverImpl<'a, R> {
     external: &'a R,
-    local: &'a BTreeMap<WeakSymbol, usize>,
+    local: &'a WeakSymbolMap<usize>,
 }
 
 impl<'a, R> LocalResolver for FullResolverImpl<'a, R>
@@ -152,7 +149,7 @@ where
 {
     fn resolve_local_symbol(&self, symbol: &Symbol) -> Option<i64> {
         self.local
-            .get(symbol.id())
+            .get(symbol)
             .copied()
             .map(|x| x.convert_num_to().unwrap())
     }
@@ -176,7 +173,7 @@ pub struct RelocatableBuffer {
     data: Vec<u8>,
     /// The list of symbols defined in this section. Keys are symbol names,
     /// and values are offsets in `self.data` that map to that symbol.
-    symbols: BTreeMap<WeakSymbol, usize>,
+    symbols: WeakSymbolMap<usize>,
     /// The relocations that have to happen in this section before being
     /// fully linked.
     relocations: Vec<Relocation>,
@@ -188,7 +185,7 @@ impl RelocatableBuffer {
     fn new(alignment: usize) -> Self {
         Self {
             data: Vec::new(),
-            symbols: BTreeMap::new(),
+            symbols: WeakSymbolMap::new(),
             relocations: Vec::new(),
             alignment,
         }
@@ -206,7 +203,7 @@ impl RelocatableBuffer {
     pub fn from_vec(data: Vec<u8>, alignment: usize) -> Self {
         Self {
             data,
-            symbols: BTreeMap::new(),
+            symbols: WeakSymbolMap::new(),
             relocations: Vec::new(),
             alignment,
         }
@@ -229,7 +226,7 @@ impl RelocatableBuffer {
         if !errors.is_empty() {
             anyhow::bail!("relocation errors: {:?}", errors);
         }
-        self.symbols.retain(|sym, _| sym.strong_syms_exist());
+        self.symbols.clean();
         Ok(())
     }
 
@@ -258,18 +255,13 @@ impl RelocatableBuffer {
         // to reflect the new offset.
         for (symbol, symbol_offset) in other.symbols {
             let new_offset = symbol_offset + other_offset;
-            match symbols.entry(symbol) {
-                btree_map::Entry::Vacant(entry) => {
-                    entry.insert(new_offset);
-                }
-                btree_map::Entry::Occupied(entry) => {
-                    anyhow::bail!(
-                        "symbol {:?} already defined at offset {} (new offset: {})",
-                        entry.key(),
-                        entry.get(),
-                        new_offset
-                    );
-                }
+            if let Some(prev_value) = symbols.insert_if_empty(&symbol, || new_offset) {
+                anyhow::bail!(
+                    "symbol {:?} already defined at offset {} (new offset: {})",
+                    symbol,
+                    *prev_value,
+                    new_offset
+                );
             }
         }
         relocations.extend(
@@ -324,6 +316,10 @@ impl RelocWriter for RelocatableBufferBuilder {
         self.section.data.extend(&value.to_le_bytes());
     }
 
+    fn write_bytes(&mut self, as_bytes: &[u8]) {
+        self.section.data.extend(as_bytes);
+    }
+
     fn align(&mut self, alignment: usize) {
         // Update the alignment of the section, to the minimum necessary.
         if self.section.alignment < alignment {
@@ -341,7 +337,7 @@ impl RelocWriter for RelocatableBufferBuilder {
     fn mark_symbol(&mut self, symbol: Symbol) {
         self.section
             .symbols
-            .insert(symbol.downgrade(), self.section.data.len());
+            .insert(&symbol, self.section.data.len());
     }
 
     fn add_reloc(&mut self, reloc_type: RelocType, size: RelocSize, expr: Expr) {
