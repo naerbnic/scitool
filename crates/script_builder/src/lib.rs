@@ -7,10 +7,15 @@ pub mod linker;
 
 #[derive(Clone)]
 pub struct StringRef(Symbol);
+#[derive(Clone)]
 pub struct ExportRef(Symbol);
+#[derive(Clone)]
 pub struct ObjectRef(Symbol);
+#[derive(Clone)]
 pub struct FunctionRef(Symbol);
+#[derive(Clone)]
 pub struct SelectorRef(Symbol);
+#[derive(Clone)]
 pub struct ClassRef(Symbol);
 
 pub enum Value {
