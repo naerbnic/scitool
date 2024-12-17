@@ -6,7 +6,7 @@ pub struct Token {
     pub(super) location: InputRange,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Contents {
     // Token '('
     LParen,

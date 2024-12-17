@@ -62,9 +62,15 @@ pub(super) struct Input<'a> {
     range: Range<usize>,
 }
 
+impl std::fmt::Display for Input<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.content_slice())
+    }
+}
+
 impl<'a> Input<'a> {
     pub fn new(contents: &'a str) -> Self {
-        let contents = Rc::new(InputContents::new(contents.as_ref()));
+        let contents = Rc::new(InputContents::new(contents));
         let range_end = contents.contents.len();
         Self {
             contents,
@@ -74,14 +80,14 @@ impl<'a> Input<'a> {
     pub fn input_offset(&self) -> InputOffset {
         self.contents.get_text_offset(self.range.start)
     }
-    fn content_slice(&self) -> &'a str {
+    pub fn content_slice(&self) -> &'a str {
         &self.contents.contents[self.range.clone()]
     }
 }
 
 impl InputLength for Input<'_> {
     fn input_len(&self) -> usize {
-        self.contents.contents.len()
+        self.range.len()
     }
 }
 
@@ -140,6 +146,32 @@ impl nom::InputTake for Input<'_> {
                 ..self.clone()
             },
         )
+    }
+}
+
+impl<R> nom::Slice<R> for Input<'_>
+where
+    R: std::ops::RangeBounds<usize>,
+{
+    fn slice(&self, range: R) -> Self {
+        let start_offset = match range.start_bound() {
+            std::ops::Bound::Included(&start) => start,
+            std::ops::Bound::Excluded(&start) => start + 1,
+            std::ops::Bound::Unbounded => 0,
+        };
+        let end_offset = match range.end_bound() {
+            std::ops::Bound::Included(&end) => end + 1,
+            std::ops::Bound::Excluded(&end) => end,
+            std::ops::Bound::Unbounded => self.range.end - self.range.start,
+        };
+        let new_range_start = self.range.start + start_offset;
+        let new_range_end = self.range.start + end_offset;
+        assert!(new_range_start <= self.range.end);
+        assert!(new_range_end <= self.range.end);
+        Input {
+            range: new_range_start..new_range_end,
+            ..self.clone()
+        }
     }
 }
 
