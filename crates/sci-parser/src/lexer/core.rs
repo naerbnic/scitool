@@ -1,8 +1,8 @@
 use nom::{error::Error, Err, Parser};
 
 use super::{
-    input::Input,
-    tokens::{Contents, TextRange, Token, TokenLocation},
+    input::{location::TextRange, Input},
+    tokens::{Contents, Token},
 };
 
 pub(super) trait TokenContentParser<'a>:
@@ -46,10 +46,7 @@ fn token_parser<'a>() -> impl Parser<Input<'a>, Token, Error<Input<'a>>> {
         let (content_end_input, contents) = token_content_parser().parse(input)?;
         let end_offset = content_end_input.input_offset();
         let (start_input, _) = parse_whitespace().parse(content_end_input)?;
-        let location = TokenLocation::new(
-            start_input.file_path(),
-            TextRange::new(start_offset, end_offset),
-        );
+        let location = TextRange::new(start_offset, end_offset);
         Ok((start_input, Token { contents, location }))
     }
 }

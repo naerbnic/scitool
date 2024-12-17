@@ -1,41 +1,9 @@
+use super::input::location::TextRange;
+
 #[derive(Clone, Debug)]
 pub struct Token {
     pub(super) contents: Contents,
-    pub(super) location: TokenLocation,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TextRange {
-    start: TextOffset,
-    end: TextOffset,
-}
-
-impl TextRange {
-    pub fn new(start: TextOffset, end: TextOffset) -> Self {
-        Self { start, end }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TextOffset {
-    pub(super) offset: usize,
-    pub(super) line_index: usize,
-    pub(super) line_char_offset: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct TokenLocation {
-    path: String,
-    range: TextRange,
-}
-
-impl TokenLocation {
-    pub fn new(path: impl Into<String>, range: TextRange) -> Self {
-        Self {
-            path: path.into(),
-            range,
-        }
-    }
+    pub(super) location: TextRange,
 }
 
 #[derive(Clone, Debug)]

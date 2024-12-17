@@ -2,18 +2,19 @@ use std::ops::Range;
 
 use nom::InputLength;
 
-use super::tokens::TextOffset;
+use location::TextOffset;
+
+pub(super) mod location;
 
 #[derive(Debug)]
-pub(super) struct FileContents<'a> {
-    file_path: &'a str,
+pub(super) struct InputContents<'a> {
     contents: &'a str,
     /// Byte offsets of the ends of strings in the contents.
     line_end_offsets: Vec<usize>,
 }
 
-impl<'a> FileContents<'a> {
-    pub fn new(file_path: &'a str, contents: &'a str) -> Self {
+impl<'a> InputContents<'a> {
+    pub fn new(contents: &'a str) -> Self {
         let mut line_end_offsets = vec![0];
         for (i, c) in contents.char_indices() {
             let post_char_offset = i + c.len_utf8();
@@ -29,7 +30,6 @@ impl<'a> FileContents<'a> {
             }
         }
         Self {
-            file_path,
             contents,
             line_end_offsets,
         }
@@ -57,15 +57,12 @@ impl<'a> FileContents<'a> {
 
 #[derive(Clone, Debug)]
 pub(super) struct Input<'a> {
-    contents: &'a FileContents<'a>,
+    contents: &'a InputContents<'a>,
     // The range within the contents that this input represents.
     range: Range<usize>,
 }
 
 impl<'a> Input<'a> {
-    pub fn file_path(&self) -> &'a str {
-        self.contents.file_path
-    }
     pub fn input_offset(&self) -> TextOffset {
         self.contents.get_text_offset(self.range.start)
     }
