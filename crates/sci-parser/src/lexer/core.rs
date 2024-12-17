@@ -1,7 +1,7 @@
-use nom::{error::Error, Err, Parser};
+use nom::{error::Error, Parser};
 
 use super::{
-    input::{location::TextRange, Input},
+    input::{Input, InputRange},
     tokens::{Contents, Token},
 };
 
@@ -46,7 +46,7 @@ fn token_parser<'a>() -> impl Parser<Input<'a>, Token, Error<Input<'a>>> {
         let (content_end_input, contents) = token_content_parser().parse(input)?;
         let end_offset = content_end_input.input_offset();
         let (start_input, _) = parse_whitespace().parse(content_end_input)?;
-        let location = TextRange::new(start_offset, end_offset);
+        let location = InputRange::new(start_offset, end_offset);
         Ok((start_input, Token { contents, location }))
     }
 }

@@ -1,9 +1,9 @@
-use super::input::location::TextRange;
+use super::input::InputRange;
 
 #[derive(Clone, Debug)]
 pub struct Token {
     pub(super) contents: Contents,
-    pub(super) location: TextRange,
+    pub(super) location: InputRange,
 }
 
 #[derive(Clone, Debug)]
