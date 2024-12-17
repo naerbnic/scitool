@@ -83,6 +83,13 @@ impl<'a> Input<'a> {
     pub fn content_slice(&self) -> &'a str {
         &self.contents.contents[self.range.clone()]
     }
+
+    pub fn content_slice_up_to(&self, end: &Self) -> &'a str {
+        assert!(std::ptr::eq(self.contents.contents, end.contents.contents));
+        assert!(end.range.start <= self.range.end);
+        assert!(end.range.end <= self.range.end);
+        &self.contents.contents[self.range.start..end.range.start]
+    }
 }
 
 impl InputLength for Input<'_> {

@@ -19,10 +19,6 @@ fn is_symbol_char(c: char) -> bool {
     is_symbol_first_char(c) || c.is_numeric()
 }
 
-fn is_whitespace(c: char) -> bool {
-    c.is_whitespace()
-}
-
 fn parse_whitespace<'a>() -> impl Parser<Input<'a>, (), NomError<'a>> {
     |input| {
         let (input, _) = nom::character::complete::multispace0(input)?;
@@ -40,6 +36,17 @@ where
     move |input| {
         let (input, _) = parser.parse(input)?;
         Ok((input, content()))
+    }
+}
+
+fn parse_symbol<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
+    |input: Input<'a>| {
+        let (first_char_input, _) =
+            nom::character::complete::satisfy(is_symbol_first_char)(input.clone())?;
+        let (end_input, _) =
+            nom::multi::many0(nom::character::complete::satisfy(is_symbol_char))(first_char_input)?;
+        let symbol_name = input.content_slice_up_to(&end_input);
+        Ok((input, Contents::Symbol(symbol_name.to_string())))
     }
 }
 
