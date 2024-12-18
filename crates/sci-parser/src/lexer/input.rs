@@ -4,7 +4,7 @@ use nom::InputLength;
 
 mod location;
 
-pub(super) use location::{InputOffset, InputRange};
+pub use location::{InputOffset, InputRange};
 
 #[derive(Debug)]
 pub(super) struct InputContents<'a> {

@@ -3,6 +3,7 @@ use nom::{error::FromExternalError, Err, Parser};
 use super::{
     input::{Input, InputRange},
     tokens::{Contents, Token},
+    InputOffset,
 };
 
 type NomError<'a> = nom::error::VerboseError<Input<'a>>;
@@ -151,9 +152,11 @@ fn lexer<'a>() -> impl Parser<Input<'a>, Vec<Token>, NomError<'a>> {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{lex_err}")]
-pub struct LexerError<'a> {
-    lex_err: NomError<'a>,
+#[error("Lex error: {message} location: {location:?}")]
+pub struct LexerError {
+    message: String,
+    kind: nom::error::VerboseErrorKind,
+    location: InputOffset,
 }
 
 pub fn lex(input: &str) -> Result<Vec<Token>, LexerError> {
@@ -166,7 +169,11 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexerError> {
                 Err::Error(err) => err,
                 Err::Failure(err) => err,
             };
-            Err(LexerError { lex_err: err })
+            Err(LexerError {
+                message: err.to_string(),
+                kind: err.errors.last().unwrap().1.clone(),
+                location: err.errors.last().unwrap().0.input_offset(),
+            })
         }
     }
 }
