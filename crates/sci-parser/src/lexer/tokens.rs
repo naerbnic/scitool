@@ -24,5 +24,5 @@ pub enum Contents {
     // A literal string
     String(String),
     // A literal integer
-    Number(u32),
+    Number(i64),
 }
