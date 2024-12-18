@@ -2,7 +2,7 @@ use nom::{error::FromExternalError, Err, Parser};
 
 use crate::inputs::text::{InputOffset, InputRange, TextInput};
 
-use super::tokens::{Contents, Token};
+use crate::tokens::{Contents, Token};
 
 type NomError<'a> = nom::error::VerboseError<TextInput<'a>>;
 

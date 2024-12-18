@@ -7,6 +7,15 @@ pub struct Input<'a, T> {
     range: Range<usize>,
 }
 
+impl<T> Clone for Input<'_, T> {
+    fn clone(&self) -> Self {
+        Self {
+            contents: self.contents,
+            range: self.range.clone(),
+        }
+    }
+}
+
 impl<T> std::fmt::Debug for Input<'_, T>
 where
     T: std::fmt::Debug,

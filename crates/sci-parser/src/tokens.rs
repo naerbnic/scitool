@@ -1,3 +1,5 @@
+pub mod parse_funcs;
+
 use crate::inputs::text::InputRange;
 
 #[derive(Clone, Debug)]
