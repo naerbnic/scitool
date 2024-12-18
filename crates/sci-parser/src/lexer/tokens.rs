@@ -1,4 +1,4 @@
-use super::input::InputRange;
+use crate::inputs::text::InputRange;
 
 #[derive(Clone, Debug)]
 pub struct Token {

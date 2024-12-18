@@ -1,12 +1,10 @@
 use nom::{error::FromExternalError, Err, Parser};
 
-use super::{
-    input::{Input, InputRange},
-    tokens::{Contents, Token},
-    InputOffset,
-};
+use crate::inputs::text::{InputOffset, InputRange, TextInput};
 
-type NomError<'a> = nom::error::VerboseError<Input<'a>>;
+use super::tokens::{Contents, Token};
+
+type NomError<'a> = nom::error::VerboseError<TextInput<'a>>;
 
 fn is_symbol_first_char(c: char) -> bool {
     match c {
@@ -20,7 +18,7 @@ fn is_symbol_char(c: char) -> bool {
     is_symbol_first_char(c) || c.is_numeric()
 }
 
-fn parse_whitespace<'a>() -> impl Parser<Input<'a>, (), NomError<'a>> {
+fn parse_whitespace<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
     |input| {
         let (input, _) = nom::character::complete::multispace0(input)?;
         Ok((input, ()))
@@ -30,9 +28,9 @@ fn parse_whitespace<'a>() -> impl Parser<Input<'a>, (), NomError<'a>> {
 fn parse_lit<'a, F, T>(
     mut parser: F,
     content: impl Fn() -> Contents,
-) -> impl Parser<Input<'a>, Contents, NomError<'a>>
+) -> impl Parser<TextInput<'a>, Contents, NomError<'a>>
 where
-    F: Parser<Input<'a>, T, NomError<'a>>,
+    F: Parser<TextInput<'a>, T, NomError<'a>>,
 {
     move |input| {
         let (input, _) = parser.parse(input)?;
@@ -40,11 +38,11 @@ where
     }
 }
 
-fn parse_range<'a, F, T>(mut parser: F) -> impl Parser<Input<'a>, &'a str, NomError<'a>>
+fn parse_range<'a, F, T>(mut parser: F) -> impl Parser<TextInput<'a>, &'a str, NomError<'a>>
 where
-    F: Parser<Input<'a>, T, NomError<'a>>,
+    F: Parser<TextInput<'a>, T, NomError<'a>>,
 {
-    move |input: Input<'a>| {
+    move |input: TextInput<'a>| {
         let start_input = input.clone();
         let (input, _) = parser.parse(input)?;
         let chars = start_input.content_slice_up_to(&input);
@@ -52,7 +50,7 @@ where
     }
 }
 
-fn parse_symbol<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
+fn parse_symbol<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     let mut sequence_parser = parse_range(nom::sequence::tuple((
         nom::character::complete::satisfy(is_symbol_first_char),
         nom::multi::many0(nom::character::complete::satisfy(is_symbol_char)),
@@ -64,7 +62,7 @@ fn parse_symbol<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
     }
 }
 
-fn parse_escaped_string_char<'a>() -> impl Parser<Input<'a>, char, NomError<'a>> {
+fn parse_escaped_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<'a>> {
     use nom::character::complete::char;
     use nom::combinator::value;
     nom::branch::alt((
@@ -76,7 +74,7 @@ fn parse_escaped_string_char<'a>() -> impl Parser<Input<'a>, char, NomError<'a>>
     ))
 }
 
-fn parse_string_char<'a>() -> impl Parser<Input<'a>, char, NomError<'a>> {
+fn parse_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<'a>> {
     nom::branch::alt((
         nom::sequence::preceded(
             nom::character::complete::char('\\'),
@@ -86,8 +84,8 @@ fn parse_string_char<'a>() -> impl Parser<Input<'a>, char, NomError<'a>> {
     ))
 }
 
-fn parse_string<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
-    |input: Input<'a>| {
+fn parse_string<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
+    |input: TextInput<'a>| {
         let (input, _) = nom::character::complete::char('"')(input)?;
         let (input, char_vec) = nom::multi::many0(parse_string_char())(input)?;
         let (input, _) = nom::character::complete::char('"')(input)?;
@@ -95,8 +93,8 @@ fn parse_string<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
     }
 }
 
-fn parse_num<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
-    |input: Input<'a>| {
+fn parse_num<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
+    |input: TextInput<'a>| {
         let start_input = input.clone();
         let (input, _) = nom::combinator::opt(nom::character::complete::char('-'))(input)?;
         let (input, _) = nom::character::complete::digit1(input)?;
@@ -112,7 +110,7 @@ fn parse_num<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
     }
 }
 
-fn token_content_parser<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> {
+fn token_content_parser<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     |input| {
         nom::branch::alt((
             nom::error::context(
@@ -132,8 +130,8 @@ fn token_content_parser<'a>() -> impl Parser<Input<'a>, Contents, NomError<'a>> 
     }
 }
 
-fn token_parser<'a>() -> impl Parser<Input<'a>, Token, NomError<'a>> {
-    |input: Input<'a>| {
+fn token_parser<'a>() -> impl Parser<TextInput<'a>, Token, NomError<'a>> {
+    |input: TextInput<'a>| {
         let start_offset = input.input_offset();
         let (content_end_input, contents) = token_content_parser().parse(input)?;
         let end_offset = content_end_input.input_offset();
@@ -143,7 +141,7 @@ fn token_parser<'a>() -> impl Parser<Input<'a>, Token, NomError<'a>> {
     }
 }
 
-fn lexer<'a>() -> impl Parser<Input<'a>, Vec<Token>, NomError<'a>> {
+fn lexer<'a>() -> impl Parser<TextInput<'a>, Vec<Token>, NomError<'a>> {
     |input| {
         let (input, _) = parse_whitespace().parse(input)?;
         let (input, tokens) = nom::multi::many0(token_parser())(input)?;
@@ -160,7 +158,7 @@ pub struct LexerError {
 }
 
 pub fn lex(input: &str) -> Result<Vec<Token>, LexerError> {
-    let input = Input::new(input);
+    let input = TextInput::new(input);
     match lexer().parse(input) {
         Ok((_, tokens)) => Ok(tokens),
         Err(e) => {
@@ -190,7 +188,7 @@ mod tests {
 
     #[test]
     fn parse_token_content_parens() {
-        let input = Input::new("()");
+        let input = TextInput::new("()");
         let (input, token) = token_content_parser().parse(input).unwrap();
         assert_eq!(token, Contents::LParen);
         assert_eq!(input.content_slice(), ")");
@@ -202,7 +200,7 @@ mod tests {
 
     #[test]
     fn parse_token_parens() {
-        let input = Input::new("()");
+        let input = TextInput::new("()");
         let (input, token) = token_parser().parse(input).unwrap();
         assert_eq!(token.contents, Contents::LParen);
         assert_eq!(input.content_slice(), ")");

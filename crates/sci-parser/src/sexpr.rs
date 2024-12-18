@@ -1,6 +1,6 @@
 pub mod input;
 
-use crate::lexer::{lex, InputRange};
+use crate::{inputs::text::InputRange, lexer::lex};
 
 pub struct SExpr {
     contents: Contents,

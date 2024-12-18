@@ -7,13 +7,13 @@ mod location;
 pub use location::{InputOffset, InputRange};
 
 #[derive(Debug)]
-pub(super) struct InputContents<'a> {
+pub(super) struct TextContents<'a> {
     contents: &'a str,
     /// Byte offsets of the ends of strings in the contents.
     line_end_offsets: Vec<usize>,
 }
 
-impl<'a> InputContents<'a> {
+impl<'a> TextContents<'a> {
     pub fn new(contents: &'a str) -> Self {
         let mut line_end_offsets = vec![0];
         for (i, c) in contents.char_indices() {
@@ -56,21 +56,21 @@ impl<'a> InputContents<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Input<'a> {
-    contents: Rc<InputContents<'a>>,
+pub struct TextInput<'a> {
+    contents: Rc<TextContents<'a>>,
     // The range within the contents that this input represents.
     range: Range<usize>,
 }
 
-impl std::fmt::Display for Input<'_> {
+impl std::fmt::Display for TextInput<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.content_slice())
     }
 }
 
-impl<'a> Input<'a> {
+impl<'a> TextInput<'a> {
     pub fn new(contents: &'a str) -> Self {
-        let contents = Rc::new(InputContents::new(contents));
+        let contents = Rc::new(TextContents::new(contents));
         let range_end = contents.contents.len();
         Self {
             contents,
@@ -92,13 +92,13 @@ impl<'a> Input<'a> {
     }
 }
 
-impl InputLength for Input<'_> {
+impl InputLength for TextInput<'_> {
     fn input_len(&self) -> usize {
         self.range.len()
     }
 }
 
-impl<'a> nom::InputIter for Input<'a> {
+impl<'a> nom::InputIter for TextInput<'a> {
     type Item = char;
     type Iter = std::str::CharIndices<'a>;
     type IterElem = std::str::Chars<'a>;
@@ -127,12 +127,12 @@ impl<'a> nom::InputIter for Input<'a> {
     }
 }
 
-impl nom::InputTake for Input<'_> {
+impl nom::InputTake for TextInput<'_> {
     fn take(&self, count: usize) -> Self {
         let end_position = self.range.start + count;
         assert!(self.contents.contents.is_char_boundary(end_position));
         let range = self.range.start..end_position;
-        Input {
+        TextInput {
             range,
             ..self.clone()
         }
@@ -144,11 +144,11 @@ impl nom::InputTake for Input<'_> {
         let start_range = self.range.start..split_position;
         let end_range = split_position..self.range.end;
         (
-            Input {
+            TextInput {
                 range: end_range,
                 ..self.clone()
             },
-            Input {
+            TextInput {
                 range: start_range,
                 ..self.clone()
             },
@@ -156,7 +156,7 @@ impl nom::InputTake for Input<'_> {
     }
 }
 
-impl<R> nom::Slice<R> for Input<'_>
+impl<R> nom::Slice<R> for TextInput<'_>
 where
     R: std::ops::RangeBounds<usize>,
 {
@@ -175,14 +175,14 @@ where
         let new_range_end = self.range.start + end_offset;
         assert!(new_range_start <= self.range.end);
         assert!(new_range_end <= self.range.end);
-        Input {
+        TextInput {
             range: new_range_start..new_range_end,
             ..self.clone()
         }
     }
 }
 
-impl nom::UnspecializedInput for Input<'_> {}
+impl nom::UnspecializedInput for TextInput<'_> {}
 
 #[cfg(test)]
 mod tests {
@@ -192,14 +192,14 @@ mod tests {
 
     #[test]
     fn all_chars_are_listed() {
-        let contents = Input::new("abcあ");
+        let contents = TextInput::new("abcあ");
         let chars = contents.iter_elements().collect::<Vec<_>>();
         assert_eq!(chars, vec!['a', 'b', 'c', 'あ']);
     }
 
     #[test]
     fn all_chars_and_indices_are_listed() {
-        let contents = Input::new("abcあdef");
+        let contents = TextInput::new("abcあdef");
         let chars = contents.iter_indices().collect::<Vec<_>>();
         assert_eq!(
             chars,
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn position_of_char_is_correct() {
-        let contents = Input::new("abcあdef");
+        let contents = TextInput::new("abcあdef");
         assert_eq!(contents.position(|c| c == 'あ'), Some(3));
         assert_eq!(contents.position(|c| c == 'e'), Some(7));
         assert_eq!(contents.position(|c| c == 'z'), None);
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn take_obtains_prefix() {
-        let contents = Input::new("abcあdef");
+        let contents = TextInput::new("abcあdef");
         let prefix = contents.take(6);
         assert_eq!(prefix.content_slice(), "abcあ");
     }
@@ -233,13 +233,13 @@ mod tests {
     #[test]
     #[should_panic]
     fn take_panics_on_non_char_boundary() {
-        let contents = Input::new("abcあdef");
+        let contents = TextInput::new("abcあdef");
         let _ = contents.take(5);
     }
 
     #[test]
     fn take_split_works() {
-        let contents = Input::new("abcあdef");
+        let contents = TextInput::new("abcあdef");
         let (suffix, prefix) = contents.take_split(6);
         assert_eq!(prefix.content_slice(), "abcあ");
         assert_eq!(suffix.content_slice(), "def");
