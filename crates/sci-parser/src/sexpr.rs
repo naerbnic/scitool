@@ -63,6 +63,7 @@ pub enum Atom {
 pub enum Contents {
     Atom(Atom),
     List(Vec<SExpr>),
+    BracketList(Vec<SExpr>),
 }
 
 impl Contents {

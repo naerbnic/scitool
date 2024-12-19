@@ -1,3 +1,5 @@
+use nom::character::complete::char;
+use nom::error::context;
 use nom::{error::FromExternalError, Err, Parser};
 
 use crate::inputs::text::{InputOffset, InputRange, TextInput};
@@ -76,19 +78,16 @@ fn parse_escaped_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<
 
 fn parse_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<'a>> {
     nom::branch::alt((
-        nom::sequence::preceded(
-            nom::character::complete::char('\\'),
-            parse_escaped_string_char(),
-        ),
+        nom::sequence::preceded(char('\\'), parse_escaped_string_char()),
         nom::character::complete::none_of("\\\"\n\r"),
     ))
 }
 
 fn parse_string<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     |input: TextInput<'a>| {
-        let (input, _) = nom::character::complete::char('"')(input)?;
+        let (input, _) = char('"')(input)?;
         let (input, char_vec) = nom::multi::many0(parse_string_char())(input)?;
-        let (input, _) = nom::character::complete::char('"')(input)?;
+        let (input, _) = char('"')(input)?;
         Ok((input, Contents::String(String::from_iter(char_vec))))
     }
 }
@@ -96,7 +95,7 @@ fn parse_string<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
 fn parse_num<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     |input: TextInput<'a>| {
         let start_input = input.clone();
-        let (input, _) = nom::combinator::opt(nom::character::complete::char('-'))(input)?;
+        let (input, _) = nom::combinator::opt(char('-'))(input)?;
         let (input, _) = nom::character::complete::digit1(input)?;
         let chars = start_input.content_slice_up_to(&input);
         match chars.parse::<i64>() {
@@ -113,19 +112,15 @@ fn parse_num<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
 fn token_content_parser<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     |input| {
         nom::branch::alt((
-            nom::error::context(
-                "lparen",
-                parse_lit(nom::character::complete::char('('), || Contents::LParen),
-            ),
-            nom::error::context(
-                "rparen",
-                parse_lit(nom::character::complete::char(')'), || Contents::RParen),
-            ),
+            context("lparen", parse_lit(char('('), || Contents::LParen)),
+            context("rparen", parse_lit(char(')'), || Contents::RParen)),
+            context("lbracket", parse_lit(char('['), || Contents::LBracket)),
+            context("rbracket", parse_lit(char(']'), || Contents::RBracket)),
             // Num must come before symbol, as we allow "-1" to be an integer
             // in the lexer, but "-" by itself is a symbol.
-            nom::error::context("num", parse_num()),
-            nom::error::context("symbol", parse_symbol()),
-            nom::error::context("string", parse_string()),
+            context("num", parse_num()),
+            context("symbol", parse_symbol()),
+            context("string", parse_string()),
         ))(input)
     }
 }

@@ -14,6 +14,10 @@ pub enum Contents {
     LParen,
     // Token ')'
     RParen,
+    // Token '['
+    LBracket,
+    // Token ']'
+    RBracket,
     // A symbol. This inclues identifiers, keywords, and operators.
     //
     // Examples:

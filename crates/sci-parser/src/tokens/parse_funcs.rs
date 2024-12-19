@@ -62,6 +62,20 @@ pub fn rparen<'a>() -> impl TokenParser<'a, TokenResult<()>> {
     })
 }
 
+pub fn lbracket<'a>() -> impl TokenParser<'a, TokenResult<()>> {
+    nom::combinator::map_opt(next, |t: &Token| match t.contents {
+        Contents::LBracket => Some(TokenResult::from_token((), t)),
+        _ => None,
+    })
+}
+
+pub fn rbracket<'a>() -> impl TokenParser<'a, TokenResult<()>> {
+    nom::combinator::map_opt(next, |t: &Token| match t.contents {
+        Contents::RBracket => Some(TokenResult::from_token((), t)),
+        _ => None,
+    })
+}
+
 pub fn num<'a>() -> impl TokenParser<'a, TokenResult<i64>> {
     nom::combinator::map_opt(next, |t: &Token| match &t.contents {
         Contents::Number(n) => Some(TokenResult::from_token(*n, t)),
