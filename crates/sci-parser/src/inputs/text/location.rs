@@ -5,6 +5,12 @@ pub struct InputRange {
 }
 
 impl InputRange {
+    pub fn new_empty() -> Self {
+        Self {
+            start: InputOffset::zero(),
+            end: InputOffset::zero(),
+        }
+    }
     pub fn new(start: InputOffset, end: InputOffset) -> Self {
         Self { start, end }
     }
@@ -25,6 +31,13 @@ pub struct InputOffset {
 }
 
 impl InputOffset {
+    pub fn zero() -> Self {
+        InputOffset {
+            offset: 0,
+            line_index: 0,
+            line_char_offset: 0,
+        }
+    }
     pub fn line_index(&self) -> usize {
         self.line_index
     }
