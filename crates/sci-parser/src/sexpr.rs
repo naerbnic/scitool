@@ -1,3 +1,4 @@
+pub mod parse_funcs;
 pub mod parser;
 
 use crate::{
