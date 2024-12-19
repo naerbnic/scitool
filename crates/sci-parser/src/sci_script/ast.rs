@@ -23,7 +23,20 @@ pub enum Item {
 }
 
 pub struct Class {
-    // TODO: Add fields
+    name: String,
+    base_class: Option<String>,
+    properties: Vec<Property>,
+    methods: Vec<Method>,
+}
+
+pub struct Property {
+    name: String,
+    // TODO: Add Value field
+}
+
+pub struct Method {
+    name: String,
+    // TODO: Add other fields
 }
 
 pub struct Procedure {
