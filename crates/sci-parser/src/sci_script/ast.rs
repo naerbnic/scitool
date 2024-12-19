@@ -22,50 +22,124 @@ pub enum Item {
     Procedure(Node<Procedure>),
 }
 
+pub enum ClassKind {
+    Instance,
+    Class,
+}
+
 pub struct Class {
-    name: String,
-    base_class: Option<String>,
-    properties: Vec<Property>,
-    methods: Vec<Method>,
+    kind: Node<ClassKind>,
+    name: Node<String>,
+    base_class: Option<Node<String>>,
+    properties: Vec<Node<Property>>,
+    methods: Vec<Node<Method>>,
 }
 
 pub struct Property {
-    name: String,
-    // TODO: Add Value field
+    name: Node<String>,
+    value: Node<Expr>,
 }
 
 pub struct Method {
-    name: String,
-    // TODO: Add other fields
+    name: Node<String>,
+    params: Vec<Node<String>>,
+    temp_vars: Vec<Node<TempDecl>>,
+    body: Vec<Node<Statement>>,
+}
+
+pub enum TempDecl {
+    /// A plain temporary variable, e.g. `foo`
+    TempVar(Node<String>),
+
+    /// A temporary array declaration, e.g. `[foo 10]`
+    TempArray(Node<String>, Node<u16>),
+}
+
+pub enum AssignOp {
+    Direct,
+    BinOp(BinOp),
+}
+
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    BitAnd,
+    BitOr,
+    BitXor,
+    ShiftLeft,
+    ShiftRight,
+    Eq,
+    NEq,
+    Lt,
+    ULt,
+    Le,
+    ULe,
+    Gt,
+    UGt,
+    Ge,
+    UGe,
+}
+
+pub enum UnaryOp {
+    Negate,
+    BoolNot,
+    BitNot,
+}
+
+pub enum InPlaceOp {
+    Increment,
+    Decrement,
+}
+
+pub enum Statement {
+    Return(Node<Expr>),
+    /// A plain expression, whose value is discarded.
+    Expr(Node<Expr>),
+}
+
+pub enum Expr {
+    Assign(Node<AssignOp>, Node<String>, Node<Box<Expr>>),
+    BinOp(Node<BinOp>, Node<Box<Expr>>, Node<Box<Expr>>),
+    InPlaceOp(Node<InPlaceOp>, Node<String>),
+    UnaryOp(Node<UnaryOp>, Node<Box<Expr>>),
 }
 
 pub struct Procedure {
-    // TODO: Add fields
+    name: Node<String>,
+    params: Vec<Node<String>>,
+    temp_vars: Vec<Node<TempDecl>>,
+    body: Vec<Node<Statement>>,
 }
 
 /// A script number declaration, e.g. `(script# 123)`
 pub struct ScriptNum {
-    // TODO: Add fields
+    num_expr: Node<Expr>,
 }
 
 /// A public declaration, e.g. `(public foo bar)`
 pub struct Public {
-    // TODO: Add fields
+    names: Vec<Node<String>>,
 }
 
 /// A locals declaration, e.g. `(local foo bar)`
 pub struct Local {
-    // TODO: Add fields
+    names: Vec<Node<String>>,
 }
 
 /// A definition item, e.g. `(define FOO 3)`
 pub struct Define {
-    // TODO: Add fields
+    name: Node<String>,
+    value: Node<Expr>,
 }
 
 /// An enum definition, e.g. `(enum 8 FOO BAR)`
 pub struct Enum {
-    // TODO: Add fields
+    name: Node<String>,
+    start: Option<Node<Expr>>,
+    items: Vec<Node<String>>,
 }
 
 /// A use definition, e.g. `(use "MyScript")`
