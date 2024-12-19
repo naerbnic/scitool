@@ -1,10 +1,7 @@
 pub mod parse_funcs;
 pub mod parser;
 
-use crate::{
-    inputs::text::{InputOffset, InputRange},
-    lexer::lex,
-};
+use crate::{inputs::text::InputRange, lexer::lex};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SExpr {

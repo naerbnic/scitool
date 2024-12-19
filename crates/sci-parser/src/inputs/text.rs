@@ -5,6 +5,7 @@ use nom::InputLength;
 mod location;
 
 pub use location::{InputOffset, InputRange};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug)]
 pub(super) struct TextContents<'a> {
@@ -46,11 +47,11 @@ impl<'a> TextContents<'a> {
             _ => self.line_end_offsets[line_index - 1],
         };
         let line_prefix = &self.contents[line_start_offset..absolute_offset];
-        let num_chars = line_prefix.chars().count();
         InputOffset {
             offset: absolute_offset,
+            line_start_offset,
             line_index,
-            line_char_offset: num_chars,
+            column_index: line_prefix.width(),
         }
     }
 }

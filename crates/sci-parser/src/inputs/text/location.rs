@@ -21,29 +21,46 @@ impl InputRange {
         let end = std::cmp::max(self.end, other.end);
         Self { start, end }
     }
+
+    pub fn start(&self) -> InputOffset {
+        self.start
+    }
+
+    pub fn end(&self) -> InputOffset {
+        self.end
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct InputOffset {
+    /// The absolute offset of this location in the input.
     pub(super) offset: usize,
+    /// The absolute offset of the beginning of the line in the input.
+    pub(super) line_start_offset: usize,
     pub(super) line_index: usize,
-    pub(super) line_char_offset: usize,
+    pub(super) column_index: usize,
 }
 
 impl InputOffset {
     pub fn zero() -> Self {
         InputOffset {
             offset: 0,
+            line_start_offset: 0,
             line_index: 0,
-            line_char_offset: 0,
+            column_index: 0,
         }
     }
+
     pub fn line_index(&self) -> usize {
         self.line_index
     }
 
+    pub fn line_start_offset(&self) -> usize {
+        self.line_start_offset
+    }
+
     pub fn line_char_offset(&self) -> usize {
-        self.line_char_offset
+        self.column_index
     }
 }
 
