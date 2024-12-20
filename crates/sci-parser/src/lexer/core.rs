@@ -1,5 +1,9 @@
+use nom::bytes::complete::is_not;
 use nom::character::complete::char;
+use nom::combinator::value;
 use nom::error::context;
+use nom::multi::many0;
+use nom::sequence::pair;
 use nom::{error::FromExternalError, Err, Parser};
 
 use crate::inputs::text::{InputOffset, InputRange, TextInput};
@@ -22,9 +26,20 @@ fn is_symbol_char(c: char) -> bool {
 
 fn parse_whitespace<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
     |input| {
-        let (input, _) = nom::character::complete::multispace0(input)?;
+        let (input, _) = nom::character::complete::multispace1(input)?;
         Ok((input, ()))
     }
+}
+
+fn parse_skip<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
+    value(
+        (),
+        many0(nom::branch::alt((parse_whitespace(), line_comment()))),
+    )
+}
+
+fn line_comment<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
+    value((), pair(char(';'), is_not("\n\r")))
 }
 
 fn parse_lit<'a, F, T>(
@@ -55,7 +70,7 @@ where
 fn parse_symbol<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     let mut sequence_parser = parse_range(nom::sequence::tuple((
         nom::character::complete::satisfy(is_symbol_first_char),
-        nom::multi::many0(nom::character::complete::satisfy(is_symbol_char)),
+        many0(nom::character::complete::satisfy(is_symbol_char)),
     )));
 
     move |input| {
@@ -86,7 +101,7 @@ fn parse_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<'a>> {
 fn parse_string<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     |input: TextInput<'a>| {
         let (input, _) = char('"')(input)?;
-        let (input, char_vec) = nom::multi::many0(parse_string_char())(input)?;
+        let (input, char_vec) = many0(parse_string_char())(input)?;
         let (input, _) = char('"')(input)?;
         Ok((input, Contents::String(String::from_iter(char_vec))))
     }
@@ -130,7 +145,7 @@ fn token_parser<'a>() -> impl Parser<TextInput<'a>, Token, NomError<'a>> {
         let start_offset = input.input_offset();
         let (content_end_input, contents) = token_content_parser().parse(input)?;
         let end_offset = content_end_input.input_offset();
-        let (start_input, _) = parse_whitespace().parse(content_end_input)?;
+        let (start_input, _) = parse_skip().parse(content_end_input)?;
         let location = InputRange::new(start_offset, end_offset);
         Ok((start_input, Token { contents, location }))
     }
@@ -138,8 +153,8 @@ fn token_parser<'a>() -> impl Parser<TextInput<'a>, Token, NomError<'a>> {
 
 fn lexer<'a>() -> impl Parser<TextInput<'a>, Vec<Token>, NomError<'a>> {
     |input| {
-        let (input, _) = parse_whitespace().parse(input)?;
-        let (input, tokens) = nom::multi::many0(token_parser())(input)?;
+        let (input, _) = parse_skip().parse(input)?;
+        let (input, tokens) = many0(token_parser())(input)?;
         Ok((input, tokens))
     }
 }
@@ -266,6 +281,18 @@ mod tests {
                 Contents::String("bar\n".to_string()),
                 Contents::String("baz".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn test_skipped() {
+        let tokens = lex("  (; comment\n 1)").unwrap();
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|t| t.contents.clone())
+                .collect::<Vec<_>>(),
+            vec![Contents::LParen, Contents::Number(1), Contents::RParen,]
         );
     }
 }
