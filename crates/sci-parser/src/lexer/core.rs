@@ -12,6 +12,10 @@ use crate::tokens::{Contents, Token};
 
 type NomError<'a> = nom::error::VerboseError<TextInput<'a>>;
 
+pub trait TextParser<'a, T>: Parser<TextInput<'a>, T, NomError<'a>> {}
+
+impl<'a, T, B> TextParser<'a, T> for B where B: Parser<TextInput<'a>, T, NomError<'a>> {}
+
 fn is_symbol_first_char(c: char) -> bool {
     match c {
         '_' | '#' | '@' | '&' | '-' | ':' | '+' | '*' | '/' => true,
@@ -24,28 +28,28 @@ fn is_symbol_char(c: char) -> bool {
     is_symbol_first_char(c) || c.is_numeric()
 }
 
-fn parse_whitespace<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
+fn parse_whitespace<'a>() -> impl TextParser<'a, ()> {
     |input| {
         let (input, _) = nom::character::complete::multispace1(input)?;
         Ok((input, ()))
     }
 }
 
-fn parse_skip<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
+fn parse_skip<'a>() -> impl TextParser<'a, ()> {
     value(
         (),
         many0(nom::branch::alt((parse_whitespace(), line_comment()))),
     )
 }
 
-fn line_comment<'a>() -> impl Parser<TextInput<'a>, (), NomError<'a>> {
+fn line_comment<'a>() -> impl TextParser<'a, ()> {
     value((), pair(char(';'), is_not("\n\r")))
 }
 
 fn parse_lit<'a, F, T>(
     mut parser: F,
     content: impl Fn() -> Contents,
-) -> impl Parser<TextInput<'a>, Contents, NomError<'a>>
+) -> impl TextParser<'a, Contents>
 where
     F: Parser<TextInput<'a>, T, NomError<'a>>,
 {
@@ -55,9 +59,9 @@ where
     }
 }
 
-fn parse_range<'a, F, T>(mut parser: F) -> impl Parser<TextInput<'a>, &'a str, NomError<'a>>
+fn parse_range<'a, F, T>(mut parser: F) -> impl TextParser<'a, &'a str>
 where
-    F: Parser<TextInput<'a>, T, NomError<'a>>,
+    F: TextParser<'a, T>,
 {
     move |input: TextInput<'a>| {
         let start_input = input.clone();
@@ -67,7 +71,7 @@ where
     }
 }
 
-fn parse_symbol<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
+fn parse_symbol<'a>() -> impl TextParser<'a, Contents> {
     let mut sequence_parser = parse_range(nom::sequence::tuple((
         nom::character::complete::satisfy(is_symbol_first_char),
         many0(nom::character::complete::satisfy(is_symbol_char)),
@@ -79,7 +83,7 @@ fn parse_symbol<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     }
 }
 
-fn parse_escaped_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<'a>> {
+fn parse_escaped_string_char<'a>() -> impl TextParser<'a, char> {
     use nom::character::complete::char;
     use nom::combinator::value;
     nom::branch::alt((
@@ -91,14 +95,14 @@ fn parse_escaped_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<
     ))
 }
 
-fn parse_string_char<'a>() -> impl Parser<TextInput<'a>, char, NomError<'a>> {
+fn parse_string_char<'a>() -> impl TextParser<'a, char> {
     nom::branch::alt((
         nom::sequence::preceded(char('\\'), parse_escaped_string_char()),
         nom::character::complete::none_of("\\\"\n\r"),
     ))
 }
 
-fn parse_string<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
+fn parse_string<'a>() -> impl TextParser<'a, Contents> {
     |input: TextInput<'a>| {
         let (input, _) = char('"')(input)?;
         let (input, char_vec) = many0(parse_string_char())(input)?;
@@ -107,7 +111,7 @@ fn parse_string<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     }
 }
 
-fn parse_num<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
+fn parse_num<'a>() -> impl TextParser<'a, Contents> {
     |input: TextInput<'a>| {
         let start_input = input.clone();
         let (input, _) = nom::combinator::opt(char('-'))(input)?;
@@ -124,7 +128,7 @@ fn parse_num<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
     }
 }
 
-fn token_content_parser<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'a>> {
+fn token_content_parser<'a>() -> impl TextParser<'a, Contents> {
     |input| {
         nom::branch::alt((
             context("lparen", parse_lit(char('('), || Contents::LParen)),
@@ -140,7 +144,7 @@ fn token_content_parser<'a>() -> impl Parser<TextInput<'a>, Contents, NomError<'
     }
 }
 
-fn token_parser<'a>() -> impl Parser<TextInput<'a>, Token, NomError<'a>> {
+fn token_parser<'a>() -> impl TextParser<'a, Token> {
     |input: TextInput<'a>| {
         let start_offset = input.input_offset();
         let (content_end_input, contents) = token_content_parser().parse(input)?;
@@ -151,7 +155,7 @@ fn token_parser<'a>() -> impl Parser<TextInput<'a>, Token, NomError<'a>> {
     }
 }
 
-fn lexer<'a>() -> impl Parser<TextInput<'a>, Vec<Token>, NomError<'a>> {
+fn lexer<'a>() -> impl TextParser<'a, Vec<Token>> {
     |input| {
         let (input, _) = parse_skip().parse(input)?;
         let (input, tokens) = many0(token_parser())(input)?;
