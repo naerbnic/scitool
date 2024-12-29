@@ -1,9 +1,11 @@
+use nom::branch::alt;
 use nom::bytes::complete::is_not;
-use nom::character::complete::char;
-use nom::combinator::value;
+use nom::character::complete::{anychar, char};
+use nom::combinator::{map, map_res, value, verify};
 use nom::error::context;
 use nom::multi::many0;
-use nom::sequence::pair;
+use nom::sequence::{pair, preceded};
+use nom::InputIter;
 use nom::{error::FromExternalError, Err, Parser};
 
 use crate::inputs::text::{InputOffset, InputRange, TextInput};
@@ -97,7 +99,7 @@ fn parse_escaped_string_char<'a>() -> impl TextParser<'a, char> {
 
 fn parse_string_char<'a>() -> impl TextParser<'a, char> {
     nom::branch::alt((
-        nom::sequence::preceded(char('\\'), parse_escaped_string_char()),
+        preceded(char('\\'), parse_escaped_string_char()),
         nom::character::complete::none_of("\\\"\n\r"),
     ))
 }
@@ -111,20 +113,54 @@ fn parse_string<'a>() -> impl TextParser<'a, Contents> {
     }
 }
 
-fn parse_num<'a>() -> impl TextParser<'a, Contents> {
+fn parse_dec_num<'a>() -> impl TextParser<'a, i64> {
     |input: TextInput<'a>| {
         let start_input = input.clone();
-        let (input, _) = nom::combinator::opt(char('-'))(input)?;
         let (input, _) = nom::character::complete::digit1(input)?;
         let chars = start_input.content_slice_up_to(&input);
         match chars.parse::<i64>() {
-            Ok(i) => Ok((input, Contents::Number(i))),
+            Ok(i) => Ok((input, i)),
             Err(e) => Err(Err::Error(NomError::from_external_error(
                 start_input,
                 nom::error::ErrorKind::Fail,
                 format!("Tried to parse invalid integer {:?}: {}", chars, e),
             ))),
         }
+    }
+}
+
+fn parse_hex_chars<'a>() -> impl TextParser<'a, i64> {
+    let parser = map_res(
+        nom::character::complete::hex_digit1,
+        |text: TextInput<'a>| {
+            let text = text.content_slice();
+            if !text.iter_elements().all(|c| c.is_ascii()) {
+                return Err("Non-ASCII characters in hex string".to_string());
+            }
+            let bytes = hex::decode(text).map_err(|e| e.to_string())?;
+            if bytes.len() > 4 {
+                return Err("Hex string too long".to_string());
+            }
+
+            let mut u64_bytes = [0u8; 8];
+            u64_bytes[8 - bytes.len()..].copy_from_slice(&bytes);
+            Ok(i64::from_be_bytes(u64_bytes))
+        },
+    );
+    parser
+}
+
+fn parse_num<'a>() -> impl TextParser<'a, Contents> {
+    |input: TextInput<'a>| {
+        let (input, has_neg) = nom::combinator::opt(char('-'))(input)?;
+        let (input, mut val) = alt((
+            context("hex", preceded(char('$'), parse_hex_chars())),
+            context("dec", parse_dec_num()),
+        ))(input)?;
+        if has_neg.is_some() {
+            val = -val;
+        }
+        Ok((input, Contents::Number(val)))
     }
 }
 
@@ -297,6 +333,22 @@ mod tests {
                 .map(|t| t.contents.clone())
                 .collect::<Vec<_>>(),
             vec![Contents::LParen, Contents::Number(1), Contents::RParen,]
+        );
+    }
+
+    #[test]
+    fn test_hex_num() {
+        let tokens = lex("($1234)").unwrap();
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|t| t.contents.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Contents::LParen,
+                Contents::Number(0x1234i64),
+                Contents::RParen,
+            ]
         );
     }
 }
