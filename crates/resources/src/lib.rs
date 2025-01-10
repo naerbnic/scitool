@@ -72,8 +72,8 @@ impl From<ResourceType> for u8 {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceId {
-    pub(crate) type_id: ResourceType,
-    pub(crate) resource_num: u16,
+    type_id: ResourceType,
+    resource_num: u16,
 }
 
 impl ResourceId {
