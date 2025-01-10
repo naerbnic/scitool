@@ -420,7 +420,7 @@ pub struct Verb<'a> {
     entry: &'a VerbEntry,
 }
 
-impl<'a> Verb<'a> {
+impl Verb<'_> {
     #[expect(dead_code)]
     pub fn id(&self) -> VerbId {
         VerbId(self.raw_id)
@@ -580,7 +580,7 @@ pub struct Role<'a> {
     entry: &'a RoleEntry,
 }
 
-impl<'a> Role<'a> {
+impl Role<'_> {
     #[expect(dead_code)]
     pub fn id(&self) -> RoleId {
         RoleId(self.raw_id.clone())

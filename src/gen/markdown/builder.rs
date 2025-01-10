@@ -93,7 +93,7 @@ impl<'a> StringBuilder<'a> {
         }
     }
 
-    fn indent<'s>(&'s mut self, initial: &str, indent: &'s str) -> StringBuilder {
+    fn indent<'s>(&'s mut self, initial: &str, indent: &'s str) -> StringBuilder<'s> {
         self.output.push_str(initial);
         StringBuilder {
             state: self.state.add_prefix(indent),
@@ -304,7 +304,7 @@ struct SubSectionList<'a> {
     output: &'a mut String,
 }
 
-impl<'a> SubSectionList<'a> {
+impl SubSectionList<'_> {
     fn add_subsection(&mut self) -> Section {
         self.output
             .push_str(&format!("{} ", "#".repeat(self.level)));
