@@ -1,7 +1,7 @@
 use nom::branch::alt;
 use nom::bytes::complete::is_not;
-use nom::character::complete::{anychar, char};
-use nom::combinator::{map, map_res, value, verify};
+use nom::character::complete::char;
+use nom::combinator::{map_res, value};
 use nom::error::context;
 use nom::multi::many0;
 use nom::sequence::{pair, preceded};

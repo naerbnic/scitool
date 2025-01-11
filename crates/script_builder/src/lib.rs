@@ -6,17 +6,17 @@ use sci_utils::{
 pub mod linker;
 
 #[derive(Clone)]
-pub struct StringRef(Symbol);
+pub struct StringRef(#[expect(dead_code)] Symbol);
 #[derive(Clone)]
-pub struct ExportRef(Symbol);
+pub struct ExportRef(#[expect(dead_code)] Symbol);
 #[derive(Clone)]
-pub struct ObjectRef(Symbol);
+pub struct ObjectRef(#[expect(dead_code)] Symbol);
 #[derive(Clone)]
-pub struct FunctionRef(Symbol);
+pub struct FunctionRef(#[expect(dead_code)] Symbol);
 #[derive(Clone)]
-pub struct SelectorRef(Symbol);
+pub struct SelectorRef(#[expect(dead_code)] Symbol);
 #[derive(Clone)]
-pub struct ClassRef(Symbol);
+pub struct ClassRef(#[expect(dead_code)] Symbol);
 
 pub enum Value {
     // A 16-bit integer.
@@ -38,6 +38,7 @@ struct Export {
     value: Option<Value>,
 }
 
+#[expect(dead_code)]
 struct MethodDef {
     name: SelectorRef,
     function: FunctionRef,
@@ -45,11 +46,13 @@ struct MethodDef {
 
 struct FunctionDef {}
 
+#[expect(dead_code)]
 struct PropertyRef {
     name: SelectorRef,
     value: Value,
 }
 
+#[expect(dead_code)]
 struct LocalClassDef {
     parent: Option<ClassRef>,
     name: Option<StringRef>,
@@ -58,6 +61,7 @@ struct LocalClassDef {
     methods: Vec<MethodDef>,
 }
 
+#[expect(dead_code)]
 struct LocalObjectDef {
     parent: ClassRef,
     name: Option<StringRef>,
@@ -68,13 +72,16 @@ struct LocalObjectDef {
 /// Class declarations that are external to this script.
 enum ClassDef {
     /// A numbered class species, from other decompiled scripts.
+    #[expect(dead_code)]
     Species(u16),
 }
 
 pub struct ScriptBuilder {
     strings: WeakSymbolMap<RelocatableBuffer>,
     exports: WeakSymbolMap<Export>,
+    #[expect(dead_code)]
     class_defs: WeakSymbolMap<ClassDef>,
+    #[expect(dead_code)]
     local_functions: WeakSymbolMap<FunctionDef>,
 }
 
@@ -135,7 +142,7 @@ impl ScriptBuilder {
         (ExportRef(export_sym), builder)
     }
 
-    pub fn declare_class_species(&mut self, species: u16) -> ClassRef {
+    pub fn declare_class_species(&mut self, _species: u16) -> ClassRef {
         todo!()
     }
 }
