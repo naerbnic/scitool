@@ -6,6 +6,7 @@ use sci_utils::data_writer::{DataWriter, IoDataWriter};
 
 mod gen;
 mod msg;
+mod script;
 
 #[derive(Parser)]
 struct ListResources {
@@ -156,6 +157,8 @@ enum Category {
     Message(msg::Messages),
     #[clap(name = "gen")]
     Generate(gen::Generate),
+    #[clap(name = "script")]
+    Script(script::Script),
 }
 
 impl Category {
@@ -164,6 +167,7 @@ impl Category {
             Category::Resource(res) => res.run(),
             Category::Message(msg) => msg.run(),
             Category::Generate(gen) => gen.run(),
+            Category::Script(script) => script.run(),
         }
     }
 }

@@ -117,4 +117,8 @@ impl SelectorTable {
             .get(name)
             .and_then(|v| if v.len() == 1 { Some(&v[0]) } else { None })
     }
+
+    pub fn selectors(&self) -> impl Iterator<Item = &Selector> {
+        self.entries.iter()
+    }
 }
