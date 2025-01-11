@@ -4,13 +4,15 @@ use clap::{Parser, Subcommand};
 use sci_utils::buffer::Buffer;
 use std::io::Write;
 
+use super::args::OutFilePath;
+
 #[derive(Parser)]
 #[command(about = "Dump a selectors file compatable with the sc compiler for the game.")]
 struct DumpSelectorsFile {
-    #[clap(index = 1)]
+    #[clap(short = 'd')]
     root_dir: PathBuf,
-    #[clap(short = 'o', long)]
-    output: PathBuf,
+    #[clap(short = 'o', long, default_value = "-")]
+    output: OutFilePath,
 }
 
 impl DumpSelectorsFile {
@@ -32,7 +34,7 @@ impl DumpSelectorsFile {
         //   selector-name <selector-id>
         //   ...)
 
-        let mut selectors_file = std::io::BufWriter::new(std::fs::File::create(&self.output)?);
+        let mut selectors_file = self.output.open()?;
         // Note that we leave the next write location at the end of the line,
         // to write the correct closing paren.
         write!(selectors_file, "(selectors")?;

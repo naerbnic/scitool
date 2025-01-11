@@ -73,7 +73,7 @@ impl SelectorTable {
         let (num_entries_minus_one, entries_table) = data.clone().read_value::<u16>()?;
         let num_entries = num_entries_minus_one + 1;
         let (selector_offsets, _) = entries_table.read_values(num_entries as usize)?;
-        let mut entries = Vec::with_capacity(selector_offsets.len());
+        let mut entries: HashMap<_, Vec<_>> = HashMap::new();
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();
 
         for (id, selector_offset) in selector_offsets.into_iter().enumerate() {
@@ -88,11 +88,25 @@ impl SelectorTable {
                     vacant_entry.insert(name).clone()
                 }
             };
-            entries.push(Selector(Arc::new(SelectorInner {
-                name,
-                id: id.try_into().unwrap(),
-            })));
+            entries
+                .entry(name.clone())
+                .or_default()
+                .push(Selector(Arc::new(SelectorInner {
+                    name,
+                    id: id.try_into().unwrap(),
+                })));
         }
+
+        let entries: Vec<_> = entries
+            .into_values()
+            .filter_map(|mut v| {
+                if v.len() == 1 {
+                    Some(v.pop().unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let mut reverse_entries = HashMap::new();
 

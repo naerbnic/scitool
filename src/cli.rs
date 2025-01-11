@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use sci_resources::{file::open_game_resources, ResourceId, ResourceType};
 use sci_utils::data_writer::{DataWriter, IoDataWriter};
 
+mod args;
 mod gen;
 mod msg;
 mod script;
