@@ -1,1 +1,0 @@
-ignore-interior-mutability = ["sci_utils::symbol::Symbol", "sci_utils::symbol::WeakSymbol", ".."]
