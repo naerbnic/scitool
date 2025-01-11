@@ -5,6 +5,7 @@
 //! provide the context they were made in.
 
 use std::{
+    any::Any,
     borrow::Borrow,
     collections::hash_map,
     fmt::Debug,
@@ -36,7 +37,7 @@ struct UniquePayload {
     name: Option<String>,
 }
 
-pub struct SymbolId(Arc<UniquePayload>);
+pub struct SymbolId(Arc<dyn Any + Send + Sync>);
 
 /// All of the methods on SymbolId are private, as we're hiding the fact that
 /// the ID is the internal payload of an Arc.
@@ -57,22 +58,28 @@ impl SymbolId {
 
     fn inc_strong_count(&self) {
         self.0
+            .downcast_ref::<UniquePayload>()
+            .unwrap()
             .strong_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn dec_strong_count(&self) {
         self.0
+            .downcast_ref::<UniquePayload>()
+            .unwrap()
             .strong_count
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    fn as_ptr(&self) -> *const UniquePayload {
+    fn as_ptr(&self) -> *const (dyn Any + Send + Sync) {
         Arc::as_ptr(&self.0)
     }
 
     fn strong_count(&self) -> usize {
         self.0
+            .downcast_ref::<UniquePayload>()
+            .unwrap()
             .strong_count
             .load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -84,7 +91,7 @@ impl SymbolId {
     }
 
     fn fmt_dbg(&self, prefix: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.0.name {
+        match &self.0.downcast_ref::<UniquePayload>().unwrap().name {
             Some(name) => write!(f, "[{}#{:?}: {}]", prefix, self.as_ptr(), name),
             None => write!(f, "[{}#{:?}]", prefix, self.as_ptr()),
         }
@@ -99,7 +106,7 @@ impl Debug for SymbolId {
 
 impl std::cmp::PartialEq for SymbolId {
     fn eq(&self, other: &Self) -> bool {
-        self.as_ptr().eq(&other.as_ptr())
+        std::ptr::addr_eq(self.as_ptr(), other.as_ptr())
     }
 }
 
@@ -113,7 +120,7 @@ impl std::cmp::PartialOrd for SymbolId {
 
 impl std::cmp::Ord for SymbolId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.as_ptr().cmp(&other.as_ptr())
+        self.as_ptr().cast::<()>().cmp(&other.as_ptr().cast::<()>())
     }
 }
 
