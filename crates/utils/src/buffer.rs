@@ -265,7 +265,7 @@ pub struct NarrowedIndexBuffer<'a, Idx, B> {
     _phantom: std::marker::PhantomData<(Idx, &'a u8)>,
 }
 
-impl<'a, Idx, B> Clone for NarrowedIndexBuffer<'a, Idx, B>
+impl<Idx, B> Clone for NarrowedIndexBuffer<'_, Idx, B>
 where
     B: Clone,
 {
@@ -292,7 +292,7 @@ where
     }
 }
 
-impl<'a, Idx, B> std::ops::Deref for NarrowedIndexBuffer<'a, Idx, B> {
+impl<Idx, B> std::ops::Deref for NarrowedIndexBuffer<'_, Idx, B> {
     type Target = B;
 
     fn deref(&self) -> &Self::Target {

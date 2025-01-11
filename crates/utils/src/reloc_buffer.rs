@@ -143,7 +143,7 @@ struct FullResolverImpl<'a, R> {
     local: &'a WeakSymbolMap<usize>,
 }
 
-impl<'a, R> LocalResolver for FullResolverImpl<'a, R>
+impl<R> LocalResolver for FullResolverImpl<'_, R>
 where
     R: ExternalResolver,
 {
@@ -155,7 +155,7 @@ where
     }
 }
 
-impl<'a, R> ExternalResolver for FullResolverImpl<'a, R>
+impl<R> ExternalResolver for FullResolverImpl<'_, R>
 where
     R: ExternalResolver,
 {
@@ -164,7 +164,7 @@ where
     }
 }
 
-impl<'a, R> FullResolver for FullResolverImpl<'a, R> where R: ExternalResolver {}
+impl<R> FullResolver for FullResolverImpl<'_, R> where R: ExternalResolver {}
 
 /// Represents an unlinked section of the object code.
 #[derive(Clone, Debug)]
