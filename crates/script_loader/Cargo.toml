@@ -1,0 +1,9 @@
+[package]
+name = "scitool-script-loader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+sci-resources = { path = "../resources" }
+sci-utils = { path = "../utils" }

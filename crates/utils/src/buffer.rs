@@ -175,6 +175,12 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
         Ok((values, remaining))
     }
 
+    fn read_length_delimited_block(self, item_size: usize) -> anyhow::Result<(Self, Self)> {
+        let (num_blocks, next) = self.read_value::<u16>()?;
+        let total_block_size = (num_blocks as usize).checked_mul(item_size).unwrap();
+        Ok(next.split_at(Self::Idx::narrow_from_usize(total_block_size).unwrap()))
+    }
+
     /// Reads a sequence of values, where the first value is a little endian
     /// u16 indicating the number of values to read.
     fn read_length_delimited_records<T: FromFixedBytes>(self) -> anyhow::Result<(Vec<T>, Self)> {
