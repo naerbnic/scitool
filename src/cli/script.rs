@@ -112,7 +112,6 @@ impl DumpClassDefFile {
         let classes = topo_sort(class_decl_set.classes());
 
         for class in classes {
-            eprintln!("Dumping class {:#?}", class);
             let name = class
                 .name()
                 .map(ToString::to_string)

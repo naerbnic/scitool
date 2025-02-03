@@ -160,7 +160,11 @@ impl<'a> Class<'a> {
     }
 
     pub fn get_method(&self, name: &str) -> Option<&Method> {
-        self.data.methods.get(name)
+        self.data
+            .methods
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| &p.method)
     }
 
     pub fn get_property(&self, name: &str) -> Option<&Property> {
@@ -172,12 +176,12 @@ impl<'a> Class<'a> {
     }
 
     pub fn methods(&self) -> impl Iterator<Item = &Method> + std::fmt::Debug {
-        self.data.methods.values()
+        self.data.methods.iter().map(|p| &p.method)
     }
 
     pub fn new_methods(&self) -> impl Iterator<Item = &Method> + std::fmt::Debug {
         let super_class = self.super_class();
-        self.data.methods.values().filter(move |method| {
+        self.methods().filter(move |method| {
             if let Some(super_class) = &super_class {
                 super_class.get_method(&method.name).is_none()
             } else {
@@ -211,6 +215,12 @@ impl<'a> Class<'a> {
 }
 
 #[derive(Debug)]
+struct MethodEntry {
+    name: String,
+    method: Method,
+}
+
+#[derive(Debug)]
 struct PropEntry {
     name: String,
     prop: Property,
@@ -221,7 +231,7 @@ struct ClassData {
     script_id: ScriptId,
     species: Species,
     super_class: Option<Species>,
-    methods: HashMap<String, Method>,
+    methods: Vec<MethodEntry>,
     properties: Vec<PropEntry>,
 }
 
@@ -232,7 +242,7 @@ impl ClassData {
 
         assert!(species_id != 0xFFFF);
 
-        let mut methods = HashMap::new();
+        let mut methods = Vec::new();
         let mut properties = Vec::new();
 
         for (prop_selector, base_value) in object.properties() {
@@ -246,12 +256,12 @@ impl ClassData {
         }
 
         for method_selector in object.methods() {
-            methods.insert(
-                method_selector.name().to_string(),
-                Method {
+            methods.push(MethodEntry {
+                name: method_selector.name().to_string(),
+                method: Method {
                     name: method_selector.name().to_string(),
                 },
-            );
+            });
         }
 
         Self {
