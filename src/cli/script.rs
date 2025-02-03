@@ -33,7 +33,10 @@ impl DumpSelectorsFile {
         // to write the correct closing paren.
         write!(selectors_file, "(selectors")?;
 
-        for selector in script_loader.selectors() {
+        let mut ordered_selectors = script_loader.selectors().collect::<Vec<_>>();
+        ordered_selectors.sort_by_key(|sel| sel.id());
+
+        for selector in ordered_selectors {
             write!(selectors_file, "\n  {} {}", selector.name(), selector.id())?;
         }
         writeln!(selectors_file, ")")?;
