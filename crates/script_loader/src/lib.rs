@@ -164,7 +164,11 @@ impl<'a> Class<'a> {
     }
 
     pub fn get_property(&self, name: &str) -> Option<&Property> {
-        self.data.properties.get(name)
+        self.data
+            .properties
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| &p.prop)
     }
 
     pub fn methods(&self) -> impl Iterator<Item = &Method> + std::fmt::Debug {
@@ -183,23 +187,33 @@ impl<'a> Class<'a> {
     }
 
     pub fn properties(&self) -> impl Iterator<Item = &Property> + std::fmt::Debug {
-        self.data.properties.values()
+        self.data.properties.iter().map(|p| &p.prop)
     }
 
     pub fn new_properties(&self) -> impl Iterator<Item = &Property> + std::fmt::Debug {
         let super_class = self.super_class();
-        self.data.properties.values().filter(move |property| {
-            if let Some(super_class) = &super_class {
-                if let Some(super_property) = super_class.get_property(&property.name) {
-                    super_property.base_value() != property.base_value()
+        self.data
+            .properties
+            .iter()
+            .map(|p| &p.prop)
+            .filter(move |property| {
+                if let Some(super_class) = &super_class {
+                    if let Some(super_property) = super_class.get_property(&property.name) {
+                        super_property.base_value() != property.base_value()
+                    } else {
+                        true
+                    }
                 } else {
                     true
                 }
-            } else {
-                true
-            }
-        })
+            })
     }
+}
+
+#[derive(Debug)]
+struct PropEntry {
+    name: String,
+    prop: Property,
 }
 
 struct ClassData {
@@ -208,7 +222,7 @@ struct ClassData {
     species: Species,
     super_class: Option<Species>,
     methods: HashMap<String, Method>,
-    properties: HashMap<String, Property>,
+    properties: Vec<PropEntry>,
 }
 
 impl ClassData {
@@ -219,16 +233,16 @@ impl ClassData {
         assert!(species_id != 0xFFFF);
 
         let mut methods = HashMap::new();
-        let mut properties = HashMap::new();
+        let mut properties = Vec::new();
 
         for (prop_selector, base_value) in object.properties() {
-            properties.insert(
-                prop_selector.name().to_string(),
-                Property {
+            properties.push(PropEntry {
+                name: prop_selector.name().to_string(),
+                prop: Property {
                     name: prop_selector.name().to_string(),
                     base_value,
                 },
-            );
+            });
         }
 
         for method_selector in object.methods() {

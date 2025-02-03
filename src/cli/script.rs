@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use scitool_script_loader::{Class, ClassDeclSet, ScriptLoader, Species};
+use itertools::Itertools;
+use scitool_script_loader::{Class, ClassDeclSet, ScriptLoader};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::io::Write;
 
 use super::args::OutFilePath;
@@ -44,34 +46,52 @@ impl DumpSelectorsFile {
 // before their subclasses.
 
 fn topo_sort<'a>(classes: impl IntoIterator<Item = Class<'a>>) -> Vec<Class<'a>> {
-    let mut state = TopoSortState {
-        visited: std::collections::HashSet::new(),
-        stack: Vec::new(),
-    };
+    // Map from species to class objects.
+    let class_map = classes
+        .into_iter()
+        .map(|class| (class.species(), class))
+        .collect::<BTreeMap<_, _>>();
 
-    for class in classes {
-        state.visit(class);
+    // Map from superclass species to subclass species.
+    let subclasses = class_map
+        .values()
+        .filter_map(|class| {
+            class
+                .super_class()
+                .map(|super_class| (super_class.species(), class.species()))
+        })
+        .into_group_map();
+
+    let mut pending_classes: BTreeSet<_> = class_map
+        .iter()
+        .filter_map(|(&c, v)| v.super_class().map(|_| c))
+        .collect();
+
+    let mut class_queue = class_map
+        .iter()
+        .filter_map(|(&c, v)| {
+            if v.super_class().is_none() {
+                Some(std::cmp::Reverse(c))
+            } else {
+                None
+            }
+        })
+        .collect::<BinaryHeap<_>>();
+
+    let mut result_classes = Vec::new();
+
+    while let Some(std::cmp::Reverse(next_species)) = class_queue.pop() {
+        result_classes.push(class_map[&next_species].clone());
+        subclasses
+            .get(&next_species)
+            .map(|subclasses| &subclasses[..])
+            .unwrap_or(&[])
+            .iter()
+            .filter(|subclass| pending_classes.remove(subclass))
+            .for_each(|&subclass| class_queue.push(std::cmp::Reverse(subclass)));
     }
 
-    state.stack
-}
-
-struct TopoSortState<'a> {
-    visited: std::collections::HashSet<Species>,
-    stack: Vec<Class<'a>>,
-}
-
-impl<'a> TopoSortState<'a> {
-    fn visit(&mut self, class: Class<'a>) {
-        if self.visited.contains(&class.species()) {
-            return;
-        }
-        self.visited.insert(class.species());
-        if let Some(super_class) = class.super_class() {
-            self.visit(super_class);
-        }
-        self.stack.push(class);
-    }
+    result_classes
 }
 
 #[derive(Parser)]
@@ -115,7 +135,7 @@ impl DumpClassDefFile {
             )?;
 
             writeln!(class_def_file, "\t(properties")?;
-            for property in class.new_properties() {
+            for property in class.properties() {
                 writeln!(
                     class_def_file,
                     "\t\t{} {}",
