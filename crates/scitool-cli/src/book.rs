@@ -309,7 +309,7 @@ impl<'a> Conversation<'a> {
         ConversationId(self.parent.id(), self.raw_id)
     }
 
-    pub fn lines(&self) -> impl Iterator<Item = Line<'a>> + 'a {
+    pub fn lines(&self) -> impl Iterator<Item = Line<'a>> + 'a + use<'a> {
         self.entry.lines.iter().map({
             let parent = self.clone();
             move |(&raw_id, entry)| Line {
@@ -485,7 +485,7 @@ impl<'a> Noun<'a> {
         self.parent.clone()
     }
 
-    pub fn conversations(&self) -> impl Iterator<Item = Conversation<'a>> + 'a {
+    pub fn conversations(&self) -> impl Iterator<Item = Conversation<'a>> + 'a + use<'a> {
         self.entry.conversations.iter().map({
             let parent = self.clone();
             move |(&raw_id, entry)| Conversation {
@@ -529,7 +529,7 @@ impl<'a> Room<'a> {
     }
 
     /// Get an iterator over all the nouns in this room.
-    pub fn nouns(&self) -> impl Iterator<Item = Noun<'a>> + 'a {
+    pub fn nouns(&self) -> impl Iterator<Item = Noun<'a>> + 'a + use<'a> {
         self.entry.nouns.iter().map({
             let parent = self.clone();
             move |(&raw_id, entry)| Noun {
@@ -541,7 +541,7 @@ impl<'a> Room<'a> {
     }
 
     /// Get an iterator over all the conditions in this room.
-    pub fn conditions(&self) -> impl Iterator<Item = Condition<'a>> + 'a {
+    pub fn conditions(&self) -> impl Iterator<Item = Condition<'a>> + 'a + use<'a> {
         self.entry.conditions.iter().map({
             let parent = self.clone();
             move |(&raw_id, entry)| Condition {

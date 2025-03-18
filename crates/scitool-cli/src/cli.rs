@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use sci_resources::{file::open_game_resources, ResourceId, ResourceType};
+use sci_resources::{ResourceId, ResourceType, file::open_game_resources};
 use sci_utils::data_writer::{DataWriter, IoDataWriter};
 
 mod args;
-mod gen;
+mod generate;
 mod msg;
 mod script;
 
@@ -157,7 +157,7 @@ enum Category {
     #[clap(name = "msg")]
     Message(msg::Messages),
     #[clap(name = "gen")]
-    Generate(gen::Generate),
+    Generate(generate::Generate),
     #[clap(name = "script")]
     Script(script::Script),
 }
@@ -167,7 +167,7 @@ impl Category {
         match self {
             Category::Resource(res) => res.run(),
             Category::Message(msg) => msg.run(),
-            Category::Generate(gen) => gen.run(),
+            Category::Generate(generate) => generate.run(),
             Category::Script(script) => script.run(),
         }
     }

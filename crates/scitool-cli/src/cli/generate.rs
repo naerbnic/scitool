@@ -6,7 +6,7 @@ use sci_resources::{file::open_game_resources, types::msg::parse_message_resourc
 
 use crate::{
     book::{builder::BookBuilder, config::BookConfig, Book},
-    gen::{
+    generate::{
         doc::{
             text::{RichText, TextStyle},
             Document, DocumentBuilder, SectionBuilder,

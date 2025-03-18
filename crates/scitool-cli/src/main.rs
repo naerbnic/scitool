@@ -2,7 +2,7 @@ use clap::Parser;
 
 mod book;
 mod cli;
-mod gen;
+mod generate;
 mod output;
 
 fn main() -> anyhow::Result<()> {
