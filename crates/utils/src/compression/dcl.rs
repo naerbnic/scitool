@@ -31,7 +31,7 @@ pub fn decompress_dcl(input: &Block) -> io::Result<Block> {
             return Err(io::Error::other(format!(
                 "Unsupported DCL dictionary type: {}",
                 dict_type
-            )))
+            )));
         }
     };
     let dict_mask: u32 = dict_size - 1;
@@ -64,12 +64,12 @@ pub fn decompress_dcl(input: &Block) -> io::Result<Block> {
             let distance_code = *DISTANCE_TREE.lookup(&mut reader)? as u32;
             let token_offset: u32 =
                 1 + if token_length == 2 {
-                    distance_code << 2
+                    (distance_code << 2)
                         | reader.read_bits(2).ok_or_else(|| {
                             io::Error::other("Failed to read DCL extra distance bits")
                         })? as u32
                 } else {
-                    distance_code << dict_type
+                    (distance_code << dict_type)
                         | reader.read_bits(dict_type as u32).ok_or_else(|| {
                             io::Error::other("Failed to read DCL extra distance bits")
                         })? as u32
