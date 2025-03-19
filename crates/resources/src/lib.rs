@@ -32,8 +32,66 @@ pub enum ResourceType {
     Rave,
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("Conversion Error: {0}")]
+pub struct ConversionError(String);
+
+impl ResourceType {
+    pub fn from_file_ext(ext: &str) -> Result<Self, ConversionError> {
+        match ext.to_lowercase().as_str() {
+            "v56" => Ok(ResourceType::View),
+            "p56" => Ok(ResourceType::Pic),
+            "scr" => Ok(ResourceType::Script),
+            "tex" => Ok(ResourceType::Text),
+            "snd" => Ok(ResourceType::Sound),
+            "voc" => Ok(ResourceType::Vocab),
+            "fon" => Ok(ResourceType::Font),
+            "cur" => Ok(ResourceType::Cursor),
+            "pat" => Ok(ResourceType::Patch),
+            "bit" => Ok(ResourceType::Bitmap),
+            "pal" => Ok(ResourceType::Palette),
+            "cda" => Ok(ResourceType::CdAudio),
+            "aud" => Ok(ResourceType::Audio),
+            "syn" => Ok(ResourceType::Sync),
+            "msg" => Ok(ResourceType::Message),
+            "map" => Ok(ResourceType::Map),
+            "hep" => Ok(ResourceType::Heap),
+            "trn" => Ok(ResourceType::Translation),
+            _ => Err(ConversionError(format!(
+                "Invalid file extension for resource type: {}",
+                ext
+            ))),
+        }
+    }
+
+    // This may need to be given a target engine type to be correct.
+    pub fn to_file_ext(&self) -> &'static str {
+        match self {
+            ResourceType::View => "v56",
+            ResourceType::Pic => "p56",
+            ResourceType::Script => "scr",
+            ResourceType::Text => "tex",
+            ResourceType::Sound => "snd",
+            ResourceType::Vocab => "voc",
+            ResourceType::Font => "fon",
+            ResourceType::Cursor => "cur",
+            ResourceType::Patch => "pat",
+            ResourceType::Bitmap => "bit",
+            ResourceType::Palette => "pal",
+            ResourceType::CdAudio => "cda",
+            ResourceType::Audio => "aud",
+            ResourceType::Sync => "syn",
+            ResourceType::Message => "msg",
+            ResourceType::Map => "map",
+            ResourceType::Heap => "hep",
+            ResourceType::Translation => "trn",
+            _ => "",
+        }
+    }
+}
+
 impl TryFrom<u8> for ResourceType {
-    type Error = String;
+    type Error = ConversionError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -59,7 +117,10 @@ impl TryFrom<u8> for ResourceType {
             0x93 => Ok(ResourceType::Sync36),
             0x94 => Ok(ResourceType::Translation),
             0x95 => Ok(ResourceType::Rave),
-            _ => Err(format!("Invalid resource type: 0x{:02X}", value)),
+            _ => Err(ConversionError(format!(
+                "Invalid resource type: 0x{:02X}",
+                value
+            ))),
         }
     }
 }

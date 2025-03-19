@@ -305,6 +305,16 @@ impl BlockSource {
         }
     }
 
+    pub fn split_at(self, at: u64) -> (Self, Self) {
+        assert!(
+            at <= self.size,
+            "Tried to split a block of size {} at offset {}",
+            self.size,
+            at
+        );
+        (self.clone().subblock(..at), self.subblock(at..))
+    }
+
     /// Returns a lazy block that represents the current block source that can
     /// be opened on demand.
     pub fn to_lazy_block(&self) -> LazyBlock {

@@ -1,5 +1,5 @@
 [package]
-name = "scitool"
+name = "scitool-cli"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -11,6 +11,7 @@ publish = false
 sci-utils = { path = "../utils" }
 sci-resources = { path = "../resources" }
 scitool-script-loader = { path = "../script_loader" }
+sci-header-gen = { path = "../header-gen" }
 anyhow = "1.0.86"
 bitter = "0.7.0"
 clap = { version = "4.5.16", features = ["derive"] }

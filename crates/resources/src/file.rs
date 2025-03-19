@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{BTreeMap, btree_map},
     fs::File,
     io,
     path::Path,
@@ -7,14 +7,20 @@ use std::{
 
 use data::DataFile;
 
+use patch::try_patch_from_file;
 use sci_utils::block::{Block, BlockReader, BlockSource, LazyBlock};
 
 use super::{ResourceId, ResourceType};
 
 mod data;
 mod map;
+mod patch;
 
-pub fn read_resources(map_file: &Path, data_file: &Path) -> io::Result<ResourceSet> {
+pub fn read_resources(
+    map_file: &Path,
+    data_file: &Path,
+    patches: &[Resource],
+) -> io::Result<ResourceSet> {
     let map_file = Block::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file)?);
     let resource_locations = map::ResourceLocations::read_from(BlockReader::new(map_file))?;
@@ -33,21 +39,71 @@ pub fn read_resources(map_file: &Path, data_file: &Path) -> io::Result<ResourceS
                 ),
             ));
         }
-        entries.insert(location.id, block.data().clone());
+        entries.insert(
+            location.id,
+            ResourceBlocks::new_of_data(block.data().clone()),
+        );
+    }
+
+    for patch in patches {
+        let id = patch.id();
+        match entries.entry(*id) {
+            btree_map::Entry::Vacant(vac) => {
+                vac.insert(ResourceBlocks::new_of_patch(patch.source.clone()));
+            }
+            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.source.clone()),
+        }
     }
 
     Ok(ResourceSet { entries })
 }
 
+#[derive(Clone)]
+struct ResourceBlocks {
+    data_block: Option<LazyBlock>,
+    patch_block: Option<LazyBlock>,
+}
+
+impl ResourceBlocks {
+    pub fn default_block(&self) -> &LazyBlock {
+        self.patch_block
+            .as_ref()
+            .or(self.data_block.as_ref())
+            .expect("Resource block not found")
+    }
+
+    pub fn new_of_patch(patch_block: LazyBlock) -> ResourceBlocks {
+        ResourceBlocks {
+            data_block: None,
+            patch_block: Some(patch_block),
+        }
+    }
+
+    pub fn new_of_data(data_block: LazyBlock) -> ResourceBlocks {
+        ResourceBlocks {
+            data_block: Some(data_block),
+            patch_block: None,
+        }
+    }
+
+    pub fn add_patch(&mut self, patch_block: LazyBlock) {
+        if self.patch_block.is_none() {
+            self.patch_block = Some(patch_block);
+        } else {
+            panic!("Resource already has a patch block");
+        }
+    }
+}
+
 pub struct ResourceSet {
-    pub entries: BTreeMap<ResourceId, LazyBlock>,
+    entries: BTreeMap<ResourceId, ResourceBlocks>,
 }
 
 impl ResourceSet {
     pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
         self.entries.get(id).map(|b| Resource {
             id: *id,
-            source: b.clone(),
+            source: b.default_block().clone(),
         })
     }
 
@@ -58,7 +114,7 @@ impl ResourceSet {
     pub fn resources(&self) -> impl Iterator<Item = Resource> + '_ {
         self.entries.iter().map(|(id, block)| Resource {
             id: *id,
-            source: block.clone(),
+            source: block.default_block().clone(),
         })
     }
 
@@ -69,7 +125,7 @@ impl ResourceSet {
             }
             Some(Resource {
                 id: *id,
-                source: block.clone(),
+                source: block.default_block().clone(),
             })
         })
     }
@@ -93,7 +149,7 @@ impl ResourceSet {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("Duplicate resource ID: {:?}", id),
-                    ))
+                    ));
                 }
             }
         }
@@ -102,16 +158,26 @@ impl ResourceSet {
 }
 
 pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
+    let mut patches = Vec::new();
+    for entry in root_dir.read_dir()? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            if let Some(patch_res) = try_patch_from_file(&entry.path())? {
+                patches.push(patch_res);
+            }
+        }
+    }
+
     let main_set = {
         let map_file = root_dir.join("RESOURCE.MAP");
         let data_file = root_dir.join("RESOURCE.000");
-        read_resources(&map_file, &data_file)?
+        read_resources(&map_file, &data_file, &patches)?
     };
 
     let message_set = {
         let map_file = root_dir.join("MESSAGE.MAP");
         let data_file = root_dir.join("RESOURCE.MSG");
-        read_resources(&map_file, &data_file)?
+        read_resources(&map_file, &data_file, &[])?
     };
     Ok(main_set.merge(&message_set)?)
 }

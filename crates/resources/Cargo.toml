@@ -7,3 +7,4 @@ edition = "2024"
 anyhow = "1.0.91"
 clap = { version = "4.5.20", features = ["derive"] }
 sci-utils = { path = "../utils" }
+thiserror = "2.0.12"
