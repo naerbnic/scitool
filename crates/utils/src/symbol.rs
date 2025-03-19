@@ -9,7 +9,7 @@ use std::{
     borrow::Borrow,
     collections::hash_map,
     fmt::Debug,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
 };
 
 // The main idea: Allocated memory is guaranteed to be unique, so we can use

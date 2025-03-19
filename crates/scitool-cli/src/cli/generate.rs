@@ -2,14 +2,14 @@ use itertools::Itertools;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use sci_resources::{file::open_game_resources, types::msg::parse_message_resource, ResourceType};
+use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
 
 use crate::{
-    book::{builder::BookBuilder, config::BookConfig, Book},
+    book::{Book, builder::BookBuilder, config::BookConfig},
     generate::{
         doc::{
-            text::{RichText, TextStyle},
             Document, DocumentBuilder, SectionBuilder,
+            text::{RichText, TextStyle},
         },
         html::generate_html,
     },

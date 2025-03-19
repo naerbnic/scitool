@@ -1,7 +1,7 @@
 //! Traits for writing to a relocatable buffer.
 use crate::symbol::Symbol;
 
-use super::{expr::Expr, RelocSize, RelocType};
+use super::{RelocSize, RelocType, expr::Expr};
 
 /// A trait that allows a relocatable buffer to be written to.
 pub trait RelocWriter {

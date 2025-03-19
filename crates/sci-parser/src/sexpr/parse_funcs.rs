@@ -1,7 +1,7 @@
 use nom::{
+    IResult, InputLength, InputTake, Parser,
     combinator::{eof, map as nom_map, map_opt, verify},
     error::{ErrorKind, ParseError, VerboseError},
-    IResult, InputLength, InputTake, Parser,
 };
 
 use crate::inputs::{slice::Input, text::InputRange};

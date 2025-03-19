@@ -3,7 +3,7 @@
 //! The resource table is stored as Vocab:997.
 
 use std::{
-    collections::{hash_map, HashMap},
+    collections::{HashMap, hash_map},
     sync::Arc,
 };
 

@@ -5,7 +5,7 @@ use sci_utils::{
         read_byte, read_word, safe_signed_narrow, safe_unsigned_narrow, signed_extend_byte,
         unsigned_extend_byte, write_byte, write_word,
     },
-    reloc_buffer::{expr::Expr, writer::RelocWriter, RelocSize, RelocType},
+    reloc_buffer::{RelocSize, RelocType, expr::Expr, writer::RelocWriter},
     symbol::Symbol,
 };
 

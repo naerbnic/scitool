@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use mem_loader::LoadedScript;
-use sci_resources::{file::ResourceSet, ResourceType};
+use sci_resources::{ResourceType, file::ResourceSet};
 use sci_utils::buffer::Buffer;
 
 mod mem_loader;

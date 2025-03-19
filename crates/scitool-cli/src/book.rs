@@ -52,13 +52,13 @@ pub struct RoomId(RawRoomId);
 
 impl RoomId {
     pub fn room_num(&self) -> u16 {
-        self.0 .0
+        self.0.0
     }
 }
 
 impl std::fmt::Debug for RoomId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoomId").field(&self.0 .0).finish()
+        f.debug_tuple("RoomId").field(&self.0.0).finish()
     }
 }
 
@@ -67,7 +67,7 @@ pub struct VerbId(RawVerbId);
 
 impl std::fmt::Debug for VerbId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("VerbId").field(&self.0 .0).finish()
+        f.debug_tuple("VerbId").field(&self.0.0).finish()
     }
 }
 
@@ -76,7 +76,7 @@ pub struct RoleId(RawRoleId);
 
 impl std::fmt::Debug for RoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoleId").field(&self.0 .0).finish()
+        f.debug_tuple("RoleId").field(&self.0.0).finish()
     }
 }
 
@@ -85,11 +85,11 @@ pub struct NounId(RoomId, RawNounId);
 
 impl NounId {
     pub fn room_num(&self) -> u16 {
-        self.0 .0 .0
+        self.0.0.0
     }
 
     pub fn noun_num(&self) -> u8 {
-        self.1 .0
+        self.1.0
     }
 }
 
@@ -107,7 +107,7 @@ pub struct TalkerId(RawTalkerId);
 
 impl std::fmt::Debug for TalkerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoleId").field(&self.0 .0).finish()
+        f.debug_tuple("RoleId").field(&self.0.0).finish()
     }
 }
 
@@ -116,15 +116,15 @@ pub struct ConditionId(RoomId, RawConditionId);
 
 impl ConditionId {
     pub fn condition_num(&self) -> u8 {
-        self.1 .0
+        self.1.0
     }
 }
 
 impl std::fmt::Debug for ConditionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConditionId")
-            .field("room", &self.0 .0 .0)
-            .field("condition", &self.1 .0)
+            .field("room", &self.0.0.0)
+            .field("condition", &self.1.0)
             .finish()
     }
 }
@@ -134,11 +134,11 @@ pub struct ConversationId(NounId, ConversationKey);
 
 impl ConversationId {
     pub fn room_num(&self) -> u16 {
-        self.0 .0 .0 .0
+        self.0.0.0.0
     }
 
     pub fn noun_num(&self) -> u8 {
-        self.0 .1 .0
+        self.0.1.0
     }
 
     pub fn verb_num(&self) -> u8 {
@@ -182,18 +182,18 @@ impl LineId {
     }
 
     pub fn sequence_num(&self) -> u8 {
-        self.1 .0
+        self.1.0
     }
 }
 
 impl std::fmt::Debug for LineId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LineId")
-            .field("room", &self.0 .0 .0 .0 .0)
-            .field("noun", &self.0 .0 .1 .0)
-            .field("verb", &self.0 .1.verb().0)
-            .field("condition", &self.0 .1.condition().0)
-            .field("sequence", &self.1 .0)
+            .field("room", &self.0.0.0.0.0)
+            .field("noun", &self.0.0.1.0)
+            .field("verb", &self.0.1.verb().0)
+            .field("condition", &self.0.1.condition().0)
+            .field("sequence", &self.1.0)
             .finish()
     }
 }

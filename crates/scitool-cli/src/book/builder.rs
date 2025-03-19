@@ -1,4 +1,4 @@
-use std::collections::{btree_map, BTreeMap};
+use std::collections::{BTreeMap, btree_map};
 
 use itertools::Itertools;
 
@@ -6,8 +6,8 @@ use sci_resources::types::msg::{MessageId, MessageRecord};
 use sci_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use super::{
-    config::{self, BookConfig},
     Book, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId, RawTalkerId, RawVerbId,
+    config::{self, BookConfig},
 };
 
 #[derive(thiserror::Error, Debug)]

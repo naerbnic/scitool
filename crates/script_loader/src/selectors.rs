@@ -3,7 +3,7 @@
 //! The resource table is stored as Vocab:997.
 
 use std::{
-    collections::{hash_map, HashMap},
+    collections::{HashMap, hash_map},
     sync::Arc,
 };
 
@@ -117,7 +117,7 @@ impl SelectorTable {
 
         for selector in entries.iter() {
             reverse_entries
-                .entry(selector.1 .0.name.clone())
+                .entry(selector.1.0.name.clone())
                 .or_insert_with(Vec::new)
                 .push(selector.1.clone());
         }

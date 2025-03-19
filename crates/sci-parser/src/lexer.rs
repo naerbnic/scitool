@@ -1,3 +1,3 @@
 pub mod core;
 
-pub use core::{lex, LexerError};
+pub use core::{LexerError, lex};

@@ -1,5 +1,5 @@
 use sci_resources::{
-    file::open_game_resources, types::selector_table::SelectorTable, ResourceId, ResourceType,
+    ResourceId, ResourceType, file::open_game_resources, types::selector_table::SelectorTable,
 };
 use sci_utils::buffer::Buffer;
 

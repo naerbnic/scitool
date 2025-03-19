@@ -5,7 +5,7 @@ use crate::book::builder::BookBuilder;
 use crate::book::config::BookConfig;
 use crate::output::msg as msg_out;
 use clap::{Parser, Subcommand};
-use sci_resources::{file::open_game_resources, types::msg::parse_message_resource, ResourceType};
+use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
 
 // My current theory is that messages are separatable into a few categories:
 

@@ -1,5 +1,5 @@
 use sci_utils::{
-    reloc_buffer::{writer::RelocWriter as _, RelocatableBuffer},
+    reloc_buffer::{RelocatableBuffer, writer::RelocWriter as _},
     symbol::{Symbol, WeakSymbolMap},
 };
 

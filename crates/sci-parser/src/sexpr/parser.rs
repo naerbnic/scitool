@@ -1,15 +1,15 @@
 use nom::{
+    Finish, Parser,
     combinator::{complete, eof, map as nom_map},
     multi::many0,
     sequence::tuple,
-    Finish, Parser,
 };
 
 use crate::{
     inputs::text::InputRange,
     tokens::parse_funcs::{
-        lbracket, lparen, num, rbracket, rparen, string, symbol, NomError as TokenNomError,
-        TokenInput, TokenParser,
+        NomError as TokenNomError, TokenInput, TokenParser, lbracket, lparen, num, rbracket,
+        rparen, string, symbol,
     },
 };
 

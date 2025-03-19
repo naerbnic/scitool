@@ -131,14 +131,16 @@ mod tests {
     fn parse_multiple_lists() {
         let sexpr = parse("(1 2) (3 4)").unwrap();
         assert_eq!(sexpr.len(), 2);
-        assert!(sexpr[0]
-            .structural_eq(&SExpr::new_list(
+        assert!(
+            sexpr[0].structural_eq(&SExpr::new_list(
                 vec![SExpr::new_num(1), SExpr::new_num(2),]
-            )));
+            ))
+        );
 
-        assert!(sexpr[1]
-            .structural_eq(&SExpr::new_list(
+        assert!(
+            sexpr[1].structural_eq(&SExpr::new_list(
                 vec![SExpr::new_num(3), SExpr::new_num(4),]
-            )));
+            ))
+        );
     }
 }

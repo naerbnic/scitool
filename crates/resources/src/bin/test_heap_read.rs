@@ -1,7 +1,7 @@
 use sci_resources::{
+    ResourceId, ResourceType,
     file::open_game_resources,
     types::{class_species::ClassSpeciesTable, script::load_script, selector_table::SelectorTable},
-    ResourceId, ResourceType,
 };
 use sci_utils::buffer::Buffer;
 

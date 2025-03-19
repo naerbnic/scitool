@@ -362,7 +362,7 @@ mod tests {
     use crate::symbol::Symbol;
 
     use super::{
-        expr::Expr, writer::RelocWriter, ExternalResolver, RelocSize, RelocType, RelocatableBuffer,
+        ExternalResolver, RelocSize, RelocType, RelocatableBuffer, expr::Expr, writer::RelocWriter,
     };
 
     struct NullExternalResolver;
@@ -510,11 +510,13 @@ mod tests {
         );
 
         let buffer = writer.build()?;
-        assert!(buffer
-            .resolve_all(&SimpleMapExtResolver(
-                &[(sym, 0x1234)].iter().cloned().collect(),
-            ))
-            .is_err());
+        assert!(
+            buffer
+                .resolve_all(&SimpleMapExtResolver(
+                    &[(sym, 0x1234)].iter().cloned().collect(),
+                ))
+                .is_err()
+        );
         Ok(())
     }
 }

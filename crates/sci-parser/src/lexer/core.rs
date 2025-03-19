@@ -1,3 +1,4 @@
+use nom::InputIter;
 use nom::branch::alt;
 use nom::bytes::complete::is_not;
 use nom::character::complete::char;
@@ -5,8 +6,7 @@ use nom::combinator::{map_res, value};
 use nom::error::context;
 use nom::multi::many0;
 use nom::sequence::{pair, preceded};
-use nom::InputIter;
-use nom::{error::FromExternalError, Err, Parser};
+use nom::{Err, Parser, error::FromExternalError};
 
 use crate::inputs::text::{InputOffset, InputRange, TextInput};
 
