@@ -93,7 +93,7 @@ impl Opcode for VarAccessOp {
             Operation::IncLoad => 0b10,
             Operation::DecLoad => 0b11,
         };
-        0x80 | (op_bits << 5) | (use_acc_bit << 4) | (other_type_bits << 3) | var_type_bits << 1
+        0x80 | (op_bits << 5) | (use_acc_bit << 4) | (other_type_bits << 3) | (var_type_bits << 1)
     }
 
     fn opcode_name(&self) -> std::borrow::Cow<str> {
