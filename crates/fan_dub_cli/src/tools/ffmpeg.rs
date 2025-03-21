@@ -1,21 +1,6 @@
-use std::{
-    ffi::{OsStr, OsString},
-    io::{BufRead, BufReader},
-    path::Path,
-    sync::Arc,
-};
+use std::{ffi::OsString, net::SocketAddr, path::Path};
 
-use smol::io::AsyncWriteExt;
-
-struct CloseOnDropChildProcess {
-    child: std::process::Child,
-}
-
-impl Drop for CloseOnDropChildProcess {
-    fn drop(&mut self) {
-        self.child.kill().expect("Failed to kill child process");
-    }
-}
+use smol::{io::AsyncBufReadExt, stream::StreamExt};
 
 pub trait ProgressListener {
     fn on_progress(&mut self, done: bool, progress_info: Vec<(String, String)>);
@@ -30,148 +15,126 @@ impl ProgressListener for NullProgressListener {
     }
 }
 
-struct PermanentEventState {
-    waiters: Option<Vec<std::task::Waker>>,
-}
-
-impl PermanentEventState {
-    fn new() -> Self {
-        PermanentEventState {
-            waiters: Some(Vec::new()),
-        }
-    }
-
-    fn add_waiter(&mut self, waker: std::task::Waker) -> std::task::Poll<()> {
-        if let Some(waiters) = &mut self.waiters {
-            waiters.push(waker);
-            std::task::Poll::Pending
-        } else {
-            std::task::Poll::Ready(())
-        }
-    }
-
-    fn notify(&mut self) {
-        if let Some(waiters) = self.waiters.take() {
-            for waker in waiters {
-                waker.wake();
-            }
-        }
-    }
-}
-
-struct SyncReadStream<R> {
-    thread: std::thread::JoinHandle<()>,
-    cancel_event: PermanentEvent,
-    reader: smol::channel::Receiver<R>,
-}
-
-struct PermanentEventInner {
-    state: std::sync::Mutex<PermanentEventState>,
-}
-
-impl PermanentEventInner {
-    fn new() -> Self {
-        PermanentEventInner {
-            state: std::sync::Mutex::new(PermanentEventState::new()),
-        }
-    }
-
-    fn add_waiter(&self, waker: &std::task::Waker) -> std::task::Poll<()> {
-        let mut state = self.state.lock().unwrap();
-        state.add_waiter(waker.clone())
-    }
-
-    fn notify(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.notify();
-    }
-}
-
-/// A simple event that can be waited on as a future.
-#[derive(Clone)]
-struct PermanentEvent(Arc<PermanentEventInner>);
-
-impl PermanentEvent {
-    fn new() -> Self {
-        PermanentEvent(Arc::new(PermanentEventInner::new()))
-    }
-
-    async fn wait(&self) {
-        smol::future::poll_fn(|cx| self.0.add_waiter(cx.waker())).await
-    }
-
-    fn notify(&self) {
-        self.0.notify();
-    }
-}
-
 /// A trait that maintains state for an FFMpeg input.
 ///
 /// Returns the URL of the input. This object should be alive during the
 /// lifetime of the FFMpeg process.
-trait InputState {
-    fn url(&self) -> &OsStr;
+pub trait InputState {
+    fn url(&self) -> OsString;
+    fn wait(self) -> impl Future<Output = anyhow::Result<()>>;
 }
 
 struct SimpleInputState(OsString);
 
 impl InputState for SimpleInputState {
-    fn url(&self) -> &OsStr {
-        &self.0
+    fn url(&self) -> OsString {
+        self.0.to_os_string()
+    }
+    async fn wait(self) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 
 struct TcpInputState {
     /// Thread handling the TCP connection.
-    thread: std::thread::JoinHandle<()>,
+    task: smol::Task<anyhow::Result<()>>,
     /// URL of the input.
-    url: OsString,
+    local_addr: SocketAddr,
 }
 
 impl TcpInputState {
-    fn new<R: smol::io::AsyncRead + Send + 'static>(read: R) -> anyhow::Result<Self> {
-        let listener = smol::block_on(smol::net::TcpListener::bind("127.0.0.1"))?;
+    async fn new<R: smol::io::AsyncRead + Send + 'static>(
+        read: R,
+        timeout: std::time::Instant,
+    ) -> anyhow::Result<Self> {
+        let listener = smol::net::TcpListener::bind("127.0.0.1:0").await?;
         let local_addr = listener.local_addr()?;
-        let url = format!("tcp://{}", local_addr).into();
-        let cancel_event = PermanentEvent::new();
-        let handle = std::thread::spawn({
-            let cancel_event = cancel_event.clone();
-            move || {
-                smol::block_on(smol::future::or(cancel_event.wait(), async move {
-                    let (mut stream, _) = listener.accept().await.unwrap();
-                    smol::io::copy(read, &mut stream).await.unwrap();
-                }))
-            }
+
+        let timer = smol::Timer::at(timeout);
+
+        let task = smol::spawn(async move {
+            let stream = smol::future::or(
+                async move {
+                    let (stream, _) = listener.accept().await?;
+                    Ok(stream)
+                },
+                async move {
+                    timer.await;
+                    Err(anyhow::anyhow!("Connection timed out."))
+                },
+            )
+            .await?;
+            smol::io::copy(read, stream).await?;
+            Ok(())
         });
-        Ok(Self {
-            thread: handle,
-            url,
-        })
+        Ok(Self { task, local_addr })
     }
 }
 
 impl InputState for TcpInputState {
-    fn url(&self) -> &OsStr {
-        &self.url
+    fn url(&self) -> OsString {
+        format!("tcp://{}", self.local_addr).into()
+    }
+
+    async fn wait(self) -> anyhow::Result<()> {
+        self.task.await?;
+        Ok(())
     }
 }
 
-pub enum Input<'a> {
-    File(&'a Path),
-    Buffer(&'a [u8]),
+pub trait Input {
+    fn create_state(
+        self,
+    ) -> impl std::future::Future<Output = anyhow::Result<impl InputState>> + Send;
 }
 
-impl<'a> Input<'a> {
-    fn create_state<'b>(&'b self) -> Box<dyn InputState + 'b> {
-        match self {
-            Input::File(path) => Box::new(SimpleInputState(path.as_os_str().to_owned())),
-            Input::Buffer(buffer) => {
-                todo!()
-            }
-        }
+impl<T> Input for T
+where
+    T: AsRef<Path> + Send,
+{
+    async fn create_state(self) -> anyhow::Result<impl InputState> {
+        Ok(SimpleInputState(self.as_ref().as_os_str().to_owned()))
     }
 }
 
+pub struct BytesInput<S>(S);
+
+impl<S> Input for BytesInput<S>
+where
+    S: AsRef<[u8]> + Send + Unpin + 'static,
+{
+    async fn create_state(self) -> anyhow::Result<impl InputState> {
+        TcpInputState::new(
+            smol::io::Cursor::new(self.0),
+            std::time::Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .await
+    }
+}
+
+pub struct ReaderInput<R>(R);
+
+impl<R> ReaderInput<R>
+where
+    R: smol::io::AsyncRead + Send + Unpin + 'static,
+{
+    pub fn new(reader: R) -> Self {
+        Self(reader)
+    }
+}
+
+impl<R> Input for ReaderInput<R>
+where
+    R: smol::io::AsyncRead + Send + Unpin + 'static,
+{
+    async fn create_state(self) -> anyhow::Result<impl InputState> {
+        TcpInputState::new(
+            self.0,
+            std::time::Instant::now() + std::time::Duration::from_millis(100),
+        )
+        .await
+    }
+}
 pub struct FfmpegTool {
     binary_path: std::path::PathBuf,
 }
@@ -181,27 +144,32 @@ impl FfmpegTool {
         FfmpegTool { binary_path: path }
     }
 
-    pub fn convert(
+    pub async fn convert<I>(
         &self,
-        input: &Path,
+        input: I,
         output: &Path,
         progress: &mut dyn ProgressListener,
-    ) -> anyhow::Result<()> {
-        let mut command = std::process::Command::new(&self.binary_path);
-        let child = command
+    ) -> anyhow::Result<()>
+    where
+        I: Input,
+    {
+        let mut command = smol::process::Command::new(&self.binary_path);
+        let input_state = input.create_state().await?;
+        let mut child = command
             .arg("-nostdin")
             .arg("-progress")
             .arg("pipe:1")
             .arg("-i")
-            .arg(input)
+            .arg(input_state.url())
             .arg(output)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
-        let mut child = CloseOnDropChildProcess { child };
-        let stdout = BufReader::new(child.child.stdout.as_mut().expect("Failed to create pipe."));
+        let stdout =
+            smol::io::BufReader::new(child.stdout.as_mut().expect("Failed to create pipe."));
         let mut progress_info = Vec::new();
-        for line in stdout.lines() {
+        let mut lines = stdout.lines();
+        while let Some(line) = lines.next().await {
             let line = line?;
             if let Some(eq_index) = line.find('=') {
                 let key = &line[..eq_index];
@@ -216,7 +184,8 @@ impl FfmpegTool {
                 }
             }
         }
-        let status = child.child.wait()?;
+        let status = child.status().await?;
+        input_state.wait().await?;
 
         anyhow::ensure!(
             status.success(),
