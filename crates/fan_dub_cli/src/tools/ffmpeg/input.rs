@@ -1,5 +1,7 @@
 use std::{ffi::OsString, net::SocketAddr, path::Path};
 
+use super::tcp;
+
 /// A trait that maintains state for an FFMpeg input.
 ///
 /// Returns the URL of the input. This object should be alive during the
@@ -32,26 +34,11 @@ impl TcpInputState {
         read: R,
         timeout: std::time::Instant,
     ) -> anyhow::Result<Self> {
-        let listener = smol::net::TcpListener::bind("127.0.0.1:0").await?;
-        let local_addr = listener.local_addr()?;
-
-        let timer = smol::Timer::at(timeout);
-
-        let task = smol::spawn(async move {
-            let stream = smol::future::or(
-                async move {
-                    let (stream, _) = listener.accept().await?;
-                    Ok(stream)
-                },
-                async move {
-                    timer.await;
-                    Err(anyhow::anyhow!("Connection timed out."))
-                },
-            )
-            .await?;
+        let (local_addr, task) = tcp::start_tcp(timeout, async move |stream| {
             smol::io::copy(read, stream).await?;
             Ok(())
-        });
+        })
+        .await?;
         Ok(Self { task, local_addr })
     }
 }

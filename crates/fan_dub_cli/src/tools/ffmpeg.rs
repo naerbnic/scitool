@@ -4,6 +4,7 @@ use smol::{io::AsyncBufReadExt, stream::StreamExt};
 
 mod input;
 mod output;
+mod tcp;
 
 pub use input::{Input, ReaderInput};
 pub use output::Output;
