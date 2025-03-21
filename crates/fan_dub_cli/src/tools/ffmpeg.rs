@@ -258,27 +258,32 @@ impl FfmpegTool {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
-        let stdout =
-            smol::io::BufReader::new(child.stdout.as_mut().expect("Failed to create pipe."));
-        let mut progress_info = Vec::new();
-        let mut lines = stdout.lines();
-        while let Some(line) = lines.next().await {
-            let line = line?;
-            if let Some(eq_index) = line.find('=') {
-                let key = &line[..eq_index];
-                let value = &line[eq_index + 1..];
-                if key == "progress" {
-                    let done = value.trim() == "end";
-                    progress.on_progress(done, progress_info);
-                    progress_info = Vec::new();
-                } else {
-                    let value = value.trim().to_string();
-                    progress_info.push((key.to_string(), value));
+        let stdout = smol::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
+        let status = futures::join!(
+            child.status(),
+            input_state.wait(),
+            output_state.wait(),
+            async move {
+                let mut lines = stdout.lines();
+                let mut progress_info = Vec::new();
+                while let Some(line) = lines.next().await {
+                    let line = line.unwrap();
+                    if let Some(eq_index) = line.find('=') {
+                        let key = &line[..eq_index];
+                        let value = &line[eq_index + 1..];
+                        if key == "progress" {
+                            let done = value.trim() == "end";
+                            progress.on_progress(done, progress_info);
+                            progress_info = Vec::new();
+                        } else {
+                            let value = value.trim().to_string();
+                            progress_info.push((key.to_string(), value));
+                        }
+                    }
                 }
             }
-        }
-        let (status, _) = futures::join!(child.status(), input_state.wait(),);
-        let status = status?;
+        )
+        .0?;
 
         anyhow::ensure!(
             status.success(),
