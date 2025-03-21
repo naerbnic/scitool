@@ -1,0 +1,9 @@
+[package]
+name = "scitool-fan-dub-cli"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { version = "1.0.97", features = ["backtrace"] }
+async-net = "2.0.0"
+smol = "2.0.2"
