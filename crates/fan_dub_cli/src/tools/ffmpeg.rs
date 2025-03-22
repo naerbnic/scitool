@@ -2,6 +2,7 @@ use input::InputState;
 use output::OutputState;
 use smol::{io::AsyncBufReadExt, stream::StreamExt};
 
+mod formats;
 mod input;
 mod output;
 mod tcp;
