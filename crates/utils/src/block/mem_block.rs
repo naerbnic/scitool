@@ -108,6 +108,7 @@ impl AsRef<[u8]> for MemBlock {
 
 impl Buffer<'static> for MemBlock {
     type Idx = usize;
+    type Guard<'g> = &'g [u8];
     fn size(&self) -> usize {
         self.size
     }
@@ -142,6 +143,10 @@ impl Buffer<'static> for MemBlock {
             at
         );
         (self.clone().sub_buffer(..at), self.sub_buffer(at..))
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        &self.data[self.start..][..self.size]
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {

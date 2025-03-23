@@ -122,18 +122,21 @@ impl_narrowed_index!(u64);
 ///
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
-pub trait Buffer<'a>: Sized + AsRef<[u8]> {
+pub trait Buffer<'a>: Sized {
     type Idx: Index;
+    type Guard<'g>: AsRef<[u8]>
+    where
+        Self: 'g;
 
     fn size(&self) -> usize;
     fn sub_buffer<R: RangeBounds<Self::Idx>>(self, range: R) -> Self;
     fn split_at(self, at: Self::Idx) -> (Self, Self);
+    fn lock(&self) -> Self::Guard<'_>;
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)>;
-
     // Functions that can be implemented in terms of the above functions.
+    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)>;
 
     fn is_empty(&self) -> bool {
         self.size() == 0
@@ -198,6 +201,10 @@ pub trait Buffer<'a>: Sized + AsRef<[u8]> {
 
 impl<'a> Buffer<'a> for &'a [u8] {
     type Idx = usize;
+    type Guard<'g>
+        = &'g [u8]
+    where
+        Self: 'g;
     fn size(&self) -> usize {
         self.len()
     }
@@ -220,6 +227,10 @@ impl<'a> Buffer<'a> for &'a [u8] {
         (*self).split_at(at)
     }
 
+    fn lock(&self) -> Self::Guard<'_> {
+        self
+    }
+
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
         let (first, second) = self.split_at(T::SIZE);
         T::parse(first).map(|value| (value, second))
@@ -239,6 +250,11 @@ impl<'a> Buffer<'a> for &'a [u8] {
 
 impl<'a> Buffer<'a> for &'a mut [u8] {
     type Idx = usize;
+    type Guard<'g>
+        = &'g [u8]
+    where
+        Self: 'g;
+
     fn size(&self) -> usize {
         self.len()
     }
@@ -258,6 +274,10 @@ impl<'a> Buffer<'a> for &'a mut [u8] {
 
     fn split_at(self, at: usize) -> (Self, Self) {
         self.split_at_mut(at)
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        &*self
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
@@ -306,21 +326,17 @@ impl<Idx, B> std::ops::Deref for NarrowedIndexBuffer<'_, Idx, B> {
     }
 }
 
-impl<'a, Idx, B> AsRef<[u8]> for NarrowedIndexBuffer<'a, Idx, B>
-where
-    B: Buffer<'a>,
-{
-    fn as_ref(&self) -> &[u8] {
-        self.buffer.as_ref()
-    }
-}
-
 impl<'a, Idx, B> Buffer<'a> for NarrowedIndexBuffer<'a, Idx, B>
 where
     B: Buffer<'a>,
     Idx: NarrowedIndex + num::Zero,
 {
     type Idx = Idx;
+
+    type Guard<'g>
+        = B::Guard<'g>
+    where
+        Self: 'g;
 
     fn size(&self) -> usize {
         self.buffer.size()
@@ -356,6 +372,10 @@ where
                 _phantom: std::marker::PhantomData,
             },
         )
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        self.buffer.lock()
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {

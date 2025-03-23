@@ -1,5 +1,5 @@
 use sci_utils::{
-    block::{MemBlock, BlockReader},
+    block::{BlockReader, MemBlock},
     buffer::{Buffer, BufferOpsExt},
     data_reader::DataReader,
     numbers::modify_u16_le_in_slice,
@@ -141,7 +141,7 @@ fn extract_relocation_block<B>(data: B) -> B
 where
     B: Buffer<'static, Idx = u16>,
 {
-    let relocation_offset = data.as_ref().read_u16_le_at(0);
+    let relocation_offset = data.lock().as_ref().read_u16_le_at(0);
     data.sub_buffer(relocation_offset..)
 }
 
@@ -169,8 +169,8 @@ impl LoadedScript {
         // Concat the two blocks.
         //
         // It may be possible to get rid of the relocation block, but it's not clear.
-        let mut loaded_script: Vec<u8> = script_data.as_ref().to_vec();
-        loaded_script.extend_from_slice(heap_data.as_ref());
+        let mut loaded_script: Vec<u8> = script_data.lock().as_ref().to_vec();
+        loaded_script.extend_from_slice(heap_data.lock().as_ref());
 
         {
             let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
