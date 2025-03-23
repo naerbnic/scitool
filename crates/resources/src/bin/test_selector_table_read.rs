@@ -1,7 +1,6 @@
 use sci_resources::{
     ResourceId, ResourceType, file::open_game_resources, types::selector_table::SelectorTable,
 };
-use sci_utils::buffer::Buffer;
 
 fn main() {
     let arg = std::env::args().nth(1).unwrap();
@@ -14,6 +13,6 @@ fn main() {
         .unwrap();
 
     let selector_table =
-        SelectorTable::load_from(selector_table_resource.load_data().unwrap().narrow()).unwrap();
+        SelectorTable::load_from(selector_table_resource.load_data().unwrap()).unwrap();
     println!("{:#?}", selector_table);
 }

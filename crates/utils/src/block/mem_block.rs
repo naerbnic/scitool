@@ -1,27 +1,8 @@
-use std::{io, ops::RangeBounds, sync::Arc};
+use std::{io, sync::Arc};
 
-use crate::buffer::{Buffer, FromFixedBytes};
+use crate::buffer::{Buffer, BufferExt, FromFixedBytes};
 
 use super::{ReadError, ReadResult};
-
-fn get_range_ends<T, R: RangeBounds<T>>(range: R, size: T) -> (T, T)
-where
-    T: num::Num + Copy,
-{
-    let start = match range.start_bound() {
-        std::ops::Bound::Included(&start) => start,
-        std::ops::Bound::Excluded(&start) => start + T::one(),
-        std::ops::Bound::Unbounded => T::zero(),
-    };
-
-    let end = match range.end_bound() {
-        std::ops::Bound::Included(&end) => end + T::one(),
-        std::ops::Bound::Excluded(&end) => end,
-        std::ops::Bound::Unbounded => size,
-    };
-
-    (start, end)
-}
 
 /// An in-memory block of data that is cheap to clone, and create subranges of.
 #[derive(Clone)]
@@ -106,15 +87,15 @@ impl AsRef<[u8]> for MemBlock {
     }
 }
 
-impl Buffer<'static> for MemBlock {
-    type Idx = usize;
+impl Buffer for MemBlock {
     type Guard<'g> = &'g [u8];
-    fn size(&self) -> usize {
-        self.size
+    fn size(&self) -> u64 {
+        self.size.try_into().unwrap()
     }
 
-    fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
-        let (start, end) = get_range_ends(range, self.size);
+    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
+        let start: usize = start.try_into().unwrap();
+        let end: usize = end.try_into().unwrap();
 
         // Actual start/end are offsets from self.start
         let start = self.start + start;
@@ -135,9 +116,9 @@ impl Buffer<'static> for MemBlock {
         }
     }
 
-    fn split_at(self, at: usize) -> (Self, Self) {
+    fn split_at(self, at: u64) -> (Self, Self) {
         assert!(
-            at <= self.size,
+            at <= self.size.try_into().unwrap(),
             "Tried to split a block of size {} at offset {}",
             self.size,
             at
@@ -152,7 +133,8 @@ impl Buffer<'static> for MemBlock {
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
         let value_bytes: &[u8] = &self[..T::SIZE];
         let value = T::parse(value_bytes)?;
-        let remaining = self.sub_buffer(T::SIZE..);
+        let item_size: u64 = T::SIZE.try_into().unwrap();
+        let remaining = self.sub_buffer(item_size..);
         Ok((value, remaining))
     }
 }

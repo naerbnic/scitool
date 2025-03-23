@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use mem_loader::LoadedScript;
 use sci_resources::{ResourceType, file::ResourceSet};
-use sci_utils::buffer::Buffer;
 
 mod mem_loader;
 mod selectors;
@@ -55,7 +54,7 @@ impl ScriptLoader {
             ))
             .ok_or_else(|| anyhow::anyhow!("Selector table not found"))?
             .load_data()?;
-        let selectors = selectors::SelectorTable::load_from(selector_table_data.narrow())?;
+        let selectors = selectors::SelectorTable::load_from(selector_table_data)?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
@@ -68,8 +67,7 @@ impl ScriptLoader {
                 .ok_or_else(|| anyhow::anyhow!("Heap not found for script {}", script_num))?
                 .load_data()?;
 
-            let loaded_script =
-                mem_loader::LoadedScript::load(&selectors, &script_data.narrow(), &heap.narrow())?;
+            let loaded_script = mem_loader::LoadedScript::load(&selectors, &script_data, &heap)?;
 
             loaded_scripts.insert(ScriptId(script_num), loaded_script);
         }

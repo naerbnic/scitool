@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use sci_utils::{
-    block::{MemBlock, BlockReader},
-    buffer::Buffer,
+    block::{BlockReader, MemBlock},
+    buffer::BufferExt,
     data_reader::DataReader,
 };
 

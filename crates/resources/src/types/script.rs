@@ -1,6 +1,6 @@
 use sci_utils::{
     block::{BlockReader, MemBlock},
-    buffer::{Buffer, BufferOpsExt, FromFixedBytes},
+    buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
     data_reader::DataReader,
     numbers::{modify_u16_le_in_slice, read_u16_le_from_slice},
 };
@@ -11,7 +11,7 @@ use super::selector_table::SelectorTable;
 
 fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> anyhow::Result<()>
 where
-    B: Buffer<'static, Idx = u16>,
+    B: Buffer,
 {
     let (relocation_entries, rest) = relocations.read_length_delimited_records::<u16>()?;
     anyhow::ensure!(rest.is_empty());
@@ -53,9 +53,7 @@ impl Heap {
             .clone()
             .sub_buffer(..relocations_offset as usize);
         let num_locals = heap_data.read_u16_le_at(2);
-        let (locals, mut heap_data) = heap_data
-            .sub_buffer(4..)
-            .split_at((num_locals * 2) as usize);
+        let (locals, mut heap_data) = heap_data.sub_buffer(4..).split_at((num_locals * 2).into());
 
         let mut objects = Vec::new();
         // Find all objects
@@ -70,7 +68,7 @@ impl Heap {
 
             anyhow::ensure!(magic == 0x1234u16);
             let object_size = heap_data.read_u16_le_at(2);
-            let (object_data, next_heap_data) = heap_data.split_at((object_size * 2) as usize);
+            let (object_data, next_heap_data) = heap_data.split_at((object_size * 2).into());
             let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
             println!("Object: {:?}", new_obj);
             objects.push(new_obj);
@@ -88,7 +86,8 @@ impl Heap {
             let Some(null_pos) = heap_data.iter().position(|b| b == &0) else {
                 anyhow::bail!("No null terminator found in string heap");
             };
-            let (string_data, next_heap_data) = heap_data.split_at(null_pos + 1);
+            let (string_data, next_heap_data) =
+                heap_data.split_at((null_pos + 1).try_into().unwrap());
             println!(
                 "String @{:04X}: {:?}",
                 resource_data.offset_in(&string_data),
@@ -261,7 +260,7 @@ impl Script {
             let mut reader = BlockReader::new(data.clone());
             reader.read_u16_le()?
         };
-        let (script_data, relocations) = data.clone().split_at(relocation_offset as usize);
+        let (script_data, relocations) = data.clone().split_at(relocation_offset.into());
         let (exports, _) = script_data
             .sub_buffer(2..)
             .read_length_delimited_records::<u16>()?;
@@ -276,7 +275,7 @@ impl Script {
 
 fn extract_relocation_block<B>(data: B) -> B
 where
-    B: Buffer<'static, Idx = u16>,
+    B: Buffer,
 {
     let relocation_offset = data.lock().get_u16_le();
     data.sub_buffer(relocation_offset..)
@@ -299,7 +298,7 @@ pub fn load_script<B>(
     heap_data: &B,
 ) -> anyhow::Result<LoadedScript>
 where
-    B: Buffer<'static, Idx = u16> + Clone,
+    B: Buffer + Clone,
 {
     let heap_offset = script_data.size();
     anyhow::ensure!(heap_offset % 2 == 0);
@@ -310,7 +309,8 @@ where
     loaded_script.put(heap_data.lock());
 
     {
-        let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
+        let (script_data_slice, heap_data_slice) =
+            loaded_script.split_at_mut(heap_offset.try_into().unwrap());
         let script_relocation_block = extract_relocation_block(script_data.clone());
         let heap_relocation_block = extract_relocation_block(heap_data.clone());
 

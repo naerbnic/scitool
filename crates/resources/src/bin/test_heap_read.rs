@@ -3,7 +3,6 @@ use sci_resources::{
     file::open_game_resources,
     types::{class_species::ClassSpeciesTable, script::load_script, selector_table::SelectorTable},
 };
-use sci_utils::buffer::Buffer;
 
 fn main() {
     let arg = std::env::args().nth(1).unwrap();
@@ -16,7 +15,7 @@ fn main() {
         .unwrap();
 
     let species_table =
-        ClassSpeciesTable::load_from(species_table_resource.load_data().unwrap().narrow()).unwrap();
+        ClassSpeciesTable::load_from(species_table_resource.load_data().unwrap()).unwrap();
 
     println!("Species Table: {:#?}", species_table);
 
@@ -25,7 +24,7 @@ fn main() {
         .unwrap();
 
     let selector_table =
-        SelectorTable::load_from(selector_table_resource.load_data().unwrap().narrow()).unwrap();
+        SelectorTable::load_from(selector_table_resource.load_data().unwrap()).unwrap();
 
     for script_res in resources.resources_of_type(sci_resources::ResourceType::Script) {
         println!("Script Id: {:?}", script_res.id());
@@ -36,8 +35,8 @@ fn main() {
         let heap_res = resources.get_resource(&resource_id).unwrap();
         let _loaded_script = load_script(
             &selector_table,
-            &script_res.load_data().unwrap().narrow(),
-            &heap_res.load_data().unwrap().narrow(),
+            &script_res.load_data().unwrap(),
+            &heap_res.load_data().unwrap(),
         )
         .unwrap();
     }

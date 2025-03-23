@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{buffer::Buffer, data_reader::DataReader};
+use crate::{buffer::BufferExt, data_reader::DataReader};
 
 use super::{MemBlock, ReadError};
 
@@ -19,7 +19,8 @@ impl BlockReader {
 
     /// Returns the portion of the block that has not yet been read.
     pub fn into_rest(self) -> MemBlock {
-        self.block.sub_buffer(self.curr_pos..)
+        let curr_pos: u64 = self.curr_pos.try_into().unwrap();
+        self.block.sub_buffer(curr_pos..)
     }
 }
 

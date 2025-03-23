@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use sci_utils::buffer::Buffer;
+use sci_utils::buffer::{Buffer, BufferExt};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -71,7 +71,7 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub fn load_from<'a, B: Buffer<'a, Idx = u16> + Clone>(data: B) -> anyhow::Result<Self> {
+    pub fn load_from<B: Buffer + Clone>(data: B) -> anyhow::Result<Self> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
         let (num_entries_minus_one, entries_table) = data.clone().read_value::<u16>()?;

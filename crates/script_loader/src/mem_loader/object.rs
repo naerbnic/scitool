@@ -1,6 +1,6 @@
 use sci_utils::{
     block::MemBlock,
-    buffer::{Buffer, BufferOpsExt, FromFixedBytes},
+    buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
     numbers::read_u16_le_from_slice,
 };
 

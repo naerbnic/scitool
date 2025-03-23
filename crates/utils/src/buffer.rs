@@ -124,15 +124,14 @@ impl_narrowed_index!(u64);
 ///
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
-pub trait Buffer<'a>: Sized {
-    type Idx: Index;
+pub trait Buffer: Sized {
     type Guard<'g>: bytes::Buf
     where
         Self: 'g;
 
-    fn size(&self) -> usize;
-    fn sub_buffer<R: RangeBounds<Self::Idx>>(self, range: R) -> Self;
-    fn split_at(self, at: Self::Idx) -> (Self, Self);
+    fn size(&self) -> u64;
+    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self;
+    fn split_at(self, at: u64) -> (Self, Self);
     fn lock(&self) -> Self::Guard<'_>;
 
     /// Reads a value from the front of the buffer, returning the value and the
@@ -146,13 +145,12 @@ pub trait Buffer<'a>: Sized {
 
     /// Splits the block into chunks of the given size. Panics if the block size
     /// is not a multiple of the chunk size.
-    fn split_chunks(self, chunk_size: usize) -> Vec<Self> {
+    fn split_chunks(self, chunk_size: u64) -> Vec<Self> {
         let mut remaining = self;
         let mut chunks = Vec::new();
-        while remaining.size() != 0usize {
+        while remaining.size() != 0 {
             assert!(remaining.size() >= chunk_size);
-            let (chunk, new_remaining) =
-                remaining.split_at(Self::Idx::narrow_from_usize(chunk_size).unwrap());
+            let (chunk, new_remaining) = remaining.split_at(chunk_size);
             chunks.push(chunk);
             remaining = new_remaining;
         }
@@ -161,8 +159,9 @@ pub trait Buffer<'a>: Sized {
 
     fn split_values<T: FromFixedBytes>(self) -> anyhow::Result<Vec<T>> {
         let buf_size = self.size();
-        assert!(buf_size % T::SIZE == 0);
-        let (values, rest) = self.read_values::<T>(buf_size / T::SIZE)?;
+        let item_size: u64 = T::SIZE.try_into().unwrap();
+        assert!((buf_size % item_size) == 0);
+        let (values, rest) = self.read_values::<T>((buf_size / item_size).try_into().unwrap())?;
         assert!(rest.is_empty());
         Ok(values)
     }
@@ -180,10 +179,10 @@ pub trait Buffer<'a>: Sized {
         Ok((values, remaining))
     }
 
-    fn read_length_delimited_block(self, item_size: usize) -> anyhow::Result<(Self, Self)> {
+    fn read_length_delimited_block(self, item_size: u64) -> anyhow::Result<(Self, Self)> {
         let (num_blocks, next) = self.read_value::<u16>()?;
-        let total_block_size = (num_blocks as usize).checked_mul(item_size).unwrap();
-        Ok(next.split_at(Self::Idx::narrow_from_usize(total_block_size).unwrap()))
+        let total_block_size = (num_blocks as u64).checked_mul(item_size).unwrap();
+        Ok(next.split_at(total_block_size))
     }
 
     /// Reads a sequence of values, where the first value is a little endian
@@ -195,44 +194,29 @@ pub trait Buffer<'a>: Sized {
     }
 
     fn to_vec(&self) -> Vec<u8> {
-        let mut vec = Vec::with_capacity(self.size());
+        let mut vec = Vec::with_capacity(self.size().try_into().unwrap());
         vec.put(self.lock());
         vec
     }
-
-    // Functions to create other dervied buffers.
-
-    fn narrow<Idx: NarrowedIndex>(self) -> NarrowedIndexBuffer<'a, Idx, Self> {
-        NarrowedIndexBuffer::new(self)
-    }
 }
 
-impl<'a> Buffer<'a> for &'a [u8] {
-    type Idx = usize;
+impl Buffer for &[u8] {
     type Guard<'g>
         = &'g [u8]
     where
         Self: 'g;
-    fn size(&self) -> usize {
-        self.len()
+    fn size(&self) -> u64 {
+        self.len().try_into().unwrap()
     }
 
-    fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
-        let start = match range.start_bound() {
-            Bound::Included(&start) => start,
-            Bound::Excluded(&start) => start + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Bound::Included(&end) => end + 1,
-            Bound::Excluded(&end) => end,
-            Bound::Unbounded => self.len(),
-        };
+    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
+        let start = start.try_into().unwrap();
+        let end = end.try_into().unwrap();
         &self[start..end]
     }
 
-    fn split_at(self, at: usize) -> (Self, Self) {
-        (*self).split_at(at)
+    fn split_at(self, at: u64) -> (Self, Self) {
+        (*self).split_at(at.try_into().unwrap())
     }
 
     fn lock(&self) -> Self::Guard<'_> {
@@ -256,32 +240,23 @@ impl<'a> Buffer<'a> for &'a [u8] {
     }
 }
 
-impl<'a> Buffer<'a> for &'a mut [u8] {
-    type Idx = usize;
+impl Buffer for &mut [u8] {
     type Guard<'g>
         = &'g [u8]
     where
         Self: 'g;
 
-    fn size(&self) -> usize {
-        self.len()
+    fn size(&self) -> u64 {
+        self.len().try_into().unwrap()
     }
-    fn sub_buffer<R: RangeBounds<usize>>(self, range: R) -> Self {
-        let start = match range.start_bound() {
-            Bound::Included(&start) => start,
-            Bound::Excluded(&start) => start + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Bound::Included(&end) => end + 1,
-            Bound::Excluded(&end) => end,
-            Bound::Unbounded => self.len(),
-        };
+    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
+        let start = start.try_into().unwrap();
+        let end = end.try_into().unwrap();
         &mut self[start..end]
     }
 
-    fn split_at(self, at: usize) -> (Self, Self) {
-        self.split_at_mut(at)
+    fn split_at(self, at: u64) -> (Self, Self) {
+        self.split_at_mut(at.try_into().unwrap())
     }
 
     fn lock(&self) -> Self::Guard<'_> {
@@ -294,107 +269,24 @@ impl<'a> Buffer<'a> for &'a mut [u8] {
     }
 }
 
-pub struct NarrowedIndexBuffer<'a, Idx, B> {
-    buffer: B,
-    _phantom: std::marker::PhantomData<(Idx, &'a u8)>,
-}
-
-impl<Idx, B> Clone for NarrowedIndexBuffer<'_, Idx, B>
-where
-    B: Clone,
-{
-    fn clone(&self) -> Self {
-        NarrowedIndexBuffer {
-            buffer: self.buffer.clone(),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'a, Idx, B> NarrowedIndexBuffer<'a, Idx, B>
-where
-    B: Buffer<'a>,
-    Idx: NarrowedIndex,
-{
-    pub fn new(buffer: B) -> Self {
-        assert!(buffer.size() <= Idx::widened_max_size());
-        assert!(B::Idx::BITS >= Idx::BITS);
-        NarrowedIndexBuffer {
-            buffer,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<Idx, B> std::ops::Deref for NarrowedIndexBuffer<'_, Idx, B> {
-    type Target = B;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
-    }
-}
-
-impl<'a, Idx, B> Buffer<'a> for NarrowedIndexBuffer<'a, Idx, B>
-where
-    B: Buffer<'a>,
-    Idx: NarrowedIndex + num::Zero,
-{
-    type Idx = Idx;
-
-    type Guard<'g>
-        = B::Guard<'g>
+pub trait BufferExt: Buffer {
+    fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> Self
     where
-        Self: 'g;
-
-    fn size(&self) -> usize {
-        self.buffer.size()
-    }
-
-    fn sub_buffer<R: RangeBounds<Self::Idx>>(self, range: R) -> Self {
-        let start: Bound<B::Idx> = match range.start_bound() {
-            Bound::Included(&start) => Bound::Included(start.widen_to()),
-            Bound::Excluded(&start) => Bound::Excluded(start.widen_to()),
-            Bound::Unbounded => Bound::Unbounded,
+        T: TryInto<u64> + num::Num + Copy,
+        T::Error: std::fmt::Debug,
+    {
+        let start = match range.start_bound() {
+            Bound::Included(&start) => start.try_into().unwrap(),
+            Bound::Excluded(&start) => (start + T::one()).try_into().unwrap(),
+            Bound::Unbounded => 0,
         };
-
-        let end: Bound<B::Idx> = match range.end_bound() {
-            Bound::Included(&end) => Bound::Included(end.widen_to()),
-            Bound::Excluded(&end) => Bound::Excluded(end.widen_to()),
-            Bound::Unbounded => Bound::Unbounded,
+        let end = match range.end_bound() {
+            Bound::Included(&end) => (end + T::one()).try_into().unwrap(),
+            Bound::Excluded(&end) => end.try_into().unwrap(),
+            Bound::Unbounded => self.size(),
         };
-        NarrowedIndexBuffer {
-            buffer: self.buffer.sub_buffer((start, end)),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-
-    fn split_at(self, at: Idx) -> (Self, Self) {
-        let (first, second) = self.buffer.split_at(at.widen_to());
-        (
-            NarrowedIndexBuffer {
-                buffer: first,
-                _phantom: std::marker::PhantomData,
-            },
-            NarrowedIndexBuffer {
-                buffer: second,
-                _phantom: std::marker::PhantomData,
-            },
-        )
-    }
-
-    fn lock(&self) -> Self::Guard<'_> {
-        self.buffer.lock()
-    }
-
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
-        self.buffer.read_value().map(|(value, remaining)| {
-            (
-                value,
-                NarrowedIndexBuffer {
-                    buffer: remaining,
-                    _phantom: std::marker::PhantomData,
-                },
-            )
-        })
+        self.sub_buffer_from_range(start, end)
     }
 }
+
+impl<T: Buffer> BufferExt for T {}

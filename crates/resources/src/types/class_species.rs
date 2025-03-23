@@ -32,7 +32,7 @@ pub struct ClassSpeciesTable {
 }
 
 impl ClassSpeciesTable {
-    pub fn load_from<'a, B: Buffer<'a, Idx = u16> + Clone>(data: B) -> anyhow::Result<Self> {
+    pub fn load_from<B: Buffer + Clone>(data: B) -> anyhow::Result<Self> {
         let species_entries = data.split_values::<RawClassSpeciesEntry>()?;
 
         Ok(Self {
