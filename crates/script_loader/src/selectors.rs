@@ -87,11 +87,7 @@ impl SelectorTable {
                     let entry_data = data.clone().sub_buffer(selector_offset..);
                     let (string_length, entry_data) = entry_data.read_value::<u16>()?;
                     let name = SharedString::new(String::from_utf8(
-                        entry_data
-                            .sub_buffer(..string_length)
-                            .lock()
-                            .as_ref()
-                            .to_vec(),
+                        entry_data.sub_buffer(..string_length).to_vec(),
                     )?);
                     vacant_entry.insert(name).clone()
                 }

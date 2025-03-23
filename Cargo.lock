@@ -881,6 +881,7 @@ name = "sci-resources"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "sci-utils",
  "thiserror 2.0.12",
@@ -935,6 +936,7 @@ name = "scitool-script-loader"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "sci-resources",
  "sci-utils",
 ]

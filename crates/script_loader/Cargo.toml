@@ -5,5 +5,6 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.95"
+bytes = "1.10.1"
 sci-resources = { path = "../resources" }
 sci-utils = { path = "../utils" }

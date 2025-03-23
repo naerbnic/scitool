@@ -1,5 +1,7 @@
 use std::ops::{Bound, RangeBounds};
 
+use bytes::BufMut;
+
 pub trait BufferOpsExt {
     fn read_u16_le_at(&self, offset: usize) -> u16;
 }
@@ -124,7 +126,7 @@ impl_narrowed_index!(u64);
 /// into the buffer.
 pub trait Buffer<'a>: Sized {
     type Idx: Index;
-    type Guard<'g>: AsRef<[u8]>
+    type Guard<'g>: bytes::Buf
     where
         Self: 'g;
 
@@ -190,6 +192,12 @@ pub trait Buffer<'a>: Sized {
         let (num_records, next) = self.read_value::<u16>()?;
         let (values, next) = next.read_values::<T>(num_records as usize)?;
         Ok((values, next))
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        let mut vec = Vec::with_capacity(self.size());
+        vec.put(self.lock());
+        vec
     }
 
     // Functions to create other dervied buffers.
@@ -277,7 +285,7 @@ impl<'a> Buffer<'a> for &'a mut [u8] {
     }
 
     fn lock(&self) -> Self::Guard<'_> {
-        &*self
+        self
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {

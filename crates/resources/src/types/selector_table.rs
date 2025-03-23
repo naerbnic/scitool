@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use bytes::{Buf, BufMut};
 use sci_utils::buffer::Buffer;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -82,9 +83,11 @@ impl SelectorTable {
                 hash_map::Entry::Vacant(vacant_entry) => {
                     let entry_data = data.clone().sub_buffer(selector_offset..);
                     let (string_length, entry_data) = entry_data.read_value::<u16>()?;
-                    let name = SharedString::new(String::from_utf8(
-                        entry_data.sub_buffer(..string_length).lock().as_ref().to_vec(),
-                    )?);
+                    let str_buffer = entry_data.sub_buffer(..string_length);
+                    let str_guard = str_buffer.lock();
+                    let mut str_data = Vec::with_capacity(str_guard.remaining());
+                    str_data.put(str_guard);
+                    let name = SharedString::new(String::from_utf8(str_data)?);
                     vacant_entry.insert(name).clone()
                 }
             };
