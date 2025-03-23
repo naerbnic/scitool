@@ -11,13 +11,17 @@ use super::{ReadError, ReadResult};
 pub struct MemBlock {
     start: usize,
     size: usize,
-    data: Arc<Vec<u8>>,
+    data: Arc<dyn AsRef<[u8]>>,
 }
 
 impl MemBlock {
     /// Create the block from a vector of bytes.
     pub fn from_vec(data: Vec<u8>) -> Self {
-        let size = data.len();
+        Self::from_slice_owner(data.into_boxed_slice())
+    }
+
+    pub fn from_slice_owner<T: AsRef<[u8]> + 'static>(data: T) -> Self {
+        let size = data.as_ref().len();
         Self {
             start: 0,
             size,
@@ -66,7 +70,7 @@ impl MemBlock {
             )));
         }
 
-        buf.copy_from_slice(&self.data[self.start + offset..][..buf.len()]);
+        buf.copy_from_slice(&self[offset..][..buf.len()]);
         Ok(())
     }
 
@@ -93,13 +97,13 @@ impl std::ops::Deref for MemBlock {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.data[self.start..][..self.size]
+        &(*self.data).as_ref()[self.start..][..self.size]
     }
 }
 
 impl AsRef<[u8]> for MemBlock {
     fn as_ref(&self) -> &[u8] {
-        &self.data[self.start..][..self.size]
+        &(*self.data).as_ref()[self.start..][..self.size]
     }
 }
 
@@ -144,7 +148,7 @@ impl Buffer for MemBlock {
     }
 
     fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
-        Ok(&self.data[self.start..][..self.size])
+        Ok(&self[..])
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
@@ -158,9 +162,7 @@ impl Buffer for MemBlock {
 
 impl std::fmt::Debug for MemBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_tuple("Block")
-            .field(&&self.data[self.start..][..self.size])
-            .finish()
+        f.debug_tuple("Block").field(&&self[..]).finish()
     }
 }
 
@@ -170,7 +172,7 @@ impl bytes::Buf for MemBlock {
     }
 
     fn chunk(&self) -> &[u8] {
-        &self.data[self.start..][..self.size]
+        &self[..]
     }
 
     fn advance(&mut self, cnt: usize) {
