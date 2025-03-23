@@ -5,9 +5,10 @@ mod block_source;
 mod core;
 mod error;
 mod lazy_block;
+mod mem_block;
 
 pub use block_reader::BlockReader;
 pub use block_source::BlockSource;
-pub use core::MemBlock;
 pub use error::{ReadError, ReadResult};
 pub use lazy_block::LazyBlock;
+pub use mem_block::MemBlock;

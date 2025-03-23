@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{MemBlock, LazyBlock, ReadError, ReadResult};
+use super::{LazyBlock, MemBlock, ReadError, ReadResult};
 
 trait BlockSourceImpl: Send + Sync {
     fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock>;
