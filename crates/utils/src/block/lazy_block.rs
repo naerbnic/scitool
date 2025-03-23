@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{MemBlock, BlockSource, ReadResult};
+use super::{BlockSource, MemBlock, ReadResult};
 
 trait LazyBlockImpl {
     fn open(&self) -> ReadResult<MemBlock>;
@@ -13,7 +13,8 @@ struct RangeLazyBlockImpl {
 
 impl LazyBlockImpl for RangeLazyBlockImpl {
     fn open(&self) -> ReadResult<MemBlock> {
-        self.source.open()
+        let buf = self.source.lock()?;
+        Ok(MemBlock::from_buf(buf))
     }
 
     fn size(&self) -> Option<u64> {

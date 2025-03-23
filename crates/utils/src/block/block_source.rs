@@ -7,23 +7,70 @@ use std::{
 
 use super::{LazyBlock, MemBlock, ReadError, ReadResult};
 
-trait BlockSourceImpl: Send + Sync {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock>;
+trait GuardImpl {
+    fn size(&self) -> usize;
+    fn chunk_at(&self, offset: usize) -> &[u8];
 }
 
-struct ReaderBlockSourceImpl<R>(Mutex<R>);
+#[derive(Clone)]
+struct GuardPtr<'a> {
+    pos: usize,
+    guard_impl: Arc<dyn GuardImpl + 'a>,
+}
+
+#[derive(Clone)]
+enum GuardContents<'a> {
+    Slice(&'a [u8]),
+    Ptr(GuardPtr<'a>),
+}
+
+trait BlockSourceImpl: Send + Sync {
+    fn lock(&self, start: u64, size: u64) -> ReadResult<GuardContents<'_>>;
+}
+
+struct MemBlockGuard {
+    block: MemBlock,
+}
+
+impl GuardImpl for MemBlockGuard {
+    fn size(&self) -> usize {
+        self.block.size()
+    }
+
+    fn chunk_at(&self, offset: usize) -> &[u8] {
+        assert!(offset < self.block.size());
+        &self.block[offset..]
+    }
+}
+
+struct ReaderBlockSourceImpl<R> {
+    reader: Mutex<R>,
+}
 
 impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
 where
     R: io::Read + io::Seek + Send,
 {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock> {
-        let mut reader = self.0.lock().unwrap();
+    fn lock(&self, start: u64, size: u64) -> ReadResult<GuardContents<'_>> {
+        let mut reader = self.reader.lock().unwrap();
         reader.seek(io::SeekFrom::Start(start))?;
         let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
         reader.read_exact(&mut data)?;
 
-        Ok(MemBlock::from_vec(data))
+        Ok(GuardContents::Ptr(GuardPtr {
+            pos: 0,
+            guard_impl: Arc::new(MemBlockGuard {
+                block: MemBlock::from_vec(data),
+            }),
+        }))
+    }
+}
+
+struct VecBlockSourceImpl(Vec<u8>);
+
+impl BlockSourceImpl for VecBlockSourceImpl {
+    fn lock(&self, _start: u64, _size: u64) -> ReadResult<GuardContents<'_>> {
+        Ok(GuardContents::Slice(&self.0))
     }
 }
 
@@ -45,8 +92,19 @@ impl BlockSource {
         Ok(Self {
             start: 0,
             size,
-            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(io::BufReader::new(file)))),
+            source_impl: Arc::new(ReaderBlockSourceImpl {
+                reader: Mutex::new(io::BufReader::new(file)),
+            }),
         })
+    }
+
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        let size = data.len() as u64;
+        Self {
+            start: 0,
+            size,
+            source_impl: Arc::new(VecBlockSourceImpl(data)),
+        }
     }
 
     /// Returns the size of the block source.
@@ -54,10 +112,9 @@ impl BlockSource {
         self.size
     }
 
-    /// Opens the block source, returning the block of data. Returns an error
-    /// if the data cannot be read and/or loaded.
-    pub fn open(&self) -> ReadResult<MemBlock> {
-        self.source_impl.read_block(self.start, self.size)
+    pub fn lock(&self) -> ReadResult<Guard<'_>> {
+        let guard = self.source_impl.lock(self.start, self.size)?;
+        Ok(Guard(guard))
     }
 
     /// Returns a sub-block source that represents a subrange of the current
@@ -111,5 +168,31 @@ impl BlockSource {
     /// be opened on demand.
     pub fn to_lazy_block(&self) -> LazyBlock {
         LazyBlock::from_block_source(self.clone())
+    }
+}
+
+#[derive(Clone)]
+pub struct Guard<'a>(GuardContents<'a>);
+
+impl bytes::Buf for Guard<'_> {
+    fn remaining(&self) -> usize {
+        match &self.0 {
+            GuardContents::Slice(slice) => slice.len(),
+            GuardContents::Ptr(ptr) => ptr.guard_impl.size() - ptr.pos,
+        }
+    }
+
+    fn chunk(&self) -> &[u8] {
+        match &self.0 {
+            GuardContents::Slice(slice) => slice,
+            GuardContents::Ptr(ptr) => ptr.guard_impl.chunk_at(ptr.pos),
+        }
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        match &mut self.0 {
+            GuardContents::Slice(slice) => slice.advance(cnt),
+            GuardContents::Ptr(ptr) => ptr.pos += cnt,
+        }
     }
 }

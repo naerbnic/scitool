@@ -42,6 +42,24 @@ impl MemBlock {
         }
     }
 
+    pub fn from_buf<B>(mut data: B) -> Self
+    where
+        B: bytes::Buf,
+    {
+        let mut new_vec = Vec::with_capacity(data.remaining());
+        while data.has_remaining() {
+            let chunk = data.chunk();
+            new_vec.copy_from_slice(chunk);
+            data.advance(chunk.len());
+        }
+        let size = new_vec.len();
+        Self {
+            start: 0,
+            size,
+            data: Arc::new(new_vec),
+        }
+    }
+
     /// Read the entirety of a reader into a block.
     pub fn from_reader<R>(mut reader: R) -> io::Result<Self>
     where

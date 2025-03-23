@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.91"
+bytes = "1.10.1"
 clap = { version = "4.5.20", features = ["derive"] }
 sci-utils = { path = "../utils" }
 thiserror = "2.0.12"

@@ -4,7 +4,7 @@ use crate::{ResourceId, ResourceType};
 use sci_utils::{
     block::{BlockSource, LazyBlock},
     compression::dcl::decompress_dcl,
-    data_reader::{DataReader, FromBlockSource},
+    data_reader::FromBlockSource,
 };
 
 use super::map::ResourceLocation;
@@ -28,13 +28,13 @@ impl FromBlockSource for RawEntryHeader {
 
     fn parse<R>(mut reader: R) -> io::Result<Self>
     where
-        R: DataReader,
+        R: bytes::Buf,
     {
-        let res_type = reader.read_u8()?;
-        let res_number = reader.read_u16_le()?;
-        let packed_size = reader.read_u16_le()?;
-        let unpacked_size = reader.read_u16_le()?;
-        let compression_type = reader.read_u16_le()?;
+        let res_type = reader.get_u8();
+        let res_number = reader.get_u16_le();
+        let packed_size = reader.get_u16_le();
+        let unpacked_size = reader.get_u16_le();
+        let compression_type = reader.get_u16_le();
         Ok(RawEntryHeader {
             res_type,
             res_number,
