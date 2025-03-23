@@ -8,6 +8,6 @@ mod lazy_block;
 
 pub use block_reader::BlockReader;
 pub use block_source::BlockSource;
-pub use core::Block;
+pub use core::MemBlock;
 pub use error::{ReadError, ReadResult};
 pub use lazy_block::LazyBlock;

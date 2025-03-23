@@ -2,23 +2,23 @@ use std::io;
 
 use crate::{buffer::Buffer, data_reader::DataReader};
 
-use super::{Block, ReadError};
+use super::{MemBlock, ReadError};
 
 /// A [`DataReader`] that reads from a block.
 #[derive(Debug, Clone)]
 pub struct BlockReader {
     curr_pos: usize,
-    block: Block,
+    block: MemBlock,
 }
 
 impl BlockReader {
     /// Creates a new reader from the block.
-    pub fn new(block: Block) -> Self {
+    pub fn new(block: MemBlock) -> Self {
         Self { curr_pos: 0, block }
     }
 
     /// Returns the portion of the block that has not yet been read.
-    pub fn into_rest(self) -> Block {
+    pub fn into_rest(self) -> MemBlock {
         self.block.sub_buffer(self.curr_pos..)
     }
 }

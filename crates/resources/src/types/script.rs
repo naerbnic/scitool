@@ -1,5 +1,5 @@
 use sci_utils::{
-    block::{Block, BlockReader},
+    block::{MemBlock, BlockReader},
     buffer::{Buffer, BufferOpsExt, FromFixedBytes},
     data_reader::DataReader,
     numbers::{modify_u16_le_in_slice, read_u16_le_from_slice},
@@ -31,20 +31,20 @@ fn read_null_terminated_string_at(buffer: &[u8], offset: usize) -> anyhow::Resul
 
 pub struct Heap {
     #[expect(dead_code)]
-    resource_data: Block,
+    resource_data: MemBlock,
     #[expect(dead_code)]
-    locals: Block,
+    locals: MemBlock,
     #[expect(dead_code)]
     objects: Vec<Object>,
     #[expect(dead_code)]
-    strings: Vec<Block>,
+    strings: Vec<MemBlock>,
 }
 
 impl Heap {
     pub fn from_block(
         selector_table: &SelectorTable,
-        loaded_script: &Block,
-        resource_data: Block,
+        loaded_script: &MemBlock,
+        resource_data: MemBlock,
     ) -> anyhow::Result<Heap> {
         let relocations_offset = resource_data.read_u16_le_at(0);
         let heap_data = resource_data
@@ -141,7 +141,7 @@ impl PropertySelectors {
 
 pub struct Object {
     #[expect(dead_code)]
-    obj_data: Block,
+    obj_data: MemBlock,
     var_selector_ids: PropertySelectors,
     #[expect(dead_code)]
     method_records: Vec<MethodRecord>,
@@ -151,8 +151,8 @@ pub struct Object {
 impl Object {
     pub fn from_block(
         selector_table: &SelectorTable,
-        loaded_data: &Block,
-        obj_data: Block,
+        loaded_data: &MemBlock,
+        obj_data: MemBlock,
     ) -> anyhow::Result<Object> {
         let var_selector_offfset = obj_data.read_u16_le_at(4);
         let method_record_offset = obj_data.read_u16_le_at(6);
@@ -234,7 +234,7 @@ impl std::fmt::Debug for Object {
 struct Relocations {
     num_relocations: usize,
     #[expect(dead_code)]
-    reloc_block: Block,
+    reloc_block: MemBlock,
 }
 
 impl Relocations {
@@ -246,15 +246,15 @@ impl Relocations {
 
 pub struct Script {
     #[expect(dead_code)]
-    data: Block,
+    data: MemBlock,
     #[expect(dead_code)]
-    relocations: Block,
+    relocations: MemBlock,
     #[expect(dead_code)]
     exports: Vec<u16>,
 }
 
 impl Script {
-    pub fn from_block(data: Block) -> anyhow::Result<Self> {
+    pub fn from_block(data: MemBlock) -> anyhow::Result<Self> {
         let relocation_offset = {
             let mut reader = BlockReader::new(data.clone());
             reader.read_u16_le()?
@@ -284,7 +284,7 @@ pub struct LoadedScript {
     #[expect(dead_code)]
     heap_offset: u16,
     #[expect(dead_code)]
-    full_buffer: Block,
+    full_buffer: MemBlock,
     #[expect(dead_code)]
     script: Script,
     #[expect(dead_code)]
@@ -320,7 +320,7 @@ where
         apply_relocations(heap_data_slice, heap_relocation_block, heap_offset as u16)?;
     }
 
-    let loaded_script = Block::from_vec(loaded_script);
+    let loaded_script = MemBlock::from_vec(loaded_script);
     let (script_data, heap_data) = loaded_script.clone().split_at(heap_offset);
     let script = Script::from_block(script_data)?;
     let heap = Heap::from_block(selector_table, &loaded_script, heap_data)?;

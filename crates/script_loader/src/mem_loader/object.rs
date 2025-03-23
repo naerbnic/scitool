@@ -1,5 +1,5 @@
 use sci_utils::{
-    block::Block,
+    block::MemBlock,
     buffer::{Buffer, BufferOpsExt, FromFixedBytes},
     numbers::read_u16_le_from_slice,
 };
@@ -24,16 +24,16 @@ impl FromFixedBytes for MethodRecord {
 
 pub struct ObjectData {
     selector_table: SelectorTable,
-    obj_data: Block,
-    var_selectors: Block,
-    method_records: Block,
+    obj_data: MemBlock,
+    var_selectors: MemBlock,
+    method_records: MemBlock,
 }
 
 impl ObjectData {
     pub fn from_block(
         selector_table: &SelectorTable,
-        loaded_data: &Block,
-        obj_data: Block,
+        loaded_data: &MemBlock,
+        obj_data: MemBlock,
     ) -> anyhow::Result<Self> {
         let var_selector_offfset = obj_data.read_u16_le_at(4);
         let method_record_offset = obj_data.read_u16_le_at(6);
@@ -124,8 +124,8 @@ pub struct Object {
 impl Object {
     pub fn from_block(
         selector_table: &SelectorTable,
-        loaded_data: &Block,
-        obj_data: Block,
+        loaded_data: &MemBlock,
+        obj_data: MemBlock,
     ) -> anyhow::Result<Object> {
         let object_data = ObjectData::from_block(selector_table, loaded_data, obj_data)?;
 

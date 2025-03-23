@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use sci_utils::{
-    block::{Block, BlockReader},
+    block::{MemBlock, BlockReader},
     buffer::Buffer,
     data_reader::DataReader,
 };
@@ -57,7 +57,7 @@ impl MessageRecord {
     }
 }
 
-fn parse_message_resource_v4(msg_res: Block) -> anyhow::Result<Vec<RawMessageRecord>> {
+fn parse_message_resource_v4(msg_res: MemBlock) -> anyhow::Result<Vec<RawMessageRecord>> {
     let mut reader = BlockReader::new(msg_res);
     let _header_data = reader.read_u32_le()?;
     let message_count = reader.read_u16_le()?;
@@ -109,7 +109,7 @@ fn parse_message_resource_v4(msg_res: Block) -> anyhow::Result<Vec<RawMessageRec
     Ok(raw_msg_records)
 }
 
-fn read_string_at_offset(msg_res: &Block, offset: u16) -> anyhow::Result<String> {
+fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> anyhow::Result<String> {
     let mut reader = BlockReader::new(msg_res.clone().sub_buffer(offset as usize..));
     let mut text = Vec::new();
     loop {
@@ -123,7 +123,7 @@ fn read_string_at_offset(msg_res: &Block, offset: u16) -> anyhow::Result<String>
 }
 
 fn resolve_raw_record(
-    msg_res: &Block,
+    msg_res: &MemBlock,
     raw_record: RawMessageRecord,
 ) -> anyhow::Result<MessageRecord> {
     let text = read_string_at_offset(msg_res, raw_record.text_offset)?;
@@ -144,7 +144,7 @@ impl RoomMessageSet {
     }
 }
 
-pub fn parse_message_resource(msg_res: Block) -> anyhow::Result<RoomMessageSet> {
+pub fn parse_message_resource(msg_res: MemBlock) -> anyhow::Result<RoomMessageSet> {
     let mut reader = BlockReader::new(msg_res.clone());
     let version_num = reader.read_u32_le()? / 1000;
     let raw_records = match version_num {

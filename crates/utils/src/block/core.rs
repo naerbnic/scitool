@@ -6,13 +6,13 @@ use super::{ReadError, ReadResult};
 
 /// An in-memory block of data that is cheap to clone, and create subranges of.
 #[derive(Clone)]
-pub struct Block {
+pub struct MemBlock {
     start: usize,
     size: usize,
     data: Arc<Vec<u8>>,
 }
 
-impl Block {
+impl MemBlock {
     /// Create the block from a vector of bytes.
     pub fn from_vec(data: Vec<u8>) -> Self {
         let size = data.len();
@@ -65,7 +65,7 @@ impl Block {
     ///
     /// Panics if the argument originated from another block, and is not fully
     /// contained within the current block
-    pub fn offset_in(&self, contained_block: &Block) -> usize {
+    pub fn offset_in(&self, contained_block: &MemBlock) -> usize {
         assert!(Arc::ptr_eq(&self.data, &contained_block.data));
         assert!(self.start <= contained_block.start);
         assert!(contained_block.start + contained_block.size <= self.start + self.size);
@@ -73,7 +73,7 @@ impl Block {
     }
 }
 
-impl std::ops::Deref for Block {
+impl std::ops::Deref for MemBlock {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -81,13 +81,13 @@ impl std::ops::Deref for Block {
     }
 }
 
-impl AsRef<[u8]> for Block {
+impl AsRef<[u8]> for MemBlock {
     fn as_ref(&self) -> &[u8] {
         &self.data[self.start..][..self.size]
     }
 }
 
-impl Buffer<'static> for Block {
+impl Buffer<'static> for MemBlock {
     type Idx = usize;
     fn size(&self) -> usize {
         self.size
@@ -143,7 +143,7 @@ impl Buffer<'static> for Block {
     }
 }
 
-impl std::fmt::Debug for Block {
+impl std::fmt::Debug for MemBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_tuple("Block")
             .field(&&self.data[self.start..][..self.size])

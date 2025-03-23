@@ -8,7 +8,7 @@ use std::{
 use data::DataFile;
 
 use patch::try_patch_from_file;
-use sci_utils::block::{Block, BlockReader, BlockSource, LazyBlock};
+use sci_utils::block::{MemBlock, BlockReader, BlockSource, LazyBlock};
 
 use super::{ResourceId, ResourceType};
 
@@ -21,7 +21,7 @@ pub fn read_resources(
     data_file: &Path,
     patches: &[Resource],
 ) -> io::Result<ResourceSet> {
-    let map_file = Block::from_reader(File::open(map_file)?)?;
+    let map_file = MemBlock::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file)?);
     let resource_locations = map::ResourceLocations::read_from(BlockReader::new(map_file))?;
 
@@ -192,7 +192,7 @@ impl Resource {
         &self.id
     }
 
-    pub fn load_data(&self) -> anyhow::Result<Block> {
+    pub fn load_data(&self) -> anyhow::Result<MemBlock> {
         Ok(self.source.open()?)
     }
 }

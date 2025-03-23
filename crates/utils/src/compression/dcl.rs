@@ -2,11 +2,11 @@ use std::io;
 
 use bitter::BitReader;
 
-use crate::block::Block;
+use crate::block::MemBlock;
 
 use super::huffman::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 
-pub fn decompress_dcl(input: &Block) -> io::Result<Block> {
+pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_data = input.read_all()?;
     let input_size = input_data.len();
@@ -114,5 +114,5 @@ pub fn decompress_dcl(input: &Block) -> io::Result<Block> {
         }
     }
 
-    Ok(Block::from_vec(output))
+    Ok(MemBlock::from_vec(output))
 }

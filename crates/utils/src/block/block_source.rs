@@ -5,10 +5,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{Block, LazyBlock, ReadError, ReadResult};
+use super::{MemBlock, LazyBlock, ReadError, ReadResult};
 
 trait BlockSourceImpl: Send + Sync {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<Block>;
+    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock>;
 }
 
 struct ReaderBlockSourceImpl<R>(Mutex<R>);
@@ -17,13 +17,13 @@ impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
 where
     R: io::Read + io::Seek + Send,
 {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<Block> {
+    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock> {
         let mut reader = self.0.lock().unwrap();
         reader.seek(io::SeekFrom::Start(start))?;
         let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
         reader.read_exact(&mut data)?;
 
-        Ok(Block::from_vec(data))
+        Ok(MemBlock::from_vec(data))
     }
 }
 
@@ -56,7 +56,7 @@ impl BlockSource {
 
     /// Opens the block source, returning the block of data. Returns an error
     /// if the data cannot be read and/or loaded.
-    pub fn open(&self) -> ReadResult<Block> {
+    pub fn open(&self) -> ReadResult<MemBlock> {
         self.source_impl.read_block(self.start, self.size)
     }
 
