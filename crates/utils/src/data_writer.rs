@@ -7,6 +7,7 @@ pub trait DataWriter {
     fn write_u16_le(&mut self, value: u16) -> io::Result<()>;
     fn write_u32_le(&mut self, value: u32) -> io::Result<()>;
     fn write_block(&mut self, block: &Block) -> io::Result<()>;
+    fn write_slice(&mut self, slice: &[u8]) -> io::Result<()>;
 }
 
 pub struct IoDataWriter<W>(W);
@@ -32,5 +33,8 @@ impl<W: io::Write + io::Seek> DataWriter for IoDataWriter<W> {
 
     fn write_block(&mut self, block: &Block) -> io::Result<()> {
         self.0.write_all(&block.read_all()?)
+    }
+    fn write_slice(&mut self, slice: &[u8]) -> io::Result<()> {
+        self.0.write_all(slice)
     }
 }

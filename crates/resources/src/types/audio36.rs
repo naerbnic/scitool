@@ -2,29 +2,51 @@ use std::io;
 
 use sci_utils::{data_reader::DataReader, data_writer::DataWriter};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EntryId {
+    noun: u8,
+    verb: u8,
+    cond: u8,
+    seq: u8,
+}
+
+impl EntryId {
+    pub fn new(noun: u8, verb: u8, cond: u8, seq: u8) -> EntryId {
+        EntryId {
+            noun,
+            verb,
+            cond,
+            seq,
+        }
+    }
+
+    pub fn noun(&self) -> u8 {
+        self.noun
+    }
+
+    pub fn verb(&self) -> u8 {
+        self.verb
+    }
+
+    pub fn cond(&self) -> u8 {
+        self.cond
+    }
+
+    pub fn seq(&self) -> u8 {
+        self.seq
+    }
+}
+
 /// A map entry for the audio36 map file.
 ///
 /// This is based on the early SCI1.1 audio36 map file format.
-pub struct RawMapEntry {
-    pub noun: u8,
-    pub verb: u8,
-    pub cond: u8,
-    pub seq: u8,
+struct RawMapEntry {
+    id: EntryId,
     pub offset: u32,
     pub sync_size: u16,
 }
 
 impl RawMapEntry {
-    pub fn new_terminator_entry() -> RawMapEntry {
-        RawMapEntry {
-            noun: 0xFF,
-            verb: 0xFF,
-            cond: 0xFF,
-            seq: 0xFF,
-            offset: 0xFFFF_FFFF,
-            sync_size: 0xFFFF,
-        }
-    }
     pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapEntry> {
         let noun = reader.read_u8()?;
         let verb = reader.read_u8()?;
@@ -33,20 +55,17 @@ impl RawMapEntry {
         let offset = reader.read_u32_le()?;
         let sync_size = reader.read_u16_le()?;
         Ok(RawMapEntry {
-            noun,
-            verb,
-            cond,
-            seq,
+            id: EntryId::new(noun, verb, cond, seq),
             offset,
             sync_size,
         })
     }
 
     pub fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_u8(self.noun)?;
-        writer.write_u8(self.verb)?;
-        writer.write_u8(self.cond)?;
-        writer.write_u8(self.seq)?;
+        writer.write_u8(self.id.noun())?;
+        writer.write_u8(self.id.verb())?;
+        writer.write_u8(self.id.cond())?;
+        writer.write_u8(self.id.seq())?;
         writer.write_u32_le(self.offset)?;
         writer.write_u16_le(self.sync_size)?;
         Ok(())
@@ -54,7 +73,7 @@ impl RawMapEntry {
 }
 
 pub struct RawMapResource {
-    pub entries: Vec<RawMapEntry>,
+    entries: Vec<RawMapEntry>,
 }
 
 impl RawMapResource {
@@ -62,7 +81,7 @@ impl RawMapResource {
         let mut entries = Vec::new();
         loop {
             let entry = RawMapEntry::read_from(reader)?;
-            if entry.noun == 0xFF {
+            if entry.id.noun() == 0xFF {
                 break;
             }
             entries.push(entry);
@@ -74,18 +93,11 @@ impl RawMapResource {
         for entry in &self.entries {
             entry.write_to(writer)?;
         }
-        RawMapEntry::new_terminator_entry().write_to(writer)?;
+        // Write the terminator entry, consisting of an entry of all 0xFFs.
+        const TERM_BYTES: &[u8] = &[0xFF, 10];
+        writer.write_slice(TERM_BYTES)?;
         Ok(())
     }
 }
 
-pub enum AudioDataEntry {
-    /// A raw WAV file. Written directly to the output.
-    WaveFile(Vec<u8>),
-    // Other variants are not yet supported, and likely not necessary for our use here.
-}
 
-pub struct Audio36Data {
-    pub map: RawMapResource,
-    pub audio_data: AudioDataEntry,
-}
