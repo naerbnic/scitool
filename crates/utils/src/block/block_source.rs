@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::buffer::Buffer;
+
 use super::{LazyBlock, MemBlock, ReadError, ReadResult};
 
 trait BlockSourceImpl: Send + Sync {
@@ -111,5 +113,34 @@ impl BlockSource {
     /// be opened on demand.
     pub fn to_lazy_block(&self) -> LazyBlock {
         LazyBlock::from_block_source(self.clone())
+    }
+}
+
+impl Buffer for BlockSource {
+    type Error = ReadError;
+    type Guard<'g>
+        = MemBlock
+    where
+        Self: 'g;
+
+    fn size(&self) -> u64 {
+        self.size
+    }
+
+    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
+        self.subblock(start..end)
+    }
+
+    fn split_at(self, at: u64) -> (Self, Self) {
+        self.split_at(at)
+    }
+
+    fn lock(&self) -> Result<Self::Guard<'_>, Self::Error> {
+        let block = self.open()?;
+        Ok(block)
+    }
+
+    fn read_value<T: crate::buffer::FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
+        todo!()
     }
 }

@@ -1,7 +1,6 @@
 use sci_utils::{
     block::MemBlock,
     buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
-    numbers::read_u16_le_from_slice,
 };
 
 use crate::selectors::{Selector, SelectorTable};
@@ -14,10 +13,10 @@ struct MethodRecord {
 
 impl FromFixedBytes for MethodRecord {
     const SIZE: usize = 4;
-    fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
+    fn parse<B: bytes::Buf>(mut bytes: B) -> anyhow::Result<Self> {
         Ok(Self {
-            selector_id: read_u16_le_from_slice(bytes, 0),
-            method_offset: read_u16_le_from_slice(bytes, 2),
+            selector_id: bytes.get_u16_le(),
+            method_offset: bytes.get_u16_le(),
         })
     }
 }

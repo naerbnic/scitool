@@ -141,7 +141,7 @@ fn extract_relocation_block<B>(data: B) -> B
 where
     B: Buffer,
 {
-    let relocation_offset = data.lock().get_u16_le();
+    let relocation_offset = data.lock().unwrap().get_u16_le();
     data.sub_buffer(relocation_offset..)
 }
 
@@ -169,8 +169,8 @@ impl LoadedScript {
         // Concat the two blocks.
         //
         // It may be possible to get rid of the relocation block, but it's not clear.
-        let mut loaded_script: Vec<u8> = script_data.to_vec();
-        loaded_script.put(heap_data.lock());
+        let mut loaded_script: Vec<u8> = script_data.to_vec()?;
+        loaded_script.put(heap_data.lock()?);
 
         {
             let (script_data_slice, heap_data_slice) =

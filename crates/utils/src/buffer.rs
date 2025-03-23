@@ -20,7 +20,7 @@ pub trait ToFixedBytes {
 
 pub trait FromFixedBytes: Sized {
     const SIZE: usize;
-    fn parse(bytes: &[u8]) -> anyhow::Result<Self>;
+    fn parse<B: bytes::Buf>(bytes: B) -> anyhow::Result<Self>;
 }
 
 macro_rules! impl_fixed_bytes_for_num {
@@ -38,9 +38,10 @@ macro_rules! impl_fixed_bytes_for_num {
             impl FromFixedBytes for $num {
                 const SIZE: usize = std::mem::size_of::<$num>();
 
-                fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
-                    let bytes = bytes.try_into().unwrap();
-                    Ok(Self::from_le_bytes(bytes))
+                fn parse<B: bytes::Buf>(bytes: B) -> anyhow::Result<Self> {
+                    let mut byte_array = [0u8; <Self as FromFixedBytes>::SIZE];
+                    (&mut byte_array[..]).put(bytes);
+                    Ok(Self::from_le_bytes(byte_array))
                 }
             }
         )*
@@ -117,6 +118,28 @@ impl_narrowed_index!(u16, u32, usize);
 #[cfg(target_pointer_width = "64")]
 impl_narrowed_index!(u64);
 
+#[derive(Debug, Copy, Clone)]
+pub enum NoError {}
+
+impl std::fmt::Display for NoError {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {}
+    }
+}
+impl std::error::Error for NoError {}
+
+pub trait NoErrorResultExt<T> {
+    fn into_ok(self) -> T;
+}
+
+impl<T> NoErrorResultExt<T> for Result<T, NoError> {
+    fn into_ok(self) -> T {
+        match self {
+            Ok(value) => value,
+        }
+    }
+}
+
 /// An abstraction over types that contain a buffer of bytes.
 ///
 /// This is designed to be usable with both mutable and immutable byte
@@ -125,6 +148,7 @@ impl_narrowed_index!(u64);
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
 pub trait Buffer: Sized {
+    type Error: std::error::Error + Send + Sync + 'static;
     type Guard<'g>: bytes::Buf
     where
         Self: 'g;
@@ -132,12 +156,15 @@ pub trait Buffer: Sized {
     fn size(&self) -> u64;
     fn sub_buffer_from_range(self, start: u64, end: u64) -> Self;
     fn split_at(self, at: u64) -> (Self, Self);
-    fn lock(&self) -> Self::Guard<'_>;
+    fn lock(&self) -> Result<Self::Guard<'_>, Self::Error>;
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
     // Functions that can be implemented in terms of the above functions.
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)>;
+    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
+        let (first, second) = self.split_at(T::SIZE.try_into().unwrap());
+        T::parse(first.lock()?).map(|value| (value, second))
+    }
 
     fn is_empty(&self) -> bool {
         self.size() == 0
@@ -193,14 +220,15 @@ pub trait Buffer: Sized {
         Ok((values, next))
     }
 
-    fn to_vec(&self) -> Vec<u8> {
+    fn to_vec(&self) -> Result<Vec<u8>, Self::Error> {
         let mut vec = Vec::with_capacity(self.size().try_into().unwrap());
-        vec.put(self.lock());
-        vec
+        vec.put(self.lock()?);
+        Ok(vec)
     }
 }
 
 impl Buffer for &[u8] {
+    type Error = NoError;
     type Guard<'g>
         = &'g [u8]
     where
@@ -219,8 +247,8 @@ impl Buffer for &[u8] {
         (*self).split_at(at.try_into().unwrap())
     }
 
-    fn lock(&self) -> Self::Guard<'_> {
-        self
+    fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
+        Ok(self)
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
@@ -241,6 +269,7 @@ impl Buffer for &[u8] {
 }
 
 impl Buffer for &mut [u8] {
+    type Error = NoError;
     type Guard<'g>
         = &'g [u8]
     where
@@ -259,13 +288,8 @@ impl Buffer for &mut [u8] {
         self.split_at_mut(at.try_into().unwrap())
     }
 
-    fn lock(&self) -> Self::Guard<'_> {
-        self
-    }
-
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
-        let (first, second) = self.split_at_mut(T::SIZE);
-        T::parse(first).map(|value| (value, second))
+    fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
+        Ok(self)
     }
 }
 

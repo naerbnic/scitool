@@ -1,6 +1,6 @@
 use std::{io, sync::Arc};
 
-use crate::buffer::{Buffer, BufferExt, FromFixedBytes};
+use crate::buffer::{Buffer, BufferExt, FromFixedBytes, NoError};
 
 use super::{ReadError, ReadResult};
 
@@ -88,6 +88,7 @@ impl AsRef<[u8]> for MemBlock {
 }
 
 impl Buffer for MemBlock {
+    type Error = NoError;
     type Guard<'g> = &'g [u8];
     fn size(&self) -> u64 {
         self.size.try_into().unwrap()
@@ -126,8 +127,8 @@ impl Buffer for MemBlock {
         (self.clone().sub_buffer(..at), self.sub_buffer(at..))
     }
 
-    fn lock(&self) -> Self::Guard<'_> {
-        &self.data[self.start..][..self.size]
+    fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
+        Ok(&self.data[self.start..][..self.size])
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
