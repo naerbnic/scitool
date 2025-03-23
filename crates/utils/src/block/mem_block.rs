@@ -1,5 +1,7 @@
 use std::{io, sync::Arc};
 
+use bytes::BufMut;
+
 use crate::buffer::{Buffer, BufferExt, FromFixedBytes, NoError};
 
 use super::{ReadError, ReadResult};
@@ -16,6 +18,20 @@ impl MemBlock {
     /// Create the block from a vector of bytes.
     pub fn from_vec(data: Vec<u8>) -> Self {
         let size = data.len();
+        Self {
+            start: 0,
+            size,
+            data: Arc::new(data),
+        }
+    }
+
+    pub fn from_buf<B>(buf: B) -> Self
+    where
+        B: bytes::Buf,
+    {
+        let size = buf.remaining();
+        let mut data = Vec::with_capacity(size);
+        data.put(buf);
         Self {
             start: 0,
             size,
