@@ -8,7 +8,7 @@ use std::{
 use data::DataFile;
 
 use patch::try_patch_from_file;
-use sci_utils::block::{MemBlock, BlockReader, BlockSource, LazyBlock};
+use sci_utils::block::{BlockReader, BlockSource, LazyBlock, MemBlock};
 
 use super::{ResourceId, ResourceType};
 
@@ -185,6 +185,12 @@ pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
 pub struct Resource {
     id: ResourceId,
     source: LazyBlock,
+}
+
+impl Resource {
+    pub fn new(id: ResourceId, source: LazyBlock) -> Resource {
+        Resource { id, source }
+    }
 }
 
 impl Resource {
