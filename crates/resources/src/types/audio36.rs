@@ -13,46 +13,13 @@ use sci_utils::{
 
 use crate::{ResourceId, ResourceType, file::Resource};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct EntryId {
-    noun: u8,
-    verb: u8,
-    cond: u8,
-    seq: u8,
-}
-
-impl EntryId {
-    pub fn new(noun: u8, verb: u8, cond: u8, seq: u8) -> EntryId {
-        EntryId {
-            noun,
-            verb,
-            cond,
-            seq,
-        }
-    }
-
-    pub fn noun(&self) -> u8 {
-        self.noun
-    }
-
-    pub fn verb(&self) -> u8 {
-        self.verb
-    }
-
-    pub fn cond(&self) -> u8 {
-        self.cond
-    }
-
-    pub fn seq(&self) -> u8 {
-        self.seq
-    }
-}
+use super::msg::MessageId;
 
 /// A map entry for the audio36 map file.
 ///
 /// This is based on the early SCI1.1 audio36 map file format.
 struct RawMapEntry {
-    id: EntryId,
+    id: MessageId,
     offset: u32,
     sync_size: u16,
 }
@@ -66,7 +33,7 @@ impl RawMapEntry {
         let offset = reader.read_u32_le()?;
         let sync_size = reader.read_u16_le()?;
         Ok(RawMapEntry {
-            id: EntryId::new(noun, verb, cond, seq),
+            id: MessageId::new(noun, verb, cond, seq),
             offset,
             sync_size,
         })
@@ -75,15 +42,15 @@ impl RawMapEntry {
     pub fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_u8(self.id.noun())?;
         writer.write_u8(self.id.verb())?;
-        writer.write_u8(self.id.cond())?;
-        writer.write_u8(self.id.seq())?;
+        writer.write_u8(self.id.condition())?;
+        writer.write_u8(self.id.sequence())?;
         writer.write_u32_le(self.offset)?;
         writer.write_u16_le(self.sync_size)?;
         Ok(())
     }
 }
 
-pub struct RawMapResource {
+struct RawMapResource {
     entries: Vec<RawMapEntry>,
 }
 
@@ -94,7 +61,7 @@ impl RawMapResource {
         }
     }
 
-    pub fn add_entry(&mut self, id: EntryId, offset: u32) {
+    pub fn add_entry(&mut self, id: MessageId, offset: u32) {
         // We don't currently support the sync size, so we just set it to 0.
         let sync_size = 0;
         self.entries.push(RawMapEntry {
@@ -142,7 +109,7 @@ pub struct VoiceSample {
 
 pub struct Audio36Entry {
     room: u16,
-    entry: EntryId,
+    entry: MessageId,
     sample: VoiceSample,
 }
 
@@ -253,7 +220,13 @@ impl AudioVolumeBuilder {
     }
 }
 
-struct Audio36ResourceBuilder {
+impl Default for AudioVolumeBuilder {
+    fn default() -> Self {
+        AudioVolumeBuilder::new()
+    }
+}
+
+pub struct Audio36ResourceBuilder {
     maps: BTreeMap<u16, RawMapResource>,
     volume: AudioVolumeBuilder,
 }
@@ -269,7 +242,7 @@ impl Audio36ResourceBuilder {
     pub fn add_entry(
         &mut self,
         room: u16,
-        entry: EntryId,
+        entry: MessageId,
         sample: VoiceSample,
     ) -> anyhow::Result<()> {
         let offset: u32 = self.volume.add_entry(&Audio36Entry {
@@ -302,6 +275,12 @@ impl Audio36ResourceBuilder {
             map_resources,
             audio_volume,
         })
+    }
+}
+
+impl Default for Audio36ResourceBuilder {
+    fn default() -> Self {
+        Audio36ResourceBuilder::new()
     }
 }
 

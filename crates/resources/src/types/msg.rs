@@ -15,6 +15,15 @@ pub struct MessageId {
 }
 
 impl MessageId {
+    pub fn new(noun: u8, verb: u8, condition: u8, sequence: u8) -> Self {
+        MessageId {
+            noun,
+            verb,
+            condition,
+            sequence,
+        }
+    }
+
     pub fn noun(&self) -> u8 {
         self.noun
     }
