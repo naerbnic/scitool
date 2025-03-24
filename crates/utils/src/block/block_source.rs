@@ -148,8 +148,8 @@ impl Buffer for BlockSource {
         self.split_at(at)
     }
 
-    fn lock(&self) -> Result<Self::Guard<'_>, Self::Error> {
-        let block = self.open()?;
+    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, Self::Error> {
+        let block = self.subblock(start..end).open()?;
         Ok(block)
     }
 

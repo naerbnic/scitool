@@ -147,7 +147,7 @@ impl<T> NoErrorResultExt<T> for Result<T, NoError> {
 ///
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
-pub trait Buffer: Sized {
+pub trait Buffer: Sized + Clone {
     type Error: std::error::Error + Send + Sync + 'static;
     type Guard<'g>: bytes::Buf
     where
@@ -156,7 +156,11 @@ pub trait Buffer: Sized {
     fn size(&self) -> u64;
     fn sub_buffer_from_range(self, start: u64, end: u64) -> Self;
     fn split_at(self, at: u64) -> (Self, Self);
-    fn lock(&self) -> Result<Self::Guard<'_>, Self::Error>;
+    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, Self::Error>;
+
+    fn lock(&self) -> Result<Self::Guard<'_>, Self::Error> {
+        self.lock_range(0, self.size())
+    }
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
@@ -247,8 +251,8 @@ impl Buffer for &[u8] {
         (*self).split_at(at.try_into().unwrap())
     }
 
-    fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
-        Ok(self)
+    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, NoError> {
+        Ok(&self[start as usize..end as usize])
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
@@ -265,31 +269,6 @@ impl Buffer for &[u8] {
             remaining = new_remaining;
         }
         Ok((values, remaining))
-    }
-}
-
-impl Buffer for &mut [u8] {
-    type Error = NoError;
-    type Guard<'g>
-        = &'g [u8]
-    where
-        Self: 'g;
-
-    fn size(&self) -> u64 {
-        self.len().try_into().unwrap()
-    }
-    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
-        let start = start.try_into().unwrap();
-        let end = end.try_into().unwrap();
-        &mut self[start..end]
-    }
-
-    fn split_at(self, at: u64) -> (Self, Self) {
-        self.split_at_mut(at.try_into().unwrap())
-    }
-
-    fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
-        Ok(self)
     }
 }
 

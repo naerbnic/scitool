@@ -147,8 +147,8 @@ impl Buffer for MemBlock {
         (self.clone().sub_buffer(..at), self.sub_buffer(at..))
     }
 
-    fn lock(&self) -> Result<Self::Guard<'_>, NoError> {
-        Ok(&self[..])
+    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, NoError> {
+        Ok(&self[start as usize..end as usize])
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
