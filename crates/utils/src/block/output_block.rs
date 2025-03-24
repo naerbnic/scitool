@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bytes::Buf;
+
 use crate::buffer::Buffer;
 
 pub struct BlockData<'a>(Box<dyn bytes::Buf + 'a>);
@@ -13,7 +15,7 @@ impl<'a> BlockData<'a> {
     }
 }
 
-impl bytes::Buf for BlockData<'_> {
+impl Buf for BlockData<'_> {
     fn remaining(&self) -> usize {
         self.0.remaining()
     }
@@ -93,6 +95,17 @@ impl OutputBlock {
 
     pub fn blocks(&self) -> impl Iterator<Item = anyhow::Result<BlockData<'_>>> + '_ {
         self.0.blocks()
+    }
+
+    pub fn write_to<R: std::io::Write>(&self, writer: &mut R) -> anyhow::Result<()> {
+        for block in self.blocks() {
+            let mut block = block?;
+            while block.has_remaining() {
+                let bytes_written = writer.write(block.chunk())?;
+                block.advance(bytes_written);
+            }
+        }
+        Ok(())
     }
 }
 

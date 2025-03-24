@@ -51,6 +51,19 @@ impl BlockSource {
         })
     }
 
+    pub fn from_reader<R>(reader: R) -> Self
+    where
+        R: io::Read + io::Seek + Send + 'static,
+    {
+        let mut reader = io::BufReader::new(reader);
+        let size = reader.seek(io::SeekFrom::End(0)).unwrap();
+        Self {
+            start: 0,
+            size,
+            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(reader))),
+        }
+    }
+
     /// Returns the size of the block source.
     pub fn size(&self) -> u64 {
         self.size

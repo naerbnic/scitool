@@ -11,7 +11,7 @@ use super::{ReadError, ReadResult};
 pub struct MemBlock {
     start: usize,
     size: usize,
-    data: Arc<dyn AsRef<[u8]>>,
+    data: Arc<dyn AsRef<[u8]> + Send + Sync>,
 }
 
 impl MemBlock {
@@ -20,7 +20,7 @@ impl MemBlock {
         Self::from_slice_owner(data.into_boxed_slice())
     }
 
-    pub fn from_slice_owner<T: AsRef<[u8]> + 'static>(data: T) -> Self {
+    pub fn from_slice_owner<T: AsRef<[u8]> + Send + Sync + 'static>(data: T) -> Self {
         let size = data.as_ref().len();
         Self {
             start: 0,
