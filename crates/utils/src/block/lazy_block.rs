@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{MemBlock, BlockSource, ReadResult};
+use super::{BlockSource, MemBlock, ReadResult};
 
 trait LazyBlockImpl {
     fn open(&self) -> ReadResult<MemBlock>;
@@ -55,6 +55,20 @@ where
     }
 }
 
+struct MemLazyBlockImpl {
+    block: MemBlock,
+}
+
+impl LazyBlockImpl for MemLazyBlockImpl {
+    fn open(&self) -> ReadResult<MemBlock> {
+        Ok(self.block.clone())
+    }
+
+    fn size(&self) -> Option<u64> {
+        Some(self.block.size() as u64)
+    }
+}
+
 /// A block that is lazily loaded on demand.
 ///
 /// This can be cheaply cloned, but cannot be split into smaller ranges.
@@ -79,6 +93,13 @@ impl LazyBlock {
             source: Arc::new(RangeLazyBlockImpl { source }),
         }
     }
+
+    pub fn from_mem_block(block: MemBlock) -> Self {
+        Self {
+            source: Arc::new(MemLazyBlockImpl { block }),
+        }
+    }
+    
 
     /// Opens a block from the lazy block source. Returns an error if the block
     /// cannot be loaded.

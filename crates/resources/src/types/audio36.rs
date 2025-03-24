@@ -7,12 +7,12 @@ use std::{
 use anyhow::{anyhow, bail, ensure};
 use bytes::BufMut;
 use sci_utils::{
-    block::{BlockSource, MemBlock, output_block::OutputBlock},
+    block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
     data_reader::DataReader,
     data_writer::{DataWriter, IoDataWriter},
 };
 
-use crate::file::Resource;
+use crate::{ResourceId, ResourceType, file::Resource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EntryId {
@@ -287,20 +287,22 @@ impl Audio36ResourceBuilder {
     }
 
     pub fn build(self) -> anyhow::Result<VoiceSampleResources> {
-        todo!()
-        // let mut map_resources = Vec::new();
-        // for (room, map) in self.maps {
-        //     let mut map_data = Vec::new();
-        //     map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))?;
-        //     map_resources.push(Resource::new(room, MemBlock::from_vec(map_data)));
-        // }
+        let mut map_resources = Vec::new();
+        for (room, map) in self.maps {
+            let mut map_data = Vec::new();
+            map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))?;
+            map_resources.push(Resource::new(
+                ResourceId::new(ResourceType::Map, room),
+                LazyBlock::from_mem_block(MemBlock::from_vec(map_data)),
+            ));
+        }
 
-        // let audio_volume = self.volume.to_raw();
+        let audio_volume = self.volume.to_raw();
 
-        // Ok(VoiceSampleResources {
-        //     map_resources,
-        //     audio_volume,
-        // })
+        Ok(VoiceSampleResources {
+            map_resources,
+            audio_volume,
+        })
     }
 }
 
