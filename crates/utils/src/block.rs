@@ -6,6 +6,7 @@ mod core;
 mod error;
 mod lazy_block;
 mod mem_block;
+pub mod output_block;
 
 pub use block_reader::BlockReader;
 pub use block_source::BlockSource;
