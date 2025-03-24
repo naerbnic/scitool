@@ -1,10 +1,9 @@
 use std::{
     collections::BTreeMap,
     io::{self, Cursor},
-    os::macos::raw,
 };
 
-use anyhow::{anyhow, bail, ensure};
+use anyhow::ensure;
 use bytes::BufMut;
 use sci_utils::{
     block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
