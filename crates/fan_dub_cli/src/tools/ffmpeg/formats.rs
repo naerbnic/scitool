@@ -2,40 +2,11 @@
 
 use std::{borrow::Cow, collections::HashMap, ffi::OsString};
 
-pub enum AudioFormat {
-    Mp3,
-    Flac,
-    Wav,
-}
-
-impl AudioFormat {
-    pub fn input_format_flags(&self) -> Vec<OsString> {
-        match self {
-            AudioFormat::Mp3 => vec!["-f".into(), "mp3".into()],
-            AudioFormat::Flac => vec!["-f".into(), "flac".into()],
-            AudioFormat::Wav => vec!["-f".into(), "wav".into()],
-        }
-    }
-
-    pub fn output_format_flags(&self) -> Vec<OsString> {
-        match self {
-            AudioFormat::Mp3 => vec!["-f".into(), "mp3".into()],
-            AudioFormat::Flac => vec!["-f".into(), "flac".into()],
-            AudioFormat::Wav => vec![
-                "-f".into(),
-                "wav".into(),
-                "-acodec".into(),
-                "pcm_s16le".into(),
-            ],
-        }
-    }
-}
-
-pub struct FlacOutputFormat {
+pub struct FlacOutputOptions {
     compression_level: u8,
 }
 
-impl FlacOutputFormat {
+impl FlacOutputOptions {
     pub fn get_options(&self) -> AVOptions {
         let mut options = HashMap::new();
         options.insert(
@@ -46,11 +17,11 @@ impl FlacOutputFormat {
     }
 }
 
-pub struct Mp3OutputFormat {
+pub struct Mp3OutputOptions {
     bitrate: u32,
 }
 
-impl Mp3OutputFormat {
+impl Mp3OutputOptions {
     pub fn get_options(&self) -> AVOptions {
         let mut options = HashMap::new();
         options.insert("bitrate".into(), self.bitrate.to_string());
@@ -58,28 +29,66 @@ impl Mp3OutputFormat {
     }
 }
 
+pub struct OggVorbisOutputOptions {
+    bitrate: u32,
+}
+
+impl OggVorbisOutputOptions {
+    pub fn new(bitrate: u32) -> Self {
+        OggVorbisOutputOptions { bitrate }
+    }
+
+    pub fn get_options(&self) -> AVOptions {
+        let mut options = HashMap::new();
+        options.insert("b".into(), self.bitrate.to_string());
+        AVOptions(options)
+    }
+}
+
+impl Default for OggVorbisOutputOptions {
+    fn default() -> Self {
+        OggVorbisOutputOptions::new(128_000)
+    }
+}
+
 pub enum OutputFormat {
-    Flac(FlacOutputFormat),
-    Mp3(Mp3OutputFormat),
+    Flac(FlacOutputOptions),
+    Mp3(Mp3OutputOptions),
+    Ogg(OggVorbisOutputOptions),
 }
 
 impl OutputFormat {
+    pub fn format_name(&self) -> &'static str {
+        match self {
+            OutputFormat::Flac(_) => "flac",
+            OutputFormat::Mp3(_) => "mp3",
+            OutputFormat::Ogg(_) => "ogg",
+        }
+    }
     pub fn get_options(&self) -> AVOptions {
         match self {
-            OutputFormat::Flac(format) => {
-                let mut options = HashMap::new();
-                options.insert(
-                    "compression_level".into(),
-                    format.compression_level.to_string(),
-                );
-                AVOptions(options)
-            }
-            OutputFormat::Mp3(format) => {
-                let mut options = HashMap::new();
-                options.insert("bitrate".into(), format.bitrate.to_string());
-                AVOptions(options)
-            }
+            OutputFormat::Flac(opts) => opts.get_options(),
+            OutputFormat::Mp3(opts) => opts.get_options(),
+            OutputFormat::Ogg(opts) => opts.get_options(),
         }
+    }
+}
+
+impl From<FlacOutputOptions> for OutputFormat {
+    fn from(opts: FlacOutputOptions) -> Self {
+        OutputFormat::Flac(opts)
+    }
+}
+
+impl From<Mp3OutputOptions> for OutputFormat {
+    fn from(opts: Mp3OutputOptions) -> Self {
+        OutputFormat::Mp3(opts)
+    }
+}
+
+impl From<OggVorbisOutputOptions> for OutputFormat {
+    fn from(opts: OggVorbisOutputOptions) -> Self {
+        OutputFormat::Ogg(opts)
     }
 }
 

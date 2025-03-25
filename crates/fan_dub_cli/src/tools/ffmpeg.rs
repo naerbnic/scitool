@@ -7,8 +7,9 @@ mod input;
 mod output;
 mod tcp;
 
+pub use formats::{OggVorbisOutputOptions, OutputFormat};
 pub use input::{Input, ReaderInput};
-pub use output::Output;
+pub use output::{Output, VecOutput};
 
 pub trait ProgressListener {
     fn on_progress(&mut self, done: bool, progress_info: Vec<(String, String)>);
@@ -33,8 +34,9 @@ impl FfmpegTool {
         &self,
         input: I,
         output: O,
+        output_format: impl Into<formats::OutputFormat>,
         progress: &mut dyn ProgressListener,
-    ) -> anyhow::Result<()>
+    ) -> anyhow::Result<O::OutputType>
     where
         I: Input,
         O: Output,
@@ -42,21 +44,25 @@ impl FfmpegTool {
         let mut command = smol::process::Command::new(&self.binary_path);
         let input_state = input.create_state().await?;
         let output_state = output.create_state().await?;
+        let output_format = output_format.into();
         let mut child = command
             .arg("-nostdin")
             .arg("-progress")
             .arg("pipe:1")
             .arg("-i")
             .arg(input_state.url())
+            .arg("-f")
+            .arg(output_format.format_name())
+            .args(output_format.get_options().to_flags(Some("a:0")))
             .arg(output_state.url())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
         let stdout = smol::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
-        let status = futures::join!(
+        let (status, output, _, _) = futures::join!(
             child.status(),
-            input_state.wait(),
             output_state.wait(),
+            input_state.wait(),
             async move {
                 let mut lines = stdout.lines();
                 let mut progress_info = Vec::new();
@@ -76,8 +82,8 @@ impl FfmpegTool {
                     }
                 }
             }
-        )
-        .0?;
+        );
+        let status = status?;
 
         anyhow::ensure!(
             status.success(),
@@ -85,6 +91,6 @@ impl FfmpegTool {
             status
         );
 
-        Ok(())
+        output
     }
 }

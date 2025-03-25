@@ -71,6 +71,7 @@ impl RawMapResource {
         });
     }
 
+    #[expect(dead_code)]
     pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapResource> {
         let mut entries = Vec::new();
         loop {
@@ -107,12 +108,6 @@ pub struct VoiceSample {
     data: BlockSource,
 }
 
-pub struct Audio36Entry {
-    room: u16,
-    entry: MessageId,
-    sample: VoiceSample,
-}
-
 struct AudioVolumeEntry {
     logical_offset: u32,
     data: BlockSource,
@@ -133,27 +128,27 @@ impl AudioVolumeBuilder {
         }
     }
 
-    pub fn add_entry(&mut self, entry: &Audio36Entry) -> anyhow::Result<u32> {
+    pub fn add_entry(&mut self, sample: VoiceSample) -> anyhow::Result<u32> {
         // Check if the entry is vaild. Variable is copied in case we need to use it to
         // calculate the new file offset.
         let _format = match self.format {
             Some(format) => {
                 ensure!(
-                    format == entry.sample.format,
+                    format == sample.format,
                     "Audio format mismatch: expected {:?}, got {:?}",
                     format,
-                    entry.sample.format
+                    sample.format
                 );
                 format
             }
             None => {
-                let format = entry.sample.format;
-                self.format = Some(entry.sample.format);
+                let format = sample.format;
+                self.format = Some(sample.format);
                 format
             }
         };
         let logical_offset = self.curr_offset;
-        let data = entry.sample.data.clone();
+        let data = sample.data.clone();
 
         // The offset of the next entry depends on the audio format, aas well as the size of
         // the current entry.
@@ -245,11 +240,7 @@ impl Audio36ResourceBuilder {
         entry: MessageId,
         sample: VoiceSample,
     ) -> anyhow::Result<()> {
-        let offset: u32 = self.volume.add_entry(&Audio36Entry {
-            room,
-            entry,
-            sample,
-        })?;
+        let offset: u32 = self.volume.add_entry(sample)?;
 
         let resource_map = self.maps.entry(room).or_insert_with(RawMapResource::new);
 
@@ -287,4 +278,14 @@ impl Default for Audio36ResourceBuilder {
 pub struct VoiceSampleResources {
     map_resources: Vec<Resource>,
     audio_volume: OutputBlock,
+}
+
+impl VoiceSampleResources {
+    pub fn map_resources(&self) -> &[Resource] {
+        &self.map_resources
+    }
+
+    pub fn audio_volume(&self) -> &OutputBlock {
+        &self.audio_volume
+    }
 }
