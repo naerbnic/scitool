@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bytes::Buf;
 
 use crate::buffer::Buffer;
+use futures::io::AsyncWriteExt;
 
 pub struct BlockData<'a>(Box<dyn bytes::Buf + 'a>);
 
@@ -125,6 +126,20 @@ impl OutputBlock {
             let mut block = block?;
             while block.has_remaining() {
                 let bytes_written = writer.write(block.chunk())?;
+                block.advance(bytes_written);
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn write_to_async<W: futures::io::AsyncWrite + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> anyhow::Result<()> {
+        for block in self.blocks() {
+            let mut block = block?;
+            while block.has_remaining() {
+                let bytes_written = writer.write(block.chunk()).await?;
                 block.advance(bytes_written);
             }
         }

@@ -1,4 +1,47 @@
+use std::path::PathBuf;
+
+use sci_resources::types::msg::MessageId;
 use scitool_fan_dub_cli::{path::LookupPath, tools::ffmpeg};
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AudioClip {
+    pub start_us: u64,
+    pub end_us: u64,
+    pub path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Sample {
+    pub room: u16,
+    pub message_id: MessageId,
+    pub clip: AudioClip,
+}
+
+#[derive(clap::Parser)]
+struct Cli {
+    #[clap(subcommand)]
+    command: Cmd,
+}
+
+#[derive(clap::Subcommand)]
+enum Cmd {
+    #[clap(name = "compile-audio")]
+    CompileAudio(CompileAudio),
+}
+
+#[derive(clap::Parser)]
+struct CompileAudio {
+    #[clap(short = 'd', long)]
+    sample_dir: PathBuf,
+}
+
+impl CompileAudio {
+    pub fn run(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     let exec = smol::LocalExecutor::new();

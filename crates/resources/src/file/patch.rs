@@ -34,7 +34,7 @@ pub fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>
         return Ok(None);
     };
 
-    let source = BlockSource::from_path(patch_file)?;
+    let source = BlockSource::from_path(patch_file.to_path_buf())?;
     let (base_header_block, rest) = source.split_at(2);
     let base_header = base_header_block.open()?;
     let id = base_header[0];

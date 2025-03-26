@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Seek},
+    io::{self, Read, Seek},
     ops::RangeBounds,
     path::Path,
     sync::{Arc, Mutex},
@@ -29,6 +29,22 @@ where
     }
 }
 
+struct PathBlockSourceImpl<P>(P);
+
+impl<P> BlockSourceImpl for PathBlockSourceImpl<P>
+where
+    P: AsRef<Path> + Sync + Send,
+{
+    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock> {
+        let mut file = std::fs::File::open(self.0.as_ref())?;
+        file.seek(io::SeekFrom::Start(start))?;
+        let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
+        file.read_exact(&mut data)?;
+
+        Ok(MemBlock::from_vec(data))
+    }
+}
+
 /// A source of blocks. These can be loaded lazily, and still can be split
 /// into sub-block-sources.
 #[derive(Clone)]
@@ -41,13 +57,15 @@ pub struct BlockSource {
 impl BlockSource {
     /// Creates a block source that represents the contents of a path at the
     /// given path. Returns an error if the file cannot be opened.
-    pub fn from_path(path: &Path) -> io::Result<Self> {
-        let mut file = std::fs::File::open(path)?;
-        let size = file.seek(io::SeekFrom::End(0))?;
+    pub fn from_path<P>(path: P) -> io::Result<Self>
+    where
+        P: AsRef<Path> + Send + Sync + 'static,
+    {
+        let size = std::fs::metadata(path.as_ref())?.len();
         Ok(Self {
             start: 0,
             size,
-            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(io::BufReader::new(file)))),
+            source_impl: Arc::new(PathBlockSourceImpl(path)),
         })
     }
 

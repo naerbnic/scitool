@@ -22,7 +22,7 @@ pub fn read_resources(
     patches: &[Resource],
 ) -> io::Result<ResourceSet> {
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
-    let data_file = DataFile::new(BlockSource::from_path(data_file)?);
+    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations = map::ResourceLocations::read_from(BlockReader::new(map_file))?;
 
     let mut entries = BTreeMap::new();

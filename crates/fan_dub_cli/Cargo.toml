@@ -7,5 +7,9 @@ edition = "2024"
 anyhow = { version = "1.0.97", features = ["backtrace"] }
 async-net = "2.0.0"
 futures = "0.3.31"
+serde = { version = "1.0.219", features = ["derive"] }
 sluice = "0.5.5"
+sci-resources = { path = "../resources" }
+sci-utils = { path = "../utils" }
 smol = "2.0.2"
+clap = "4.5.32"

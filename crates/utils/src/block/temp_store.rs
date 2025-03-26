@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use crate::{block::output_block::OutputBlock, buffer::Buffer};
+use bytes::Buf;
+
+use crate::buffer::Buffer;
 
 use super::BlockSource;
 
@@ -21,13 +23,28 @@ impl TempStore {
         })
     }
 
-    pub fn store<B>(&mut self, buffer: B) -> anyhow::Result<BlockSource>
+    pub async fn store_bytes<B>(&mut self, buffer: B) -> anyhow::Result<BlockSource>
+    where
+        B: Buf,
+    {
+        self.create_temp_block(buffer).await
+    }
+
+    pub async fn store<B>(&mut self, buffer: B) -> anyhow::Result<BlockSource>
     where
         B: Buffer + Send + Sync + 'static,
     {
-        let mut file = tempfile::NamedTempFile::new_in(self.temp_dir.path())?;
-        OutputBlock::from_buffer(buffer).write_to(&mut file)?;
-        Ok(BlockSource::from_reader(file))
+        self.create_temp_block(buffer.lock()?).await
+    }
+
+    async fn create_temp_block<B>(&self, buffer: B) -> anyhow::Result<BlockSource>
+    where
+        B: Buf,
+    {
+        let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?.keep()?;
+        std::io::copy(&mut buffer.reader(), &mut file)?;
+        drop(file);
+        Ok(BlockSource::from_path(path)?)
     }
 }
 
@@ -37,12 +54,14 @@ mod tests {
 
     use super::*;
     use crate::block::MemBlock;
+    use macro_rules_attribute::apply;
+    use smol_macros::test;
 
-    #[test]
-    fn test_temp_store() -> anyhow::Result<()> {
+    #[apply(test!)]
+    async fn test_temp_store() -> anyhow::Result<()> {
         let mut store = TempStore::new()?;
         let buffer = MemBlock::from_vec(vec![1, 2, 3, 4]);
-        let block_source = store.store(buffer)?;
+        let block_source = store.store(buffer).await?;
         assert_eq!(block_source.size(), 4);
         let mut read_data = Vec::new();
         read_data.put(block_source.lock().unwrap());

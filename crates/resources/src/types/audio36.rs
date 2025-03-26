@@ -108,6 +108,20 @@ pub struct VoiceSample {
     data: BlockSource,
 }
 
+impl VoiceSample {
+    pub fn new(format: AudioFormat, data: BlockSource) -> Self {
+        VoiceSample { format, data }
+    }
+
+    pub fn format(&self) -> AudioFormat {
+        self.format
+    }
+
+    pub fn data(&self) -> &BlockSource {
+        &self.data
+    }
+}
+
 struct AudioVolumeEntry {
     logical_offset: u32,
     data: BlockSource,
