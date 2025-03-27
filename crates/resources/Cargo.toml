@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.91"
 bytes = "1.10.1"
 clap = { version = "4.5.20", features = ["derive"] }
+futures = "0.3.31"
 sci-utils = { path = "../utils" }
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.12"

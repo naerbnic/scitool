@@ -121,7 +121,7 @@ impl OutputBlock {
         self.0.blocks()
     }
 
-    pub fn write_to<R: std::io::Write>(&self, writer: &mut R) -> anyhow::Result<()> {
+    pub fn write_to<W: std::io::Write>(&self, mut writer: W) -> anyhow::Result<()> {
         for block in self.blocks() {
             let mut block = block?;
             while block.has_remaining() {
@@ -134,7 +134,7 @@ impl OutputBlock {
 
     pub async fn write_to_async<W: futures::io::AsyncWrite + Unpin>(
         &self,
-        writer: &mut W,
+        mut writer: W,
     ) -> anyhow::Result<()> {
         for block in self.blocks() {
             let mut block = block?;

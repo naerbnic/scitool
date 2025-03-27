@@ -13,3 +13,4 @@ sci-resources = { path = "../resources" }
 sci-utils = { path = "../utils" }
 smol = "2.0.2"
 clap = "4.5.32"
+serde_json = "1.0.140"

@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use bytes::Buf;
 
@@ -6,20 +9,32 @@ use crate::buffer::Buffer;
 
 use super::BlockSource;
 
+struct BlockPathHandle {
+    path: PathBuf,
+    // This is used to keep the temp file alive
+    _dir: Arc<tempfile::TempDir>,
+}
+
+impl AsRef<Path> for BlockPathHandle {
+    fn as_ref(&self) -> &Path {
+        self.path.as_ref()
+    }
+}
+
 pub struct TempStore {
-    temp_dir: tempfile::TempDir,
+    temp_dir: Arc<tempfile::TempDir>,
 }
 
 impl TempStore {
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
-            temp_dir: tempfile::TempDir::new()?,
+            temp_dir: Arc::new(tempfile::TempDir::new()?),
         })
     }
 
     pub fn with_base(base: &Path) -> anyhow::Result<Self> {
         Ok(Self {
-            temp_dir: tempfile::TempDir::new_in(base)?,
+            temp_dir: Arc::new(tempfile::TempDir::new_in(base)?),
         })
     }
 
@@ -44,7 +59,10 @@ impl TempStore {
         let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?.keep()?;
         std::io::copy(&mut buffer.reader(), &mut file)?;
         drop(file);
-        Ok(BlockSource::from_path(path)?)
+        Ok(BlockSource::from_path(BlockPathHandle {
+            path,
+            _dir: self.temp_dir.clone(),
+        })?)
     }
 }
 

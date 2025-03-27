@@ -12,6 +12,8 @@ use sci_utils::block::{BlockReader, BlockSource, LazyBlock, MemBlock};
 
 use super::{ResourceId, ResourceType};
 
+use futures::io::AsyncWriteExt;
+
 mod data;
 mod map;
 mod patch;
@@ -200,5 +202,14 @@ impl Resource {
 
     pub fn load_data(&self) -> anyhow::Result<MemBlock> {
         Ok(self.source.open()?)
+    }
+
+    pub async fn write_patch<W: futures::io::AsyncWrite + Unpin>(
+        &self,
+        mut writer: W,
+    ) -> anyhow::Result<()> {
+        writer.write_all(&[self.id.type_id().into(), 0]).await?;
+        writer.write_all(&self.source.open()?).await?;
+        Ok(())
     }
 }

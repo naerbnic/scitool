@@ -89,7 +89,7 @@ impl RawMapResource {
             entry.write_to(writer)?;
         }
         // Write the terminator entry, consisting of an entry of all 0xFFs.
-        const TERM_BYTES: &[u8] = &[0xFF, 10];
+        const TERM_BYTES: &[u8] = &[0xFF; 10];
         writer.write_slice(TERM_BYTES)?;
         Ok(())
     }
@@ -200,7 +200,7 @@ impl AudioVolumeBuilder {
             header_bytes.put_u32_le(curr_data_offset);
             curr_data_offset += u32::try_from(entry.data.size()).unwrap();
         }
-        assert_eq!(curr_data_offset, self.header_size());
+        assert_eq!(self.header_size(), header_bytes.len() as u32);
         let header: OutputBlock = header_bytes.freeze().into();
         let mut volume_blocks = Vec::new();
         volume_blocks.push(header);

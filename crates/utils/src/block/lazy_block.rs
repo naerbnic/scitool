@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::{BlockSource, MemBlock, ReadResult};
 
-trait LazyBlockImpl {
+trait LazyBlockImpl: Send + Sync {
     fn open(&self) -> ReadResult<MemBlock>;
     fn size(&self) -> Option<u64>;
 }
@@ -25,7 +25,7 @@ struct FactoryLazyBlockImpl<F>(F);
 
 impl<F> LazyBlockImpl for FactoryLazyBlockImpl<F>
 where
-    F: Fn() -> ReadResult<MemBlock>,
+    F: Fn() -> ReadResult<MemBlock> + Send + Sync,
 {
     fn open(&self) -> ReadResult<MemBlock> {
         (self.0)()
@@ -43,7 +43,7 @@ struct MapLazyBlockImpl<F> {
 
 impl<F> LazyBlockImpl for MapLazyBlockImpl<F>
 where
-    F: Fn(MemBlock) -> ReadResult<MemBlock>,
+    F: Fn(MemBlock) -> ReadResult<MemBlock> + Send + Sync,
 {
     fn open(&self) -> ReadResult<MemBlock> {
         let base_block = self.base_impl.open()?;
@@ -81,7 +81,7 @@ impl LazyBlock {
     /// Creates a lazy block that is loaded from a factory on demand.
     pub fn from_factory<F>(factory: F) -> Self
     where
-        F: Fn() -> ReadResult<MemBlock> + 'static,
+        F: Fn() -> ReadResult<MemBlock> + Send + Sync + 'static,
     {
         Self {
             source: Arc::new(FactoryLazyBlockImpl(factory)),
@@ -99,7 +99,6 @@ impl LazyBlock {
             source: Arc::new(MemLazyBlockImpl { block }),
         }
     }
-    
 
     /// Opens a block from the lazy block source. Returns an error if the block
     /// cannot be loaded.
@@ -111,7 +110,7 @@ impl LazyBlock {
     /// with the given function when opened.
     pub fn map<F>(self, map_fn: F) -> Self
     where
-        F: Fn(MemBlock) -> ReadResult<MemBlock> + 'static,
+        F: Fn(MemBlock) -> ReadResult<MemBlock> + Send + Sync + 'static,
     {
         Self {
             source: Arc::new(MapLazyBlockImpl {
@@ -125,7 +124,7 @@ impl LazyBlock {
     /// block.
     pub fn with_check<F>(&self, check_fn: F) -> Self
     where
-        F: Fn(&MemBlock) -> ReadResult<()> + 'static,
+        F: Fn(&MemBlock) -> ReadResult<()> + Send + Sync + 'static,
     {
         Self {
             source: Arc::new(MapLazyBlockImpl {

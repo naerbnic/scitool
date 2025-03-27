@@ -1,25 +1,22 @@
 use std::path::PathBuf;
 
-use sci_resources::types::msg::MessageId;
+use clap::Parser;
+use futures::FutureExt;
+use futures::stream::{FuturesUnordered, TryStreamExt};
 use scitool_fan_dub_cli::{path::LookupPath, tools::ffmpeg};
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct AudioClip {
-    pub start_us: u64,
-    pub end_us: u64,
-    pub path: PathBuf,
+async fn execute_all<F>(futures: impl IntoIterator<Item = F>) -> anyhow::Result<()>
+where
+    F: futures::Future<Output = anyhow::Result<()>> + Unpin,
+{
+    let mut fut_unordered = FuturesUnordered::from_iter(futures);
+    while let Some(()) = fut_unordered.try_next().await? {
+        // Do nothing
+    }
+    Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Sample {
-    pub room: u16,
-    pub message_id: MessageId,
-    pub clip: AudioClip,
-}
-
-#[derive(clap::Parser)]
+#[derive(Parser)]
 struct Cli {
     #[clap(subcommand)]
     command: Cmd,
@@ -31,21 +28,17 @@ enum Cmd {
     CompileAudio(CompileAudio),
 }
 
-#[derive(clap::Parser)]
+#[derive(Parser)]
 struct CompileAudio {
-    #[clap(short = 'd', long)]
+    #[clap(short = 's')]
     sample_dir: PathBuf,
+
+    #[clap(short = 'o', long)]
+    output: PathBuf,
 }
 
 impl CompileAudio {
-    pub fn run(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-fn main() -> anyhow::Result<()> {
-    let exec = smol::LocalExecutor::new();
-    smol::block_on(exec.run(async {
+    pub async fn run(&self) -> anyhow::Result<()> {
         let system_path = LookupPath::from_env();
         eprintln!("System PATH: {:?}", system_path.find_binary("ffmpeg"));
         let ffmpeg_tool = ffmpeg::FfmpegTool::from_path(
@@ -54,17 +47,49 @@ fn main() -> anyhow::Result<()> {
                 .expect("ffmpeg not found in PATH")
                 .to_path_buf(),
         );
-        let file = smol::fs::File::open("/tmp/sample-2.mp3").await?;
-        let data = ffmpeg_tool
-            .convert(
-                ffmpeg::ReaderInput::new(file),
-                ffmpeg::VecOutput,
-                ffmpeg::OggVorbisOutputOptions::new(128 * 1000),
-                &mut ffmpeg::NullProgressListener,
-            )
-            .await?;
-        eprintln!("Converted data size: {}", data.len());
-        smol::fs::write("/tmp/sample-3.mp3", &data).await?;
+        let sample_dir =
+            scitool_fan_dub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?;
+        let resources = sample_dir.to_audio_resources(&ffmpeg_tool, 4).await?;
+
+        let output_dir = &self.output;
+
+        futures::try_join!(
+            async {
+                let resource_aud_file =
+                    smol::fs::File::create(output_dir.join("resource.aud")).await?;
+                resources
+                    .audio_volume()
+                    .write_to_async(resource_aud_file)
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            },
+            execute_all(resources.map_resources().iter().map(|res| {
+                async move {
+                    let file = PathBuf::from(format!(
+                        "{}.{}",
+                        res.id().resource_num(),
+                        res.id().type_id().to_file_ext()
+                    ));
+                    let open_file = smol::fs::File::create(output_dir.join(&file)).await?;
+                    res.write_patch(open_file).await?;
+                    Ok::<_, anyhow::Error>(())
+                }
+                .boxed()
+            }))
+        )?;
         Ok(())
-    }))
+    }
+}
+
+async fn async_main() -> anyhow::Result<()> {
+    let args = Cli::parse();
+    match &args.command {
+        Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
+    }
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    let exec = smol::LocalExecutor::new();
+    smol::block_on(exec.run(async_main()))
 }
