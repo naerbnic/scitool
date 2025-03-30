@@ -77,7 +77,7 @@ fn generate_section(_level: usize, section: &Section) -> maud::Markup {
     maud::html! {
         .section id=[section.id()] {
             ."section-title" {
-                (generate_rich_text(section.title()))
+                (generate_rich_text(&format!("{} - {}", section.title(), section.id().unwrap_or(""))))
                 @if let Some(id) = section.id() {
                     (generate_copy_button(id))
                 }
