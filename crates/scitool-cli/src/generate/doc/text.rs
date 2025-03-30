@@ -76,7 +76,6 @@ pub struct RichTextBuilder {
 }
 
 impl RichTextBuilder {
-    #[expect(dead_code)]
     pub fn add_plain_text(&mut self, text: impl ToString) -> &mut Self {
         self.add_text(text, &TextStyle::default())
     }
