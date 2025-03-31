@@ -18,11 +18,16 @@ div.line:hover {
     background-color: #f0f0f0;
 }
 
-div.line .copy-button {
+/* Classes to have a set of buttons that are hidden unless the parent element is hovered */
+* > .hover-reveal {
+    display: inline-flex;
+    cursor: pointer;
+    align-items: center;
+    vertical-align: middle;
     visibility: hidden;
 }
 
-div.line:hover .copy-button {
+*:hover > .hover-reveal {
     visibility: initial;
 }
 
@@ -69,14 +74,6 @@ div.line-text b {
     margin-bottom: 0.5em;
 }
 
-.section-title .copy-button {
-    visibility: hidden
-}
-
-.section-title:hover .copy-button {
-    visibility: initial;
-}
-
 .section .section-title {
     font-size: 1.5em;
 }
@@ -97,7 +94,7 @@ div.line-text b {
         'opsz' 20
 }
 
-div.copy-button {
+div.button {
     display: inline-flex;
     opacity: 10%;
     cursor: pointer;
@@ -107,10 +104,10 @@ div.copy-button {
 }
 
 /* The icon inside of the copy button */
-div.copy-button .material-symbols-outlined {
+div.button .material-symbols-outlined {
     font-size: 1em;
 }
 
-div.copy-button:hover {
+div.button:hover {
     opacity: 100%;
 }

@@ -35,9 +35,17 @@ fn generate_plain_text(text: &RichText) -> maud::Markup {
     }
 }
 
+fn generate_link_button(elem_id: &str) -> maud::Markup {
+    maud::html! {
+        ."link-button".button "data-linkid"=(elem_id) {
+            div."material-symbols-outlined" { "link" }
+        }
+    }
+}
+
 fn generate_copy_button(copy_text: &str) -> maud::Markup {
     maud::html! {
-        ."copy-button" "data-copytext"=(copy_text) {
+        ."copy-button".button "data-copytext"=(copy_text) {
             div."material-symbols-outlined" { "content_copy" }
         }
     }
@@ -63,7 +71,11 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
                             .line id=(line.id()){
                                 .speaker { (generate_rich_text(line.speaker())) ":" }
                                 ."line-text" { (generate_rich_text(line.line()))
-                                (generate_copy_button(line.id()))}
+                                  ."hover-reveal" {
+                                    (generate_link_button(line.id()))
+                                    (generate_copy_button(line.id()))
+                                  }
+                                }
                             }
                         }
                     }
@@ -79,7 +91,10 @@ fn generate_section(_level: usize, section: &Section) -> maud::Markup {
             ."section-title" {
                 (generate_rich_text(section.title()))
                 @if let Some(id) = section.id() {
-                    (generate_copy_button(id))
+                    ."hover-reveal" {
+                        (generate_link_button(id))
+                        (generate_copy_button(id))
+                    }
                 }
             }
             ."section-body" {
