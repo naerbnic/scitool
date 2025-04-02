@@ -2,4 +2,4 @@
 
 pub mod doc;
 pub mod html;
-mod markdown;
+pub mod json;
