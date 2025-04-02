@@ -141,12 +141,14 @@ impl From<book::Line<'_>> for Line {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Conversation {
+    pub title: RichText,
     pub lines: Vec<Line>,
 }
 
 impl From<book::Conversation<'_>> for Conversation {
     fn from(conv: book::Conversation<'_>) -> Self {
         Self {
+            title: text::make_conversation_title(&conv).into(),
             lines: conv.lines().map(Into::into).collect(),
         }
     }
@@ -155,6 +157,7 @@ impl From<book::Conversation<'_>> for Conversation {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Noun {
     pub noun_id: u32,
+    pub noun_title: RichText,
     pub noun_name: Option<String>,
     pub conversations: Vec<ConvId>,
 }
@@ -163,6 +166,7 @@ impl From<book::Noun<'_>> for Noun {
     fn from(noun: book::Noun<'_>) -> Self {
         Self {
             noun_id: noun.id().noun_num().into(),
+            noun_title: text::make_noun_title(&noun).into(),
             noun_name: noun.desc().map(ToOwned::to_owned),
             conversations: noun.conversations().map(|conv| conv.id().into()).collect(),
         }
@@ -172,7 +176,7 @@ impl From<book::Noun<'_>> for Noun {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Room {
     pub room_id: u32,
-    pub room_name: String,
+    pub room_title: RichText,
     pub nouns: Vec<NounId>,
     pub cutscenes: Vec<ConvId>,
 }
@@ -181,7 +185,7 @@ impl From<book::Room<'_>> for Room {
     fn from(room: book::Room<'_>) -> Self {
         Self {
             room_id: room.id().room_num().into(),
-            room_name: room.name().to_string(),
+            room_title: text::make_room_title(&room).into(),
             nouns: room
                 .nouns()
                 .filter(|noun| !noun.is_cutscene())

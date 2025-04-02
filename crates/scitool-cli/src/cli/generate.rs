@@ -10,7 +10,7 @@ use crate::{
         doc::{Document, DocumentBuilder, SectionBuilder},
         html::generate_html,
         json::GameScript,
-        text::{RichText, TextStyle},
+        text::{RichText, make_conversation_title, make_noun_title, make_room_title},
     },
 };
 
@@ -86,13 +86,7 @@ fn line_id_to_id_string(line_id: crate::book::LineId) -> String {
 fn generate_document(book: &Book) -> anyhow::Result<Document> {
     let mut doc = DocumentBuilder::new(format!("{} Script", book.project_name()));
     for room in book.rooms() {
-        // build the room title, including the room number (for easy reference).
-        let mut room_title_builder = RichText::builder();
-        room_title_builder.add_plain_text(room.name()).add_text(
-            format!(" (Room #{:?})", room.id().room_num()),
-            TextStyle::default().set_italic(true),
-        );
-        let mut room_section = doc.add_chapter(room_title_builder.build());
+        let mut room_section = doc.add_chapter(make_room_title(&room));
         room_section.set_id(room_id_to_id_string(room.id()));
         let mut room_section = room_section.into_section_builder();
 
@@ -101,16 +95,8 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
             if num_conversations == 0 {
                 continue;
             }
-            let mut noun_desc = noun
-                .desc()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("Noun #{:?}", noun.id().noun_num()));
 
-            if noun.is_cutscene() {
-                noun_desc.push_str(" (Cutscene)");
-            }
-
-            let mut noun_section = room_section.add_subsection(noun_desc);
+            let mut noun_section = room_section.add_subsection(make_noun_title(&noun));
 
             noun_section.set_id(noun_id_to_id_string(noun.id()));
 
@@ -127,24 +113,7 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
                     let mut noun_section_builder = noun_section.into_section_builder();
 
                     for conversation in full_iter {
-                        let title =
-                            match (conversation.verb(), conversation.condition()) {
-                                (Some(verb), Some(cond)) => format!(
-                                    "On {} ({})",
-                                    verb.name(),
-                                    cond.desc().map(ToString::to_string).unwrap_or_else(
-                                        || format!("Condition #{:?}", cond.id().condition_num())
-                                    )
-                                ),
-                                (Some(verb), None) => format!("On {}", verb.name()),
-                                (None, Some(cond)) => format!(
-                                    "When {}",
-                                    cond.desc().map(ToString::to_string).unwrap_or_else(
-                                        || format!("Condition #{:?}", cond.id().condition_num())
-                                    )
-                                ),
-                                (None, None) => "On Any".to_string(),
-                            };
+                        let title = make_conversation_title(&conversation);
                         let conv_section = noun_section_builder.add_subsection(title);
                         generate_conversation(conv_section, &conversation);
                     }

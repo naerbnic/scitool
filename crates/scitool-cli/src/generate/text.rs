@@ -1,4 +1,4 @@
-use crate::book::{Control, FontControl, MessageSegment, MessageText};
+use crate::book::{self, Control, FontControl, MessageSegment, MessageText};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextStyle {
@@ -7,6 +7,18 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
+    pub fn of_italic() -> Self {
+        let mut style = Self::default();
+        style.set_italic(true);
+        style
+    }
+
+    pub fn of_bold() -> Self {
+        let mut style = Self::default();
+        style.set_bold(true);
+        style
+    }
+
     pub fn bold(&self) -> bool {
         self.bold
     }
@@ -59,16 +71,11 @@ impl RichText {
                 MessageSegment::Control(ctrl) => match ctrl {
                     Control::Font(font_ctrl) => match font_ctrl {
                         FontControl::Default => curr_style = TextStyle::default(),
-                        FontControl::Italics => {
-                            // Italics
-                            curr_style = TextStyle::default();
-                            curr_style.set_italic(true);
-                        }
-                        // Bold Controls
+                        // Italic Control Sequences
+                        FontControl::Italics => curr_style = TextStyle::of_italic(),
+                        // Bold Control Sequences
                         FontControl::SuperLarge | FontControl::Title | FontControl::BoldLike => {
-                            // Super Large Font
-                            curr_style = TextStyle::default();
-                            curr_style.set_bold(true);
+                            curr_style = TextStyle::of_bold()
                         }
                         // Ignored
                         FontControl::Lowercase | FontControl::Unknown => {}
@@ -133,4 +140,45 @@ impl RichTextBuilder {
     pub fn build(self) -> RichText {
         self.output
     }
+}
+
+pub fn make_room_title(room: &book::Room<'_>) -> RichText {
+    let mut room_title_builder = RichText::builder();
+    room_title_builder.add_plain_text(room.name()).add_text(
+        format!(" (Room #{:?})", room.id().room_num()),
+        &TextStyle::of_italic(),
+    );
+    room_title_builder.build()
+}
+
+pub fn make_conversation_title(conv: &book::Conversation<'_>) -> RichText {
+    RichText::from(match (conv.verb(), conv.condition()) {
+        (Some(verb), Some(cond)) => format!(
+            "On {} ({})",
+            verb.name(),
+            cond.desc()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("Condition #{:?}", cond.id().condition_num()))
+        ),
+        (Some(verb), None) => format!("On {}", verb.name()),
+        (None, Some(cond)) => format!(
+            "When {}",
+            cond.desc()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("Condition #{:?}", cond.id().condition_num()))
+        ),
+        (None, None) => "On Any".to_string(),
+    })
+}
+
+pub fn make_noun_title(noun: &book::Noun<'_>) -> RichText {
+    let mut noun_desc = noun
+        .desc()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("Noun #{:?}", noun.id().noun_num()));
+
+    if noun.is_cutscene() {
+        noun_desc.push_str(" (Cutscene)");
+    }
+    RichText::from(noun_desc)
 }
