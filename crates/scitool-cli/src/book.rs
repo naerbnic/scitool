@@ -80,7 +80,7 @@ pub struct RoleId(RawRoleId);
 
 impl RoleId {
     pub fn as_str(&self) -> &str {
-        &self.0 .0
+        &self.0.0
     }
 }
 
@@ -495,7 +495,7 @@ impl<'a> Noun<'a> {
         self.parent.clone()
     }
 
-    pub fn conversations(&self) -> impl Iterator<Item = Conversation<'a>> + 'a + use<'a> {
+    pub fn conversations(&self) -> impl Iterator<Item = Conversation<'a>> + use<'a> {
         self.entry.conversations.iter().map({
             let parent = self.clone();
             move |(&raw_id, entry)| Conversation {
