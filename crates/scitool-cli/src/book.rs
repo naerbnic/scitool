@@ -10,6 +10,10 @@ use sci_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
 pub mod config;
+mod text;
+
+#[expect(unused_imports)]
+pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
 
 // Raw IDs.
 //
@@ -213,7 +217,7 @@ struct ConditionEntry {
 }
 
 struct LineEntry {
-    text: String,
+    text: MessageText,
     talker: RawTalkerId,
 }
 
@@ -267,7 +271,7 @@ impl<'a> Line<'a> {
         LineId(self.parent.id(), self.raw_id)
     }
 
-    pub fn text(&self) -> &str {
+    pub fn text(&self) -> &MessageText {
         &self.entry.text
     }
 

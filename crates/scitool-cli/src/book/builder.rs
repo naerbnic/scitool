@@ -14,6 +14,12 @@ use super::{
 #[error(transparent)]
 pub struct BuildError(Box<dyn std::error::Error + Send + Sync>);
 
+impl BuildError {
+    pub fn from_anyhow(err: anyhow::Error) -> Self {
+        BuildError(err.into())
+    }
+}
+
 impl From<String> for BuildError {
     fn from(s: String) -> Self {
         BuildError(s.into())
@@ -90,7 +96,7 @@ pub(super) struct MessageEntry {
 impl MessageEntry {
     fn build(&self, _ctxt: &Conversation) -> Result<super::LineEntry, BuildError> {
         Ok(super::LineEntry {
-            text: self.text.clone(),
+            text: self.text.parse().map_err(BuildError::from_anyhow)?,
             talker: self.talker,
         })
     }

@@ -5,7 +5,10 @@ use clap::{Parser, Subcommand};
 use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
 
 use crate::{
-    book::{Book, builder::BookBuilder, config::BookConfig},
+    book::{
+        Book, Control, FontControl, MessageSegment, MessageText, builder::BookBuilder,
+        config::BookConfig,
+    },
     generate::{
         doc::{
             Document, DocumentBuilder, SectionBuilder,
@@ -21,133 +24,33 @@ struct CommonArgs {
     config_path: PathBuf,
 }
 
-enum MessageSegment<'a> {
-    Text(&'a str),
-    Control(char, Option<u32>),
-}
-
-fn split_first_char(text: &str) -> Option<(char, &str)> {
-    let mut chars = text.chars();
-    let first = chars.next()?;
-    Some((first, chars.as_str()))
-}
-
-fn parse_message_text(mut text: &str) -> Vec<MessageSegment> {
-    let mut segments = Vec::new();
-    loop {
-        let (next_text, control_start_rest) = match text.split_once('|') {
-            Some((first, second)) => (first, Some(second)),
-            None => (text, None),
-        };
-
-        if !next_text.is_empty() {
-            segments.push(MessageSegment::Text(next_text));
-        }
-
-        let Some(rest) = control_start_rest else {
-            break;
-        };
-        let (control, rest) = split_first_char(rest).unwrap();
-        let (value, rest) = rest.split_once('|').unwrap();
-        segments.push(MessageSegment::Control(
-            control,
-            if value.is_empty() {
-                None
-            } else {
-                Some(value.parse().unwrap())
-            },
-        ));
-        text = rest;
-    }
-
-    segments
-}
-
-fn convert_message_text_to_rich_text(ctxt: &str, text: &str) -> RichText {
-    let segments = parse_message_text(text);
+fn convert_message_text_to_rich_text(text: &MessageText) -> RichText {
     let mut builder = RichText::builder();
     let mut curr_style = TextStyle::default();
-    for segment in segments {
+    for segment in text.segments() {
         match segment {
             MessageSegment::Text(text) => {
                 builder.add_text(text, &curr_style);
             }
-            MessageSegment::Control(ctrl, value) => match ctrl {
-                'f' => {
-                    match value {
-                        None => curr_style = TextStyle::default(),
-                        Some(1) => {
-                            // ???
-                        }
-                        Some(2) => {
-                            // Italics
-                            curr_style = TextStyle::default();
-                            curr_style.set_italic(true);
-                        }
-                        Some(3) => {
-                            // Super Large Font
-                            curr_style = TextStyle::default();
-                            curr_style.set_bold(true);
-                        }
-                        Some(4) => {
-                            // Lowercase
-                        }
-                        Some(5) => {
-                            // Title Font
-                            //
-                            // Example: "|f5|Space Quest 5:"
-                            curr_style = TextStyle::default();
-                            curr_style.set_bold(true);
-                        }
-                        Some(6) => {
-                            // ???
-                        }
-                        Some(8) => {
-                            curr_style = TextStyle::default();
-                            curr_style.set_bold(true);
-                        }
-                        _ => {
-                            eprintln!(
-                                "Found font control with value {:?}; Context: {:?}, {}",
-                                value, text, ctxt
-                            );
-                        }
+            MessageSegment::Control(ctrl) => match ctrl {
+                Control::Font(font_ctrl) => match font_ctrl {
+                    FontControl::Default => curr_style = TextStyle::default(),
+                    FontControl::Italics => {
+                        // Italics
+                        curr_style = TextStyle::default();
+                        curr_style.set_italic(true);
                     }
-                }
-                'c' => {
-                    // Color control
-                    match value {
-                        None => {
-                            // Reset to default color
-                        }
-                        Some(1) => {
-                            // Red
-                        }
-                        Some(2) => {
-                            // Yellow
-                        }
-                        Some(3) => {
-                            // White
-                        }
-                        Some(4) => {
-                            // Green
-                        }
-                        Some(5) => {
-                            // Cyan
-                        }
-                        Some(6) => {
-                            // ???
-                        }
-                        _ => {
-                            eprintln!(
-                                "Found color control with value {:?}; Context: {:?}, {}",
-                                value, text, ctxt
-                            );
-                        }
+                    // Bold Controls
+                    FontControl::SuperLarge | FontControl::Title | FontControl::BoldLike => {
+                        // Super Large Font
+                        curr_style = TextStyle::default();
+                        curr_style.set_bold(true);
                     }
-                }
-                c => {
-                    eprintln!("Unknown control: {:?} with value {:?}", c, value);
+                    // Ignored
+                    FontControl::Lowercase | FontControl::Unknown => {}
+                },
+                Control::Color(_) => {
+                    // We ignore color control sequences for now.
                 }
             },
         }
@@ -183,7 +86,7 @@ fn generate_conversation(mut section: SectionBuilder, conversation: &crate::book
     for line in conversation.lines() {
         dialogue.add_line(
             line.role().short_name(),
-            convert_message_text_to_rich_text(&format!("{:?}", conversation.id()), line.text()),
+            convert_message_text_to_rich_text(line.text()),
             line_id_to_id_string(line.id()),
         );
     }
