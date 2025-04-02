@@ -78,6 +78,12 @@ impl std::fmt::Debug for VerbId {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RoleId(RawRoleId);
 
+impl RoleId {
+    pub fn as_str(&self) -> &str {
+        &self.0 .0
+    }
+}
+
 impl std::fmt::Debug for RoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RoleId").field(&self.0.0).finish()
@@ -585,13 +591,11 @@ pub struct Role<'a> {
 }
 
 impl Role<'_> {
-    #[expect(dead_code)]
     pub fn id(&self) -> RoleId {
         RoleId(self.raw_id.clone())
     }
 
     /// Get the full name of the role.
-    #[expect(dead_code)]
     pub fn name(&self) -> &str {
         &self.entry.name
     }
@@ -629,7 +633,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn roles(&self) -> impl Iterator<Item = Role> {
         self.roles.iter().map(|(raw_id, entry)| Role {
             parent: self,

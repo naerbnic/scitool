@@ -1,3 +1,5 @@
+use crate::book::{Control, FontControl, MessageSegment, MessageText};
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextStyle {
     bold: bool,
@@ -46,6 +48,39 @@ pub struct RichText {
 }
 
 impl RichText {
+    pub fn from_msg_text(text: &MessageText) -> Self {
+        let mut builder = RichText::builder();
+        let mut curr_style = TextStyle::default();
+        for segment in text.segments() {
+            match segment {
+                MessageSegment::Text(text) => {
+                    builder.add_text(text, &curr_style);
+                }
+                MessageSegment::Control(ctrl) => match ctrl {
+                    Control::Font(font_ctrl) => match font_ctrl {
+                        FontControl::Default => curr_style = TextStyle::default(),
+                        FontControl::Italics => {
+                            // Italics
+                            curr_style = TextStyle::default();
+                            curr_style.set_italic(true);
+                        }
+                        // Bold Controls
+                        FontControl::SuperLarge | FontControl::Title | FontControl::BoldLike => {
+                            // Super Large Font
+                            curr_style = TextStyle::default();
+                            curr_style.set_bold(true);
+                        }
+                        // Ignored
+                        FontControl::Lowercase | FontControl::Unknown => {}
+                    },
+                    Control::Color(_) => {
+                        // We ignore color control sequences for now.
+                    }
+                },
+            }
+        }
+        builder.build()
+    }
     pub fn items(&self) -> &[TextItem] {
         &self.items
     }

@@ -5,16 +5,12 @@ use clap::{Parser, Subcommand};
 use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
 
 use crate::{
-    book::{
-        Book, Control, FontControl, MessageSegment, MessageText, builder::BookBuilder,
-        config::BookConfig,
-    },
+    book::{Book, builder::BookBuilder, config::BookConfig},
     generate::{
-        doc::{
-            Document, DocumentBuilder, SectionBuilder,
-            text::{RichText, TextStyle},
-        },
+        doc::{Document, DocumentBuilder, SectionBuilder},
         html::generate_html,
+        json::GameScript,
+        text::{RichText, TextStyle},
     },
 };
 
@@ -22,40 +18,6 @@ use crate::{
 struct CommonArgs {
     root_dir: PathBuf,
     config_path: PathBuf,
-}
-
-fn convert_message_text_to_rich_text(text: &MessageText) -> RichText {
-    let mut builder = RichText::builder();
-    let mut curr_style = TextStyle::default();
-    for segment in text.segments() {
-        match segment {
-            MessageSegment::Text(text) => {
-                builder.add_text(text, &curr_style);
-            }
-            MessageSegment::Control(ctrl) => match ctrl {
-                Control::Font(font_ctrl) => match font_ctrl {
-                    FontControl::Default => curr_style = TextStyle::default(),
-                    FontControl::Italics => {
-                        // Italics
-                        curr_style = TextStyle::default();
-                        curr_style.set_italic(true);
-                    }
-                    // Bold Controls
-                    FontControl::SuperLarge | FontControl::Title | FontControl::BoldLike => {
-                        // Super Large Font
-                        curr_style = TextStyle::default();
-                        curr_style.set_bold(true);
-                    }
-                    // Ignored
-                    FontControl::Lowercase | FontControl::Unknown => {}
-                },
-                Control::Color(_) => {
-                    // We ignore color control sequences for now.
-                }
-            },
-        }
-    }
-    builder.build()
 }
 
 fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
@@ -86,7 +48,7 @@ fn generate_conversation(mut section: SectionBuilder, conversation: &crate::book
     for line in conversation.lines() {
         dialogue.add_line(
             line.role().short_name(),
-            convert_message_text_to_rich_text(line.text()),
+            RichText::from_msg_text(line.text()),
             line_id_to_id_string(line.id()),
         );
     }
@@ -211,9 +173,28 @@ impl GenerateMaster {
     }
 }
 
+#[derive(Parser)]
+struct GenerateJson {
+    #[clap(flatten)]
+    ctxt: CommonArgs,
+    #[clap(short, long)]
+    output: PathBuf,
+}
+
+impl GenerateJson {
+    fn run(&self) -> anyhow::Result<()> {
+        let book = load_book(&self.ctxt)?;
+        let script = GameScript::from_book(&book);
+        let json = serde_json::to_string(&script)?;
+        std::fs::write(&self.output, json)?;
+        Ok(())
+    }
+}
+
 #[derive(Subcommand)]
 enum GenerateCommand {
     Master(GenerateMaster),
+    Json(GenerateJson),
 }
 
 #[derive(Parser)]
@@ -226,6 +207,7 @@ impl Generate {
     pub fn run(&self) -> anyhow::Result<()> {
         match &self.msg_cmd {
             GenerateCommand::Master(cmd) => cmd.run(),
+            GenerateCommand::Json(cmd) => cmd.run(),
         }
     }
 }
