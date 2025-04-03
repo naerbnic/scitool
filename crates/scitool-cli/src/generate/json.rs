@@ -5,13 +5,6 @@ use serde::{Deserialize, Serialize};
 use super::text;
 use crate::book::{self, Book};
 
-fn get_only_item<I: IntoIterator>(items: I) -> I::Item {
-    let mut iter = items.into_iter();
-    let item = iter.next().expect("Expected exactly one item");
-    assert!(iter.next().is_none(), "Expected exactly one item");
-    item
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(transparent)]
 pub struct LineId(String);
@@ -141,14 +134,20 @@ impl From<book::Line<'_>> for Line {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Conversation {
-    pub title: RichText,
+    pub noun: NounId,
+    pub verb: Option<String>,
+    pub cond: Option<String>,
     pub lines: Vec<Line>,
 }
 
 impl From<book::Conversation<'_>> for Conversation {
     fn from(conv: book::Conversation<'_>) -> Self {
         Self {
-            title: text::make_conversation_title(&conv).into(),
+            noun: conv.noun().id().into(),
+            verb: conv.verb().map(|v| v.name().to_string()),
+            cond: conv
+                .condition()
+                .and_then(|c| c.desc().map(|d| d.to_string())),
             lines: conv.lines().map(Into::into).collect(),
         }
     }
@@ -156,6 +155,7 @@ impl From<book::Conversation<'_>> for Conversation {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Noun {
+    pub room_id: RoomId,
     pub noun_id: u32,
     pub noun_title: RichText,
     pub noun_name: Option<String>,
@@ -165,6 +165,7 @@ pub struct Noun {
 impl From<book::Noun<'_>> for Noun {
     fn from(noun: book::Noun<'_>) -> Self {
         Self {
+            room_id: noun.room().id().into(),
             noun_id: noun.id().noun_num().into(),
             noun_title: text::make_noun_title(&noun).into(),
             noun_name: noun.desc().map(ToOwned::to_owned),
@@ -178,7 +179,6 @@ pub struct Room {
     pub room_id: u32,
     pub room_title: RichText,
     pub nouns: Vec<NounId>,
-    pub cutscenes: Vec<ConvId>,
 }
 
 impl From<book::Room<'_>> for Room {
@@ -186,16 +186,7 @@ impl From<book::Room<'_>> for Room {
         Self {
             room_id: room.id().room_num().into(),
             room_title: text::make_room_title(&room).into(),
-            nouns: room
-                .nouns()
-                .filter(|noun| !noun.is_cutscene())
-                .map(|noun| noun.id().into())
-                .collect(),
-            cutscenes: room
-                .nouns()
-                .filter(|noun| noun.is_cutscene())
-                .map(|noun| get_only_item(noun.conversations()).id().into())
-                .collect(),
+            nouns: room.nouns().map(|noun| noun.id().into()).collect(),
         }
     }
 }
