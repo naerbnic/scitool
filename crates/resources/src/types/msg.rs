@@ -8,21 +8,44 @@ use sci_utils::{
 
 use serde::{Deserialize, Serialize};
 
+fn zero_u8() -> u8 {
+    0
+}
+
+fn one_u8() -> u8 {
+    1
+}
+
+fn is_zero_u8(x: &u8) -> bool {
+    *x == 0
+}
+fn is_one_u8(x: &u8) -> bool {
+    *x == 1
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MessageId {
     noun: u8,
+    #[serde(default = "zero_u8", skip_serializing_if = "is_zero_u8")]
     verb: u8,
+    #[serde(default = "zero_u8", skip_serializing_if = "is_zero_u8")]
     condition: u8,
+    #[serde(default = "one_u8", skip_serializing_if = "is_one_u8")]
     sequence: u8,
 }
 
 impl MessageId {
-    pub fn new(noun: u8, verb: u8, condition: u8, sequence: u8) -> Self {
+    pub fn new(
+        noun: u8,
+        verb: impl Into<Option<u8>>,
+        condition: impl Into<Option<u8>>,
+        sequence: impl Into<Option<u8>>,
+    ) -> Self {
         MessageId {
             noun,
-            verb,
-            condition,
-            sequence,
+            verb: verb.into().unwrap_or(0),
+            condition: condition.into().unwrap_or(0),
+            sequence: sequence.into().unwrap_or(1),
         }
     }
 
@@ -80,12 +103,7 @@ fn parse_message_resource_v4(msg_res: MemBlock) -> anyhow::Result<Vec<RawMessage
             let verb = reader.read_u8()?;
             let condition = reader.read_u8()?;
             let sequence = reader.read_u8()?;
-            MessageId {
-                noun,
-                verb,
-                condition,
-                sequence,
-            }
+            MessageId::new(noun, verb, condition, sequence)
         };
 
         let talker = reader.read_u8()?;
@@ -95,12 +113,7 @@ fn parse_message_resource_v4(msg_res: MemBlock) -> anyhow::Result<Vec<RawMessage
             let noun = reader.read_u8()?;
             let verb = reader.read_u8()?;
             let condition = reader.read_u8()?;
-            MessageId {
-                noun,
-                verb,
-                condition,
-                sequence: 1,
-            }
+            MessageId::new(noun, verb, condition, None)
         };
 
         // According to ScummVM, the record size is 11, but I don't know the purpose of

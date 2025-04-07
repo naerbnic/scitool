@@ -8,7 +8,7 @@ use sci_resources::types::{
 use sci_utils::block::temp_store::TempStore;
 use serde::{Deserialize, Serialize};
 
-use crate::tools::ffmpeg::{self, FfmpegTool};
+use crate::tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions};
 
 fn normalize_path(path: &Path) -> PathBuf {
     let mut result_buf = PathBuf::new();
@@ -87,7 +87,7 @@ impl SampleSet {
                 .convert(
                     ffmpeg::ReaderInput::new(sample_file),
                     ffmpeg::VecOutput,
-                    ffmpeg::OutputFormat::Ogg(Default::default()),
+                    ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
                     &mut ffmpeg::NullProgressListener,
                 )
                 .await?;

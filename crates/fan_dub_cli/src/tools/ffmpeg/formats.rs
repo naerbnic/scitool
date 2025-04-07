@@ -30,24 +30,31 @@ impl Mp3OutputOptions {
 }
 
 pub struct OggVorbisOutputOptions {
-    bitrate: u32,
+    quality: u32,
+    sample_rate: Option<u32>,
 }
 
 impl OggVorbisOutputOptions {
-    pub fn new(bitrate: u32) -> Self {
-        OggVorbisOutputOptions { bitrate }
+    pub fn new(quality: u32, sample_rate: impl Into<Option<u32>>) -> Self {
+        OggVorbisOutputOptions {
+            quality,
+            sample_rate: sample_rate.into(),
+        }
     }
 
     pub fn get_options(&self) -> AVOptions {
         let mut options = HashMap::new();
-        options.insert("b".into(), self.bitrate.to_string());
+        options.insert("q".into(), self.quality.to_string());
+        if let Some(sample_rate) = self.sample_rate {
+            options.insert("ar".into(), sample_rate.to_string());
+        }
         AVOptions(options)
     }
 }
 
 impl Default for OggVorbisOutputOptions {
     fn default() -> Self {
-        OggVorbisOutputOptions::new(128_000)
+        OggVorbisOutputOptions::new(4, None)
     }
 }
 
