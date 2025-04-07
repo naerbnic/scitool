@@ -3,15 +3,13 @@ use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
+use scitool_book::{self as book, Book, builder::BookBuilder, config::BookConfig};
 
-use crate::{
-    book::{Book, builder::BookBuilder, config::BookConfig},
-    generate::{
-        doc::{Document, DocumentBuilder, SectionBuilder},
-        html::generate_html,
-        json::GameScript,
-        text::{RichText, make_conversation_title, make_noun_title, make_room_title},
-    },
+use crate::generate::{
+    doc::{Document, DocumentBuilder, SectionBuilder},
+    html::generate_html,
+    json::GameScript,
+    text::{RichText, make_conversation_title, make_noun_title, make_room_title},
 };
 
 #[derive(Parser)]
@@ -41,7 +39,7 @@ fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
     Ok(builder.build()?)
 }
 
-fn generate_conversation(mut section: SectionBuilder, conversation: &crate::book::Conversation) {
+fn generate_conversation(mut section: SectionBuilder, conversation: &book::Conversation) {
     section.set_id(conversation_id_to_id_string(conversation.id()));
     let mut content = section.add_content();
     let mut dialogue = content.add_dialogue();
@@ -54,15 +52,15 @@ fn generate_conversation(mut section: SectionBuilder, conversation: &crate::book
     }
 }
 
-fn room_id_to_id_string(room_id: crate::book::RoomId) -> String {
+fn room_id_to_id_string(room_id: book::RoomId) -> String {
     format!("room-{}", room_id.room_num())
 }
 
-fn noun_id_to_id_string(noun_id: crate::book::NounId) -> String {
+fn noun_id_to_id_string(noun_id: book::NounId) -> String {
     format!("noun-{}-{}", noun_id.room_num(), noun_id.noun_num())
 }
 
-fn conversation_id_to_id_string(conversation_id: crate::book::ConversationId) -> String {
+fn conversation_id_to_id_string(conversation_id: book::ConversationId) -> String {
     format!(
         "conv-{}-{}-{}-{}",
         conversation_id.room_num(),
@@ -72,7 +70,7 @@ fn conversation_id_to_id_string(conversation_id: crate::book::ConversationId) ->
     )
 }
 
-fn line_id_to_id_string(line_id: crate::book::LineId) -> String {
+fn line_id_to_id_string(line_id: book::LineId) -> String {
     format!(
         "line-{}-{}-{}-{}-{}",
         line_id.room_num(),

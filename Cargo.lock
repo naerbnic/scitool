@@ -1002,6 +1002,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "scitool-book"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "itertools 0.13.0",
+ "sci-resources",
+ "sci-utils",
+ "serde",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "scitool-cli"
 version = "0.1.0"
 dependencies = [
@@ -1015,6 +1027,7 @@ dependencies = [
  "sci-header-gen",
  "sci-resources",
  "sci-utils",
+ "scitool-book",
  "scitool-script-loader",
  "serde",
  "serde_json",

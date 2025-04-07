@@ -1,0 +1,12 @@
+[package]
+name = "scitool-book"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sci-utils = { path = "../utils" }
+serde = { version = "1.0.210", features = ["derive"] }
+anyhow = "1.0.86"
+sci-resources = { path = "../resources" }
+itertools = "0.13.0"
+thiserror = "1.0.63"

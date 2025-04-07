@@ -12,7 +12,6 @@ pub mod builder;
 pub mod config;
 mod text;
 
-#[expect(unused_imports)]
 pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
 
 // Raw IDs.
@@ -297,7 +296,6 @@ impl<'a> Line<'a> {
         self.talker().role()
     }
 
-    #[expect(dead_code)]
     pub fn conversation(&self) -> Conversation<'a> {
         self.parent.clone()
     }
@@ -412,7 +410,6 @@ impl<'a> Condition<'a> {
     }
 
     /// Get the room this condition is part of.
-    #[expect(dead_code)]
     pub fn room(&self) -> Room<'a> {
         self.parent.clone()
     }
@@ -431,7 +428,6 @@ pub struct Verb<'a> {
 }
 
 impl Verb<'_> {
-    #[expect(dead_code)]
     pub fn id(&self) -> VerbId {
         VerbId(self.raw_id)
     }
@@ -454,7 +450,6 @@ pub struct Talker<'a> {
 }
 
 impl<'a> Talker<'a> {
-    #[expect(dead_code)]
     pub fn id(&self) -> TalkerId {
         TalkerId(self.raw_id)
     }
@@ -641,7 +636,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn verbs(&self) -> impl Iterator<Item = Verb> {
         self.verbs.iter().map(|(&raw_id, entry)| Verb {
             parent: self,
@@ -650,7 +644,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn talkers(&self) -> impl Iterator<Item = Talker> {
         self.talkers.iter().map(|(k, v)| Talker {
             parent: self,
@@ -672,7 +665,6 @@ impl Book {
             .flat_map(|conversation| conversation.lines())
     }
 
-    #[expect(dead_code)]
     pub fn conditions(&self) -> impl Iterator<Item = Condition> + '_ {
         self.rooms().flat_map(|room| room.conditions())
     }
@@ -709,7 +701,6 @@ impl Book {
         })
     }
 
-    #[expect(dead_code)]
     pub fn get_condition(&self, id: ConditionId) -> Option<Condition> {
         self.get_room(id.0)
             .and_then(|room| room.get_condition_inner(id.1))
@@ -725,7 +716,6 @@ impl Book {
             .and_then(|noun| noun.get_conversation_inner(id.1))
     }
 
-    #[expect(dead_code)]
     pub fn get_line(&self, id: LineId) -> Option<Line> {
         self.get_conversation(id.0)
             .and_then(|conversation| conversation.get_line_inner(id.1))

@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use crate::book::builder::BookBuilder;
-use crate::book::config::BookConfig;
+use scitool_book::{builder::BookBuilder, config::BookConfig};
+
 use crate::output::msg as msg_out;
 use clap::{Parser, Subcommand};
 use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};

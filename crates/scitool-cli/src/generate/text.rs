@@ -1,4 +1,4 @@
-use crate::book::{self, Control, FontControl, MessageSegment, MessageText};
+use scitool_book::{self as book, Control, FontControl, MessageSegment, MessageText};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextStyle {

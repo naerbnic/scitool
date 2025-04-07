@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::text;
-use crate::book::{self, Book};
 use schemars::JsonSchema;
+use scitool_book::{self as book, Book};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]

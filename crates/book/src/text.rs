@@ -22,7 +22,7 @@ pub enum ColorControl {
 
 pub enum Control {
     Font(FontControl),
-    Color(#[expect(dead_code)] ColorControl),
+    Color(ColorControl),
 }
 
 pub enum MessageSegment {
