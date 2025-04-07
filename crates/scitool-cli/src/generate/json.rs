@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use super::text;
 use crate::book::{self, Book};
+use schemars::JsonSchema;
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct LineId(String);
 
@@ -22,7 +23,7 @@ impl From<book::LineId> for LineId {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct ConvId(String);
 
@@ -38,7 +39,7 @@ impl From<book::ConversationId> for ConvId {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct NounId(String);
 
@@ -52,7 +53,7 @@ impl From<book::NounId> for NounId {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct RoomId(String);
 
@@ -62,7 +63,7 @@ impl From<book::RoomId> for RoomId {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct RoleId(String);
 
@@ -72,7 +73,7 @@ impl From<book::RoleId> for RoleId {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, JsonSchema)]
 pub struct TextStyle {
     pub bold: bool,
     pub italic: bool,
@@ -84,7 +85,7 @@ impl TextStyle {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct TextPiece {
     pub text: String,
     #[serde(default, skip_serializing_if = "TextStyle::is_default")]
@@ -103,7 +104,7 @@ impl From<&text::TextItem> for TextPiece {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct RichText {
     pub items: Vec<TextPiece>,
 }
@@ -115,7 +116,7 @@ impl From<text::RichText> for RichText {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Line {
     pub id: LineId,
     pub role: RoleId,
@@ -132,7 +133,7 @@ impl From<book::Line<'_>> for Line {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Conversation {
     pub noun: NounId,
     pub verb: Option<String>,
@@ -153,7 +154,7 @@ impl From<book::Conversation<'_>> for Conversation {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Noun {
     pub room_id: RoomId,
     pub noun_id: u32,
@@ -174,7 +175,7 @@ impl From<book::Noun<'_>> for Noun {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Room {
     pub room_id: u32,
     pub room_title: RichText,
@@ -191,15 +192,17 @@ impl From<book::Room<'_>> for Room {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Role {
     pub name: String,
+    pub short_name: String,
 }
 
 impl From<book::Role<'_>> for Role {
     fn from(role: book::Role<'_>) -> Self {
         Self {
             name: role.name().to_string(),
+            short_name: role.short_name().to_string(),
         }
     }
 }
@@ -207,7 +210,7 @@ impl From<book::Role<'_>> for Role {
 // Script query types:
 //
 // - Find conversations by role
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct GameScript {
     roles: BTreeMap<RoleId, Role>,
     rooms: BTreeMap<RoomId, Room>,
@@ -228,7 +231,6 @@ impl GameScript {
                 .collect(),
             nouns: book
                 .nouns()
-                .filter(|noun| !noun.is_cutscene())
                 .map(|noun| (noun.id().into(), noun.into()))
                 .collect(),
             conversations: book
@@ -236,5 +238,9 @@ impl GameScript {
                 .map(|conv| (conv.id().into(), conv.into()))
                 .collect(),
         }
+    }
+
+    pub fn json_schema() -> anyhow::Result<String> {
+        Ok(serde_json::to_string(&schemars::schema_for!(Self))?)
     }
 }

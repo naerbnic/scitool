@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
@@ -160,10 +160,22 @@ impl GenerateJson {
     }
 }
 
+#[derive(Parser)]
+struct GenerateJsonSchema;
+
+impl GenerateJsonSchema {
+    fn run(&self) -> anyhow::Result<()> {
+        let schema = GameScript::json_schema()?;
+        std::io::stdout().write_all(schema.as_bytes())?;
+        Ok(())
+    }
+}
+
 #[derive(Subcommand)]
 enum GenerateCommand {
     Master(GenerateMaster),
     Json(GenerateJson),
+    JsonSchema(GenerateJsonSchema),
 }
 
 #[derive(Parser)]
@@ -177,6 +189,7 @@ impl Generate {
         match &self.msg_cmd {
             GenerateCommand::Master(cmd) => cmd.run(),
             GenerateCommand::Json(cmd) => cmd.run(),
+            GenerateCommand::JsonSchema(cmd) => cmd.run(),
         }
     }
 }
