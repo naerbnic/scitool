@@ -88,6 +88,7 @@ impl RichText {
         }
         builder.build()
     }
+
     pub fn items(&self) -> &[TextItem] {
         &self.items
     }
@@ -122,6 +123,13 @@ impl RichTextBuilder {
         self.add_text(text, &TextStyle::default())
     }
 
+    pub fn add_rich_text(&mut self, text: &RichText) -> &mut Self {
+        for item in text.items() {
+            self.add_text(item.text(), item.style());
+        }
+        self
+    }
+
     pub fn add_text(&mut self, text: impl ToString, curr_style: &TextStyle) -> &mut Self {
         match self.output.items.last_mut() {
             Some(last) if &last.style == curr_style => {
@@ -144,10 +152,7 @@ impl RichTextBuilder {
 
 pub fn make_room_title(room: &book::Room<'_>) -> RichText {
     let mut room_title_builder = RichText::builder();
-    room_title_builder.add_plain_text(room.name()).add_text(
-        format!(" (Room #{:?})", room.id().room_num()),
-        &TextStyle::of_italic(),
-    );
+    room_title_builder.add_plain_text(room.name());
     room_title_builder.build()
 }
 

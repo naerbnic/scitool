@@ -9,7 +9,7 @@ use crate::generate::{
     doc::{Document, DocumentBuilder, SectionBuilder},
     html::generate_html,
     json::GameScript,
-    text::{RichText, make_conversation_title, make_noun_title, make_room_title},
+    text::{RichText, TextStyle, make_conversation_title, make_noun_title, make_room_title},
 };
 
 #[derive(Parser)]
@@ -84,7 +84,12 @@ fn line_id_to_id_string(line_id: book::LineId) -> String {
 fn generate_document(book: &Book) -> anyhow::Result<Document> {
     let mut doc = DocumentBuilder::new(format!("{} Script", book.project_name()));
     for room in book.rooms() {
-        let mut room_section = doc.add_chapter(make_room_title(&room));
+        let mut room_title = RichText::builder();
+        room_title.add_rich_text(&make_room_title(&room)).add_text(
+            format!(" (Room #{:?})", room.id().room_num()),
+            &TextStyle::of_italic(),
+        );
+        let mut room_section = doc.add_chapter(room_title.build());
         room_section.set_id(room_id_to_id_string(room.id()));
         let mut room_section = room_section.into_section_builder();
 
