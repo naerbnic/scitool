@@ -136,6 +136,7 @@ impl From<book::Line<'_>> for Line {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Conversation {
     pub noun: NounId,
+    pub conv_id: u32,
     pub verb: Option<String>,
     pub cond: Option<String>,
     pub lines: Vec<Line>,
@@ -145,6 +146,7 @@ impl From<book::Conversation<'_>> for Conversation {
     fn from(conv: book::Conversation<'_>) -> Self {
         Self {
             noun: conv.noun().id().into(),
+            conv_id: conv.id().condition_num().into(),
             verb: conv.verb().map(|v| v.name().to_string()),
             cond: conv
                 .condition()
