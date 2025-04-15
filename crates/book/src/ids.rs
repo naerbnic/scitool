@@ -1,4 +1,12 @@
+use std::{fmt::Display, str::FromStr};
+
 use serde::{Deserialize, Serialize};
+
+#[derive(thiserror::Error, Debug)]
+#[error("Error converting to ID: {message}")]
+pub struct IdConversionError {
+    message: String,
+}
 
 // Raw IDs.
 //
@@ -96,6 +104,29 @@ impl RoomId {
     }
 }
 
+impl Display for RoomId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "room-{}", self.room_num())
+    }
+}
+
+impl std::str::FromStr for RoomId {
+    type Err = IdConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() != 2 || parts[0] != "room" {
+            return Err(IdConversionError {
+                message: format!("Invalid room ID format: {}", s),
+            });
+        }
+        let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
+            message: format!("Invalid room number: {}", parts[1]),
+        })?;
+        Ok(RoomId(RawRoomId(room_num)))
+    }
+}
+
 impl std::fmt::Debug for RoomId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RoomId").field(&self.0.0).finish()
@@ -169,6 +200,32 @@ impl NounId {
 
     pub fn noun_num(&self) -> u8 {
         self.1.0
+    }
+}
+
+impl Display for NounId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "noun-{}-{}", self.room_num(), self.noun_num())
+    }
+}
+
+impl FromStr for NounId {
+    type Err = IdConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() != 3 || parts[0] != "noun" {
+            return Err(IdConversionError {
+                message: format!("Invalid noun ID format: {}", s),
+            });
+        }
+        let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
+            message: format!("Invalid room number: {}", parts[1]),
+        })?;
+        let noun_num = parts[2].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid noun number: {}", parts[2]),
+        })?;
+        Ok(NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)))
     }
 }
 
@@ -288,6 +345,44 @@ impl ConversationId {
     }
 }
 
+impl Display for ConversationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "conv-{}-{}-{}-{}",
+            self.room_num(),
+            self.noun_num(),
+            self.verb_num(),
+            self.condition_num()
+        )
+    }
+}
+impl FromStr for ConversationId {
+    type Err = IdConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() != 4 || parts[0] != "conv" {
+            return Err(IdConversionError {
+                message: format!("Invalid conversation ID format: {}", s),
+            });
+        }
+        let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
+            message: format!("Invalid room number: {}", parts[1]),
+        })?;
+        let noun_num = parts[2].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid noun number: {}", parts[2]),
+        })?;
+        let verb_num = parts[3].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid verb number: {}", parts[3]),
+        })?;
+        Ok(ConversationId(
+            NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)),
+            ConversationKey::new(RawVerbId(verb_num), RawConditionId(0)),
+        ))
+    }
+}
+
 impl std::fmt::Debug for ConversationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConversationId")
@@ -349,6 +444,52 @@ impl LineId {
 
     pub fn sequence_num(&self) -> u8 {
         self.1.0
+    }
+}
+
+impl Display for LineId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "line-{}-{}-{}-{}-{}",
+            self.room_num(),
+            self.noun_num(),
+            self.verb_num(),
+            self.condition_num(),
+            self.sequence_num()
+        )
+    }
+}
+
+impl FromStr for LineId {
+    type Err = IdConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() != 5 || parts[0] != "line" {
+            return Err(IdConversionError {
+                message: format!("Invalid line ID format: {}", s),
+            });
+        }
+        let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
+            message: format!("Invalid room number: {}", parts[1]),
+        })?;
+        let noun_num = parts[2].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid noun number: {}", parts[2]),
+        })?;
+        let verb_num = parts[3].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid verb number: {}", parts[3]),
+        })?;
+        let condition_num = parts[4].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid condition number: {}", parts[4]),
+        })?;
+        Ok(LineId(
+            ConversationId(
+                NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)),
+                ConversationKey::new(RawVerbId(verb_num), RawConditionId(condition_num)),
+            ),
+            RawSequenceId(0),
+        ))
     }
 }
 
