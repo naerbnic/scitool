@@ -3,209 +3,20 @@
 
 use std::collections::BTreeMap;
 
-use builder::ConversationKey;
-use serde::{Deserialize, Serialize};
+use ids::{
+    ConditionId, ConversationKey, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId,
+    RawTalkerId, RawVerbId, TalkerId,
+};
 
 use sci_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
 pub mod config;
+mod ids;
 mod text;
 
+pub use ids::{ConversationId, LineId, NounId, RoleId, RoomId, VerbId};
 pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
-
-// Raw IDs.
-//
-// There are the internal IDs used to reference different entities in the book.
-// They are copyable, but only reference a single literal value from the SCI message
-// file. They are used to construct the public IDs that are used to navigate the book.
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawRoomId(u16);
-
-impl From<u16> for RawRoomId {
-    fn from(value: u16) -> Self {
-        RawRoomId(value)
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawNounId(u8);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawVerbId(u8);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawConditionId(u8);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawSequenceId(u8);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawTalkerId(u8);
-
-// Book Specific IDs.
-
-/// An identifier for a role.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-struct RawRoleId(String);
-
-// Public IDs.
-//
-// These uniquely identify different entities in the book. They are frequently
-// composite ids, in order to navigate to the correct entity in the book.
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RoomId(RawRoomId);
-
-impl RoomId {
-    pub fn room_num(&self) -> u16 {
-        self.0.0
-    }
-}
-
-impl std::fmt::Debug for RoomId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoomId").field(&self.0.0).finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VerbId(RawVerbId);
-
-impl std::fmt::Debug for VerbId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("VerbId").field(&self.0.0).finish()
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RoleId(RawRoleId);
-
-impl RoleId {
-    pub fn as_str(&self) -> &str {
-        &self.0.0
-    }
-}
-
-impl std::fmt::Debug for RoleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoleId").field(&self.0.0).finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NounId(RoomId, RawNounId);
-
-impl NounId {
-    pub fn room_num(&self) -> u16 {
-        self.0.0.0
-    }
-
-    pub fn noun_num(&self) -> u8 {
-        self.1.0
-    }
-}
-
-impl std::fmt::Debug for NounId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NounId")
-            .field("room", &self.room_num())
-            .field("noun", &self.noun_num())
-            .finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TalkerId(RawTalkerId);
-
-impl std::fmt::Debug for TalkerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoleId").field(&self.0.0).finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ConditionId(RoomId, RawConditionId);
-
-impl ConditionId {
-    pub fn condition_num(&self) -> u8 {
-        self.1.0
-    }
-}
-
-impl std::fmt::Debug for ConditionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ConditionId")
-            .field("room", &self.0.0.0)
-            .field("condition", &self.1.0)
-            .finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ConversationId(NounId, ConversationKey);
-
-impl ConversationId {
-    pub fn room_num(&self) -> u16 {
-        self.0.0.0.0
-    }
-
-    pub fn noun_num(&self) -> u8 {
-        self.0.1.0
-    }
-
-    pub fn verb_num(&self) -> u8 {
-        self.1.verb().0
-    }
-
-    pub fn condition_num(&self) -> u8 {
-        self.1.condition().0
-    }
-}
-
-impl std::fmt::Debug for ConversationId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ConversationId")
-            .field("room", &self.room_num())
-            .field("noun", &self.noun_num())
-            .field("verb", &self.verb_num())
-            .field("condition", &self.condition_num())
-            .finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LineId(ConversationId, RawSequenceId);
-
-impl LineId {
-    pub fn room_num(&self) -> u16 {
-        self.0.room_num()
-    }
-
-    pub fn noun_num(&self) -> u8 {
-        self.0.noun_num()
-    }
-
-    pub fn verb_num(&self) -> u8 {
-        self.0.verb_num()
-    }
-
-    pub fn condition_num(&self) -> u8 {
-        self.0.condition_num()
-    }
-
-    pub fn sequence_num(&self) -> u8 {
-        self.1.0
-    }
-}
-
-impl std::fmt::Debug for LineId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LineId")
-            .field("room", &self.0.0.0.0.0)
-            .field("noun", &self.0.0.1.0)
-            .field("verb", &self.0.1.verb().0)
-            .field("condition", &self.0.1.condition().0)
-            .field("sequence", &self.1.0)
-            .finish()
-    }
-}
 
 // Entries
 //
@@ -273,7 +84,7 @@ pub struct Line<'a> {
 
 impl<'a> Line<'a> {
     pub fn id(&self) -> LineId {
-        LineId(self.parent.id(), self.raw_id)
+        LineId::from_conv_seq(self.parent.id(), self.raw_id)
     }
 
     pub fn text(&self) -> &MessageText {
@@ -282,7 +93,7 @@ impl<'a> Line<'a> {
 
     pub fn talker(&self) -> Talker<'a> {
         self.book()
-            .get_talker(TalkerId(self.entry.talker))
+            .get_talker(TalkerId::from_raw(self.entry.talker))
             .unwrap_or_else(|| {
                 panic!(
                     "Talker not found: {:?} in line: {:?}",
@@ -314,7 +125,7 @@ pub struct Conversation<'a> {
 
 impl<'a> Conversation<'a> {
     pub fn id(&self) -> ConversationId {
-        ConversationId(self.parent.id(), self.raw_id)
+        ConversationId::from_noun_key(self.parent.id(), self.raw_id)
     }
 
     pub fn lines(&self) -> impl Iterator<Item = Line<'a>> + 'a + use<'a> {
@@ -335,12 +146,12 @@ impl<'a> Conversation<'a> {
 
     /// Get the verb used for this conversation (if it exists).
     pub fn verb(&self) -> Option<Verb<'a>> {
-        if self.raw_id.verb() == RawVerbId(0) {
+        if self.raw_id.verb() == RawVerbId::new(0) {
             return None;
         }
         Some(
             self.book()
-                .get_verb(VerbId(self.raw_id.verb()))
+                .get_verb(VerbId::from_raw(self.raw_id.verb()))
                 .unwrap_or_else(|| {
                     panic!(
                         "Verb not found: {:?} in conversation: {:?}",
@@ -353,7 +164,7 @@ impl<'a> Conversation<'a> {
 
     /// Get the condition needed for this conversation (if it exists).
     pub fn condition(&self) -> Option<Condition<'a>> {
-        if self.raw_id.condition() == RawConditionId(0) {
+        if self.raw_id.condition() == RawConditionId::new(0) {
             return None;
         }
         Some(
@@ -367,7 +178,7 @@ impl<'a> Conversation<'a> {
     pub fn validate_complete(&self) -> Result<(), ValidationError> {
         let mut validator = MultiValidator::new();
         let mut expected_next = 1;
-        for id in self.entry.lines.keys().map(|id| id.0) {
+        for id in self.entry.lines.keys().map(|id| id.as_u8()) {
             if id != expected_next {
                 validator.with_err(ValidationError::from(
                     format!("Skipped sequence ID {}, next {}", expected_next, id).to_string(),
@@ -401,7 +212,7 @@ pub struct Condition<'a> {
 
 impl<'a> Condition<'a> {
     pub fn id(&self) -> ConditionId {
-        ConditionId(self.parent.id(), self.raw_id)
+        ConditionId::from_room_raw(self.parent.id(), self.raw_id)
     }
 
     /// Get the description of this condition (if specified).
@@ -429,7 +240,7 @@ pub struct Verb<'a> {
 
 impl Verb<'_> {
     pub fn id(&self) -> VerbId {
-        VerbId(self.raw_id)
+        VerbId::from_raw(self.raw_id)
     }
 
     pub fn name(&self) -> &str {
@@ -451,12 +262,12 @@ pub struct Talker<'a> {
 
 impl<'a> Talker<'a> {
     pub fn id(&self) -> TalkerId {
-        TalkerId(self.raw_id)
+        TalkerId::from_raw(self.raw_id)
     }
 
     pub fn role(&self) -> Role<'a> {
         self.parent
-            .get_role(&RoleId(self.entry.role_id.clone()))
+            .get_role(&RoleId::from_raw(self.entry.role_id.clone()))
             .unwrap()
     }
 
@@ -475,7 +286,7 @@ pub struct Noun<'a> {
 
 impl<'a> Noun<'a> {
     pub fn id(&self) -> NounId {
-        NounId(self.parent.id(), self.raw_id)
+        NounId::from_room_raw(self.parent.id(), self.raw_id)
     }
 
     pub fn desc(&self) -> Option<&str> {
@@ -526,7 +337,7 @@ pub struct Room<'a> {
 
 impl<'a> Room<'a> {
     pub fn id(&self) -> RoomId {
-        RoomId(self.raw_id)
+        RoomId::from_raw(self.raw_id)
     }
 
     pub fn name(&self) -> &str {
@@ -587,7 +398,7 @@ pub struct Role<'a> {
 
 impl Role<'_> {
     pub fn id(&self) -> RoleId {
-        RoleId(self.raw_id.clone())
+        RoleId::from_raw(self.raw_id.clone())
     }
 
     /// Get the full name of the role.
@@ -670,54 +481,62 @@ impl Book {
     }
 
     pub fn get_talker(&self, id: TalkerId) -> Option<Talker> {
-        self.talkers.get(&id.0).map(|entry| Talker {
-            parent: self,
-            raw_id: id.0,
-            entry,
-        })
+        self.talkers
+            .get_key_value(&id.raw_id())
+            .map(|(&raw_id, entry)| Talker {
+                parent: self,
+                raw_id,
+                entry,
+            })
     }
 
     pub fn get_role(&self, id: &RoleId) -> Option<Role> {
-        self.roles.get_key_value(&id.0).map(|(raw_id, entry)| Role {
-            parent: self,
-            raw_id,
-            entry,
-        })
+        self.roles
+            .get_key_value(id.raw_id())
+            .map(|(raw_id, entry)| Role {
+                parent: self,
+                raw_id,
+                entry,
+            })
     }
 
     pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
-        self.verbs.get(&id.0).map(|entry| Verb {
-            parent: self,
-            raw_id: id.0,
-            entry,
-        })
+        self.verbs
+            .get_key_value(&id.raw_id())
+            .map(|(&raw_id, entry)| Verb {
+                parent: self,
+                raw_id,
+                entry,
+            })
     }
 
     pub fn get_room(&self, id: RoomId) -> Option<Room> {
-        self.rooms.get(&id.0).map(|entry| Room {
-            parent: self,
-            raw_id: id.0,
-            entry,
-        })
+        self.rooms
+            .get_key_value(&id.raw_id())
+            .map(|(&raw_id, entry)| Room {
+                parent: self,
+                raw_id,
+                entry,
+            })
     }
 
     pub fn get_condition(&self, id: ConditionId) -> Option<Condition> {
-        self.get_room(id.0)
-            .and_then(|room| room.get_condition_inner(id.1))
+        self.get_room(id.room_id())
+            .and_then(|room| room.get_condition_inner(id.raw_id()))
     }
 
     pub fn get_noun(&self, id: NounId) -> Option<Noun> {
-        self.get_room(id.0)
-            .and_then(|room| room.get_noun_inner(id.1))
+        self.get_room(id.room_id())
+            .and_then(|room| room.get_noun_inner(id.raw_id()))
     }
 
     pub fn get_conversation(&self, id: ConversationId) -> Option<Conversation> {
-        self.get_noun(id.0)
-            .and_then(|noun| noun.get_conversation_inner(id.1))
+        self.get_noun(id.noun_id())
+            .and_then(|noun| noun.get_conversation_inner(id.conversation_key()))
     }
 
     pub fn get_line(&self, id: LineId) -> Option<Line> {
-        self.get_conversation(id.0)
-            .and_then(|conversation| conversation.get_line_inner(id.1))
+        self.get_conversation(id.conv_id())
+            .and_then(|conversation| conversation.get_line_inner(id.raw_id()))
     }
 }

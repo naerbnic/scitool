@@ -6,8 +6,12 @@ use sci_resources::types::msg::{MessageId, MessageRecord};
 use sci_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use super::{
-    Book, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId, RawTalkerId, RawVerbId,
+    Book,
     config::{self, BookConfig},
+    ids::{
+        ConversationKey, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId,
+        RawTalkerId, RawVerbId,
+    },
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -102,28 +106,6 @@ impl MessageEntry {
     }
 }
 
-/// A key for a conversation in a noun.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ConversationKey {
-    verb: RawVerbId,
-    condition: RawConditionId,
-}
-
-impl ConversationKey {
-    #[expect(dead_code)]
-    pub(super) fn new(verb: RawVerbId, condition: RawConditionId) -> Self {
-        Self { verb, condition }
-    }
-
-    pub(super) fn verb(&self) -> RawVerbId {
-        self.verb
-    }
-
-    pub(super) fn condition(&self) -> RawConditionId {
-        self.condition
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct Conversation(BTreeMap<RawSequenceId, MessageEntry>);
 
@@ -133,10 +115,10 @@ impl Conversation {
     }
 
     pub fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
-        match self.0.entry(RawSequenceId(message.sequence())) {
+        match self.0.entry(RawSequenceId::new(message.sequence())) {
             btree_map::Entry::Vacant(vac) => {
                 vac.insert(MessageEntry {
-                    talker: RawTalkerId(record.talker()),
+                    talker: RawTalkerId::new(record.talker()),
                     text: record.text().to_string(),
                 });
                 Ok(())
@@ -250,10 +232,10 @@ impl NounEntry {
     }
 
     fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
-        let key = ConversationKey {
-            verb: RawVerbId(message.verb()),
-            condition: RawConditionId(message.condition()),
-        };
+        let key = ConversationKey::new(
+            RawVerbId::new(message.verb()),
+            RawConditionId::new(message.condition()),
+        );
 
         self.conversation_set
             .entry(key)
@@ -266,7 +248,8 @@ impl NounEntry {
         if self.is_cutscene {
             match self.conversation_set.iter().exactly_one() {
                 Ok((key, _)) => {
-                    if key.verb != RawVerbId(0) || key.condition != RawConditionId(0) {
+                    if key.verb() != RawVerbId::new(0) || key.condition() != RawConditionId::new(0)
+                    {
                         validator.with_err(ValidationError::from(format!(
                             "Cutscene noun must have exactly one conversation with verb 0 and condition 0. Found: {:?}",
                             key
@@ -355,12 +338,12 @@ impl RoomEntry {
     }
 
     fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
-        let condition_id = RawConditionId(message.condition());
+        let condition_id = RawConditionId::new(message.condition());
         if let btree_map::Entry::Vacant(vac) = self.conditions.entry(condition_id) {
             vac.insert(ConditionEntry { desc: None });
         }
         self.nouns
-            .entry(RawNounId(message.noun()))
+            .entry(RawNounId::new(message.noun()))
             .or_default()
             .add_message(message, record)
     }
@@ -417,7 +400,7 @@ impl BookBuilder {
         record: &MessageRecord,
     ) -> BuildResult<&mut Self> {
         self.rooms
-            .entry(RawRoomId(room))
+            .entry(RawRoomId::new(room))
             .or_default()
             .add_message(message, record)?;
         Ok(self)

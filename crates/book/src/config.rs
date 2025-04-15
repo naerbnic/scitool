@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{RawConditionId, RawNounId, RawRoleId, RawRoomId, RawTalkerId, RawVerbId};
+use super::ids::{RawConditionId, RawNounId, RawRoleId, RawRoomId, RawTalkerId, RawVerbId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct RoleEntry {
