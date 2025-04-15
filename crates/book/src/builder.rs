@@ -2,16 +2,14 @@ use std::collections::{BTreeMap, btree_map};
 
 use itertools::Itertools;
 
+use sci_common::{ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
 use sci_resources::types::msg::{MessageId, MessageRecord};
 use sci_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use super::{
     Book,
     config::{self, BookConfig},
-    ids::{
-        ConversationKey, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId,
-        RawTalkerId, RawVerbId,
-    },
+    ids::{RawRoleId, RawTalkerId},
 };
 
 #[derive(thiserror::Error, Debug)]

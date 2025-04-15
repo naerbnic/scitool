@@ -12,6 +12,7 @@ sci-utils = { path = "../utils" }
 sci-resources = { path = "../resources" }
 scitool-script-loader = { path = "../script_loader" }
 sci-header-gen = { path = "../header-gen" }
+sci-common = { path = "../common" }
 scitool-book = { path = "../book" }
 anyhow = "1.0.86"
 bitter = "0.7.0"

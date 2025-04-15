@@ -40,45 +40,16 @@ fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
 }
 
 fn generate_conversation(mut section: SectionBuilder, conversation: &book::Conversation) {
-    section.set_id(conversation_id_to_id_string(conversation.id()));
+    section.set_id(conversation.id().to_string());
     let mut content = section.add_content();
     let mut dialogue = content.add_dialogue();
     for line in conversation.lines() {
         dialogue.add_line(
             line.role().short_name(),
             RichText::from_msg_text(line.text()),
-            line_id_to_id_string(line.id()),
+            line.id().to_string(),
         );
     }
-}
-
-fn room_id_to_id_string(room_id: book::RoomId) -> String {
-    format!("room-{}", room_id.room_num())
-}
-
-fn noun_id_to_id_string(noun_id: book::NounId) -> String {
-    format!("noun-{}-{}", noun_id.room_num(), noun_id.noun_num())
-}
-
-fn conversation_id_to_id_string(conversation_id: book::ConversationId) -> String {
-    format!(
-        "conv-{}-{}-{}-{}",
-        conversation_id.room_num(),
-        conversation_id.noun_num(),
-        conversation_id.verb_num(),
-        conversation_id.condition_num(),
-    )
-}
-
-fn line_id_to_id_string(line_id: book::LineId) -> String {
-    format!(
-        "line-{}-{}-{}-{}-{}",
-        line_id.room_num(),
-        line_id.noun_num(),
-        line_id.verb_num(),
-        line_id.condition_num(),
-        line_id.sequence_num(),
-    )
 }
 
 fn generate_document(book: &Book) -> anyhow::Result<Document> {
@@ -90,7 +61,7 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
             &TextStyle::of_italic(),
         );
         let mut room_section = doc.add_chapter(room_title.build());
-        room_section.set_id(room_id_to_id_string(room.id()));
+        room_section.set_id(room.id().to_string());
         let mut room_section = room_section.into_section_builder();
 
         for noun in room.nouns() {
@@ -101,7 +72,7 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
 
             let mut noun_section = room_section.add_subsection(make_noun_title(&noun));
 
-            noun_section.set_id(noun_id_to_id_string(noun.id()));
+            noun_section.set_id(noun.id().to_string());
 
             match noun.conversations().exactly_one() {
                 Ok(conversation) => {

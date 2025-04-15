@@ -951,6 +951,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sci-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "sci-header-gen"
 version = "0.1.0"
 dependencies = [
@@ -1007,6 +1015,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
+ "sci-common",
  "sci-resources",
  "sci-utils",
  "serde",
@@ -1024,6 +1033,7 @@ dependencies = [
  "itertools 0.13.0",
  "maud",
  "schemars",
+ "sci-common",
  "sci-header-gen",
  "sci-resources",
  "sci-utils",

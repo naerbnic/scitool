@@ -3,11 +3,12 @@
 
 use std::collections::BTreeMap;
 
-use ids::{
-    ConditionId, ConversationKey, RawConditionId, RawNounId, RawRoleId, RawRoomId, RawSequenceId,
-    RawTalkerId, RawVerbId, TalkerId,
-};
+use ids::{RawRoleId, RawTalkerId, TalkerId};
 
+use sci_common::{
+    ConditionId, ConversationId, ConversationKey, LineId, NounId, RawConditionId, RawNounId,
+    RawRoomId, RawSequenceId, RawVerbId, RoomId,
+};
 use sci_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
@@ -15,7 +16,7 @@ pub mod config;
 mod ids;
 mod text;
 
-pub use ids::{ConversationId, LineId, NounId, RoleId, RoomId, VerbId};
+pub use ids::{RoleId, VerbId};
 pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
 
 // Entries

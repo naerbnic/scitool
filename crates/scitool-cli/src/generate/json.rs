@@ -4,22 +4,15 @@ use serde::{Deserialize, Serialize};
 
 use super::text;
 use schemars::JsonSchema;
+use sci_common as common;
 use scitool_book::{self as book, Book};
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct LineId(String);
 
-impl From<book::LineId> for LineId {
-    fn from(line_id: book::LineId) -> Self {
-        LineId(format!(
-            "line-{}-{}-{}-{}-{}",
-            line_id.room_num(),
-            line_id.noun_num(),
-            line_id.verb_num(),
-            line_id.condition_num(),
-            line_id.sequence_num()
-        ))
+impl From<common::LineId> for LineId {
+    fn from(line_id: common::LineId) -> Self {
+        LineId(line_id.to_string())
     }
 }
 
@@ -27,15 +20,9 @@ impl From<book::LineId> for LineId {
 #[serde(transparent)]
 pub struct ConvId(String);
 
-impl From<book::ConversationId> for ConvId {
-    fn from(conv_id: book::ConversationId) -> Self {
-        ConvId(format!(
-            "conv-{}-{}-{}-{}",
-            conv_id.room_num(),
-            conv_id.noun_num(),
-            conv_id.verb_num(),
-            conv_id.condition_num()
-        ))
+impl From<common::ConversationId> for ConvId {
+    fn from(conv_id: common::ConversationId) -> Self {
+        ConvId(conv_id.to_string())
     }
 }
 
@@ -43,13 +30,9 @@ impl From<book::ConversationId> for ConvId {
 #[serde(transparent)]
 pub struct NounId(String);
 
-impl From<book::NounId> for NounId {
-    fn from(noun_id: book::NounId) -> Self {
-        NounId(format!(
-            "noun-{}-{}",
-            noun_id.room_num(),
-            noun_id.noun_num()
-        ))
+impl From<common::NounId> for NounId {
+    fn from(noun_id: common::NounId) -> Self {
+        NounId(noun_id.to_string())
     }
 }
 
@@ -57,9 +40,9 @@ impl From<book::NounId> for NounId {
 #[serde(transparent)]
 pub struct RoomId(String);
 
-impl From<book::RoomId> for RoomId {
-    fn from(room_id: book::RoomId) -> Self {
-        RoomId(format!("room-{}", room_id.room_num()))
+impl From<common::RoomId> for RoomId {
+    fn from(room_id: common::RoomId) -> Self {
+        RoomId(room_id.to_string())
     }
 }
 

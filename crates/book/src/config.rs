@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
+use sci_common::{RawConditionId, RawNounId, RawRoomId, RawVerbId};
 use serde::{Deserialize, Serialize};
 
-use super::ids::{RawConditionId, RawNounId, RawRoleId, RawRoomId, RawTalkerId, RawVerbId};
+use super::ids::{RawRoleId, RawTalkerId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct RoleEntry {
