@@ -283,7 +283,7 @@ impl FromStr for ConversationId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('-').collect();
-        if parts.len() != 4 || parts[0] != "conv" {
+        if parts.len() != 5 || parts[0] != "conv" {
             return Err(IdConversionError {
                 message: format!("Invalid conversation ID format: {}", s),
             });
@@ -297,9 +297,12 @@ impl FromStr for ConversationId {
         let verb_num = parts[3].parse::<u8>().map_err(|_| IdConversionError {
             message: format!("Invalid verb number: {}", parts[3]),
         })?;
+        let condition_num = parts[4].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid condition number: {}", parts[4]),
+        })?;
         Ok(ConversationId(
             NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)),
-            ConversationKey::new(RawVerbId(verb_num), RawConditionId(0)),
+            ConversationKey::new(RawVerbId(verb_num), RawConditionId(condition_num)),
         ))
     }
 }
@@ -426,5 +429,51 @@ impl std::fmt::Debug for LineId {
             .field("condition", &self.0.1.condition().0)
             .field("sequence", &self.1.0)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_line_id() {
+        let line_id = LineId::from_parts(
+            RawRoomId::new(1),
+            RawNounId::new(2),
+            RawVerbId::new(3),
+            RawConditionId::new(4),
+            RawSequenceId::new(5),
+        );
+        assert_eq!(line_id.room_num(), 1);
+        assert_eq!(line_id.noun_num(), 2);
+        assert_eq!(line_id.verb_num(), 3);
+        assert_eq!(line_id.condition_num(), 4);
+        assert_eq!(line_id.sequence_num(), 5);
+    }
+
+    #[test]
+    fn test_line_id_string_roundtrip() {
+        let line_id = LineId::from_parts(
+            RawRoomId::new(1),
+            RawNounId::new(2),
+            RawVerbId::new(3),
+            RawConditionId::new(4),
+            RawSequenceId::new(5),
+        );
+        let line_id_str = line_id.to_string();
+        let parsed_line_id = LineId::from_str(&line_id_str).unwrap();
+        assert_eq!(line_id, parsed_line_id);
+    }
+
+    #[test]
+    fn test_conv_id_string_roundtrip() {
+        let conv_id = ConversationId::from_noun_key(
+            NounId(RoomId(RawRoomId::new(1)), RawNounId::new(2)),
+            ConversationKey::new(RawVerbId::new(3), RawConditionId::new(4)),
+        );
+        let conv_id_str = conv_id.to_string();
+        let parsed_conv_id = ConversationId::from_str(&conv_id_str).unwrap();
+        assert_eq!(conv_id, parsed_conv_id);
     }
 }
