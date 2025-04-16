@@ -14,6 +14,8 @@ enum Cmd {
     CompileAudio(cmds::CompileAudio),
     #[clap(name = "export-scannable")]
     ExportScannable(cmds::ExportScannable),
+    #[clap(name = "try-scan")]
+    TryScan(cmds::TryScan),
 }
 
 async fn async_main() -> anyhow::Result<()> {
@@ -21,6 +23,7 @@ async fn async_main() -> anyhow::Result<()> {
     match &args.command {
         Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
         Cmd::ExportScannable(export_scannable) => export_scannable.run().await?,
+        Cmd::TryScan(try_scan) => try_scan.run().await?,
     }
     Ok(())
 }

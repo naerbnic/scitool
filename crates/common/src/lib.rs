@@ -387,7 +387,7 @@ impl FromStr for LineId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('-').collect();
-        if parts.len() != 5 || parts[0] != "line" {
+        if parts.len() != 6 || parts[0] != "line" {
             return Err(IdConversionError {
                 message: format!("Invalid line ID format: {}", s),
             });
@@ -404,12 +404,15 @@ impl FromStr for LineId {
         let condition_num = parts[4].parse::<u8>().map_err(|_| IdConversionError {
             message: format!("Invalid condition number: {}", parts[4]),
         })?;
+        let sequence_num = parts[5].parse::<u8>().map_err(|_| IdConversionError {
+            message: format!("Invalid sequence number: {}", parts[5]),
+        })?;
         Ok(LineId(
             ConversationId(
                 NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)),
                 ConversationKey::new(RawVerbId(verb_num), RawConditionId(condition_num)),
             ),
-            RawSequenceId(0),
+            RawSequenceId(sequence_num),
         ))
     }
 }

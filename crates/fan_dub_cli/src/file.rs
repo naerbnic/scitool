@@ -24,14 +24,19 @@ pub struct AudioSampleScan {
 }
 
 impl AudioSampleScan {
-    pub fn read_from_dir(path: &Path) -> anyhow::Result<Self> {
+    pub fn read_from_dir(base_path: &Path) -> anyhow::Result<Self> {
         let mut entries = Vec::new();
-        for dir_entry in walkdir::WalkDir::new(path).same_file_system(true) {
+        for dir_entry in walkdir::WalkDir::new(base_path).same_file_system(true) {
             let dir_entry = dir_entry?;
             if dir_entry.file_type().is_dir() {
                 continue;
             }
             let path = dir_entry.path();
+            // WalkDir returns paths with a prefix of the base path. Remove the
+            // prefix.
+            let path = path
+                .strip_prefix(base_path)
+                .map_err(|_| anyhow::anyhow!("Failed to strip prefix"))?;
 
             if path.extension().is_some_and(is_audio_file_ext) {
                 // This is an audio file.
@@ -58,7 +63,7 @@ impl AudioSampleScan {
             }
         }
         Ok(AudioSampleScan {
-            base_path: path.to_path_buf(),
+            base_path: base_path.to_path_buf(),
             entries,
             line_id_map,
         })
