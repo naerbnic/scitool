@@ -1,6 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
-use futures::StreamExt;
+use futures::{prelude::*, stream::FuturesUnordered};
+use itertools::Itertools;
+use sci_common::{LineId, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
 use sci_resources::types::{
     audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
     msg::MessageId,
@@ -8,7 +13,10 @@ use sci_resources::types::{
 use sci_utils::block::temp_store::TempStore;
 use serde::{Deserialize, Serialize};
 
-use crate::tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions};
+use crate::{
+    file::AudioSampleScan,
+    tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
+};
 
 fn normalize_path(path: &Path) -> PathBuf {
     let mut result_buf = PathBuf::new();
@@ -127,6 +135,103 @@ impl SampleDir {
             base_path: path.to_path_buf(),
             samples: sample_set,
         })
+    }
+
+    pub fn from_sample_scan(scan: &AudioSampleScan) -> anyhow::Result<Self> {
+        anyhow::ensure!(!scan.has_duplicates(), "Input scan must have no duplicates");
+        let mut samples = Vec::new();
+        for (line_id, entry) in scan.get_valid_entries() {
+            let msg_id = MessageId::new(
+                line_id.noun_num(),
+                line_id.verb_num(),
+                line_id.condition_num(),
+                line_id.sequence_num(),
+            );
+
+            let clip = AudioClip {
+                start_us: Some((entry.start() * 1_000_000.0) as u64),
+                end_us: entry.end().map(|end| (end * 1_000_000.0) as u64),
+                path: entry.path().to_path_buf(),
+            };
+
+            let sample = Sample {
+                room: line_id.room_num(),
+                message_id: msg_id,
+                clip,
+            };
+            samples.push(sample);
+        }
+        Ok(Self {
+            base_path: scan.base_path().to_path_buf(),
+            samples: SampleSet(samples),
+        })
+    }
+
+    pub async fn save_to_scannable_dir(&self, path: &Path) -> anyhow::Result<()> {
+        // Check that all files contain a single message ID.
+        let path_list = self
+            .samples
+            .0
+            .iter()
+            .map(|sample| {
+                let clip = &sample.clip;
+                anyhow::ensure!(clip.start_us.is_none_or(|off| off == 0));
+                anyhow::ensure!(clip.end_us.is_none());
+                Ok(&sample.clip.path)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let multi_path_counts = path_list
+            .into_iter()
+            .map(|path| (path, 1))
+            .into_grouping_map()
+            .sum()
+            .into_iter().filter(|(_, count)| *count > 1).collect::<Vec<_>>();
+        if !multi_path_counts.is_empty() {
+            return Err(anyhow::anyhow!(
+                "The following paths have multiple message IDs: {:?}",
+                multi_path_counts
+            ));
+        }
+
+        // Go through all of the clips, and copy the files with the line ID
+        // as the file name.
+        let mut copy_operations = self
+            .samples
+            .0
+            .iter()
+            .map(async |sample| {
+                let line_id = LineId::from_parts(
+                    RawRoomId::new(sample.room),
+                    RawNounId::new(sample.message_id.noun()),
+                    RawVerbId::new(sample.message_id.verb()),
+                    RawConditionId::new(sample.message_id.condition()),
+                    RawSequenceId::new(sample.message_id.sequence()),
+                );
+                let clip = &sample.clip;
+                let current_path = &clip.path;
+                let mut file_name: OsString = line_id.to_string().into();
+                if let Some(ext) = current_path.extension() {
+                    file_name.push(".");
+                    file_name.push(ext);
+                }
+                let mut new_path = current_path.to_path_buf();
+                new_path.set_file_name(file_name);
+                let source_path = self.base_path.join(current_path);
+                let target_path = path.join(new_path);
+                // Create the target directory if it doesn't exist.
+                let target_dir = target_path.parent().unwrap();
+                smol::fs::create_dir_all(target_dir).await?;
+                // Copy the file to the new location.
+                smol::fs::create_dir_all(target_dir).await?;
+                smol::fs::copy(source_path, target_path).await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        while let Some(result) = copy_operations.next().await {
+            result?;
+        }
+        Ok(())
     }
 
     pub async fn to_audio_resources(
