@@ -15,8 +15,26 @@ where
     Ok(())
 }
 
+#[derive(clap::ValueEnum, Copy, Clone, Debug, Default)]
+enum ScanType {
+    #[clap(name = "legacy")]
+    #[default]
+    Legacy,
+    #[clap(name = "scannable")]
+    Scannable,
+}
+
 #[derive(Parser)]
 pub struct CompileAudio {
+    #[clap(
+        short = 't',
+        long,
+        value_enum,
+        required = false,
+        default_value = "legacy"
+    )]
+    scan_type: ScanType,
+
     #[clap(short = 's')]
     sample_dir: PathBuf,
 
@@ -34,8 +52,20 @@ impl CompileAudio {
                 .expect("ffmpeg not found in PATH")
                 .to_path_buf(),
         );
-        let sample_dir =
-            scitool_fan_dub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?;
+        let sample_dir = match self.scan_type {
+            ScanType::Legacy => {
+                scitool_fan_dub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?
+            }
+            ScanType::Scannable => {
+                let scan =
+                    scitool_fan_dub_cli::file::AudioSampleScan::read_from_dir(&self.sample_dir)?;
+                anyhow::ensure!(
+                    !scan.has_duplicates(),
+                    "Duplicate files found in scan directory",
+                );
+                scitool_fan_dub_cli::resources::SampleDir::from_sample_scan(&scan)?
+            }
+        };
         let resources = sample_dir.to_audio_resources(&ffmpeg_tool, 4).await?;
 
         let output_dir = &self.output;
@@ -52,6 +82,7 @@ impl CompileAudio {
             },
             execute_all(resources.map_resources().iter().map(|res| {
                 async move {
+                    dbg!(res.id());
                     let file = PathBuf::from(format!(
                         "{}.{}",
                         res.id().resource_num(),
