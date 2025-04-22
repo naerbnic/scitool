@@ -59,9 +59,12 @@ pub fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>
         let header_data = header_data.open()?;
         let real_header_size = header_data[1];
         if real_header_size != 0 {
-            eprintln!(
-                "Warning: patch file header size is not 0, got (size {}) {:?} ({:?}, {:?})",
-                real_header_size, header_data, patch_file, res_type,
+            log::warn!(
+                "Patch file header size is not 0, got (size {}) {:?} ({:?}, {:?})",
+                real_header_size,
+                header_data,
+                patch_file,
+                res_type,
             );
         }
         rest.subblock(real_header_size as u64..).to_lazy_block()

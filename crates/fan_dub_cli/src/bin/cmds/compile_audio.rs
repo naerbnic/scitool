@@ -45,7 +45,7 @@ pub struct CompileAudio {
 impl CompileAudio {
     pub async fn run(&self) -> anyhow::Result<()> {
         let system_path = LookupPath::from_env();
-        eprintln!("System PATH: {:?}", system_path.find_binary("ffmpeg"));
+        log::info!("System PATH: {:?}", system_path.find_binary("ffmpeg"));
         let ffmpeg_tool = FfmpegTool::from_path(
             system_path
                 .find_binary("ffmpeg")

@@ -11,6 +11,13 @@ pub use formats::{OggVorbisOutputOptions, OutputFormat};
 pub use input::{Input, ReaderInput};
 pub use output::{Output, VecOutput};
 
+fn split_key_value_line(line: &str) -> Option<(&str, &str)> {
+    let eq_index = line.find('=')?;
+    let key = &line[..eq_index];
+    let value = &line[eq_index + 1..];
+    Some((key, value.trim()))
+}
+
 pub trait ProgressListener {
     fn on_progress(&mut self, done: bool, progress_info: Vec<(String, String)>);
 }
@@ -57,6 +64,7 @@ impl FfmpegTool {
             .arg(output_state.url())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
             .spawn()?;
         let stdout = smol::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
         let (status, output, _, _) = futures::join!(
@@ -68,9 +76,7 @@ impl FfmpegTool {
                 let mut progress_info = Vec::new();
                 while let Some(line) = lines.next().await {
                     let line = line.unwrap();
-                    if let Some(eq_index) = line.find('=') {
-                        let key = &line[..eq_index];
-                        let value = &line[eq_index + 1..];
+                    if let Some((key, value)) = split_key_value_line(&line) {
                         if key == "progress" {
                             let done = value.trim() == "end";
                             progress.on_progress(done, progress_info);
