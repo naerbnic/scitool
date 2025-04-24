@@ -54,7 +54,7 @@ impl InputState for TcpInputState {
     }
 }
 
-pub trait Input {
+pub trait Input: Clone {
     fn create_state(
         self,
     ) -> impl std::future::Future<Output = anyhow::Result<impl InputState>> + Send;
@@ -62,18 +62,19 @@ pub trait Input {
 
 impl<T> Input for T
 where
-    T: AsRef<Path> + Send,
+    T: AsRef<Path> + Clone + Send,
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         Ok(SimpleInputState(self.as_ref().as_os_str().to_owned()))
     }
 }
 
+#[derive(Clone)]
 pub struct BytesInput<S>(S);
 
 impl<S> Input for BytesInput<S>
 where
-    S: AsRef<[u8]> + Send + Unpin + 'static,
+    S: AsRef<[u8]> + Clone + Send + Unpin + 'static,
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         TcpInputState::new(
@@ -84,6 +85,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct ReaderInput<R>(R);
 
 impl<R> ReaderInput<R>
@@ -97,7 +99,7 @@ where
 
 impl<R> Input for ReaderInput<R>
 where
-    R: smol::io::AsyncRead + Send + Unpin + 'static,
+    R: smol::io::AsyncRead + Clone + Send + Unpin + 'static,
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         TcpInputState::new(

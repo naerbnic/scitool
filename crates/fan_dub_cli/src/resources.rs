@@ -90,10 +90,9 @@ impl SampleSet {
                 clip_path.is_relative(),
                 "A path for an audio clip must be relative to the root directory."
             );
-            let sample_file = smol::fs::File::open(base_path.join(clip_path)).await?;
             let result = ffmpeg
                 .convert(
-                    ffmpeg::ReaderInput::new(sample_file),
+                    base_path.join(&clip_path),
                     ffmpeg::VecOutput,
                     ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
                     &mut ffmpeg::NullProgressListener,
@@ -185,7 +184,9 @@ impl SampleDir {
             .map(|path| (path, 1))
             .into_grouping_map()
             .sum()
-            .into_iter().filter(|(_, count)| *count > 1).collect::<Vec<_>>();
+            .into_iter()
+            .filter(|(_, count)| *count > 1)
+            .collect::<Vec<_>>();
         if !multi_path_counts.is_empty() {
             return Err(anyhow::anyhow!(
                 "The following paths have multiple message IDs: {:?}",

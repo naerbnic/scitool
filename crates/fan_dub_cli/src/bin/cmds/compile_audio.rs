@@ -51,6 +51,10 @@ impl CompileAudio {
                 .find_binary("ffmpeg")
                 .expect("ffmpeg not found in PATH")
                 .to_path_buf(),
+            system_path
+                .find_binary("ffprobe")
+                .expect("ffprobe not found in PATH")
+                .to_path_buf(),
         );
         let sample_dir = match self.scan_type {
             ScanType::Legacy => {
