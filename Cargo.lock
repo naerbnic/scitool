@@ -948,24 +948,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sci-codegen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "sci-codegen-macros",
- "sci-utils",
-]
-
-[[package]]
-name = "sci-codegen-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "sci-common"
 version = "0.1.0"
 dependencies = [
