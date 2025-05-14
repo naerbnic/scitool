@@ -2,14 +2,19 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+/// Generates script header files (`selectors.sh` and `classdef.sh`) from game resources.
 #[derive(Parser)]
 struct GenerateHeaders {
-    #[arg(short = 'd')]
+    /// Path to the game's root directory.
+    #[arg(short = 'd', long)]
     game_dir: PathBuf,
+    /// Directory to write the header files. Defaults to the current directory (`.`)
     #[arg(short = 'o', long, default_value = ".")]
     out_dir: PathBuf,
+    /// Filename for the selectors header. Defaults to `selectors.sh`
     #[arg(short = 's', long, default_value = "selectors.sh")]
     selectors_path: PathBuf,
+    /// Filename for the class definition header. Defaults to `classdef.sh`
     #[arg(short = 'c', long, default_value = "classdef.sh")]
     classdef_path: PathBuf,
 }
@@ -28,9 +33,10 @@ impl GenerateHeaders {
     }
 }
 
+/// The specific script command to execute.
 #[derive(Subcommand)]
 enum ScriptCommand {
-    #[clap(name = "gen-headers")]
+    #[clap(name = "gen-headers", about = "Generates script header files (`selectors.sh` and `classdef.sh`) from game resources.")]
     GenerateHeaders(GenerateHeaders),
 }
 
@@ -43,8 +49,10 @@ impl ScriptCommand {
     }
 }
 
+/// Commands for working with game scripts.
 #[derive(Parser)]
 pub struct Script {
+    /// The specific script command to execute.
     #[clap(subcommand)]
     command: ScriptCommand,
 }

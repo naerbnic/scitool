@@ -8,10 +8,13 @@ mod generate;
 mod msg;
 mod script;
 
+/// Lists resources in the game.
 #[derive(Parser)]
 struct ListResources {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    /// Filter by resource type (e.g., Script, Heap, View, Pic, Sound, Message, Font, Cursor, Patch, AudioPath, Vocab, Palette, Wave, Audio, Sync).
     #[clap(long = "type", short = 't')]
     res_type: Option<ResourceType>,
 }
@@ -31,16 +34,22 @@ impl ListResources {
     }
 }
 
+/// Extracts a resource and saves it as a patch file. Supported types are Script (SCR) and Heap (HEP).
 #[derive(Parser)]
 struct ExtractResourceAsPatch {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    /// The type of the resource to extract (e.g., Script, Heap).
     #[clap(index = 2)]
     resource_type: ResourceType,
+    /// The ID of the resource to extract.
     #[clap(index = 3)]
     resource_id: u16,
+    /// If set, prints what would be done without actually writing files.
     #[clap(short = 'n', long, default_value = "false")]
     dry_run: bool,
+    /// Directory to save the output file. Defaults to <root_dir>.
     #[clap(short = 'o', long)]
     output_dir: Option<PathBuf>,
 }
@@ -95,12 +104,16 @@ impl ExtractResourceAsPatch {
     }
 }
 
+/// Dumps the hexadecimal content of a resource.
 #[derive(Parser)]
 struct DumpResource {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    /// The type of the resource to dump.
     #[clap(index = 2)]
     resource_type: ResourceType,
+    /// The ID of the resource to dump.
     #[clap(index = 3)]
     resource_id: u16,
 }
@@ -118,11 +131,14 @@ impl DumpResource {
     }
 }
 
+/// The specific resource command to execute.
 #[derive(Subcommand)]
 enum ResourceCommand {
-    #[clap(name = "list")]
+    #[clap(name = "list", about = "Lists resources in the game.")]
     List(ListResources),
+    #[clap(about = "Extracts a resource and saves it as a patch file. Supported types are Script (SCR) and Heap (HEP).")]
     ExtractAsPatch(ExtractResourceAsPatch),
+    #[clap(about = "Dumps the hexadecimal content of a resource.")]
     Dump(DumpResource),
 }
 
@@ -137,8 +153,10 @@ impl ResourceCommand {
     }
 }
 
+/// Commands for working with game resources.
 #[derive(Parser)]
 struct Resource {
+    /// The specific resource command to execute.
     #[clap(subcommand)]
     res_cmd: ResourceCommand,
 }
@@ -149,15 +167,16 @@ impl Resource {
     }
 }
 
+/// The category of command to run.
 #[derive(Subcommand)]
 enum Category {
-    #[clap(name = "res")]
+    #[clap(name = "res", about = "Commands for working with game resources.")]
     Resource(Resource),
-    #[clap(name = "msg")]
+    #[clap(name = "msg", about = "Commands for working with game messages.")]
     Message(msg::Messages),
-    #[clap(name = "gen")]
+    #[clap(name = "gen", about = "Commands for generating various outputs from game data.")]
     Generate(generate::Generate),
-    #[clap(name = "script")]
+    #[clap(name = "script", about = "Commands for working with game scripts.")]
     Script(script::Script),
 }
 
@@ -172,8 +191,11 @@ impl Category {
     }
 }
 
+/// A command line tool for working with Sierra adventure games written in the SCI engine.
 #[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
 pub struct Cli {
+    /// The category of command to run.
     #[clap(subcommand)]
     category: Category,
 }

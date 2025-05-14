@@ -14,7 +14,9 @@ use crate::generate::{
 
 #[derive(Parser)]
 struct CommonArgs {
+    /// Path to the game's root directory.
     root_dir: PathBuf,
+    /// Path to the book configuration YAML file.
     config_path: PathBuf,
 }
 
@@ -98,10 +100,13 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
     Ok(doc.build())
 }
 
+/// Generates a master HTML script document from the game book.
 #[derive(Parser)]
 struct GenerateMaster {
+    /// Path to the game's root directory.
     #[clap(flatten)]
     ctxt: CommonArgs,
+    /// Path to write the HTML output file.
     #[clap(short, long)]
     output: PathBuf,
 }
@@ -116,10 +121,13 @@ impl GenerateMaster {
     }
 }
 
+/// Generates a JSON representation of the game script.
 #[derive(Parser)]
 struct GenerateJson {
+    /// Path to the game's root directory.
     #[clap(flatten)]
     ctxt: CommonArgs,
+    /// Path to write the JSON output file.
     #[clap(short, long)]
     output: PathBuf,
 }
@@ -134,6 +142,7 @@ impl GenerateJson {
     }
 }
 
+/// Generates the JSON schema for the game script structure and prints it to stdout.
 #[derive(Parser)]
 struct GenerateJsonSchema;
 
@@ -145,15 +154,21 @@ impl GenerateJsonSchema {
     }
 }
 
+/// The specific generation command to execute.
 #[derive(Subcommand)]
 enum GenerateCommand {
+    #[clap(about = "Generates a master HTML script document from the game book.")]
     Master(GenerateMaster),
+    #[clap(about = "Generates a JSON representation of the game script.")]
     Json(GenerateJson),
+    #[clap(name = "json-schema", about = "Generates the JSON schema for the game script structure and prints it to stdout.")]
     JsonSchema(GenerateJsonSchema),
 }
 
+/// Commands for generating different file formats from game data.
 #[derive(Parser)]
 pub struct Generate {
+    /// The specific generation command to execute.
     #[clap(subcommand)]
     msg_cmd: GenerateCommand,
 }

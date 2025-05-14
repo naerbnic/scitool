@@ -9,10 +9,13 @@ use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_m
 
 // My current theory is that messages are separatable into a few categories:
 
+/// Exports game messages to a JSON file.
 #[derive(Parser)]
 struct ExportMessages {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    /// Path to write the JSON output file.
     #[clap(short = 'o', long)]
     output: PathBuf,
 }
@@ -51,22 +54,31 @@ impl ExportMessages {
     }
 }
 
+/// Prints messages from the game, with optional filters.
 #[derive(Parser)]
 struct PrintMessages {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    /// Path to a book configuration YAML file.
     #[clap(long = "config")]
     config_path: Option<PathBuf>,
+    /// Filter by talker ID.
     #[clap(short = 't', long, required = false)]
     talker: Option<u8>,
+    /// Filter by room ID.
     #[clap(short = 'r', long, required = false)]
     room: Option<u16>,
+    /// Filter by verb ID.
     #[clap(short = 'v', long, required = false)]
     verb: Option<u8>,
+    /// Filter by noun ID.
     #[clap(short = 'n', long, required = false)]
     noun: Option<u8>,
+    /// Filter by condition ID.
     #[clap(short = 'c', long, required = false)]
     condition: Option<u8>,
+    /// Filter by sequence ID.
     #[clap(short = 's', long, required = false)]
     sequence: Option<u8>,
 }
@@ -131,10 +143,13 @@ impl PrintMessages {
     }
 }
 
+/// Checks message data, building a "book" and printing statistics and validation errors.
 #[derive(Parser)]
 struct CheckMessages {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    /// Path to a book configuration YAML file.
     #[clap(long = "config")]
     config_path: Option<PathBuf>,
 }
@@ -190,8 +205,10 @@ impl CheckMessages {
     }
 }
 
+/// Prints a list of all unique talker IDs found in the game messages.
 #[derive(Parser)]
 struct PrintTalkers {
+    /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
 }
@@ -219,16 +236,23 @@ impl PrintTalkers {
     }
 }
 
+/// The specific message command to execute.
 #[derive(Subcommand)]
 enum MessageCommand {
+    #[clap(about = "Exports game messages to a JSON file.")]
     Export(ExportMessages),
+    #[clap(about = "Prints messages from the game, with optional filters.")]
     Print(PrintMessages),
+    #[clap(about = "Checks message data, building a \"book\" and printing statistics and validation errors.")]
     Check(CheckMessages),
+    #[clap(name = "print-talkers", about = "Prints a list of all unique talker IDs found in the game messages.")]
     PrintTalkers(PrintTalkers),
 }
 
+/// Commands for working with game messages.
 #[derive(Parser)]
 pub struct Messages {
+    /// The specific message command to execute.
     #[clap(subcommand)]
     msg_cmd: MessageCommand,
 }
