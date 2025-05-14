@@ -1,7 +1,0 @@
-[package]
-name = "script_builder"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-sci-utils = { path = "../utils" }
