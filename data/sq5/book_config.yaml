@@ -312,6 +312,9 @@ rooms:
   - id: 2
     is_cutscene: true
     desc: Roger at the Helm (Simulator)
+  - id: 3
+    desc: Copyright Notice
+    hidden: true
 - id: 109
   name: Starcon Hallways (General)
   conditions:
@@ -432,8 +435,9 @@ rooms:
     is_cutscene: true
 - id: 133
   name: Grade Master 2000
+  hidden: true
 - id: 135
-  name: Classrom
+  name: Classroom
 - id: 137
   name: SAT Questions
 - id: 165
@@ -666,6 +670,16 @@ rooms:
   name: Klorox II - Beam Up Messages
 - id: 410
   name: Klorox II - Vista
+  nouns:
+  - id: 3
+    desc: X
+    hidden: true
+  - id: 4
+    desc: X
+    hidden: true
+  - id: 5
+    desc: X
+    hidden: true
 - id: 420
   name: Klorox II - Greenhouse
 - id: 440
@@ -732,6 +746,7 @@ rooms:
 # TODO: I don't know the difference between these rooms
 - id: 990
   name: Save/Load Messages
+  hidden: true
 - id: 994
   name: Save/Load UI
 - id: 1000
