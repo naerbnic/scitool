@@ -77,7 +77,7 @@ impl CompileAudio {
         futures::try_join!(
             async {
                 let resource_aud_file =
-                    smol::fs::File::create(output_dir.join("resource.aud")).await?;
+                    tokio::fs::File::create(output_dir.join("resource.aud")).await?;
                 resources
                     .audio_volume()
                     .write_to_async(resource_aud_file)
@@ -92,7 +92,7 @@ impl CompileAudio {
                         res.id().resource_num(),
                         res.id().type_id().to_file_ext()
                     ));
-                    let open_file = smol::fs::File::create(output_dir.join(&file)).await?;
+                    let open_file = tokio::fs::File::create(output_dir.join(&file)).await?;
                     res.write_patch(open_file).await?;
                     Ok::<_, anyhow::Error>(())
                 }

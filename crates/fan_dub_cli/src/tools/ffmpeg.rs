@@ -1,7 +1,7 @@
+use futures::StreamExt;
 use input::InputState;
 use output::OutputState;
 use probe::Probe;
-use smol::{io::AsyncBufReadExt, stream::StreamExt};
 
 mod formats;
 mod input;
@@ -12,6 +12,8 @@ mod tcp;
 pub use formats::{OggVorbisOutputOptions, OutputFormat};
 pub use input::{Input, ReaderInput};
 pub use output::{Output, VecOutput};
+use tokio::io::AsyncBufReadExt;
+use tokio_stream::wrappers::LinesStream;
 
 fn split_key_value_line(line: &str) -> Option<(&str, &str)> {
     let eq_index = line.find('=')?;
@@ -62,7 +64,7 @@ impl FfmpegTool {
         O: Output,
     {
         let duration = self.probe.read_duration(input.clone()).await?;
-        let mut command = smol::process::Command::new(&self.ffmpeg_path);
+        let mut command = tokio::process::Command::new(&self.ffmpeg_path);
         let input_state = input.create_state().await?;
         let output_state = output.create_state().await?;
         let output_format = output_format.into();
@@ -81,13 +83,15 @@ impl FfmpegTool {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()?;
-        let stdout = smol::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
+        let stdout =
+            tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
+
         let (status, output, _, _) = futures::join!(
-            child.status(),
+            child.wait(),
             output_state.wait(),
             input_state.wait(),
             async move {
-                let mut lines = stdout.lines();
+                let mut lines = LinesStream::new(stdout.lines());
                 let mut progress_info = Vec::new();
                 let mut curr_out_time: u64 = 0;
                 while let Some(line) = lines.next().await {

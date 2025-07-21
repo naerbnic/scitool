@@ -12,6 +12,7 @@ futures = "0.3.31"
 num = "0.4.3"
 tempfile = "3.19.1"
 thiserror = "1.0.65"
+tokio = "1.46.1"
 
 [dev-dependencies]
 macro_rules_attribute = "0.2.0"

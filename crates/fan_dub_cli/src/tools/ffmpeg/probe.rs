@@ -60,7 +60,7 @@ impl Probe {
 
     pub async fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
         let in_state = input.create_state().await?;
-        let mut command = smol::process::Command::new(&self.path);
+        let mut command = tokio::process::Command::new(&self.path);
         command
             .arg("-i")
             .arg(in_state.url())

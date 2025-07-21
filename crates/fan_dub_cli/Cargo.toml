@@ -12,9 +12,11 @@ sluice = "0.5.5"
 sci-resources = { path = "../resources" }
 sci-utils = { path = "../utils" }
 sci-common = { path = "../common" }
-smol = "2.0.2"
 clap = "4.5.32"
 serde_json = "1.0.140"
 itertools = "0.13"
 walkdir = "2.5.0"
 log = "0.4.27"
+google-sheets4 = "6.0.0"
+tokio = { version = "1.46.1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "time"] }
+tokio-stream = { version = "0.1.17", features = ["io-util"] }

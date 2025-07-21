@@ -1,4 +1,6 @@
-use std::{ffi::OsString, net::SocketAddr, path::Path};
+use std::{ffi::OsString, net::SocketAddr, path::Path, pin::pin};
+
+use tokio::{io::AsyncRead, task::JoinHandle};
 
 use super::tcp;
 
@@ -24,18 +26,19 @@ impl InputState for SimpleInputState {
 
 struct TcpInputState {
     /// Thread handling the TCP connection.
-    task: smol::Task<anyhow::Result<()>>,
+    task: JoinHandle<anyhow::Result<()>>,
     /// URL of the input.
     local_addr: SocketAddr,
 }
 
 impl TcpInputState {
-    async fn new<R: smol::io::AsyncRead + Send + 'static>(
+    async fn new<R: AsyncRead + Send + 'static>(
         read: R,
-        timeout: std::time::Instant,
+        timeout: tokio::time::Instant,
     ) -> anyhow::Result<Self> {
-        let (local_addr, task) = tcp::start_tcp(timeout, async move |stream| {
-            smol::io::copy(read, stream).await?;
+        let (local_addr, task) = tcp::start_tcp(timeout, async move |mut stream| {
+            let mut read = pin!(read);
+            tokio::io::copy(&mut read, &mut stream).await?;
             Ok(())
         })
         .await?;
@@ -49,7 +52,7 @@ impl InputState for TcpInputState {
     }
 
     async fn wait(self) -> anyhow::Result<()> {
-        self.task.await?;
+        let _ = self.task.await?;
         Ok(())
     }
 }
@@ -78,8 +81,8 @@ where
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         TcpInputState::new(
-            smol::io::Cursor::new(self.0),
-            std::time::Instant::now() + std::time::Duration::from_secs(5),
+            std::io::Cursor::new(self.0),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(5),
         )
         .await
     }
@@ -90,7 +93,7 @@ pub struct ReaderInput<R>(R);
 
 impl<R> ReaderInput<R>
 where
-    R: smol::io::AsyncRead + Send + Unpin + 'static,
+    R: AsyncRead + Send + Unpin + 'static,
 {
     pub fn new(reader: R) -> Self {
         Self(reader)
@@ -99,12 +102,12 @@ where
 
 impl<R> Input for ReaderInput<R>
 where
-    R: smol::io::AsyncRead + Clone + Send + Unpin + 'static,
+    R: AsyncRead + Clone + Send + Unpin + 'static,
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         TcpInputState::new(
             self.0,
-            std::time::Instant::now() + std::time::Duration::from_millis(100),
+            tokio::time::Instant::now() + tokio::time::Duration::from_millis(100),
         )
         .await
     }

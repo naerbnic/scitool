@@ -1,6 +1,7 @@
 use std::{ffi::OsStr, path::PathBuf};
 
 pub mod ffmpeg;
+pub mod gdrive;
 
 pub struct Tool {
     binary_path: PathBuf,
