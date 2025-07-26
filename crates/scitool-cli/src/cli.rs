@@ -136,7 +136,9 @@ impl DumpResource {
 enum ResourceCommand {
     #[clap(name = "list", about = "Lists resources in the game.")]
     List(ListResources),
-    #[clap(about = "Extracts a resource and saves it as a patch file. Supported types are Script (SCR) and Heap (HEP).")]
+    #[clap(
+        about = "Extracts a resource and saves it as a patch file. Supported types are Script (SCR) and Heap (HEP)."
+    )]
     ExtractAsPatch(ExtractResourceAsPatch),
     #[clap(about = "Dumps the hexadecimal content of a resource.")]
     Dump(DumpResource),
@@ -174,7 +176,10 @@ enum Category {
     Resource(Resource),
     #[clap(name = "msg", about = "Commands for working with game messages.")]
     Message(msg::Messages),
-    #[clap(name = "gen", about = "Commands for generating various outputs from game data.")]
+    #[clap(
+        name = "gen",
+        about = "Commands for generating various outputs from game data."
+    )]
     Generate(generate::Generate),
     #[clap(name = "script", about = "Commands for working with game scripts.")]
     Script(script::Script),

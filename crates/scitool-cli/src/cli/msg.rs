@@ -243,9 +243,14 @@ enum MessageCommand {
     Export(ExportMessages),
     #[clap(about = "Prints messages from the game, with optional filters.")]
     Print(PrintMessages),
-    #[clap(about = "Checks message data, building a \"book\" and printing statistics and validation errors.")]
+    #[clap(
+        about = "Checks message data, building a \"book\" and printing statistics and validation errors."
+    )]
     Check(CheckMessages),
-    #[clap(name = "print-talkers", about = "Prints a list of all unique talker IDs found in the game messages.")]
+    #[clap(
+        name = "print-talkers",
+        about = "Prints a list of all unique talker IDs found in the game messages."
+    )]
     PrintTalkers(PrintTalkers),
 }
 

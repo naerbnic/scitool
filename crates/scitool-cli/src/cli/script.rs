@@ -36,7 +36,10 @@ impl GenerateHeaders {
 /// The specific script command to execute.
 #[derive(Subcommand)]
 enum ScriptCommand {
-    #[clap(name = "gen-headers", about = "Generates script header files (`selectors.sh` and `classdef.sh`) from game resources.")]
+    #[clap(
+        name = "gen-headers",
+        about = "Generates script header files (`selectors.sh` and `classdef.sh`) from game resources."
+    )]
     GenerateHeaders(GenerateHeaders),
 }
 

@@ -2,13 +2,13 @@
 
 mod block_reader;
 mod block_source;
+pub mod cache_store;
 mod core;
 mod error;
 mod lazy_block;
 mod mem_block;
 pub mod output_block;
 pub mod temp_store;
-pub mod cache_store;
 
 pub use block_reader::BlockReader;
 pub use block_source::BlockSource;

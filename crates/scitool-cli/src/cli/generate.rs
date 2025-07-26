@@ -161,7 +161,10 @@ enum GenerateCommand {
     Master(GenerateMaster),
     #[clap(about = "Generates a JSON representation of the game script.")]
     Json(GenerateJson),
-    #[clap(name = "json-schema", about = "Generates the JSON schema for the game script structure and prints it to stdout.")]
+    #[clap(
+        name = "json-schema",
+        about = "Generates the JSON schema for the game script structure and prints it to stdout."
+    )]
     JsonSchema(GenerateJsonSchema),
 }
 
