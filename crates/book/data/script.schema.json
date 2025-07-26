@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Script",
+  "$ref": "#/$defs/TopLevel",
+  "$defs": {
+    "TopLevel": {
+      "$comment": "Top-level object for the script schema",
+      "type": "object",
+      "properties": {
+        "roles": {
+          "type": "object",
+          "description": "Mapping of role ids to their descriptions.",
+          "propertyNames": {
+            "$ref": "#/$defs/RoleId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Role"
+          }
+        },
+        "rooms": {
+          "type": "object",
+          "description": "Mapping of room ids to their descriptions.",
+          "propertyNames": {
+            "$ref": "#/$defs/RoomId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Room"
+          }
+        },
+        "nouns": {
+          "type": "object",
+          "description": "Mapping of noun ids to their descriptions.",
+          "propertyNames": {
+            "$ref": "#/$defs/NounId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Noun"
+          }
+        },
+        "conversations": {
+          "type": "object",
+          "description": "Mapping of conversation ids to their descriptions.",
+          "propertyNames": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Conversation"
+          }
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Line"
+          },
+          "description": "List of lines in the script."
+        }
+      }
+    },
+    "ConversationId": {
+      "type": "string",
+      "description": "Unique identifier for a conversation."
+    },
+    "Conversation": {
+      "properties": {
+        "cond_num": {
+          "description": "The conversation's condition number. If missing, the conversation is unconditional.",
+          "type": "integer"
+        },
+        "verb_num": {
+          "description": "The conversation's verb number. If missing, the conversation applies to all verbs.",
+          "type": "integer"
+        },
+        "lines": {
+          "description": "List of line ids that are part of this conversation.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LineId"
+          }
+        }
+      }
+    },
+    "NounId": {
+      "type": "string",
+      "description": "Unique identifier for a noun."
+    },
+    "Noun": {
+      "required": [
+        "num"
+      ],
+      "properties": {
+        "num": {
+          "description": "The noun's number within the room.",
+          "type": "integer"
+        },
+        "name": {
+          "description": "The human-readable title of the noun.",
+          "type": "string"
+        },
+        "converssations": {
+          "description": "List of conversation ids that this noun is part of.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConversationId"
+          }
+        }
+      }
+    },
+    "RichText": {
+      "description": "Human readable rich text, including basic formatting.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RichTextItem"
+      }
+    },
+    "RichTextItem": {
+      "description": "A single element of rich text, which can be plain text or formatted.",
+      "oneOf": [
+        {
+          "title": "PlainTextItem",
+          "type": "string",
+          "description": "Plain text content."
+        },
+        {
+          "title": "StyledRichText",
+          "$ref": "#/$defs/StyledRichTextItem",
+          "description": "Formatted text content with style."
+        }
+      ]
+    },
+    "StyledRichTextItem": {
+      "description": "A rich text item with a specific style.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The text content of the item."
+        },
+        "style": {
+          "$ref": "#/$defs/RichTextStyle"
+        }
+      }
+    },
+    "RichTextStyle": {
+      "description": "Formatting options for rich text.",
+      "type": "object",
+      "properties": {
+        "bold": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the text is bold."
+        },
+        "italic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the text is italic."
+        },
+        "underline": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the text is underlined."
+        }
+      }
+    },
+    "RoleId": {
+      "type": "string",
+      "description": "Unique identifier for a role."
+    },
+    "Role": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The full human-readable name of the role."
+        },
+        "short_name": {
+          "type": "string",
+          "description": "Human readable short name or abbreviation for the role."
+        }
+      }
+    },
+    "RoomId": {
+      "type": "string",
+      "description": "Unique identifier for a room."
+    },
+    "Room": {
+      "properties": {
+        "num": {
+          "description": "The room's number within the script.",
+          "type": "integer"
+        },
+        "name": {
+          "description": "The human-readable title of the room.",
+          "type": "string"
+        },
+        "nouns": {
+          "description": "List of noun ids that are part of this room.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NounId"
+          }
+        }
+      }
+    },
+    "LineId": {
+      "type": "string",
+      "description": "Unique identifier for a line."
+    },
+    "Line": {
+      "properties": {
+        "seq_num": {
+          "description": "The line's sequence number within the line's conversation.",
+          "type": "integer"
+        },
+        "role": {
+          "description": "The role that speaks this line.",
+          "$ref": "#/$defs/RoleId"
+        },
+        "text": {
+          "description": "The human-readable text of the line",
+          "$ref": "#/$defs/RichText"
+        }
+      }
+    }
+  }
+}
