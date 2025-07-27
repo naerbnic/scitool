@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::ToOwned, collections::HashMap};
 
 use mem_loader::LoadedScript;
 use sci_resources::{ResourceType, file::ResourceSet};
@@ -14,6 +14,7 @@ const SELECTOR_TABLE_VOCAB_NUM: u16 = 997;
 pub struct ScriptId(u16);
 
 impl ScriptId {
+    #[must_use]
     pub fn num(self) -> u16 {
         self.0
     }
@@ -29,6 +30,7 @@ impl std::fmt::Debug for ScriptId {
 pub struct Species(u16);
 
 impl Species {
+    #[must_use]
     pub fn num(self) -> u16 {
         self.0
     }
@@ -54,7 +56,7 @@ impl ScriptLoader {
             ))
             .ok_or_else(|| anyhow::anyhow!("Selector table not found"))?
             .load_data()?;
-        let selectors = selectors::SelectorTable::load_from(selector_table_data)?;
+        let selectors = selectors::SelectorTable::load_from(&selector_table_data)?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
@@ -138,18 +140,22 @@ impl std::fmt::Debug for Class<'_> {
 }
 
 impl<'a> Class<'a> {
+    #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.data.name.as_deref()
     }
 
+    #[must_use]
     pub fn script_id(&self) -> ScriptId {
         self.data.script_id
     }
 
+    #[must_use]
     pub fn species(&self) -> Species {
         self.data.species
     }
 
+    #[must_use]
     pub fn super_class(&self) -> Option<Class<'a>> {
         self.data.super_class.map(|super_class| Class {
             root: self.root,
@@ -157,6 +163,7 @@ impl<'a> Class<'a> {
         })
     }
 
+    #[must_use]
     pub fn get_method(&self, name: &str) -> Option<&Method> {
         self.data
             .methods
@@ -165,6 +172,7 @@ impl<'a> Class<'a> {
             .map(|p| &p.method)
     }
 
+    #[must_use]
     pub fn get_property(&self, name: &str) -> Option<&Property> {
         self.data
             .properties
@@ -263,7 +271,7 @@ impl ClassData {
         }
 
         Self {
-            name: object.name().map(|s| s.to_owned()),
+            name: object.name().map(ToOwned::to_owned),
             script_id,
             species: Species(species_id),
             super_class: if super_class_id == 0xFFFF {
@@ -283,6 +291,7 @@ pub struct Method {
 }
 
 impl Method {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -295,10 +304,12 @@ pub struct Property {
 }
 
 impl Property {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    #[must_use]
     pub fn base_value(&self) -> u16 {
         self.base_value
     }

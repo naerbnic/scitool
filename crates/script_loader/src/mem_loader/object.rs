@@ -110,7 +110,7 @@ impl ObjectData {
 }
 
 pub struct Object {
-    object_data: ObjectData,
+    data: ObjectData,
 
     // Standard property values
     class_script: u16,
@@ -126,8 +126,6 @@ impl Object {
         loaded_data: &MemBlock,
         obj_data: MemBlock,
     ) -> anyhow::Result<Object> {
-        let object_data = ObjectData::from_block(selector_table, loaded_data, obj_data)?;
-
         // Read the standard properties.
         //
         // We can ony do this with selectors that are officially built in, which
@@ -145,6 +143,8 @@ impl Object {
         const INFO_INDEX: usize = 7;
         // Name is _usually_ found at index 8, but it's not guaranteed. Use it as a hack for now.
         const NAME_INDEX: usize = 8;
+
+        let object_data = ObjectData::from_block(selector_table, loaded_data, obj_data)?;
 
         let class_script = object_data
             .get_property_at_index(CLASS_SCRIPT_INDEX)
@@ -174,7 +174,7 @@ impl Object {
         }
 
         Ok(Self {
-            object_data,
+            data: object_data,
             class_script,
             script,
             super_class,
@@ -183,39 +183,46 @@ impl Object {
         })
     }
 
+    #[must_use]
     pub fn get_property_by_name(&self, name: &str) -> Option<u16> {
-        self.object_data.get_property_by_name(name)
+        self.data.get_property_by_name(name)
     }
 
+    #[must_use]
     pub fn get_property_by_id(&self, id: u16) -> Option<u16> {
-        self.object_data.get_property_by_id(id)
+        self.data.get_property_by_id(id)
     }
 
+    #[must_use]
     pub fn get_property_at_index(&self, index: usize) -> Option<u16> {
-        self.object_data.get_property_at_index(index)
+        self.data.get_property_at_index(index)
     }
 
     pub fn methods(&self) -> impl Iterator<Item = &Selector> {
-        self.object_data.get_method_selectors()
+        self.data.get_method_selectors()
     }
 
     pub fn properties(&self) -> impl Iterator<Item = (&Selector, u16)> {
         assert!(self.is_class());
-        self.object_data.properties()
+        self.data.properties()
     }
 
+    #[must_use]
     pub fn is_class(&self) -> bool {
         self.info & 0x8000 != 0
     }
 
+    #[must_use]
     pub fn species(&self) -> u16 {
         self.script
     }
 
+    #[must_use]
     pub fn super_class(&self) -> u16 {
         self.super_class
     }
 
+    #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
@@ -224,7 +231,7 @@ impl Object {
 impl std::fmt::Debug for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Object")
-            .field("size", &(self.object_data.obj_data.len() / 2))
+            .field("size", &(self.data.obj_data.len() / 2))
             .field("class_script", &self.class_script)
             .field("script", &self.script)
             .field("super_class", &self.super_class)
@@ -233,7 +240,7 @@ impl std::fmt::Debug for Object {
             .field("is_class", &self.is_class())
             .field(
                 "methods",
-                &self.object_data.get_method_selectors().collect::<Vec<_>>(),
+                &self.data.get_method_selectors().collect::<Vec<_>>(),
             )
             .finish()
     }

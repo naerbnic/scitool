@@ -71,7 +71,7 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub fn load_from<B: Buffer + Clone>(data: B) -> anyhow::Result<Self> {
+    pub fn load_from<B: Buffer + Clone>(data: &B) -> anyhow::Result<Self> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
         let (num_entries_minus_one, entries_table) = data.clone().read_value::<u16>()?;
@@ -115,7 +115,7 @@ impl SelectorTable {
 
         let mut reverse_entries = HashMap::new();
 
-        for selector in entries.iter() {
+        for selector in &entries {
             reverse_entries
                 .entry(selector.1.0.name.clone())
                 .or_insert_with(Vec::new)

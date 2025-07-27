@@ -166,6 +166,10 @@ impl LoadedScript {
     {
         let heap_offset = script_data.size();
         anyhow::ensure!(heap_offset % 2 == 0);
+
+        #[expect(clippy::cast_possible_truncation)]
+        let u16_heap_offset = heap_offset as u16;
+
         // Concat the two blocks.
         //
         // It may be possible to get rid of the relocation block, but it's not clear.
@@ -178,12 +182,8 @@ impl LoadedScript {
             let script_relocation_block = extract_relocation_block(script_data.clone());
             let heap_relocation_block = extract_relocation_block(heap_data.clone());
 
-            apply_relocations(
-                script_data_slice,
-                script_relocation_block,
-                heap_offset as u16,
-            )?;
-            apply_relocations(heap_data_slice, heap_relocation_block, heap_offset as u16)?;
+            apply_relocations(script_data_slice, script_relocation_block, u16_heap_offset)?;
+            apply_relocations(heap_data_slice, heap_relocation_block, u16_heap_offset)?;
         }
 
         let loaded_script = MemBlock::from_vec(loaded_script);
@@ -192,7 +192,7 @@ impl LoadedScript {
         let heap = Heap::from_block(selector_table, &loaded_script, heap_data)?;
 
         Ok(LoadedScript {
-            heap_offset: heap_offset as u16,
+            heap_offset: u16_heap_offset,
             full_buffer: loaded_script,
             script,
             heap,
