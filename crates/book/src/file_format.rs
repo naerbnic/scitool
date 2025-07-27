@@ -13,9 +13,6 @@ use serde::{Deserialize, Serialize};
 struct RoleIndex(usize);
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(transparent)]
-struct TalkerIndex(usize);
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-#[serde(transparent)]
 struct VerbIndex(usize);
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(transparent)]
@@ -38,7 +35,6 @@ struct BookFormat {
     #[serde(rename = "projectName")]
     project_name: String,
     roles: Vec<RoleItem>,
-    talkers: Vec<TalkerItem>,
     verbs: Vec<VerbItem>,
     rooms: Vec<RoomItem>,
     conditions: Vec<ConditionItem>,
@@ -53,13 +49,6 @@ struct RoleItem {
     name: String,
     #[serde(rename = "shortName")]
     short_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct TalkerItem {
-    id: String,
-    num: u8,
-    role: RoleIndex,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -81,6 +70,8 @@ struct ConditionItem {
     id: String,
     num: u8,
     description: Option<String>,
+    #[serde(rename = "parentRoom")]
+    parent_room: RoomIndex,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -104,7 +95,7 @@ struct ConversationItem {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct LineItem {
     id: String,
-    talker: TalkerIndex,
+    talker: RoleIndex,
     text: LineText,
 }
 
