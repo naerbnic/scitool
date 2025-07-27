@@ -1,13 +1,13 @@
 [package]
-name = "scitool-script-loader"
+name = "scidev-script-loader"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 anyhow = "1.0.95"
 bytes = "1.10.1"
-sci-resources = { path = "../resources" }
-sci-utils = { path = "../utils" }
+scidev-resources = { path = "../resources" }
+scidev-utils = { path = "../utils" }
 
 [lints]
 workspace = true

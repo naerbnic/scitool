@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 
 use ids::{RawRoleId, RawTalkerId, TalkerId};
 
-use sci_common::{
+use scidev_common::{
     ConditionId, ConversationId, ConversationKey, LineId, NounId, RawConditionId, RawNounId,
     RawRoomId, RawSequenceId, RawVerbId, RoomId,
 };
-use sci_utils::validation::{MultiValidator, ValidationError};
+use scidev_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
 pub mod config;

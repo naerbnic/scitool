@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, btree_map};
 
 use itertools::Itertools;
 
-use sci_common::{ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
-use sci_resources::types::msg::{MessageId, MessageRecord};
-use sci_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
+use scidev_common::{ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
+use scidev_resources::types::msg::{MessageId, MessageRecord};
+use scidev_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use super::{
     Book,

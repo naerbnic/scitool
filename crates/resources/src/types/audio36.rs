@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::ensure;
 use bytes::BufMut;
-use sci_utils::{
+use scidev_utils::{
     block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
     data_reader::DataReader,
     data_writer::{DataWriter, IoDataWriter},

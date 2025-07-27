@@ -1,5 +1,5 @@
 [package]
-name = "scitool-fan-dub-cli"
+name = "scidub-cli"
 version = "0.0.0"
 edition = "2024"
 
@@ -8,9 +8,9 @@ anyhow = { version = "1.0.97", features = ["backtrace"] }
 async-net = "2.0.0"
 futures = "0.3.31"
 serde = { version = "1.0.219", features = ["derive"] }
-sci-resources = { path = "../resources" }
-sci-utils = { path = "../utils" }
-sci-common = { path = "../common" }
+scidev-resources = { path = "../resources" }
+scidev-utils = { path = "../utils" }
+scidev-common = { path = "../common" }
 smol = "2.0.2"
 clap = "4.5.32"
 serde_json = "1.0.140"

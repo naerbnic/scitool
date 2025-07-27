@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use sci_resources::{ResourceId, ResourceType, file::open_game_resources};
-use sci_utils::data_writer::{DataWriter, IoDataWriter};
+use scidev_resources::{ResourceId, ResourceType, file::open_game_resources};
+use scidev_utils::data_writer::{DataWriter, IoDataWriter};
 
 mod generate;
 mod msg;
@@ -131,7 +131,7 @@ impl DumpResource {
             .get_resource(&resource_id)
             .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
         let data = res.load_data()?;
-        sci_utils::debug::hex_dump(&data, 0);
+        scidev_utils::debug::hex_dump(&data, 0);
         Ok(())
     }
 }

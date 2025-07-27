@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use sci_common::RawVerbId;
+use scidev_common::RawVerbId;
 
 // Raw IDs.
 //

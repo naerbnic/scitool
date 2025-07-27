@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use mem_loader::LoadedScript;
-use sci_resources::{ResourceType, file::ResourceSet};
+use scidev_resources::{ResourceType, file::ResourceSet};
 
 mod mem_loader;
 mod selectors;
@@ -50,7 +50,7 @@ pub struct ScriptLoader {
 impl ScriptLoader {
     pub fn load_from(resources: &ResourceSet) -> anyhow::Result<Self> {
         let selector_table_data = resources
-            .get_resource(&sci_resources::ResourceId::new(
+            .get_resource(&scidev_resources::ResourceId::new(
                 ResourceType::Vocab,
                 SELECTOR_TABLE_VOCAB_NUM,
             ))
@@ -62,7 +62,7 @@ impl ScriptLoader {
             let script_num = script.id().resource_num();
             let script_data = script.load_data()?;
             let heap = resources
-                .get_resource(&sci_resources::ResourceId::new(
+                .get_resource(&scidev_resources::ResourceId::new(
                     ResourceType::Heap,
                     script_num,
                 ))

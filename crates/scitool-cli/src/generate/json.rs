@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::text;
 use schemars::JsonSchema;
-use sci_common as common;
-use scitool_book::{self as book, Book};
+use scidev_common as common;
+use scidev_book::{self as book, Book};
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub(crate) struct LineId(String);

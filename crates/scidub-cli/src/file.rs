@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sci_common::LineId;
+use scidev_common::LineId;
 
 fn is_audio_file_ext(ext: &OsStr) -> bool {
     let Some(ext) = ext.to_str() else {

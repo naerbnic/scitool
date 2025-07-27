@@ -1,4 +1,4 @@
-use sci_utils::{
+use scidev_utils::{
     block::{BlockReader, MemBlock},
     buffer::{Buffer, BufferExt, BufferOpsExt},
     data_reader::DataReader,

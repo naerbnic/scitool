@@ -1,4 +1,4 @@
-use scitool_book::{self as book, Control, FontControl, MessageSegment, MessageText};
+use scidev_book::{self as book, Control, FontControl, MessageSegment, MessageText};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct TextStyle {

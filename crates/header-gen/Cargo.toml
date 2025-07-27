@@ -1,13 +1,13 @@
 [package]
-name = "sci-header-gen"
+name = "scidev-header-gen"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 anyhow = "1.0.97"
 itertools = "0.14.0"
-sci-resources = { path = "../resources" }
-scitool-script-loader = { path = "../script_loader" }
+scidev-resources = { path = "../resources" }
+scidev-script-loader = { path = "../script-loader" }
 serde = { version = "1.0.219", features = ["derive"] }
 
 [lints]

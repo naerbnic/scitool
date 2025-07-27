@@ -2,8 +2,8 @@ use itertools::Itertools;
 use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
-use sci_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
-use scitool_book::{self as book, Book, builder::BookBuilder, config::BookConfig};
+use scidev_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
+use scidev_book::{self as book, Book, builder::BookBuilder, config::BookConfig};
 
 use crate::generate::{
     doc::{Document, DocumentBuilder, SectionBuilder},

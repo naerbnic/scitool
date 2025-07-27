@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use sci_utils::{
+use scidev_utils::{
     block::{BlockReader, MemBlock},
     buffer::BufferExt,
     data_reader::DataReader,

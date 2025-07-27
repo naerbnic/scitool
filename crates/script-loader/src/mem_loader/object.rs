@@ -1,4 +1,4 @@
-use sci_utils::{
+use scidev_utils::{
     block::MemBlock,
     buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
 };

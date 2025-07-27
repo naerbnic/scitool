@@ -4,8 +4,8 @@ use std::{
 };
 
 use itertools::Itertools;
-use sci_resources::file::ResourceSet;
-use scitool_script_loader::{Class, ClassDeclSet, ScriptLoader, Species};
+use scidev_resources::file::ResourceSet;
+use scidev_script_loader::{Class, ClassDeclSet, ScriptLoader, Species};
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Selector {
@@ -201,7 +201,7 @@ pub struct SciScriptExports {
 
 impl SciScriptExports {
     pub fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
-        let resource_set = sci_resources::file::open_game_resources(root_dir)?;
+        let resource_set = scidev_resources::file::open_game_resources(root_dir)?;
 
         let selectors = dump_selectors(&resource_set)?;
 

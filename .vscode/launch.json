@@ -35,7 +35,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'sci_utils'",
+            "name": "Debug unit tests in library 'scidev_utils'",
             "cargo": {
                 "args": [
                     "test",
@@ -44,7 +44,7 @@
                     "--package=sci-utils"
                 ],
                 "filter": {
-                    "name": "sci_utils",
+                    "name": "scidev_utils",
                     "kind": "lib"
                 }
             },
@@ -54,7 +54,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'sci_resources'",
+            "name": "Debug unit tests in library 'scidev_resources'",
             "cargo": {
                 "args": [
                     "test",
@@ -63,7 +63,7 @@
                     "--package=sci-resources"
                 ],
                 "filter": {
-                    "name": "sci_resources",
+                    "name": "scidev_resources",
                     "kind": "lib"
                 }
             },

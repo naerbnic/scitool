@@ -897,7 +897,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "sci-common"
+name = "scidev-book"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "itertools 0.13.0",
+ "scidev-common",
+ "scidev-resources",
+ "scidev-utils",
+ "serde",
+ "thiserror 1.0.65",
+]
+
+[[package]]
+name = "scidev-common"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -905,18 +918,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "sci-header-gen"
+name = "scidev-header-gen"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
- "sci-resources",
- "scitool-script-loader",
+ "scidev-resources",
+ "scidev-script-loader",
  "serde",
 ]
 
 [[package]]
-name = "sci-resources"
+name = "scidev-resources"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -924,13 +937,23 @@ dependencies = [
  "clap",
  "futures",
  "log",
- "sci-utils",
+ "scidev-utils",
  "serde",
  "thiserror 2.0.12",
 ]
 
 [[package]]
-name = "sci-utils"
+name = "scidev-script-loader"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "scidev-resources",
+ "scidev-utils",
+]
+
+[[package]]
+name = "scidev-utils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -945,16 +968,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "scitool-book"
-version = "0.1.0"
+name = "scidub-cli"
+version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-net",
+ "clap",
+ "futures",
  "itertools 0.13.0",
- "sci-common",
- "sci-resources",
- "sci-utils",
+ "log",
+ "scidev-common",
+ "scidev-resources",
+ "scidev-utils",
  "serde",
- "thiserror 1.0.65",
+ "serde_json",
+ "smol",
+ "walkdir",
 ]
 
 [[package]]
@@ -967,45 +996,16 @@ dependencies = [
  "itertools 0.13.0",
  "maud",
  "schemars",
- "sci-common",
- "sci-header-gen",
- "sci-resources",
- "sci-utils",
- "scitool-book",
- "scitool-script-loader",
+ "scidev-book",
+ "scidev-common",
+ "scidev-header-gen",
+ "scidev-resources",
+ "scidev-script-loader",
+ "scidev-utils",
  "serde",
  "serde_json",
  "serde_yml",
  "thiserror 1.0.65",
-]
-
-[[package]]
-name = "scitool-fan-dub-cli"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-net",
- "clap",
- "futures",
- "itertools 0.13.0",
- "log",
- "sci-common",
- "sci-resources",
- "sci-utils",
- "serde",
- "serde_json",
- "smol",
- "walkdir",
-]
-
-[[package]]
-name = "scitool-script-loader"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "sci-resources",
- "sci-utils",
 ]
 
 [[package]]

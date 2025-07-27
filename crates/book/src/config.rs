@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use sci_common::{RawConditionId, RawNounId, RawRoomId, RawVerbId};
+use scidev_common::{RawConditionId, RawNounId, RawRoomId, RawVerbId};
 use serde::{Deserialize, Serialize};
 
 use super::ids::{RawRoleId, RawTalkerId};

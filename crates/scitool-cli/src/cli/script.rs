@@ -21,7 +21,7 @@ struct GenerateHeaders {
 
 impl GenerateHeaders {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
-        let exports = sci_header_gen::SciScriptExports::read_from_resources(&self.game_dir)?;
+        let exports = scidev_header_gen::SciScriptExports::read_from_resources(&self.game_dir)?;
 
         let selectors_file = std::fs::File::create(self.out_dir.join(&self.selectors_path))?;
         exports.write_selector_header_to(std::io::BufWriter::new(selectors_file))?;
