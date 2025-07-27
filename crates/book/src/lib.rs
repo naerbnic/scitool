@@ -15,10 +15,11 @@ pub mod builder;
 pub mod config;
 pub mod file_format;
 mod ids;
-mod text;
+mod message_text;
+pub mod rich_text;
 
 pub use ids::{RoleId, VerbId};
-pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
+pub use message_text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
 
 // Entries
 //

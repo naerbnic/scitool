@@ -1,6 +1,6 @@
 //! Traits and implementations used to generate documents, including VO scripts.
 
-use super::text::RichText;
+use scidev_book::rich_text::RichText;
 
 fn push_last_mut<T>(vec: &mut Vec<T>, value: T) -> &mut T {
     vec.push(value);

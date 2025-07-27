@@ -2,15 +2,18 @@ use itertools::Itertools;
 use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
-use scidev_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
 use scidev_book::{self as book, Book, builder::BookBuilder, config::BookConfig};
+use scidev_resources::{
+    ResourceType, file::open_game_resources, types::msg::parse_message_resource,
+};
 
 use crate::generate::{
     doc::{Document, DocumentBuilder, SectionBuilder},
     html::generate_html,
     json::GameScript,
-    text::{RichText, TextStyle, make_conversation_title, make_noun_title, make_room_title},
+    text::{make_conversation_title, make_noun_title, make_room_title},
 };
+use scidev_book::rich_text::{RichText, TextStyle};
 
 #[derive(Parser)]
 struct CommonArgs {
