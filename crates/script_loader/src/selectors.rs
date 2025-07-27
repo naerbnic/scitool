@@ -3,7 +3,7 @@
 //! The resource table is stored as Vocab:997.
 
 use std::{
-    collections::{HashMap, hash_map},
+    collections::{BTreeMap, HashMap, hash_map},
     sync::Arc,
 };
 
@@ -63,7 +63,7 @@ impl std::fmt::Debug for Selector {
 
 #[derive(Debug)]
 struct SelectorTableInner {
-    entries: HashMap<u16, Selector>,
+    entries: BTreeMap<u16, Selector>,
     reverse_entries: HashMap<SharedString, Vec<Selector>>,
 }
 
@@ -101,7 +101,7 @@ impl SelectorTable {
                 })));
         }
 
-        let entries: HashMap<_, _> = entries
+        let entries: BTreeMap<_, _> = entries
             .into_values()
             .filter_map(|mut v| {
                 if v.len() == 1 {

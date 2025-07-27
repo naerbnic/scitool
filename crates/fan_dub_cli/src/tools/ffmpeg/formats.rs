@@ -1,6 +1,6 @@
 //! File formats we support
 
-use std::{borrow::Cow, collections::HashMap, ffi::OsString};
+use std::{borrow::Cow, collections::BTreeMap, ffi::OsString};
 
 pub struct FlacOutputOptions {
     compression_level: u8,
@@ -8,7 +8,7 @@ pub struct FlacOutputOptions {
 
 impl FlacOutputOptions {
     pub fn get_options(&self) -> AVOptions {
-        let mut options = HashMap::new();
+        let mut options = BTreeMap::new();
         options.insert(
             "compression_level".into(),
             self.compression_level.to_string(),
@@ -23,7 +23,7 @@ pub struct Mp3OutputOptions {
 
 impl Mp3OutputOptions {
     pub fn get_options(&self) -> AVOptions {
-        let mut options = HashMap::new();
+        let mut options = BTreeMap::new();
         options.insert("bitrate".into(), self.bitrate.to_string());
         AVOptions(options)
     }
@@ -44,7 +44,7 @@ impl OggVorbisOutputOptions {
 
     #[must_use]
     pub fn get_options(&self) -> AVOptions {
-        let mut options = HashMap::new();
+        let mut options = BTreeMap::new();
         options.insert("q".into(), self.quality.to_string());
         if let Some(sample_rate) = self.sample_rate {
             options.insert("ar".into(), sample_rate.to_string());
@@ -102,7 +102,7 @@ impl From<OggVorbisOutputOptions> for OutputFormat {
     }
 }
 
-pub struct AVOptions(HashMap<Cow<'static, str>, String>);
+pub struct AVOptions(BTreeMap<Cow<'static, str>, String>);
 
 impl AVOptions {
     pub fn to_flags(&self, stream_spec: Option<&str>) -> Vec<OsString> {

@@ -2,7 +2,7 @@
     clippy::struct_field_names,
     reason = "Field names are descriptive and match the JSON schema"
 )]
-use std::{collections::BTreeMap, string::ToString};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 

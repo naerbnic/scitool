@@ -86,7 +86,6 @@ impl CompileAudio {
             },
             execute_all(resources.map_resources().iter().map(|res| {
                 async move {
-                    dbg!(res.id());
                     let file = PathBuf::from(format!(
                         "{}.{}",
                         res.id().resource_num(),

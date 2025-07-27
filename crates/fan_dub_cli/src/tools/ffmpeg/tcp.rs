@@ -1,4 +1,4 @@
-use std::{future::Future, net::SocketAddr};
+use std::net::SocketAddr;
 
 use async_net::TcpStream;
 use smol::Task;

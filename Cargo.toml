@@ -2,6 +2,19 @@
 resolver = "2"
 members = ["crates/*"]
 
+[workspace.lints.rust]
+single-use-lifetimes = "warn"
+supertrait-item-shadowing-definition = "warn"
+supertrait-item-shadowing-usage = "warn"
+# unreachable-pub = "warn"
+
+unsafe-code = "deny"
+let-underscore-drop = "deny"
+meta-variable-misuse = "deny"
+redundant-imports = "deny"
+redundant-lifetimes = "deny"
+unit-bindings = "deny"
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
@@ -9,3 +22,19 @@ pedantic = { level = "warn", priority = -1 }
 missing-errors-doc = "allow"
 missing-panics-doc = "allow"
 unused-async = "allow"
+
+# Useful restrictions that we want to enforce
+dbg-macro = "warn"
+iter-over-hash-type = "warn"
+precedence-bits = "warn"
+# use-debug = "warn"
+# todo = "warn"
+# mod-module-files = "warn"
+
+mixed-read-write-in-expression = "deny"
+infinite-loop = "deny"
+needless-raw-strings = "deny"
+partial-pub-fields = "deny"
+string-add = "deny"
+tests-outside-test-module = "deny"
+unneeded-field-pattern = "deny"

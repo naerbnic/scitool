@@ -1,4 +1,4 @@
-use std::{borrow::ToOwned, collections::HashMap};
+use std::collections::HashMap;
 
 use mem_loader::LoadedScript;
 use sci_resources::{ResourceType, file::ResourceSet};
