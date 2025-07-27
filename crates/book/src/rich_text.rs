@@ -31,6 +31,11 @@ impl TextStyle {
         self.italic
     }
 
+    #[must_use]
+    pub fn is_plain(&self) -> bool {
+        !self.bold && !self.italic
+    }
+
     pub fn set_bold(&mut self, bold: bool) -> &mut Self {
         self.bold = bold;
         self

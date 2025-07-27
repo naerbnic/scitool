@@ -332,8 +332,8 @@ impl<'a> Room<'a> {
     }
 
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.entry.name.as_deref().unwrap_or("*NO NAME*")
+    pub fn name(&self) -> Option<&str> {
+        self.entry.name.as_deref()
     }
 
     /// Get an iterator over all the nouns in this room.

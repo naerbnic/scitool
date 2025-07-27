@@ -5,7 +5,9 @@ use scidev_book::{builder::BookBuilder, config::BookConfig};
 
 use crate::output::msg as msg_out;
 use clap::{Parser, Subcommand};
-use scidev_resources::{ResourceType, file::open_game_resources, types::msg::parse_message_resource};
+use scidev_resources::{
+    ResourceType, file::open_game_resources, types::msg::parse_message_resource,
+};
 
 // My current theory is that messages are separatable into a few categories:
 
@@ -202,7 +204,7 @@ impl CheckMessages {
         }
 
         for room in book.rooms() {
-            eprintln!("Room {:?}:", room.name(),);
+            eprintln!("Room {}:", room.name().unwrap_or("*NO NAME*"));
             eprintln!("  Num Conditions: {}", room.conditions().count());
         }
         Ok(())

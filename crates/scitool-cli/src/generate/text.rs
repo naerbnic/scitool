@@ -3,7 +3,7 @@ use scidev_book::{self as book, rich_text::RichText};
 #[must_use]
 pub(crate) fn make_room_title(room: &book::Room<'_>) -> RichText {
     let mut room_title_builder = RichText::builder();
-    room_title_builder.add_plain_text(&room.name());
+    room_title_builder.add_plain_text(&room.name().unwrap_or("*NO NAME*"));
     room_title_builder.build()
 }
 
