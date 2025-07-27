@@ -5,7 +5,7 @@ use std::{
 
 use itertools::Itertools;
 use sci_resources::file::ResourceSet;
-use scitool_script_loader::{Class, ClassDeclSet, ScriptLoader};
+use scitool_script_loader::{Class, ClassDeclSet, ScriptLoader, Species};
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Selector {
@@ -14,10 +14,12 @@ pub struct Selector {
 }
 
 impl Selector {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    #[must_use]
     pub fn id(&self) -> u16 {
         self.id
     }
@@ -79,8 +81,7 @@ fn topo_sort<'a>(classes: impl IntoIterator<Item = Class<'a>>) -> Vec<Class<'a>>
         result_classes.push(class_map[&next_species].clone());
         subclasses
             .get(&next_species)
-            .map(|subclasses| &subclasses[..])
-            .unwrap_or(&[])
+            .map_or(&[] as &[Species], |subclasses| &subclasses[..])
             .iter()
             .filter(|subclass| pending_classes.remove(subclass))
             .for_each(|&subclass| class_queue.push(std::cmp::Reverse(subclass)));
@@ -96,10 +97,12 @@ pub struct Property {
 }
 
 impl Property {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    #[must_use]
     pub fn base_value(&self) -> u16 {
         self.base_value
     }
@@ -117,26 +120,32 @@ pub struct ClassDef {
 }
 
 impl ClassDef {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    #[must_use]
     pub fn script_num(&self) -> u16 {
         self.script_num
     }
 
+    #[must_use]
     pub fn species(&self) -> u16 {
         self.species
     }
 
+    #[must_use]
     pub fn super_class(&self) -> Option<u16> {
         self.super_class
     }
 
+    #[must_use]
     pub fn properties(&self) -> &[Property] {
         &self.properties
     }
 
+    #[must_use]
     pub fn methods(&self) -> &[String] {
         &self.methods
     }
@@ -150,10 +159,10 @@ fn dump_class_defs(resource_set: &ResourceSet) -> anyhow::Result<Vec<ClassDef>> 
     let mut classes_out = Vec::new();
 
     for class in classes {
-        let name = class
-            .name()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| format!("class{}", class.species().num()));
+        let name = class.name().map_or_else(
+            || format!("class{}", class.species().num()),
+            ToString::to_string,
+        );
 
         let script_num = class.script_id().num();
         let species = class.species().num();
@@ -204,10 +213,12 @@ impl SciScriptExports {
         })
     }
 
+    #[must_use]
     pub fn selectors(&self) -> &[Selector] {
         &self.selectors
     }
 
+    #[must_use]
     pub fn class_defs(&self) -> &[ClassDef] {
         &self.class_defs
     }
