@@ -28,14 +28,14 @@ impl CacheKey {
 mod cache_entry {
     use std::sync::atomic::AtomicUsize;
 
-    pub struct CacheEntry<T> {
+    pub(super) struct CacheEntry<T> {
         data: T,
         cost: usize,
         cache_ref_count: AtomicUsize,
     }
 
     impl<T> CacheEntry<T> {
-        pub fn new(data: T, cost: usize) -> Self {
+        pub(super) fn new(data: T, cost: usize) -> Self {
             CacheEntry {
                 data,
                 cost,
@@ -43,20 +43,20 @@ mod cache_entry {
             }
         }
 
-        pub fn data(&self) -> &T {
+        pub(super) fn data(&self) -> &T {
             &self.data
         }
 
-        pub fn cost(&self) -> usize {
+        pub(super) fn cost(&self) -> usize {
             self.cost
         }
 
-        pub fn increment_ref_count(&self) {
+        pub(super) fn increment_ref_count(&self) {
             self.cache_ref_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
 
-        pub fn decrement_ref_count(&self) -> bool {
+        pub(super) fn decrement_ref_count(&self) -> bool {
             let count = self
                 .cache_ref_count
                 .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -66,13 +66,13 @@ mod cache_entry {
 }
 
 mod config {
-    pub struct StoreConfig<T> {
+    pub(super) struct StoreConfig<T> {
         max_cost: usize,
         cost_eval: Box<dyn super::CacheCostEvaluator<T>>,
     }
 
     impl<T> StoreConfig<T> {
-        pub fn new<E>(max_cost: usize, eval: E) -> Self
+        pub(super) fn new<E>(max_cost: usize, eval: E) -> Self
         where
             E: super::CacheCostEvaluator<T> + Sync + 'static,
         {
@@ -82,11 +82,11 @@ mod config {
             }
         }
 
-        pub fn max_cost(&self) -> usize {
+        pub(super) fn max_cost(&self) -> usize {
             self.max_cost
         }
 
-        pub fn eval_cost(&self, data: &T) -> usize {
+        pub(super) fn eval_cost(&self, data: &T) -> usize {
             self.cost_eval.eval_cost(data)
         }
     }
@@ -97,20 +97,20 @@ mod store_mut {
 
     use super::{CacheEntry, CacheKey, StoreConfig};
 
-    pub struct StoreMut<T> {
+    pub(super) struct StoreMut<T> {
         curr_cost: usize,
         cached_values: HashMap<CacheKey, Arc<super::CacheEntry<T>>>,
     }
 
     impl<T> StoreMut<T> {
-        pub fn new() -> Self {
+        pub(super) fn new() -> Self {
             StoreMut {
                 curr_cost: 0,
                 cached_values: HashMap::new(),
             }
         }
 
-        pub fn allocate(&mut self, config: &StoreConfig<T>, data: T) -> Arc<CacheEntry<T>> {
+        pub(super) fn allocate(&mut self, config: &StoreConfig<T>, data: T) -> Arc<CacheEntry<T>> {
             let cost = config.eval_cost(&data);
             if cost + self.curr_cost > config.max_cost() {
                 self.evict(config, cost);
@@ -123,7 +123,7 @@ mod store_mut {
             entry
         }
 
-        pub fn evict_key(&mut self, key: CacheKey) {
+        pub(super) fn evict_key(&mut self, key: CacheKey) {
             if let Some(entry) = self.cached_values.remove(&key) {
                 self.curr_cost -= entry.cost();
             }
@@ -146,13 +146,13 @@ mod inner {
     use std::sync::{Arc, Mutex};
 
     use super::{CacheCostEvaluator, CacheEntry, StoreConfig, StoreMut};
-    pub struct StoreInner<T> {
+    pub(super) struct StoreInner<T> {
         config: StoreConfig<T>,
         inner: Mutex<StoreMut<T>>,
     }
 
     impl<T> StoreInner<T> {
-        pub fn new<E>(max_size: usize, eval: E) -> Self
+        pub(super) fn new<E>(max_size: usize, eval: E) -> Self
         where
             E: CacheCostEvaluator<T> + Sync + 'static,
         {
@@ -162,12 +162,12 @@ mod inner {
             }
         }
 
-        pub fn allocate(&self, data: T) -> Arc<CacheEntry<T>> {
+        pub(super) fn allocate(&self, data: T) -> Arc<CacheEntry<T>> {
             let mut guard = self.inner.lock().unwrap();
             guard.allocate(&self.config, data)
         }
 
-        pub fn lock(&self) -> std::sync::MutexGuard<'_, StoreMut<T>> {
+        pub(super) fn lock(&self) -> std::sync::MutexGuard<'_, StoreMut<T>> {
             self.inner.lock().unwrap()
         }
     }

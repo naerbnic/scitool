@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// A message identifier.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageId {
+pub(crate) struct MessageId {
     pub room: u16,
     pub noun: u8,
     pub verb: u8,
@@ -13,7 +13,7 @@ pub struct MessageId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
+pub(crate) struct Message {
     pub id: MessageId,
     pub talker: u8,
     pub text: String,
@@ -21,6 +21,6 @@ pub struct Message {
 
 /// The top level structure for a message output file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageFile {
+pub(crate) struct MessageFile {
     pub messages: Vec<Message>,
 }

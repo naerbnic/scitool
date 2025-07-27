@@ -1,1 +1,1 @@
-pub mod msg;
+pub(crate) mod msg;

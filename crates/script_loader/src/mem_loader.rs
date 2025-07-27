@@ -33,7 +33,7 @@ fn read_null_terminated_string_at(buffer: &[u8], offset: usize) -> anyhow::Resul
     Ok(std::str::from_utf8(&buffer[offset..offset + null_pos])?)
 }
 
-pub struct Heap {
+pub(crate) struct Heap {
     #[expect(dead_code)]
     resource_data: MemBlock,
     #[expect(dead_code)]
@@ -44,7 +44,7 @@ pub struct Heap {
 }
 
 impl Heap {
-    pub fn from_block(
+    pub(crate) fn from_block(
         selector_table: &SelectorTable,
         loaded_script: &MemBlock,
         resource_data: MemBlock,
@@ -104,12 +104,12 @@ struct Relocations {
 
 impl Relocations {
     #[expect(dead_code)]
-    pub fn num_relocations(&self) -> usize {
+    pub(crate) fn num_relocations(&self) -> usize {
         self.num_relocations
     }
 }
 
-pub struct Script {
+pub(crate) struct Script {
     #[expect(dead_code)]
     data: MemBlock,
     #[expect(dead_code)]
@@ -119,7 +119,7 @@ pub struct Script {
 }
 
 impl Script {
-    pub fn from_block(data: MemBlock) -> anyhow::Result<Self> {
+    pub(crate) fn from_block(data: MemBlock) -> anyhow::Result<Self> {
         let relocation_offset = {
             let mut reader = BlockReader::new(data.clone());
             reader.read_u16_le()?

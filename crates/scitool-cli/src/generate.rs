@@ -1,6 +1,6 @@
 //! Contains code used to generate outputs from scitool.
 
-pub mod doc;
-pub mod html;
-pub mod json;
-pub mod text;
+pub(crate) mod doc;
+pub(crate) mod html;
+pub(crate) mod json;
+pub(crate) mod text;

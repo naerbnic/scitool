@@ -6,7 +6,7 @@ use crate::{ResourceId, ResourceType};
 
 use super::Resource;
 
-pub fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>> {
+pub(crate) fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>> {
     // Parse the filename to get the resource ID.
 
     // The stem of the file is the resource ID as an integer.

@@ -1,66 +1,66 @@
 use scitool_book::{self as book, Control, FontControl, MessageSegment, MessageText};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TextStyle {
+pub(crate) struct TextStyle {
     bold: bool,
     italic: bool,
 }
 
 impl TextStyle {
-    pub fn of_italic() -> Self {
+    pub(crate) fn of_italic() -> Self {
         let mut style = Self::default();
         style.set_italic(true);
         style
     }
 
-    pub fn of_bold() -> Self {
+    pub(crate) fn of_bold() -> Self {
         let mut style = Self::default();
         style.set_bold(true);
         style
     }
 
-    pub fn bold(&self) -> bool {
+    pub(crate) fn bold(&self) -> bool {
         self.bold
     }
 
-    pub fn italic(&self) -> bool {
+    pub(crate) fn italic(&self) -> bool {
         self.italic
     }
 
-    pub fn set_bold(&mut self, bold: bool) -> &mut Self {
+    pub(crate) fn set_bold(&mut self, bold: bool) -> &mut Self {
         self.bold = bold;
         self
     }
 
-    pub fn set_italic(&mut self, italic: bool) -> &mut Self {
+    pub(crate) fn set_italic(&mut self, italic: bool) -> &mut Self {
         self.italic = italic;
         self
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct TextItem {
+pub(crate) struct TextItem {
     text: String,
     style: TextStyle,
 }
 
 impl TextItem {
-    pub fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
-    pub fn style(&self) -> &TextStyle {
+    pub(crate) fn style(&self) -> &TextStyle {
         &self.style
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct RichText {
+pub(crate) struct RichText {
     items: Vec<TextItem>,
 }
 
 impl RichText {
-    pub fn from_msg_text(text: &MessageText) -> Self {
+    pub(crate) fn from_msg_text(text: &MessageText) -> Self {
         let mut builder = RichText::builder();
         let mut curr_style = TextStyle::default();
         for segment in text.segments() {
@@ -89,11 +89,11 @@ impl RichText {
         builder.build()
     }
 
-    pub fn items(&self) -> &[TextItem] {
+    pub(crate) fn items(&self) -> &[TextItem] {
         &self.items
     }
 
-    pub fn builder() -> RichTextBuilder {
+    pub(crate) fn builder() -> RichTextBuilder {
         RichTextBuilder {
             output: RichText::default(),
         }
@@ -114,23 +114,23 @@ where
     }
 }
 
-pub struct RichTextBuilder {
+pub(crate) struct RichTextBuilder {
     output: RichText,
 }
 
 impl RichTextBuilder {
-    pub fn add_plain_text(&mut self, text: &impl ToString) -> &mut Self {
+    pub(crate) fn add_plain_text(&mut self, text: &impl ToString) -> &mut Self {
         self.add_text(text, &TextStyle::default())
     }
 
-    pub fn add_rich_text(&mut self, text: &RichText) -> &mut Self {
+    pub(crate) fn add_rich_text(&mut self, text: &RichText) -> &mut Self {
         for item in text.items() {
             self.add_text(&item.text(), item.style());
         }
         self
     }
 
-    pub fn add_text(&mut self, text: &impl ToString, curr_style: &TextStyle) -> &mut Self {
+    pub(crate) fn add_text(&mut self, text: &impl ToString, curr_style: &TextStyle) -> &mut Self {
         match self.output.items.last_mut() {
             Some(last) if &last.style == curr_style => {
                 last.text.push_str(text.to_string().as_str());
@@ -145,18 +145,18 @@ impl RichTextBuilder {
         self
     }
 
-    pub fn build(self) -> RichText {
+    pub(crate) fn build(self) -> RichText {
         self.output
     }
 }
 
-pub fn make_room_title(room: &book::Room<'_>) -> RichText {
+pub(crate) fn make_room_title(room: &book::Room<'_>) -> RichText {
     let mut room_title_builder = RichText::builder();
     room_title_builder.add_plain_text(&room.name());
     room_title_builder.build()
 }
 
-pub fn make_conversation_title(conv: &book::Conversation<'_>) -> RichText {
+pub(crate) fn make_conversation_title(conv: &book::Conversation<'_>) -> RichText {
     RichText::from(match (conv.verb(), conv.condition()) {
         (Some(verb), Some(condition)) => format!(
             "On {} ({})",
@@ -178,7 +178,7 @@ pub fn make_conversation_title(conv: &book::Conversation<'_>) -> RichText {
     })
 }
 
-pub fn make_noun_title(noun: &book::Noun<'_>) -> RichText {
+pub(crate) fn make_noun_title(noun: &book::Noun<'_>) -> RichText {
     let mut noun_desc = noun.desc().map_or_else(
         || format!("Noun #{:?}", noun.id().noun_num()),
         ToOwned::to_owned,

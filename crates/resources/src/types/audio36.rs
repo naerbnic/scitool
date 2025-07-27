@@ -25,7 +25,7 @@ struct RawMapEntry {
 }
 
 impl RawMapEntry {
-    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapEntry> {
+    pub(crate) fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapEntry> {
         let noun = reader.read_u8()?;
         let verb = reader.read_u8()?;
         let cond = reader.read_u8()?;
@@ -39,7 +39,7 @@ impl RawMapEntry {
         })
     }
 
-    pub fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
+    pub(crate) fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_u8(self.id.noun())?;
         writer.write_u8(self.id.verb())?;
         writer.write_u8(self.id.condition())?;
@@ -55,13 +55,13 @@ struct RawMapResource {
 }
 
 impl RawMapResource {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         RawMapResource {
             entries: Vec::new(),
         }
     }
 
-    pub fn add_entry(&mut self, id: MessageId, offset: u32) {
+    pub(crate) fn add_entry(&mut self, id: MessageId, offset: u32) {
         // We don't currently support the sync size, so we just set it to 0.
         let sync_size = 0;
         self.entries.push(RawMapEntry {
@@ -72,7 +72,7 @@ impl RawMapResource {
     }
 
     #[expect(dead_code)]
-    pub fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapResource> {
+    pub(crate) fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapResource> {
         let mut entries = Vec::new();
         loop {
             let entry = RawMapEntry::read_from(reader)?;
@@ -84,7 +84,7 @@ impl RawMapResource {
         Ok(RawMapResource { entries })
     }
 
-    pub fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
+    pub(crate) fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
         const TERM_BYTES: &[u8] = &[0xFF; 10];
 
         for entry in &self.entries {
@@ -138,7 +138,7 @@ struct AudioVolumeBuilder {
 }
 
 impl AudioVolumeBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         AudioVolumeBuilder {
             format: None,
             entries: Vec::new(),
@@ -146,7 +146,7 @@ impl AudioVolumeBuilder {
         }
     }
 
-    pub fn add_entry(&mut self, sample: &VoiceSample) -> anyhow::Result<u32> {
+    pub(crate) fn add_entry(&mut self, sample: &VoiceSample) -> anyhow::Result<u32> {
         // Check if the entry is vaild. Variable is copied in case we need to use it to
         // calculate the new file offset.
         let _format = if let Some(format) = self.format {
@@ -219,7 +219,7 @@ impl AudioVolumeBuilder {
         volume_blocks.into_iter().collect()
     }
 
-    pub fn to_raw(&self) -> OutputBlock {
+    pub(crate) fn to_raw(&self) -> OutputBlock {
         match self.format {
             Some(AudioFormat::Mp3) => self.to_raw_of_compressed_format(*b"MP3 "),
             Some(AudioFormat::Flac) => self.to_raw_of_compressed_format(*b"FLAC"),

@@ -70,22 +70,6 @@ where
 }
 
 #[derive(Clone)]
-pub struct BytesInput<S>(S);
-
-impl<S> Input for BytesInput<S>
-where
-    S: AsRef<[u8]> + Clone + Send + Unpin + 'static,
-{
-    async fn create_state(self) -> anyhow::Result<impl InputState> {
-        TcpInputState::new(
-            smol::io::Cursor::new(self.0),
-            std::time::Instant::now() + std::time::Duration::from_secs(5),
-        )
-        .await
-    }
-}
-
-#[derive(Clone)]
 pub struct ReaderInput<R>(R);
 
 impl<R> ReaderInput<R>

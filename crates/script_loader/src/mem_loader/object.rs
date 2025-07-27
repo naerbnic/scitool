@@ -21,7 +21,7 @@ impl FromFixedBytes for MethodRecord {
     }
 }
 
-pub struct ObjectData {
+pub(crate) struct ObjectData {
     selector_table: SelectorTable,
     obj_data: MemBlock,
     var_selectors: MemBlock,
@@ -29,7 +29,7 @@ pub struct ObjectData {
 }
 
 impl ObjectData {
-    pub fn from_block(
+    pub(crate) fn from_block(
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
         obj_data: MemBlock,
@@ -56,20 +56,20 @@ impl ObjectData {
         })
     }
 
-    pub fn get_num_properties(&self) -> usize {
+    pub(crate) fn get_num_properties(&self) -> usize {
         self.var_selectors.len() / 2
     }
 
-    pub fn get_num_fields(&self) -> usize {
+    pub(crate) fn get_num_fields(&self) -> usize {
         self.obj_data.len() / 2
     }
 
-    pub fn get_property_by_name(&self, name: &str) -> Option<u16> {
+    pub(crate) fn get_property_by_name(&self, name: &str) -> Option<u16> {
         let selector_id = self.selector_table.get_selector_by_name(name)?;
         self.get_property_by_id(selector_id.id())
     }
 
-    pub fn get_property_by_id(&self, id: u16) -> Option<u16> {
+    pub(crate) fn get_property_by_id(&self, id: u16) -> Option<u16> {
         let index = self
             .var_selectors
             .clone()
@@ -80,12 +80,12 @@ impl ObjectData {
         Some(self.obj_data.clone().split_values::<u16>().ok()?[index])
     }
 
-    pub fn get_property_at_index(&self, index: usize) -> Option<u16> {
+    pub(crate) fn get_property_at_index(&self, index: usize) -> Option<u16> {
         let properties = self.obj_data.clone().split_values::<u16>().ok()?;
         properties.get(index).copied()
     }
 
-    pub fn get_method_selectors(&self) -> impl Iterator<Item = &Selector> {
+    pub(crate) fn get_method_selectors(&self) -> impl Iterator<Item = &Selector> {
         self.method_records
             .clone()
             .split_values::<MethodRecord>()
@@ -98,7 +98,7 @@ impl ObjectData {
             })
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = (&Selector, u16)> {
+    pub(crate) fn properties(&self) -> impl Iterator<Item = (&Selector, u16)> {
         let var_selector_ids = self.var_selectors.clone().split_values::<u16>().unwrap();
         let fields = self.obj_data.clone().split_values::<u16>().unwrap();
         assert_eq!(var_selector_ids.len(), fields.len());

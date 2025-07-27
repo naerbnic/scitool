@@ -260,14 +260,14 @@ enum MessageCommand {
 
 /// Commands for working with game messages.
 #[derive(Parser)]
-pub struct Messages {
+pub(crate) struct Messages {
     /// The specific message command to execute.
     #[clap(subcommand)]
     msg_cmd: MessageCommand,
 }
 
 impl Messages {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
         match &self.msg_cmd {
             MessageCommand::Export(cmd) => cmd.run()?,
             MessageCommand::Print(cmd) => cmd.run()?,

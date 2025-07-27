@@ -67,28 +67,28 @@ struct ResourceBlocks {
 }
 
 impl ResourceBlocks {
-    pub fn default_block(&self) -> &LazyBlock {
+    pub(crate) fn default_block(&self) -> &LazyBlock {
         self.patch_block
             .as_ref()
             .or(self.data_block.as_ref())
             .expect("Resource block not found")
     }
 
-    pub fn new_of_patch(patch_block: LazyBlock) -> ResourceBlocks {
+    pub(crate) fn new_of_patch(patch_block: LazyBlock) -> ResourceBlocks {
         ResourceBlocks {
             data_block: None,
             patch_block: Some(patch_block),
         }
     }
 
-    pub fn new_of_data(data_block: LazyBlock) -> ResourceBlocks {
+    pub(crate) fn new_of_data(data_block: LazyBlock) -> ResourceBlocks {
         ResourceBlocks {
             data_block: Some(data_block),
             patch_block: None,
         }
     }
 
-    pub fn add_patch(&mut self, patch_block: LazyBlock) {
+    pub(crate) fn add_patch(&mut self, patch_block: LazyBlock) {
         if self.patch_block.is_none() {
             self.patch_block = Some(patch_block);
         } else {

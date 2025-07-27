@@ -7,12 +7,12 @@ enum HuffmanTableEntry<T> {
     Branch(usize, usize),
 }
 
-pub struct HuffmanTable<T> {
+pub(super) struct HuffmanTable<T> {
     entries: Vec<HuffmanTableEntry<T>>,
 }
 
 impl<T> HuffmanTable<T> {
-    pub fn lookup(&self, reader: &mut bitter::LittleEndianReader) -> io::Result<&T> {
+    pub(super) fn lookup(&self, reader: &mut bitter::LittleEndianReader) -> io::Result<&T> {
         let mut pos = 0;
         loop {
             match &self.entries[pos] {
@@ -40,43 +40,44 @@ mod trees {
         HuffmanTableEntry::Leaf(value)
     }
 
-    pub static LENGTH_TREE: LazyLock<HuffmanTable<u8>> = LazyLock::new(|| HuffmanTable {
-        entries: vec![
-            bn(0, 1, 2),
-            bn(1, 3, 4),
-            bn(2, 5, 6),
-            bn(3, 7, 8),
-            bn(4, 9, 10),
-            bn(5, 11, 12),
-            ln(6, 1),
-            bn(7, 13, 14),
-            bn(8, 15, 16),
-            bn(9, 17, 18),
-            ln(10, 3),
-            ln(11, 2),
-            ln(12, 0),
-            bn(13, 19, 20),
-            bn(14, 21, 22),
-            bn(15, 23, 24),
-            ln(16, 6),
-            ln(17, 5),
-            ln(18, 4),
-            bn(19, 25, 26),
-            bn(20, 27, 28),
-            ln(21, 10),
-            ln(22, 9),
-            ln(23, 8),
-            ln(24, 7),
-            bn(25, 29, 30),
-            ln(26, 13),
-            ln(27, 12),
-            ln(28, 11),
-            ln(29, 15),
-            ln(30, 14),
-        ],
-    });
+    pub(in super::super) static LENGTH_TREE: LazyLock<HuffmanTable<u8>> =
+        LazyLock::new(|| HuffmanTable {
+            entries: vec![
+                bn(0, 1, 2),
+                bn(1, 3, 4),
+                bn(2, 5, 6),
+                bn(3, 7, 8),
+                bn(4, 9, 10),
+                bn(5, 11, 12),
+                ln(6, 1),
+                bn(7, 13, 14),
+                bn(8, 15, 16),
+                bn(9, 17, 18),
+                ln(10, 3),
+                ln(11, 2),
+                ln(12, 0),
+                bn(13, 19, 20),
+                bn(14, 21, 22),
+                bn(15, 23, 24),
+                ln(16, 6),
+                ln(17, 5),
+                ln(18, 4),
+                bn(19, 25, 26),
+                bn(20, 27, 28),
+                ln(21, 10),
+                ln(22, 9),
+                ln(23, 8),
+                ln(24, 7),
+                bn(25, 29, 30),
+                ln(26, 13),
+                ln(27, 12),
+                ln(28, 11),
+                ln(29, 15),
+                ln(30, 14),
+            ],
+        });
 
-    pub static DISTANCE_TREE: LazyLock<HuffmanTable<u8>> = LazyLock::new(|| {
+    pub(in super::super) static DISTANCE_TREE: LazyLock<HuffmanTable<u8>> = LazyLock::new(|| {
         HuffmanTable {
             entries: vec![
                 bn(0, 1, 2),
@@ -215,7 +216,7 @@ mod trees {
         }
     });
 
-    pub static ASCII_TREE: LazyLock<HuffmanTable<u8>> = LazyLock::new(|| {
+    pub(in super::super) static ASCII_TREE: LazyLock<HuffmanTable<u8>> = LazyLock::new(|| {
         HuffmanTable {
             entries: vec![
                 bn(0, 1, 2),
@@ -742,4 +743,4 @@ mod trees {
     });
 }
 
-pub use trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
+pub(super) use trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};

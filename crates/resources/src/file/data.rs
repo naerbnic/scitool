@@ -13,7 +13,7 @@ use super::map::ResourceLocation;
 ///
 /// This is based on the SCI1.1 data file format.
 #[derive(Debug)]
-pub struct RawEntryHeader {
+pub(crate) struct RawEntryHeader {
     res_type: u8,
     res_number: u16,
     packed_size: u16,
@@ -45,7 +45,7 @@ impl FromBlockSource for RawEntryHeader {
     }
 }
 
-pub struct RawContents {
+pub(crate) struct RawContents {
     res_type: u8,
     res_number: u16,
     unpacked_size: u16,
@@ -66,16 +66,16 @@ impl std::fmt::Debug for RawContents {
 }
 
 #[derive(Debug, Clone)]
-pub struct Contents {
+pub(crate) struct Contents {
     id: ResourceId,
     data: LazyBlock,
 }
 
 impl Contents {
-    pub fn id(&self) -> &ResourceId {
+    pub(crate) fn id(&self) -> &ResourceId {
         &self.id
     }
-    pub fn data(&self) -> &LazyBlock {
+    pub(crate) fn data(&self) -> &LazyBlock {
         &self.data
     }
 }
@@ -118,16 +118,16 @@ impl TryFrom<RawContents> for Contents {
     }
 }
 
-pub struct DataFile {
+pub(crate) struct DataFile {
     data: BlockSource,
 }
 
 impl DataFile {
-    pub fn new(data: BlockSource) -> DataFile {
+    pub(crate) fn new(data: BlockSource) -> DataFile {
         DataFile { data }
     }
 
-    pub fn read_raw_contents(&self, location: ResourceLocation) -> io::Result<RawContents> {
+    pub(crate) fn read_raw_contents(&self, location: ResourceLocation) -> io::Result<RawContents> {
         let (header, rest) = RawEntryHeader::from_block_source(
             &self.data.subblock(u64::from(location.file_offset)..),
         )?;
@@ -142,7 +142,7 @@ impl DataFile {
         })
     }
 
-    pub fn read_contents(&self, location: ResourceLocation) -> io::Result<Contents> {
+    pub(crate) fn read_contents(&self, location: ResourceLocation) -> io::Result<Contents> {
         let raw_contents = self.read_raw_contents(location)?;
         raw_contents.try_into()
     }

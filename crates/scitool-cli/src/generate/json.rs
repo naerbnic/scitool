@@ -12,7 +12,7 @@ use sci_common as common;
 use scitool_book::{self as book, Book};
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
-pub struct LineId(String);
+pub(crate) struct LineId(String);
 
 impl From<common::LineId> for LineId {
     fn from(line_id: common::LineId) -> Self {
@@ -22,7 +22,7 @@ impl From<common::LineId> for LineId {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
-pub struct ConvId(String);
+pub(crate) struct ConvId(String);
 
 impl From<common::ConversationId> for ConvId {
     fn from(conv_id: common::ConversationId) -> Self {
@@ -32,7 +32,7 @@ impl From<common::ConversationId> for ConvId {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
-pub struct NounId(String);
+pub(crate) struct NounId(String);
 
 impl From<common::NounId> for NounId {
     fn from(noun_id: common::NounId) -> Self {
@@ -42,7 +42,7 @@ impl From<common::NounId> for NounId {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
-pub struct RoomId(String);
+pub(crate) struct RoomId(String);
 
 impl From<common::RoomId> for RoomId {
     fn from(room_id: common::RoomId) -> Self {
@@ -52,7 +52,7 @@ impl From<common::RoomId> for RoomId {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
-pub struct RoleId(String);
+pub(crate) struct RoleId(String);
 
 impl From<book::RoleId> for RoleId {
     fn from(role_id: book::RoleId) -> Self {
@@ -61,19 +61,19 @@ impl From<book::RoleId> for RoleId {
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, JsonSchema)]
-pub struct TextStyle {
+pub(crate) struct TextStyle {
     pub bold: bool,
     pub italic: bool,
 }
 
 impl TextStyle {
-    pub fn is_default(&self) -> bool {
+    pub(crate) fn is_default(&self) -> bool {
         !self.bold && !self.italic
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct TextPiece {
+pub(crate) struct TextPiece {
     pub text: String,
     #[serde(default, skip_serializing_if = "TextStyle::is_default")]
     pub style: TextStyle,
@@ -92,7 +92,7 @@ impl From<&text::TextItem> for TextPiece {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct RichText {
+pub(crate) struct RichText {
     pub items: Vec<TextPiece>,
 }
 
@@ -104,7 +104,7 @@ impl From<text::RichText> for RichText {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct Line {
+pub(crate) struct Line {
     pub id: LineId,
     pub role: RoleId,
     pub text: RichText,
@@ -121,7 +121,7 @@ impl From<book::Line<'_>> for Line {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct Conversation {
+pub(crate) struct Conversation {
     pub noun: NounId,
     pub conv_id: u32,
     pub verb: Option<String>,
@@ -144,7 +144,7 @@ impl From<book::Conversation<'_>> for Conversation {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct Noun {
+pub(crate) struct Noun {
     pub room_id: RoomId,
     pub noun_id: u32,
     pub noun_title: RichText,
@@ -165,7 +165,7 @@ impl From<book::Noun<'_>> for Noun {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct Room {
+pub(crate) struct Room {
     pub room_id: u32,
     pub room_title: RichText,
     pub nouns: Vec<NounId>,
@@ -182,7 +182,7 @@ impl From<book::Room<'_>> for Room {
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct Role {
+pub(crate) struct Role {
     pub name: String,
     pub short_name: String,
 }
@@ -200,7 +200,7 @@ impl From<book::Role<'_>> for Role {
 //
 // - Find conversations by role
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct GameScript {
+pub(crate) struct GameScript {
     roles: BTreeMap<RoleId, Role>,
     rooms: BTreeMap<RoomId, Room>,
     nouns: BTreeMap<NounId, Noun>,
@@ -208,7 +208,7 @@ pub struct GameScript {
 }
 
 impl GameScript {
-    pub fn from_book(book: &Book) -> Self {
+    pub(crate) fn from_book(book: &Book) -> Self {
         Self {
             roles: book
                 .roles()
@@ -229,7 +229,7 @@ impl GameScript {
         }
     }
 
-    pub fn json_schema() -> anyhow::Result<String> {
+    pub(crate) fn json_schema() -> anyhow::Result<String> {
         Ok(serde_json::to_string(&schemars::schema_for!(Self))?)
     }
 }

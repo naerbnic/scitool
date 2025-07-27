@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
-pub struct TryScan {
+pub(crate) struct TryScan {
     #[clap(short = 's')]
     scan_dir: PathBuf,
 }
 
 impl TryScan {
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub(crate) async fn run(&self) -> anyhow::Result<()> {
         let scan = scitool_fan_dub_cli::file::AudioSampleScan::read_from_dir(&self.scan_dir)?;
 
         anyhow::ensure!(

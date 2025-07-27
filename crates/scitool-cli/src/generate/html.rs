@@ -112,7 +112,7 @@ fn generate_section(section: &Section) -> maud::Markup {
     }
 }
 
-pub fn generate_html(doc: &Document) -> String {
+pub(crate) fn generate_html(doc: &Document) -> String {
     maud::html! {
         (maud::DOCTYPE)
         html {

@@ -49,16 +49,16 @@ struct FormatData {
     bit_rate: Option<u64>,
 }
 
-pub struct Probe {
+pub(crate) struct Probe {
     path: PathBuf,
 }
 
 impl Probe {
-    pub fn new(path: PathBuf) -> Self {
+    pub(crate) fn new(path: PathBuf) -> Self {
         Probe { path }
     }
 
-    pub async fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
+    pub(crate) async fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
         let in_state = input.create_state().await?;
         let mut command = smol::process::Command::new(&self.path);
         command

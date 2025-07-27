@@ -25,7 +25,7 @@ enum ScanType {
 }
 
 #[derive(Parser)]
-pub struct CompileAudio {
+pub(crate) struct CompileAudio {
     #[clap(
         short = 't',
         long,
@@ -43,7 +43,7 @@ pub struct CompileAudio {
 }
 
 impl CompileAudio {
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub(crate) async fn run(&self) -> anyhow::Result<()> {
         let system_path = LookupPath::from_env();
         log::info!("System PATH: {:?}", system_path.find_binary("ffmpeg"));
         let ffmpeg_tool = FfmpegTool::from_path(

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use async_net::TcpStream;
 use smol::Task;
 
-pub async fn start_tcp<F, Fut, R>(
+pub(crate) async fn start_tcp<F, Fut, R>(
     timeout: std::time::Instant,
     body: F,
 ) -> anyhow::Result<(SocketAddr, Task<anyhow::Result<R>>)>

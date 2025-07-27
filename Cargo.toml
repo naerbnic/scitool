@@ -6,7 +6,7 @@ members = ["crates/*"]
 single-use-lifetimes = "warn"
 supertrait-item-shadowing-definition = "warn"
 supertrait-item-shadowing-usage = "warn"
-# unreachable-pub = "warn"
+unreachable-pub = "warn"
 
 unsafe-code = "deny"
 let-underscore-drop = "deny"
@@ -28,7 +28,7 @@ dbg-macro = "warn"
 iter-over-hash-type = "warn"
 precedence-bits = "warn"
 # use-debug = "warn"
-# todo = "warn"
+todo = "warn"
 # mod-module-files = "warn"
 
 mixed-read-write-in-expression = "deny"

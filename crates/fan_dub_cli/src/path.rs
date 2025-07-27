@@ -13,14 +13,14 @@ mod plat {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
-    pub fn is_executable(path: &Path) -> bool {
+    pub(crate) fn is_executable(path: &Path) -> bool {
         path.is_file()
             && path
                 .metadata()
                 .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
     }
 
-    pub fn binary_name(path: &Path) -> &OsStr {
+    pub(crate) fn binary_name(path: &Path) -> &OsStr {
         path.file_name()
             .unwrap_or_else(|| panic!("Path {} does not have a file name", path.display(),))
     }

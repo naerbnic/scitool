@@ -7,22 +7,22 @@ fn push_last_mut<T>(vec: &mut Vec<T>, value: T) -> &mut T {
     vec.last_mut().unwrap()
 }
 
-pub struct Document {
+pub(crate) struct Document {
     title: RichText,
     chapters: Vec<Section>,
 }
 
 impl Document {
-    pub fn title(&self) -> &RichText {
+    pub(crate) fn title(&self) -> &RichText {
         &self.title
     }
 
-    pub fn chapters(&self) -> &[Section] {
+    pub(crate) fn chapters(&self) -> &[Section] {
         &self.chapters
     }
 }
 
-pub struct Section {
+pub(crate) struct Section {
     title: RichText,
     id: Option<String>,
     content: Content,
@@ -30,19 +30,19 @@ pub struct Section {
 }
 
 impl Section {
-    pub fn title(&self) -> &RichText {
+    pub(crate) fn title(&self) -> &RichText {
         &self.title
     }
 
-    pub fn id(&self) -> Option<&str> {
+    pub(crate) fn id(&self) -> Option<&str> {
         self.id.as_deref()
     }
 
-    pub fn content(&self) -> &Content {
+    pub(crate) fn content(&self) -> &Content {
         &self.content
     }
 
-    pub fn subsections(&self) -> &[Section] {
+    pub(crate) fn subsections(&self) -> &[Section] {
         &self.subsections
     }
 }
@@ -58,12 +58,12 @@ impl Section {
     }
 }
 
-pub struct List {
+pub(crate) struct List {
     items: Vec<Content>,
 }
 
 impl List {
-    pub fn items(&self) -> &[Content] {
+    pub(crate) fn items(&self) -> &[Content] {
         &self.items
     }
 }
@@ -74,32 +74,32 @@ impl List {
     }
 }
 
-pub struct Line {
+pub(crate) struct Line {
     speaker: RichText,
     id: String,
     text: RichText,
 }
 
 impl Line {
-    pub fn speaker(&self) -> &RichText {
+    pub(crate) fn speaker(&self) -> &RichText {
         &self.speaker
     }
 
-    pub fn text(&self) -> &RichText {
+    pub(crate) fn text(&self) -> &RichText {
         &self.text
     }
 
-    pub fn id(&self) -> &str {
+    pub(crate) fn id(&self) -> &str {
         &self.id
     }
 }
 
-pub struct Dialogue {
+pub(crate) struct Dialogue {
     lines: Vec<Line>,
 }
 
 impl Dialogue {
-    pub fn lines(&self) -> &[Line] {
+    pub(crate) fn lines(&self) -> &[Line] {
         &self.lines
     }
 }
@@ -110,18 +110,18 @@ impl Dialogue {
     }
 }
 
-pub enum ContentItem {
+pub(crate) enum ContentItem {
     Paragraph(RichText),
     List(List),
     Dialogue(Dialogue),
 }
 
-pub struct Content {
+pub(crate) struct Content {
     items: Vec<ContentItem>,
 }
 
 impl Content {
-    pub fn items(&self) -> &[ContentItem] {
+    pub(crate) fn items(&self) -> &[ContentItem] {
         &self.items
     }
 }
@@ -153,12 +153,12 @@ impl Content {
     }
 }
 
-pub struct DocumentBuilder {
+pub(crate) struct DocumentBuilder {
     document: Document,
 }
 
 impl DocumentBuilder {
-    pub fn new(title: impl Into<RichText>) -> Self {
+    pub(crate) fn new(title: impl Into<RichText>) -> Self {
         Self {
             document: Document {
                 title: title.into(),
@@ -167,7 +167,7 @@ impl DocumentBuilder {
         }
     }
 
-    pub fn add_chapter(&mut self, title: impl Into<RichText>) -> SectionBuilder {
+    pub(crate) fn add_chapter(&mut self, title: impl Into<RichText>) -> SectionBuilder {
         SectionBuilder {
             section: push_last_mut(
                 &mut self.document.chapters,
@@ -176,12 +176,12 @@ impl DocumentBuilder {
         }
     }
 
-    pub fn build(self) -> Document {
+    pub(crate) fn build(self) -> Document {
         self.document
     }
 }
 
-pub struct ListBuilder<'a> {
+pub(crate) struct ListBuilder<'a> {
     list: &'a mut Vec<Content>,
 }
 
@@ -194,34 +194,34 @@ impl ListBuilder<'_> {
     }
 }
 
-pub struct SectionBuilder<'a> {
+pub(crate) struct SectionBuilder<'a> {
     section: &'a mut Section,
 }
 
 impl<'a> SectionBuilder<'a> {
-    pub fn set_id(&mut self, id: impl Into<String>) {
+    pub(crate) fn set_id(&mut self, id: impl Into<String>) {
         self.section.id = Some(id.into());
     }
 
-    pub fn add_content(&mut self) -> ContentBuilder {
+    pub(crate) fn add_content(&mut self) -> ContentBuilder {
         ContentBuilder {
             content: &mut self.section.content,
         }
     }
 
-    pub fn into_section_builder(self) -> SubSectionBuilder<'a> {
+    pub(crate) fn into_section_builder(self) -> SubSectionBuilder<'a> {
         SubSectionBuilder {
             section: self.section,
         }
     }
 }
 
-pub struct SubSectionBuilder<'a> {
+pub(crate) struct SubSectionBuilder<'a> {
     section: &'a mut Section,
 }
 
 impl SubSectionBuilder<'_> {
-    pub fn add_subsection(&mut self, title: impl Into<RichText>) -> SectionBuilder {
+    pub(crate) fn add_subsection(&mut self, title: impl Into<RichText>) -> SectionBuilder {
         SectionBuilder {
             section: push_last_mut(
                 &mut self.section.subsections,
@@ -231,35 +231,35 @@ impl SubSectionBuilder<'_> {
     }
 }
 
-pub struct ContentBuilder<'a> {
+pub(crate) struct ContentBuilder<'a> {
     content: &'a mut Content,
 }
 
 impl ContentBuilder<'_> {
-    pub fn add_paragraph(&mut self, text: impl Into<RichText>) {
+    pub(crate) fn add_paragraph(&mut self, text: impl Into<RichText>) {
         self.content.push_paragraph(text.into());
     }
 
     #[expect(dead_code)]
-    pub fn add_list(&mut self) -> ListBuilder {
+    pub(crate) fn add_list(&mut self) -> ListBuilder {
         ListBuilder {
             list: self.content.push_list_mut(),
         }
     }
 
-    pub fn add_dialogue(&mut self) -> DialogueBuilder {
+    pub(crate) fn add_dialogue(&mut self) -> DialogueBuilder {
         DialogueBuilder {
             dialogue: self.content.push_dialogue_mut(),
         }
     }
 }
 
-pub struct DialogueBuilder<'a> {
+pub(crate) struct DialogueBuilder<'a> {
     dialogue: &'a mut Vec<Line>,
 }
 
 impl DialogueBuilder<'_> {
-    pub fn add_line(
+    pub(crate) fn add_line(
         &mut self,
         speaker: impl Into<RichText>,
         line: impl Into<RichText>,

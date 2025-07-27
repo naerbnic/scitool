@@ -20,7 +20,7 @@ struct GenerateHeaders {
 }
 
 impl GenerateHeaders {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
         let exports = sci_header_gen::SciScriptExports::read_from_resources(&self.game_dir)?;
 
         let selectors_file = std::fs::File::create(self.out_dir.join(&self.selectors_path))?;
@@ -54,14 +54,14 @@ impl ScriptCommand {
 
 /// Commands for working with game scripts.
 #[derive(Parser)]
-pub struct Script {
+pub(crate) struct Script {
     /// The specific script command to execute.
     #[clap(subcommand)]
     command: ScriptCommand,
 }
 
 impl Script {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
         self.command.run()
     }
 }
