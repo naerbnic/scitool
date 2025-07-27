@@ -67,7 +67,7 @@ pub struct RichText {
 
 impl RichText {
     #[must_use]
-    pub fn from_msg_text(text: &MessageText) -> Self {
+    pub(crate) fn from_msg_text(text: &MessageText) -> Self {
         let mut builder = RichText::builder();
         let mut curr_style = TextStyle::default();
         for segment in text.segments() {
@@ -106,6 +106,11 @@ impl RichText {
         RichTextBuilder {
             output: RichText::default(),
         }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.items.iter().all(|item| item.text.is_empty())
     }
 }
 

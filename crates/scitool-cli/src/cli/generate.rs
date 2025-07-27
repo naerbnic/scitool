@@ -51,7 +51,7 @@ fn generate_conversation(mut section: SectionBuilder, conversation: &book::Conve
     for line in conversation.lines() {
         dialogue.add_line(
             line.role().short_name(),
-            RichText::from_msg_text(line.text()),
+            line.text().clone(),
             line.id().to_string(),
         );
     }

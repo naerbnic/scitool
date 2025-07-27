@@ -118,7 +118,7 @@ impl From<book::Line<'_>> for Line {
         Self {
             id: line.id().into(),
             role: line.role().id().into(),
-            text: rich_text::RichText::from_msg_text(line.text()).into(),
+            text: line.text().clone().into(),
         }
     }
 }

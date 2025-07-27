@@ -8,6 +8,8 @@ use scidev_common::{
 use scidev_resources::types::msg::{MessageId, MessageRecord};
 use scidev_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
+use crate::{MessageText, rich_text::RichText};
+
 use super::{
     Book,
     config::{self, BookConfig},
@@ -109,8 +111,9 @@ pub(super) struct MessageEntry {
 }
 impl MessageEntry {
     fn build(&self, ctxt: &BookBuilder) -> Result<super::LineEntry, BuildError> {
+        let message_text: MessageText = self.text.parse().map_err(BuildError::from_anyhow)?;
         Ok(super::LineEntry {
-            text: self.text.parse().map_err(BuildError::from_anyhow)?,
+            text: RichText::from_msg_text(&message_text),
             role: ctxt
                 .talkers
                 .get(&self.talker)

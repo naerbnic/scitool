@@ -21,6 +21,8 @@ pub mod rich_text;
 pub use ids::{RoleId, VerbId};
 pub use message_text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
 
+use crate::rich_text::RichText;
+
 // Entries
 //
 // These are the actual data structures that are stored in the book.
@@ -36,7 +38,7 @@ struct ConditionEntry {
 }
 
 struct LineEntry {
-    text: MessageText,
+    text: RichText,
     role: RawRoleId,
 }
 
@@ -88,7 +90,7 @@ impl<'a> Line<'a> {
     }
 
     #[must_use]
-    pub fn text(&self) -> &MessageText {
+    pub fn text(&self) -> &RichText {
         &self.entry.text
     }
 
