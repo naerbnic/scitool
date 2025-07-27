@@ -11,3 +11,6 @@ sci-resources = { path = "../resources" }
 sci-common = { path = "../common" }
 itertools = "0.13.0"
 thiserror = "1.0.63"
+
+[lints]
+workspace = true

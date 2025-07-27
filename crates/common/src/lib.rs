@@ -21,6 +21,7 @@ pub struct IdConversionError {
 pub struct RawNounId(u8);
 
 impl RawNounId {
+    #[must_use]
     pub fn new(value: u8) -> Self {
         RawNounId(value)
     }
@@ -30,10 +31,12 @@ impl RawNounId {
 pub struct RawVerbId(u8);
 
 impl RawVerbId {
+    #[must_use]
     pub fn new(value: u8) -> Self {
         RawVerbId(value)
     }
 
+    #[must_use]
     pub fn as_u8(&self) -> u8 {
         self.0
     }
@@ -43,6 +46,7 @@ impl RawVerbId {
 pub struct RawConditionId(u8);
 
 impl RawConditionId {
+    #[must_use]
     pub fn new(value: u8) -> Self {
         RawConditionId(value)
     }
@@ -52,10 +56,12 @@ impl RawConditionId {
 pub struct RawSequenceId(u8);
 
 impl RawSequenceId {
+    #[must_use]
     pub fn new(value: u8) -> Self {
         RawSequenceId(value)
     }
 
+    #[must_use]
     pub fn as_u8(&self) -> u8 {
         self.0
     }
@@ -65,6 +71,7 @@ impl RawSequenceId {
 pub struct RawRoomId(u16);
 
 impl RawRoomId {
+    #[must_use]
     pub fn new(value: u16) -> Self {
         RawRoomId(value)
     }
@@ -80,14 +87,17 @@ impl From<u16> for RawRoomId {
 pub struct RoomId(RawRoomId);
 
 impl RoomId {
+    #[must_use]
     pub fn from_raw(raw_id: RawRoomId) -> RoomId {
         RoomId(raw_id)
     }
 
+    #[must_use]
     pub fn room_num(&self) -> u16 {
         self.0.0
     }
 
+    #[must_use]
     pub fn raw_id(&self) -> RawRoomId {
         self.0
     }
@@ -126,22 +136,27 @@ impl std::fmt::Debug for RoomId {
 pub struct NounId(RoomId, RawNounId);
 
 impl NounId {
+    #[must_use]
     pub fn from_room_raw(id: RoomId, raw_id: RawNounId) -> NounId {
         NounId(id, raw_id)
     }
 
+    #[must_use]
     pub fn room_id(&self) -> RoomId {
         self.0
     }
 
+    #[must_use]
     pub fn raw_id(&self) -> RawNounId {
         self.1
     }
 
+    #[must_use]
     pub fn room_num(&self) -> u16 {
         self.0.0.0
     }
 
+    #[must_use]
     pub fn noun_num(&self) -> u8 {
         self.1.0
     }
@@ -186,18 +201,22 @@ impl std::fmt::Debug for NounId {
 pub struct ConditionId(RoomId, RawConditionId);
 
 impl ConditionId {
+    #[must_use]
     pub fn from_room_raw(id: RoomId, raw_id: RawConditionId) -> ConditionId {
         ConditionId(id, raw_id)
     }
 
+    #[must_use]
     pub fn room_id(&self) -> RoomId {
         self.0
     }
 
+    #[must_use]
     pub fn raw_id(&self) -> RawConditionId {
         self.1
     }
 
+    #[must_use]
     pub fn condition_num(&self) -> u8 {
         self.1.0
     }
@@ -220,14 +239,17 @@ pub struct ConversationKey {
 }
 
 impl ConversationKey {
+    #[must_use]
     pub fn new(verb: RawVerbId, condition: RawConditionId) -> Self {
         Self { verb, condition }
     }
 
+    #[must_use]
     pub fn verb(&self) -> RawVerbId {
         self.verb
     }
 
+    #[must_use]
     pub fn condition(&self) -> RawConditionId {
         self.condition
     }
@@ -237,30 +259,37 @@ impl ConversationKey {
 pub struct ConversationId(NounId, ConversationKey);
 
 impl ConversationId {
+    #[must_use]
     pub fn from_noun_key(noun_id: NounId, key: ConversationKey) -> Self {
         Self(noun_id, key)
     }
 
+    #[must_use]
     pub fn noun_id(&self) -> NounId {
         self.0
     }
 
+    #[must_use]
     pub fn conversation_key(&self) -> ConversationKey {
         self.1
     }
 
+    #[must_use]
     pub fn room_num(&self) -> u16 {
         self.0.0.0.0
     }
 
+    #[must_use]
     pub fn noun_num(&self) -> u8 {
         self.0.1.0
     }
 
+    #[must_use]
     pub fn verb_num(&self) -> u8 {
         self.1.verb().0
     }
 
+    #[must_use]
     pub fn condition_num(&self) -> u8 {
         self.1.condition().0
     }
@@ -322,10 +351,12 @@ impl std::fmt::Debug for ConversationId {
 pub struct LineId(ConversationId, RawSequenceId);
 
 impl LineId {
+    #[must_use]
     pub fn from_conv_seq(conv_id: ConversationId, seq_id: RawSequenceId) -> Self {
         Self(conv_id, seq_id)
     }
 
+    #[must_use]
     pub fn from_parts(
         room: RawRoomId,
         noun: RawNounId,
@@ -342,30 +373,37 @@ impl LineId {
         )
     }
 
+    #[must_use]
     pub fn conv_id(&self) -> ConversationId {
         self.0
     }
 
+    #[must_use]
     pub fn raw_id(&self) -> RawSequenceId {
         self.1
     }
 
+    #[must_use]
     pub fn room_num(&self) -> u16 {
         self.0.room_num()
     }
 
+    #[must_use]
     pub fn noun_num(&self) -> u8 {
         self.0.noun_num()
     }
 
+    #[must_use]
     pub fn verb_num(&self) -> u8 {
         self.0.verb_num()
     }
 
+    #[must_use]
     pub fn condition_num(&self) -> u8 {
         self.0.condition_num()
     }
 
+    #[must_use]
     pub fn sequence_num(&self) -> u8 {
         self.1.0
     }

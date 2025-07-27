@@ -163,8 +163,8 @@ pub struct RoomMessageSet {
 }
 
 impl RoomMessageSet {
-    pub fn messages(&self) -> impl Iterator<Item = (&MessageId, &MessageRecord)> {
-        self.messages.iter()
+    pub fn messages(&self) -> impl Iterator<Item = (MessageId, &MessageRecord)> {
+        self.messages.iter().map(|(&id, record)| (id, record))
     }
 }
 

@@ -40,12 +40,11 @@ fn parse_control(ctrl: char, value: Option<u32>) -> anyhow::Result<Control> {
     Ok(match ctrl {
         'f' => Control::Font(match value {
             None => FontControl::Default,
-            Some(1) => FontControl::Unknown,
+            Some(1 | 6) => FontControl::Unknown,
             Some(2) => FontControl::Italics,
             Some(3) => FontControl::SuperLarge,
             Some(4) => FontControl::Lowercase,
             Some(5) => FontControl::Title,
-            Some(6) => FontControl::Unknown,
             Some(8) => FontControl::BoldLike,
             Some(n) => anyhow::bail!("Unexpected font control value: {}", n),
         }),
@@ -101,10 +100,12 @@ pub struct MessageText {
 }
 
 impl MessageText {
+    #[must_use]
     pub fn segments(&self) -> &[MessageSegment] {
         &self.segments
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }

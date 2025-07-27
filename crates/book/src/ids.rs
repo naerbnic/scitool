@@ -31,14 +31,17 @@ pub struct RawRoleId(String);
 pub struct VerbId(RawVerbId);
 
 impl VerbId {
+    #[must_use]
     pub fn from_raw(verb: RawVerbId) -> Self {
         VerbId(verb)
     }
 
+    #[must_use]
     pub fn verb_num(&self) -> u8 {
         self.0.as_u8()
     }
 
+    #[must_use]
     pub fn raw_id(&self) -> RawVerbId {
         self.0
     }
@@ -54,13 +57,16 @@ impl std::fmt::Debug for VerbId {
 pub struct RoleId(RawRoleId);
 
 impl RoleId {
+    #[must_use]
     pub fn from_raw(raw_id: RawRoleId) -> RoleId {
         RoleId(raw_id)
     }
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0.0
     }
 
+    #[must_use]
     pub fn raw_id(&self) -> &RawRoleId {
         &self.0
     }
@@ -80,11 +86,11 @@ impl TalkerId {
         TalkerId(talker)
     }
 
-    pub fn talker_num(&self) -> u8 {
+    pub fn talker_num(self) -> u8 {
         self.0.0
     }
 
-    pub fn raw_id(&self) -> RawTalkerId {
+    pub fn raw_id(self) -> RawTalkerId {
         self.0
     }
 }

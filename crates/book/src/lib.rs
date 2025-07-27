@@ -84,14 +84,17 @@ pub struct Line<'a> {
 }
 
 impl<'a> Line<'a> {
+    #[must_use]
     pub fn id(&self) -> LineId {
         LineId::from_conv_seq(self.parent.id(), self.raw_id)
     }
 
+    #[must_use]
     pub fn text(&self) -> &MessageText {
         &self.entry.text
     }
 
+    #[must_use]
     pub fn talker(&self) -> Talker<'a> {
         self.book()
             .get_talker(TalkerId::from_raw(self.entry.talker))
@@ -104,10 +107,12 @@ impl<'a> Line<'a> {
             })
     }
 
+    #[must_use]
     pub fn role(&self) -> Role<'a> {
         self.talker().role()
     }
 
+    #[must_use]
     pub fn conversation(&self) -> Conversation<'a> {
         self.parent.clone()
     }
@@ -125,6 +130,7 @@ pub struct Conversation<'a> {
 }
 
 impl<'a> Conversation<'a> {
+    #[must_use]
     pub fn id(&self) -> ConversationId {
         ConversationId::from_noun_key(self.parent.id(), self.raw_id)
     }
@@ -141,11 +147,13 @@ impl<'a> Conversation<'a> {
     }
 
     /// Get the noun this conversation is part of.
+    #[must_use]
     pub fn noun(&self) -> Noun<'a> {
         self.parent.clone()
     }
 
     /// Get the verb used for this conversation (if it exists).
+    #[must_use]
     pub fn verb(&self) -> Option<Verb<'a>> {
         if self.raw_id.verb() == RawVerbId::new(0) {
             return None;
@@ -164,6 +172,7 @@ impl<'a> Conversation<'a> {
     }
 
     /// Get the condition needed for this conversation (if it exists).
+    #[must_use]
     pub fn condition(&self) -> Option<Condition<'a>> {
         if self.raw_id.condition() == RawConditionId::new(0) {
             return None;
@@ -179,7 +188,7 @@ impl<'a> Conversation<'a> {
     pub fn validate_complete(&self) -> Result<(), ValidationError> {
         let mut validator = MultiValidator::new();
         let mut expected_next = 1;
-        for id in self.entry.lines.keys().map(|id| id.as_u8()) {
+        for id in self.entry.lines.keys().map(RawSequenceId::as_u8) {
             if id != expected_next {
                 validator.with_err(ValidationError::from(
                     format!("Skipped sequence ID {expected_next}, next {id}").to_string(),
@@ -212,16 +221,19 @@ pub struct Condition<'a> {
 }
 
 impl<'a> Condition<'a> {
+    #[must_use]
     pub fn id(&self) -> ConditionId {
         ConditionId::from_room_raw(self.parent.id(), self.raw_id)
     }
 
     /// Get the description of this condition (if specified).
+    #[must_use]
     pub fn desc(&self) -> Option<&str> {
         self.entry.builder.desc()
     }
 
     /// Get the room this condition is part of.
+    #[must_use]
     pub fn room(&self) -> Room<'a> {
         self.parent.clone()
     }
@@ -240,10 +252,12 @@ pub struct Verb<'a> {
 }
 
 impl Verb<'_> {
+    #[must_use]
     pub fn id(&self) -> VerbId {
         VerbId::from_raw(self.raw_id)
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.entry.name
     }
@@ -262,10 +276,12 @@ pub struct Talker<'a> {
 }
 
 impl<'a> Talker<'a> {
+    #[must_use]
     pub fn id(&self) -> TalkerId {
         TalkerId::from_raw(self.raw_id)
     }
 
+    #[must_use]
     pub fn role(&self) -> Role<'a> {
         self.parent
             .get_role(&RoleId::from_raw(self.entry.role_id.clone()))
@@ -286,18 +302,22 @@ pub struct Noun<'a> {
 }
 
 impl<'a> Noun<'a> {
+    #[must_use]
     pub fn id(&self) -> NounId {
         NounId::from_room_raw(self.parent.id(), self.raw_id)
     }
 
+    #[must_use]
     pub fn desc(&self) -> Option<&str> {
         self.entry.desc.as_deref()
     }
 
+    #[must_use]
     pub fn is_cutscene(&self) -> bool {
         self.entry.is_cutscene
     }
 
+    #[must_use]
     pub fn room(&self) -> Room<'a> {
         self.parent.clone()
     }
@@ -337,10 +357,12 @@ pub struct Room<'a> {
 }
 
 impl<'a> Room<'a> {
+    #[must_use]
     pub fn id(&self) -> RoomId {
         RoomId::from_raw(self.raw_id)
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         self.entry.name.as_deref().unwrap_or("*NO NAME*")
     }
@@ -398,16 +420,19 @@ pub struct Role<'a> {
 }
 
 impl Role<'_> {
+    #[must_use]
     pub fn id(&self) -> RoleId {
         RoleId::from_raw(self.raw_id.clone())
     }
 
     /// Get the full name of the role.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.entry.name
     }
 
     /// Get the short name of the role.
+    #[must_use]
     pub fn short_name(&self) -> &str {
         &self.entry.short_name
     }
@@ -428,6 +453,7 @@ pub struct Book {
 
 /// Public methods for the book.
 impl Book {
+    #[must_use]
     pub fn project_name(&self) -> &str {
         &self.project_name
     }
@@ -481,6 +507,7 @@ impl Book {
         self.rooms().flat_map(|room| room.conditions())
     }
 
+    #[must_use]
     pub fn get_talker(&self, id: TalkerId) -> Option<Talker> {
         self.talkers
             .get_key_value(&id.raw_id())
@@ -491,6 +518,7 @@ impl Book {
             })
     }
 
+    #[must_use]
     pub fn get_role(&self, id: &RoleId) -> Option<Role> {
         self.roles
             .get_key_value(id.raw_id())
@@ -501,6 +529,7 @@ impl Book {
             })
     }
 
+    #[must_use]
     pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
         self.verbs
             .get_key_value(&id.raw_id())
@@ -511,6 +540,7 @@ impl Book {
             })
     }
 
+    #[must_use]
     pub fn get_room(&self, id: RoomId) -> Option<Room> {
         self.rooms
             .get_key_value(&id.raw_id())
@@ -521,21 +551,25 @@ impl Book {
             })
     }
 
+    #[must_use]
     pub fn get_condition(&self, id: ConditionId) -> Option<Condition> {
         self.get_room(id.room_id())
             .and_then(|room| room.get_condition_inner(id.raw_id()))
     }
 
+    #[must_use]
     pub fn get_noun(&self, id: NounId) -> Option<Noun> {
         self.get_room(id.room_id())
             .and_then(|room| room.get_noun_inner(id.raw_id()))
     }
 
+    #[must_use]
     pub fn get_conversation(&self, id: ConversationId) -> Option<Conversation> {
         self.get_noun(id.noun_id())
             .and_then(|noun| noun.get_conversation_inner(id.conversation_key()))
     }
 
+    #[must_use]
     pub fn get_line(&self, id: LineId) -> Option<Line> {
         self.get_conversation(id.conv_id())
             .and_then(|conversation| conversation.get_line_inner(id.raw_id()))

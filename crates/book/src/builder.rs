@@ -17,6 +17,7 @@ use super::{
 pub struct BuildError(Box<dyn std::error::Error + Send + Sync>);
 
 impl BuildError {
+    #[must_use]
     pub fn from_anyhow(err: anyhow::Error) -> Self {
         BuildError(err.into())
     }
@@ -37,7 +38,7 @@ impl From<ValidationError> for BuildError {
 pub type BuildResult<T> = Result<T, BuildError>;
 pub type ValidateResult = Result<(), ValidationError>;
 
-/// Convert an iterator of pairs into a BTreeMap,
+/// Convert an iterator of pairs into a `BTreeMap`,
 fn group_pairs<I, K, V>(pairs: I) -> BuildResult<BTreeMap<K, V>>
 where
     I: IntoIterator<Item = (K, V)>,
@@ -67,12 +68,20 @@ where
     group_pairs(resolved)
 }
 
-fn map_values<K, S, T, F>(source: &BTreeMap<K, S>, f: F) -> BuildResult<BTreeMap<K, T>>
+fn map_result_values<K, S, T, F>(source: &BTreeMap<K, S>, f: F) -> BuildResult<BTreeMap<K, T>>
 where
     K: Ord + Clone,
     F: Fn(&S) -> BuildResult<T>,
 {
     source.iter().map(|(k, v)| Ok((k.clone(), f(v)?))).collect()
+}
+
+fn map_values<K, S, T, F>(source: &BTreeMap<K, S>, f: F) -> BTreeMap<K, T>
+where
+    K: Ord + Clone,
+    F: Fn(&S) -> T,
+{
+    source.iter().map(|(k, v)| (k.clone(), f(v))).collect()
 }
 
 fn filter_map_values<K, S, T, F>(source: &BTreeMap<K, S>, body: F) -> BuildResult<BTreeMap<K, T>>
@@ -112,7 +121,7 @@ impl Conversation {
         Self(BTreeMap::new())
     }
 
-    pub fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+    pub fn add_message(&mut self, message: MessageId, record: &MessageRecord) -> BuildResult<()> {
         match self.0.entry(RawSequenceId::new(message.sequence())) {
             btree_map::Entry::Vacant(vac) => {
                 vac.insert(MessageEntry {
@@ -127,7 +136,7 @@ impl Conversation {
 
     fn build(&self, _ctxt: &BookBuilder) -> BuildResult<super::ConversationEntry> {
         Ok(super::ConversationEntry {
-            lines: map_values(&self.0, |v| v.build(self))?,
+            lines: map_result_values(&self.0, |v| v.build(self))?,
         })
     }
 }
@@ -138,16 +147,11 @@ pub(super) struct RoleEntry {
 }
 
 impl RoleEntry {
-    fn validate(&self, _ctxt: &BookBuilder) -> BuildResult<()> {
-        Ok(())
-    }
-
-    fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::RoleEntry> {
-        self.validate(ctxt)?;
-        Ok(super::RoleEntry {
+    fn build(&self) -> super::RoleEntry {
+        super::RoleEntry {
             name: self.name.clone(),
             short_name: self.short_name.clone(),
-        })
+        }
     }
 }
 
@@ -164,10 +168,10 @@ impl TalkerEntry {
         Ok(())
     }
 
-    fn build(&self, _arg: &BookBuilder) -> Result<super::TalkerEntry, BuildError> {
-        Ok(super::TalkerEntry {
+    fn build(&self) -> super::TalkerEntry {
+        super::TalkerEntry {
             role_id: self.role.clone(),
-        })
+        }
     }
 }
 
@@ -177,14 +181,10 @@ pub(super) struct VerbEntry {
 }
 
 impl VerbEntry {
-    fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
-        Ok(())
-    }
-
-    fn build(&self, _arg: &BookBuilder) -> Result<super::VerbEntry, BuildError> {
-        Ok(super::VerbEntry {
+    fn build(&self) -> super::VerbEntry {
+        super::VerbEntry {
             name: self.name.clone(),
-        })
+        }
     }
 }
 
@@ -200,14 +200,10 @@ impl ConditionEntry {
 }
 
 impl ConditionEntry {
-    fn validate(&self, _ctxt: &BookBuilder) -> ValidateResult {
-        Ok(())
-    }
-
-    fn build(&self, _ctxt: &BookBuilder) -> Result<super::ConditionEntry, BuildError> {
-        Ok(super::ConditionEntry {
+    fn build(&self) -> super::ConditionEntry {
+        super::ConditionEntry {
             builder: self.clone(),
-        })
+        }
     }
 }
 
@@ -229,7 +225,7 @@ impl NounEntry {
         }
     }
 
-    fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+    fn add_message(&mut self, message: MessageId, record: &MessageRecord) -> BuildResult<()> {
         let key = ConversationKey::new(
             RawVerbId::new(message.verb()),
             RawConditionId::new(message.condition()),
@@ -269,7 +265,7 @@ impl NounEntry {
         Ok(super::NounEntry {
             desc: self.desc.clone(),
             is_cutscene: self.is_cutscene,
-            conversations: map_values(&self.conversation_set, |v| v.build(ctxt))?,
+            conversations: map_result_values(&self.conversation_set, |v| v.build(ctxt))?,
         })
     }
 }
@@ -285,11 +281,6 @@ pub(super) struct RoomEntry {
 impl RoomEntry {
     fn validate(&self, ctxt: &BookBuilder) -> ValidateResult {
         MultiValidator::new()
-            .validate_ctxt("conditions", || {
-                self.conditions
-                    .iter()
-                    .validate_all_values(|e| e.validate(ctxt))
-            })
             .validate_ctxt("nouns", || {
                 self.nouns.iter().validate_all_values(|e| e.validate(ctxt))
             })
@@ -300,13 +291,9 @@ impl RoomEntry {
     fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::RoomEntry> {
         Ok(super::RoomEntry {
             name: self.name.clone(),
-            conditions: map_values(&self.conditions, |v| v.build(ctxt))?,
+            conditions: map_values(&self.conditions, ConditionEntry::build),
             nouns: filter_map_values(&self.nouns, |v| {
-                Ok(if !v.hidden {
-                    Some(v.build(ctxt)?)
-                } else {
-                    None
-                })
+                Ok(if v.hidden { None } else { Some(v.build(ctxt)?) })
             })?,
         })
     }
@@ -334,7 +321,7 @@ impl RoomEntry {
         })
     }
 
-    fn add_message(&mut self, message: &MessageId, record: &MessageRecord) -> BuildResult<()> {
+    fn add_message(&mut self, message: MessageId, record: &MessageRecord) -> BuildResult<()> {
         let condition_id = RawConditionId::new(message.condition());
         if let btree_map::Entry::Vacant(vac) = self.conditions.entry(condition_id) {
             vac.insert(ConditionEntry { desc: None });
@@ -393,7 +380,7 @@ impl BookBuilder {
     pub fn add_message(
         &mut self,
         room: u16,
-        message: &MessageId,
+        message: MessageId,
         record: &MessageRecord,
     ) -> BuildResult<&mut Self> {
         self.rooms
@@ -407,14 +394,14 @@ impl BookBuilder {
         self.validate()?;
         Ok(Book {
             project_name: self.project_name.clone(),
-            roles: map_values(&self.roles, |v| v.build(&self))?,
-            talkers: map_values(&self.talkers, |v| v.build(&self))?,
-            verbs: map_values(&self.verbs, |v| v.build(&self))?,
+            roles: map_values(&self.roles, RoleEntry::build),
+            talkers: map_values(&self.talkers, TalkerEntry::build),
+            verbs: map_values(&self.verbs, VerbEntry::build),
             rooms: filter_map_values(&self.rooms, |v| {
-                Ok(if !v.hidden {
-                    Some(v.build(&self)?)
-                } else {
+                Ok(if v.hidden {
                     None
+                } else {
+                    Some(v.build(&self)?)
                 })
             })?,
         })
@@ -425,16 +412,10 @@ impl BookBuilder {
 impl BookBuilder {
     fn validate(&self) -> ValidateResult {
         MultiValidator::new()
-            .validate_ctxt("roles", || {
-                self.roles.iter().validate_all_values(|e| e.validate(self))
-            })
             .validate_ctxt("talkers", || {
                 self.talkers
                     .iter()
                     .validate_all_values(|e| e.validate(self))
-            })
-            .validate_ctxt("verbs", || {
-                self.verbs.iter().validate_all_values(|e| e.validate(self))
             })
             .validate_ctxt("rooms", || {
                 self.rooms.iter().validate_all_values(|e| e.validate(self))
