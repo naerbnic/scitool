@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, btree_map};
 
 use itertools::Itertools;
 
-use scidev_common::{ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
+use scidev_common::{
+    ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId,
+};
 use scidev_resources::types::msg::{MessageId, MessageRecord};
 use scidev_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
@@ -76,10 +78,11 @@ where
     source.iter().map(|(k, v)| Ok((k.clone(), f(v)?))).collect()
 }
 
-fn map_values<K, S, T, F>(source: &BTreeMap<K, S>, f: F) -> BTreeMap<K, T>
+fn map_values<'map, K, S, T, F>(source: &'map BTreeMap<K, S>, f: F) -> BTreeMap<K, T>
 where
     K: Ord + Clone,
     F: Fn(&S) -> T,
+    T: 'map,
 {
     source.iter().map(|(k, v)| (k.clone(), f(v))).collect()
 }
@@ -105,10 +108,17 @@ pub(super) struct MessageEntry {
     text: String,
 }
 impl MessageEntry {
-    fn build(&self, _ctxt: &Conversation) -> Result<super::LineEntry, BuildError> {
+    fn build(&self, ctxt: &BookBuilder) -> Result<super::LineEntry, BuildError> {
         Ok(super::LineEntry {
             text: self.text.parse().map_err(BuildError::from_anyhow)?,
-            talker: self.talker,
+            role: ctxt
+                .talkers
+                .get(&self.talker)
+                .ok_or_else(|| {
+                    BuildError::from_anyhow(anyhow::anyhow!("Unknown talker: {:?}", self.talker))
+                })?
+                .role
+                .clone(),
         })
     }
 }
@@ -138,9 +148,9 @@ impl Conversation {
         }
     }
 
-    fn build(&self, _ctxt: &BookBuilder) -> BuildResult<super::ConversationEntry> {
+    fn build(&self, ctxt: &BookBuilder) -> BuildResult<super::ConversationEntry> {
         Ok(super::ConversationEntry {
-            lines: map_result_values(&self.0, |v| v.build(self))?,
+            lines: map_result_values(&self.0, |v| v.build(ctxt))?,
         })
     }
 }
@@ -170,12 +180,6 @@ impl TalkerEntry {
             return Err(format!("Talker references unknown role: {:?}", self.role).into());
         }
         Ok(())
-    }
-
-    fn build(&self) -> super::TalkerEntry {
-        super::TalkerEntry {
-            role_id: self.role.clone(),
-        }
     }
 }
 
@@ -399,7 +403,6 @@ impl BookBuilder {
         Ok(Book {
             project_name: self.project_name.clone(),
             roles: map_values(&self.roles, RoleEntry::build),
-            talkers: map_values(&self.talkers, TalkerEntry::build),
             verbs: map_values(&self.verbs, VerbEntry::build),
             rooms: filter_map_values(&self.rooms, |v| {
                 Ok(if v.hidden {

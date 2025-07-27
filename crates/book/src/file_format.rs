@@ -8,8 +8,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::Book;
-
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(transparent)]
 struct RoleIndex(usize);
@@ -136,4 +134,3 @@ struct RichStyle {
     italic: bool,
     underline: bool,
 }
-

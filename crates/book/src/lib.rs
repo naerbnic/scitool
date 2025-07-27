@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use ids::{RawRoleId, RawTalkerId, TalkerId};
+use ids::RawRoleId;
 
 use scidev_common::{
     ConditionId, ConversationId, ConversationKey, LineId, NounId, RawConditionId, RawNounId,
@@ -13,9 +13,9 @@ use scidev_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
 pub mod config;
+pub mod file_format;
 mod ids;
 mod text;
-pub mod file_format;
 
 pub use ids::{RoleId, VerbId};
 pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
@@ -36,7 +36,7 @@ struct ConditionEntry {
 
 struct LineEntry {
     text: MessageText,
-    talker: RawTalkerId,
+    role: RawRoleId,
 }
 
 struct ConversationEntry {
@@ -58,10 +58,6 @@ struct RoomEntry {
 struct RoleEntry {
     name: String,
     short_name: String,
-}
-
-struct TalkerEntry {
-    role_id: RawRoleId,
 }
 
 struct VerbEntry {
@@ -96,21 +92,16 @@ impl<'a> Line<'a> {
     }
 
     #[must_use]
-    pub fn talker(&self) -> Talker<'a> {
+    pub fn role(&self) -> Role<'a> {
         self.book()
-            .get_talker(TalkerId::from_raw(self.entry.talker))
+            .get_role(&RoleId::from_raw(self.entry.role.clone()))
             .unwrap_or_else(|| {
                 panic!(
-                    "Talker not found: {:?} in line: {:?}",
-                    self.entry.talker,
+                    "Role not found: {:?} in line: {:?}",
+                    self.entry.role,
                     self.id()
                 )
             })
-    }
-
-    #[must_use]
-    pub fn role(&self) -> Role<'a> {
-        self.talker().role()
     }
 
     #[must_use]
@@ -261,32 +252,6 @@ impl Verb<'_> {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.entry.name
-    }
-
-    #[expect(dead_code)]
-    fn book(&self) -> &Book {
-        self.parent
-    }
-}
-
-#[derive(Clone)]
-pub struct Talker<'a> {
-    parent: &'a Book,
-    raw_id: RawTalkerId,
-    entry: &'a TalkerEntry,
-}
-
-impl<'a> Talker<'a> {
-    #[must_use]
-    pub fn id(&self) -> TalkerId {
-        TalkerId::from_raw(self.raw_id)
-    }
-
-    #[must_use]
-    pub fn role(&self) -> Role<'a> {
-        self.parent
-            .get_role(&RoleId::from_raw(self.entry.role_id.clone()))
-            .unwrap()
     }
 
     #[expect(dead_code)]
@@ -447,7 +412,6 @@ impl Role<'_> {
 pub struct Book {
     project_name: String,
     roles: BTreeMap<RawRoleId, RoleEntry>,
-    talkers: BTreeMap<RawTalkerId, TalkerEntry>,
     verbs: BTreeMap<RawVerbId, VerbEntry>,
     rooms: BTreeMap<RawRoomId, RoomEntry>,
 }
@@ -483,14 +447,6 @@ impl Book {
         })
     }
 
-    pub fn talkers(&self) -> impl Iterator<Item = Talker> {
-        self.talkers.iter().map(|(k, v)| Talker {
-            parent: self,
-            raw_id: *k,
-            entry: v,
-        })
-    }
-
     pub fn nouns(&self) -> impl Iterator<Item = Noun> {
         self.rooms().flat_map(|room| room.nouns())
     }
@@ -506,17 +462,6 @@ impl Book {
 
     pub fn conditions(&self) -> impl Iterator<Item = Condition> + '_ {
         self.rooms().flat_map(|room| room.conditions())
-    }
-
-    #[must_use]
-    pub fn get_talker(&self, id: TalkerId) -> Option<Talker> {
-        self.talkers
-            .get_key_value(&id.raw_id())
-            .map(|(&raw_id, entry)| Talker {
-                parent: self,
-                raw_id,
-                entry,
-            })
     }
 
     #[must_use]
