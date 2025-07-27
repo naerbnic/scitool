@@ -4,8 +4,6 @@ members = ["crates/*"]
 
 [workspace.lints.rust]
 single-use-lifetimes = "warn"
-supertrait-item-shadowing-definition = "warn"
-supertrait-item-shadowing-usage = "warn"
 unreachable-pub = "warn"
 
 unsafe-code = "deny"

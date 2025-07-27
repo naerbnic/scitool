@@ -174,8 +174,4 @@ impl Buffer for BlockSource {
         let block = self.subblock(start..end).open()?;
         Ok(block)
     }
-
-    fn read_value<T: crate::buffer::FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
-        todo!()
-    }
 }
