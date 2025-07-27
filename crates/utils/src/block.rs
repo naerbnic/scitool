@@ -3,7 +3,6 @@
 mod block_reader;
 mod block_source;
 pub mod cache_store;
-mod core;
 mod error;
 mod lazy_block;
 mod mem_block;
