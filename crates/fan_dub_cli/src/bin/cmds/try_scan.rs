@@ -17,7 +17,7 @@ impl TryScan {
             "Duplicate files found in scan directory",
         );
 
-        eprintln!("Scan directory: {:?}", scan.base_path());
+        eprintln!("Scan directory: {}", scan.base_path().display());
         for (line_id, sample) in scan.get_valid_entries() {
             eprintln!("{line_id}: {sample:?}");
         }

@@ -7,6 +7,7 @@ pub struct Tool {
 }
 
 impl Tool {
+    #[must_use]
     pub fn from_path(path: PathBuf) -> Self {
         Tool { binary_path: path }
     }

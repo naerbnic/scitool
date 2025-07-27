@@ -148,7 +148,9 @@ impl SampleDir {
             );
 
             let clip = AudioClip {
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 start_us: Some((entry.start() * 1_000_000.0) as u64),
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 end_us: entry.end().map(|end| (end * 1_000_000.0) as u64),
                 path: entry.path().to_path_buf(),
             };
@@ -215,7 +217,7 @@ impl SampleDir {
                     file_name.push(".");
                     file_name.push(ext);
                 }
-                let mut new_path = current_path.to_path_buf();
+                let mut new_path = current_path.clone();
                 new_path.set_file_name(file_name);
                 let source_path = self.base_path.join(current_path);
                 let target_path = path.join(new_path);

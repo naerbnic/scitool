@@ -42,6 +42,7 @@ impl OggVorbisOutputOptions {
         }
     }
 
+    #[must_use]
     pub fn get_options(&self) -> AVOptions {
         let mut options = HashMap::new();
         options.insert("q".into(), self.quality.to_string());
@@ -65,6 +66,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    #[must_use]
     pub fn format_name(&self) -> &'static str {
         match self {
             OutputFormat::Flac(_) => "flac",
@@ -72,6 +74,7 @@ impl OutputFormat {
             OutputFormat::Ogg(_) => "ogg",
         }
     }
+    #[must_use]
     pub fn get_options(&self) -> AVOptions {
         match self {
             OutputFormat::Flac(opts) => opts.get_options(),

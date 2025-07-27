@@ -15,7 +15,7 @@ struct SimpleOutputState(OsString);
 impl OutputState for SimpleOutputState {
     type OutputType = ();
     fn url(&self) -> OsString {
-        self.0.to_os_string()
+        self.0.clone()
     }
     async fn wait(self) -> anyhow::Result<()> {
         Ok(())

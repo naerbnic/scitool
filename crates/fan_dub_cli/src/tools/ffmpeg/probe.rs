@@ -67,7 +67,7 @@ impl Probe {
             .args(["-v", "error"])
             .args(["-show_entries", "format"])
             .args(["-of", "json"]);
-        let (output, _) = futures::try_join!(
+        let (output, ()) = futures::try_join!(
             command.output().map_err(anyhow::Error::from),
             in_state.wait()
         )?;

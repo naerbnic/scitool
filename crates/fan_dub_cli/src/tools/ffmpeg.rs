@@ -28,11 +28,11 @@ pub trait ProgressListener {
 pub struct NullProgressListener;
 
 impl ProgressListener for NullProgressListener {
-    fn on_progress(&mut self, complete_ratio: f32, _progress_info: Vec<(String, String)>) {
+    fn on_progress(&mut self, complete_ratio: f32, progress_info: Vec<(String, String)>) {
         eprintln!(
             "Progress {:.02}: {:?}",
             (complete_ratio * 100.0),
-            _progress_info
+            progress_info
         );
     }
 }
@@ -43,6 +43,7 @@ pub struct FfmpegTool {
 }
 
 impl FfmpegTool {
+    #[must_use]
     pub fn from_path(ffmpeg_path: std::path::PathBuf, ffprobe_path: std::path::PathBuf) -> Self {
         FfmpegTool {
             ffmpeg_path,
@@ -82,7 +83,7 @@ impl FfmpegTool {
             .stderr(std::process::Stdio::null())
             .spawn()?;
         let stdout = smol::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
-        let (status, output, _, _) = futures::join!(
+        let (status, output, _, ()) = futures::join!(
             child.status(),
             output_state.wait(),
             input_state.wait(),
@@ -94,7 +95,9 @@ impl FfmpegTool {
                     let line = line.unwrap();
                     if let Some((key, value)) = split_key_value_line(&line) {
                         if key == "progress" {
+                            #[expect(clippy::cast_precision_loss)]
                             let complete_ratio = (curr_out_time as f64 / 1_000_000.0) / duration;
+                            #[expect(clippy::cast_possible_truncation)]
                             progress.on_progress(complete_ratio as f32, progress_info);
                             if value.trim() == "end" {
                                 progress.on_done();

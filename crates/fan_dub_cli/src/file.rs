@@ -69,6 +69,7 @@ impl AudioSampleScan {
         })
     }
 
+    #[must_use]
     pub fn base_path(&self) -> &Path {
         &self.base_path
     }
@@ -77,6 +78,7 @@ impl AudioSampleScan {
         self.entries.iter()
     }
 
+    #[must_use]
     pub fn has_duplicates(&self) -> bool {
         self.line_id_map
             .iter()
@@ -118,14 +120,17 @@ pub struct AudioSample<'a> {
 }
 
 impl AudioSample<'_> {
+    #[must_use]
     pub fn start(&self) -> f32 {
         self.start
     }
 
+    #[must_use]
     pub fn end(&self) -> Option<f32> {
         self.end
     }
 
+    #[must_use]
     pub fn path(&self) -> &Path {
         self.path
     }
@@ -137,12 +142,14 @@ pub enum AudioSampleEntry {
 }
 
 impl AudioSampleEntry {
+    #[must_use]
     pub fn line_ids(&self) -> Vec<LineId> {
         match self {
             AudioSampleEntry::PlainFile { line_id, .. } => vec![*line_id],
         }
     }
 
+    #[must_use]
     pub fn get_sample(&self, line_id: LineId) -> Option<AudioSample> {
         match self {
             AudioSampleEntry::PlainFile { line_id: id, path } => {

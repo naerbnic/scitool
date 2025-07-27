@@ -2,10 +2,10 @@ use std::{ffi::OsString, net::SocketAddr, path::Path};
 
 use super::tcp;
 
-/// A trait that maintains state for an FFMpeg input.
+/// A trait that maintains state for an `FFMpeg` input.
 ///
 /// Returns the URL of the input. This object should be alive during the
-/// lifetime of the FFMpeg process.
+/// lifetime of the `FFMpeg` process.
 pub trait InputState {
     fn url(&self) -> OsString;
     fn wait(self) -> impl Future<Output = anyhow::Result<()>>;
@@ -15,7 +15,7 @@ struct SimpleInputState(OsString);
 
 impl InputState for SimpleInputState {
     fn url(&self) -> OsString {
-        self.0.to_os_string()
+        self.0.clone()
     }
     async fn wait(self) -> anyhow::Result<()> {
         Ok(())

@@ -22,7 +22,7 @@ mod plat {
 
     pub fn binary_name(path: &Path) -> &OsStr {
         path.file_name()
-            .unwrap_or_else(|| panic!("Path {path:?} does not have a file name"))
+            .unwrap_or_else(|| panic!("Path {} does not have a file name", path.display(),))
     }
 }
 
@@ -59,12 +59,14 @@ pub struct LookupPath {
 }
 
 impl LookupPath {
+    #[must_use]
     pub fn empty() -> Self {
         LookupPath {
             path_entries: HashMap::new(),
         }
     }
 
+    #[must_use]
     pub fn from_env() -> Self {
         let Ok(path) = std::env::var("PATH") else {
             return LookupPath::empty();
@@ -102,9 +104,7 @@ impl LookupPath {
     }
 
     pub fn find_binary(&self, name: impl AsRef<OsStr>) -> Option<&Path> {
-        self.path_entries
-            .get(name.as_ref())
-            .map(|path| path.as_path())
+        self.path_entries.get(name.as_ref()).map(PathBuf::as_path)
     }
 
     pub fn has_binary(&self, name: &impl AsRef<OsStr>) -> bool {
