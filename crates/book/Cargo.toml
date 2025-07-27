@@ -11,6 +11,7 @@ scidev-resources = { path = "../resources" }
 scidev-common = { path = "../common" }
 itertools = "0.13.0"
 thiserror = "1.0.63"
+schemars = "1.0.4"
 
 [lints]
 workspace = true

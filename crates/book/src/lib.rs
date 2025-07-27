@@ -15,6 +15,7 @@ pub mod builder;
 pub mod config;
 mod ids;
 mod text;
+pub mod file_format;
 
 pub use ids::{RoleId, VerbId};
 pub use text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
