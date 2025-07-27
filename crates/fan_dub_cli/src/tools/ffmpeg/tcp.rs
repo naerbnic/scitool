@@ -14,7 +14,7 @@ where
 {
     let listener = smol::net::TcpListener::bind("127.0.0.1:0").await?;
     let local_addr = listener.local_addr()?;
-    log::debug!("Listening on {}", local_addr);
+    log::debug!("Listening on {local_addr}");
 
     let timer = smol::Timer::at(timeout);
 

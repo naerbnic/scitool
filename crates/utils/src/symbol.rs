@@ -459,18 +459,13 @@ mod tests {
     #[test]
     fn test_symbol_debug_format() {
         let sym = Symbol::with_name("test_symbol");
-        let debug_str = format!("{:?}", sym);
+        let debug_str = format!("{sym:?}");
         assert!(debug_str.contains("test_symbol"));
         assert!(
             debug_str.starts_with("[#"),
-            "Expected \"[#\", got {:?}",
-            debug_str
+            "Expected \"[#\", got {debug_str:?}"
         );
-        assert!(
-            debug_str.ends_with("]"),
-            "Expected \"], got {:?}",
-            debug_str
-        );
+        assert!(debug_str.ends_with("]"), "Expected \"], got {debug_str:?}");
     }
 
     #[test]
@@ -520,7 +515,7 @@ mod tests {
     fn test_weak_symbol_debug_format() {
         let sym = Symbol::with_name("test_symbol");
         let weak_sym = sym.downgrade();
-        let debug_str = format!("{:?}", weak_sym);
+        let debug_str = format!("{weak_sym:?}");
         assert!(debug_str.contains("test_symbol"));
         assert!(debug_str.starts_with("[Weak: #"));
         assert!(debug_str.ends_with("]"));

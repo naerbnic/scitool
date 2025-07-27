@@ -19,7 +19,7 @@ impl TryScan {
 
         eprintln!("Scan directory: {:?}", scan.base_path());
         for (line_id, sample) in scan.get_valid_entries() {
-            eprintln!("{}: {:?}", line_id, sample);
+            eprintln!("{line_id}: {sample:?}");
         }
         Ok(())
     }

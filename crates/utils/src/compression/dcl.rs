@@ -20,7 +20,7 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
     };
 
     if mode != 0 && mode != 1 {
-        return Err(io::Error::other(format!("Unsupported DCL mode: {}", mode)));
+        return Err(io::Error::other(format!("Unsupported DCL mode: {mode}")));
     }
 
     let dict_size = match dict_type {
@@ -29,8 +29,7 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
         6 => 4096,
         _ => {
             return Err(io::Error::other(format!(
-                "Unsupported DCL dictionary type: {}",
-                dict_type
+                "Unsupported DCL dictionary type: {dict_type}"
             )));
         }
     };

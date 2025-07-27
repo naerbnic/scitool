@@ -182,7 +182,7 @@ impl<'a> Conversation<'a> {
         for id in self.entry.lines.keys().map(|id| id.as_u8()) {
             if id != expected_next {
                 validator.with_err(ValidationError::from(
-                    format!("Skipped sequence ID {}, next {}", expected_next, id).to_string(),
+                    format!("Skipped sequence ID {expected_next}, next {id}").to_string(),
                 ));
             }
             expected_next = id + 1;

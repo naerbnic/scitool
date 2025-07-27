@@ -58,8 +58,7 @@ impl ResourceType {
             "hep" => Ok(ResourceType::Heap),
             "trn" => Ok(ResourceType::Translation),
             _ => Err(ConversionError(format!(
-                "Invalid file extension for resource type: {}",
-                ext
+                "Invalid file extension for resource type: {ext}"
             ))),
         }
     }
@@ -118,8 +117,7 @@ impl TryFrom<u8> for ResourceType {
             0x94 => Ok(ResourceType::Translation),
             0x95 => Ok(ResourceType::Rave),
             _ => Err(ConversionError(format!(
-                "Invalid resource type: 0x{:02X}",
-                value
+                "Invalid resource type: 0x{value:02X}"
             ))),
         }
     }

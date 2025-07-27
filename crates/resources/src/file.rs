@@ -150,7 +150,7 @@ impl ResourceSet {
                 btree_map::Entry::Occupied(_) => {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        format!("Duplicate resource ID: {:?}", id),
+                        format!("Duplicate resource ID: {id:?}"),
                     ));
                 }
             }

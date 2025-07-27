@@ -28,7 +28,7 @@ impl ListResources {
                     continue;
                 }
             }
-            println!("{:?}", id);
+            println!("{id:?}");
         }
         Ok(())
     }

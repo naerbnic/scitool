@@ -243,7 +243,7 @@ impl SciScriptExports {
 
             writeln!(out, "\t(methods")?;
             for method in class.methods() {
-                writeln!(out, "\t\t{}", method)?;
+                writeln!(out, "\t\t{method}")?;
             }
             writeln!(out, "\t)")?;
             writeln!(out, ")\n\n")?;

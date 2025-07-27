@@ -46,9 +46,9 @@ where
     let mut map = BTreeMap::new();
     let mut dup_keys = Vec::new();
     for (key, value) in pairs {
-        let key_fmt = format!("{:?}", key);
+        let key_fmt = format!("{key:?}");
         if map.insert(key, value).is_some() {
-            dup_keys.push(format!("{:?}", key_fmt));
+            dup_keys.push(format!("{key_fmt:?}"));
         }
     }
     if dup_keys.is_empty() {
@@ -249,8 +249,7 @@ impl NounEntry {
                     if key.verb() != RawVerbId::new(0) || key.condition() != RawConditionId::new(0)
                     {
                         validator.with_err(ValidationError::from(format!(
-                            "Cutscene noun must have exactly one conversation with verb 0 and condition 0. Found: {:?}",
-                            key
+                            "Cutscene noun must have exactly one conversation with verb 0 and condition 0. Found: {key:?}"
                         )));
                     }
                 }

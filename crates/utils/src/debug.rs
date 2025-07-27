@@ -5,18 +5,15 @@ fn write_dump_header<W: std::io::Write>(mut out: W, padding_spaces: usize) -> st
     let offset_padding = " ".repeat(padding_spaces);
     writeln!(
         out,
-        "{}  -----------------------------------------------",
-        offset_padding
+        "{offset_padding}  -----------------------------------------------"
     )?;
     writeln!(
         out,
-        "{}  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F",
-        offset_padding
+        "{offset_padding}  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F"
     )?;
     writeln!(
         out,
-        "{}  -----------------------------------------------",
-        offset_padding
+        "{offset_padding}  -----------------------------------------------"
     )?;
     Ok(())
 }
@@ -40,7 +37,7 @@ fn write_dump_line<W: std::io::Write>(
     let empty_hex_suffix = "   ".repeat(16 - line_end);
     let line_hex = data[..line_length]
         .iter()
-        .map(|b| format!("{:02X} ", b))
+        .map(|b| format!("{b:02X} "))
         .collect::<Vec<_>>()
         .join("");
     let empty_ascii_prefix = " ".repeat(line_start);
@@ -56,18 +53,11 @@ fn write_dump_line<W: std::io::Write>(
         })
         .collect::<String>();
 
-    let offset_text = format!("{:0offset_width$X}", offset, offset_width = offset_width);
+    let offset_text = format!("{offset:0offset_width$X}");
 
     writeln!(
         out,
-        "{}: {}{}{} {}{}{}",
-        offset_text,
-        empty_hex_prefix,
-        line_hex,
-        empty_hex_suffix,
-        empty_ascii_prefix,
-        line_ascii,
-        empty_ascii_suffix
+        "{offset_text}: {empty_hex_prefix}{line_hex}{empty_hex_suffix} {empty_ascii_prefix}{line_ascii}{empty_ascii_suffix}"
     )?;
     Ok((offset + line_length, &data[line_length..]))
 }
@@ -101,7 +91,7 @@ pub fn hex_dump_to<W: std::io::Write>(
 
     let num_visible_bits = (max_offset.next_power_of_two() - 1).trailing_ones();
 
-    let num_offset_hex_chars = ((num_visible_bits + 3) / 4) as usize;
+    let num_offset_hex_chars = num_visible_bits.div_ceil(4) as usize;
 
     let mut remaining_data = data;
     let mut curr_offset = 0;

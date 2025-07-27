@@ -106,7 +106,7 @@ impl FromStr for RoomId {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() != 2 || parts[0] != "room" {
             return Err(IdConversionError {
-                message: format!("Invalid room ID format: {}", s),
+                message: format!("Invalid room ID format: {s}"),
             });
         }
         let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
@@ -160,7 +160,7 @@ impl FromStr for NounId {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() != 3 || parts[0] != "noun" {
             return Err(IdConversionError {
-                message: format!("Invalid noun ID format: {}", s),
+                message: format!("Invalid noun ID format: {s}"),
             });
         }
         let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
@@ -285,7 +285,7 @@ impl FromStr for ConversationId {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() != 5 || parts[0] != "conv" {
             return Err(IdConversionError {
-                message: format!("Invalid conversation ID format: {}", s),
+                message: format!("Invalid conversation ID format: {s}"),
             });
         }
         let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
@@ -392,7 +392,7 @@ impl FromStr for LineId {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() != 6 || parts[0] != "line" {
             return Err(IdConversionError {
-                message: format!("Invalid line ID format: {}", s),
+                message: format!("Invalid line ID format: {s}"),
             });
         }
         let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {

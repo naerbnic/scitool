@@ -9,7 +9,7 @@ impl std::fmt::Display for Context {
         writeln!(f, "{}:", self.context)?;
         let contents = format!("{}", self.error);
         for line in contents.lines() {
-            writeln!(f, "  {}", line)?;
+            writeln!(f, "  {line}")?;
         }
         Ok(())
     }
@@ -21,14 +21,14 @@ pub struct Multiple(Vec<ValidationError>);
 impl std::fmt::Display for Multiple {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for error in &self.0 {
-            let contents = format!("{}", error);
+            let contents = format!("{error}");
             let mut first = true;
             for line in contents.lines() {
                 if first {
-                    writeln!(f, "- {}", line)?;
+                    writeln!(f, "- {line}")?;
                     first = false;
                 } else {
-                    writeln!(f, "  {}", line)?;
+                    writeln!(f, "  {line}")?;
                 }
             }
         }
@@ -197,9 +197,9 @@ where
     {
         let mut result = Ok(());
         for (key, value) in self {
-            result =
-                result.join(validator(value).map_err(|err| {
-                    ValidationError::from_any(err).with_context(format!("{:?}", key))
+            result = result
+                .join(validator(value).map_err(|err| {
+                    ValidationError::from_any(err).with_context(format!("{key:?}"))
                 }));
         }
         result

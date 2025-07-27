@@ -242,7 +242,7 @@ impl RelocatableBuffer {
 
         if self.alignment < other.alignment {
             let padding = other.alignment - (data.len() % other.alignment);
-            data.extend(std::iter::repeat(0).take(padding));
+            data.extend(std::iter::repeat_n(0, padding));
         }
 
         // The self section is now aligned, with sufficient padding to
@@ -330,7 +330,7 @@ impl RelocWriter for RelocatableBufferBuilder {
         // the section is already aligned to a higher value.
         let padding = alignment - (self.section.data.len() % alignment);
         if padding != alignment {
-            self.section.data.extend(std::iter::repeat(0).take(padding));
+            self.section.data.extend(std::iter::repeat_n(0, padding));
         }
     }
 
