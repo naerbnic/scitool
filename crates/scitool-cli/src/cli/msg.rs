@@ -45,7 +45,11 @@ impl ExportMessages {
             }
         }
 
-        eprintln!("Writing {:?} messages to {:?}", messages.len(), self.output);
+        eprintln!(
+            "Writing {:?} messages to {}",
+            messages.len(),
+            self.output.display()
+        );
 
         let msg_file = msg_out::MessageFile { messages };
         let writer = std::fs::File::create(&self.output)?;
@@ -87,7 +91,7 @@ impl PrintMessages {
     fn run(&self) -> anyhow::Result<()> {
         if let Some(config_path) = &self.config_path {
             let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
-            eprintln!("Loaded config from {config_path:?}: {config:?}");
+            eprintln!("Loaded config from {}: {config:?}", config_path.display());
         }
         let resource_set = open_game_resources(&self.root_dir)?;
 
@@ -158,7 +162,7 @@ impl CheckMessages {
     fn run(&self) -> anyhow::Result<()> {
         let config = if let Some(config_path) = &self.config_path {
             let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
-            eprintln!("Loaded config from {config_path:?}");
+            eprintln!("Loaded config from {}", config_path.display());
             config
         } else {
             BookConfig::default()

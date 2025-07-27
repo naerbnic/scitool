@@ -73,7 +73,7 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
                         @for line in dialogue.lines() {
                             .line id=(line.id()){
                                 .speaker { (generate_rich_text(line.speaker())) ":" }
-                                ."line-text" { (generate_rich_text(line.line()))
+                                ."line-text" { (generate_rich_text(line.text()))
                                   ."hover-reveal" {
                                     (generate_link_button(line.id()))
                                     (generate_copy_button(line.id()))
@@ -88,7 +88,7 @@ fn generate_content(content: &super::doc::Content) -> maud::Markup {
     }
 }
 
-fn generate_section(_level: usize, section: &Section) -> maud::Markup {
+fn generate_section(section: &Section) -> maud::Markup {
     maud::html! {
         .section id=[section.id()] {
             ."section-title" {
@@ -105,15 +105,15 @@ fn generate_section(_level: usize, section: &Section) -> maud::Markup {
                 (generate_content(section.content()))
 
                 @for subsection in section.subsections() {
-                    (generate_section(_level + 1, subsection))
+                    (generate_section(subsection))
                 }
             }
         }
     }
 }
 
-pub fn generate_html(doc: &Document) -> anyhow::Result<String> {
-    Ok(maud::html! {
+pub fn generate_html(doc: &Document) -> String {
+    maud::html! {
         (maud::DOCTYPE)
         html {
             head {
@@ -124,11 +124,11 @@ pub fn generate_html(doc: &Document) -> anyhow::Result<String> {
             body lang="en-US"{
                 h1 { (generate_rich_text(doc.title())) }
                 @for chapter in doc.chapters() {
-                    (generate_section(0, chapter))
+                    (generate_section(chapter))
                 }
                 script { (SCRIPT_JS) }
             }
         }
     }
-    .into_string())
+    .into_string()
 }

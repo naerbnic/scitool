@@ -77,7 +77,7 @@ impl List {
 pub struct Line {
     speaker: RichText,
     id: String,
-    line: RichText,
+    text: RichText,
 }
 
 impl Line {
@@ -85,8 +85,8 @@ impl Line {
         &self.speaker
     }
 
-    pub fn line(&self) -> &RichText {
-        &self.line
+    pub fn text(&self) -> &RichText {
+        &self.text
     }
 
     pub fn id(&self) -> &str {
@@ -138,10 +138,10 @@ impl Content {
 
     fn push_list_mut(&mut self) -> &mut Vec<Content> {
         let last = push_last_mut(&mut self.items, ContentItem::List(List::new()));
-        let ContentItem::List(list) = last else {
+        let ContentItem::List(last_list) = last else {
             panic!("Expected last item to be a list");
         };
-        &mut list.items
+        &mut last_list.items
     }
 
     fn push_dialogue_mut(&mut self) -> &mut Vec<Line> {
@@ -268,7 +268,7 @@ impl DialogueBuilder<'_> {
         self.dialogue.push(Line {
             speaker: speaker.into(),
             id,
-            line: line.into(),
+            text: line.into(),
         });
     }
 }

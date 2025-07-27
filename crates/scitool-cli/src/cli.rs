@@ -1,3 +1,7 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "This module's docs are user-facing and should be descriptive"
+)]
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -14,6 +18,7 @@ struct ListResources {
     /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
+    #[expect(clippy::doc_markdown, reason = "This is a user-directed help")]
     /// Filter by resource type (e.g., Script, Heap, View, Pic, Sound, Message, Font, Cursor, Patch, AudioPath, Vocab, Palette, Wave, Audio, Sync).
     #[clap(long = "type", short = 't')]
     res_type: Option<ResourceType>,
@@ -74,17 +79,17 @@ impl ExtractResourceAsPatch {
         let filename = out_root.join(format!("{0}.{1}", self.resource_id, ext));
         if self.dry_run {
             eprintln!(
-                "DRY_RUN: Writing resource {restype:?}:{resid} to {filename:?}",
+                "DRY_RUN: Writing resource {restype:?}:{resid} to {filename}",
                 restype = self.resource_type,
                 resid = self.resource_id,
-                filename = filename
+                filename = filename.display()
             );
         } else {
             eprintln!(
-                "Writing resource {restype:?}:{resid} to {filename:?}",
+                "Writing resource {restype:?}:{resid} to {filename}",
                 restype = self.resource_type,
                 resid = self.resource_id,
-                filename = filename
+                filename = filename.display()
             );
             {
                 let mut patch_file = IoDataWriter::new(

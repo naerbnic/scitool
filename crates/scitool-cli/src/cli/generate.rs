@@ -54,12 +54,12 @@ fn generate_conversation(mut section: SectionBuilder, conversation: &book::Conve
     }
 }
 
-fn generate_document(book: &Book) -> anyhow::Result<Document> {
+fn generate_document(book: &Book) -> Document {
     let mut doc = DocumentBuilder::new(format!("{} Script", book.project_name()));
     for room in book.rooms() {
         let mut room_title = RichText::builder();
         room_title.add_rich_text(&make_room_title(&room)).add_text(
-            format!(" (Room #{:?})", room.id().room_num()),
+            &format!(" (Room #{:?})", room.id().room_num()),
             &TextStyle::of_italic(),
         );
         let mut room_section = doc.add_chapter(room_title.build());
@@ -97,7 +97,7 @@ fn generate_document(book: &Book) -> anyhow::Result<Document> {
             }
         }
     }
-    Ok(doc.build())
+    doc.build()
 }
 
 /// Generates a master HTML script document from the game book.
@@ -114,8 +114,8 @@ struct GenerateMaster {
 impl GenerateMaster {
     fn run(&self) -> anyhow::Result<()> {
         let book = load_book(&self.ctxt)?;
-        let doc = generate_document(&book)?;
-        let html = generate_html(&doc)?;
+        let doc = generate_document(&book);
+        let html = generate_html(&doc);
         std::fs::write(&self.output, html)?;
         Ok(())
     }
@@ -147,6 +147,10 @@ impl GenerateJson {
 struct GenerateJsonSchema;
 
 impl GenerateJsonSchema {
+    #[expect(
+        clippy::unused_self,
+        reason = "Future-proofing for potential arguments"
+    )]
     fn run(&self) -> anyhow::Result<()> {
         let schema = GameScript::json_schema()?;
         std::io::stdout().write_all(schema.as_bytes())?;

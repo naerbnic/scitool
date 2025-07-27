@@ -1,4 +1,8 @@
-use std::collections::BTreeMap;
+#![expect(
+    clippy::struct_field_names,
+    reason = "Field names are descriptive and match the JSON schema"
+)]
+use std::{collections::BTreeMap, string::ToString};
 
 use serde::{Deserialize, Serialize};
 
@@ -133,7 +137,7 @@ impl From<book::Conversation<'_>> for Conversation {
             verb: conv.verb().map(|v| v.name().to_string()),
             cond: conv
                 .condition()
-                .and_then(|c| c.desc().map(|d| d.to_string())),
+                .and_then(|c| c.desc().map(ToString::to_string)),
             lines: conv.lines().map(Into::into).collect(),
         }
     }

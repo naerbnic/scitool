@@ -75,7 +75,7 @@ impl RichText {
                         FontControl::Italics => curr_style = TextStyle::of_italic(),
                         // Bold Control Sequences
                         FontControl::SuperLarge | FontControl::Title | FontControl::BoldLike => {
-                            curr_style = TextStyle::of_bold()
+                            curr_style = TextStyle::of_bold();
                         }
                         // Ignored
                         FontControl::Lowercase | FontControl::Unknown => {}
@@ -119,18 +119,18 @@ pub struct RichTextBuilder {
 }
 
 impl RichTextBuilder {
-    pub fn add_plain_text(&mut self, text: impl ToString) -> &mut Self {
+    pub fn add_plain_text(&mut self, text: &impl ToString) -> &mut Self {
         self.add_text(text, &TextStyle::default())
     }
 
     pub fn add_rich_text(&mut self, text: &RichText) -> &mut Self {
         for item in text.items() {
-            self.add_text(item.text(), item.style());
+            self.add_text(&item.text(), item.style());
         }
         self
     }
 
-    pub fn add_text(&mut self, text: impl ToString, curr_style: &TextStyle) -> &mut Self {
+    pub fn add_text(&mut self, text: &impl ToString, curr_style: &TextStyle) -> &mut Self {
         match self.output.items.last_mut() {
             Some(last) if &last.style == curr_style => {
                 last.text.push_str(text.to_string().as_str());
@@ -152,35 +152,37 @@ impl RichTextBuilder {
 
 pub fn make_room_title(room: &book::Room<'_>) -> RichText {
     let mut room_title_builder = RichText::builder();
-    room_title_builder.add_plain_text(room.name());
+    room_title_builder.add_plain_text(&room.name());
     room_title_builder.build()
 }
 
 pub fn make_conversation_title(conv: &book::Conversation<'_>) -> RichText {
     RichText::from(match (conv.verb(), conv.condition()) {
-        (Some(verb), Some(cond)) => format!(
+        (Some(verb), Some(condition)) => format!(
             "On {} ({})",
             verb.name(),
-            cond.desc()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| format!("Condition #{:?}", cond.id().condition_num()))
+            condition.desc().map_or_else(
+                || format!("Condition #{:?}", condition.id().condition_num()),
+                ToString::to_string
+            )
         ),
         (Some(verb), None) => format!("On {}", verb.name()),
-        (None, Some(cond)) => format!(
+        (None, Some(condition)) => format!(
             "When {}",
-            cond.desc()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| format!("Condition #{:?}", cond.id().condition_num()))
+            condition.desc().map_or_else(
+                || format!("Condition #{:?}", condition.id().condition_num()),
+                ToString::to_string
+            )
         ),
         (None, None) => "On Any".to_string(),
     })
 }
 
 pub fn make_noun_title(noun: &book::Noun<'_>) -> RichText {
-    let mut noun_desc = noun
-        .desc()
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| format!("Noun #{:?}", noun.id().noun_num()));
+    let mut noun_desc = noun.desc().map_or_else(
+        || format!("Noun #{:?}", noun.id().noun_num()),
+        ToOwned::to_owned,
+    );
 
     if noun.is_cutscene() {
         noun_desc.push_str(" (Cutscene)");
