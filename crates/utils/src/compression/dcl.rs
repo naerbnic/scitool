@@ -44,9 +44,9 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
         if should_decode_entry {
             let length_code = *LENGTH_TREE.lookup(&mut reader)?;
             let token_length = if length_code < 8 {
-                (length_code + 2) as u32
+                u32::from(length_code + 2)
             } else {
-                let num_bits = (length_code - 7) as u32;
+                let num_bits = u32::from(length_code - 7);
                 let extra_bits: u32 = reader
                     .read_bits(num_bits)
                     .ok_or_else(|| io::Error::other("Failed to read DCL extra length bits"))?
@@ -60,19 +60,20 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
                 break;
             }
 
-            let distance_code = *DISTANCE_TREE.lookup(&mut reader)? as u32;
-            let token_offset: u32 =
-                1 + if token_length == 2 {
-                    (distance_code << 2)
-                        | reader.read_bits(2).ok_or_else(|| {
-                            io::Error::other("Failed to read DCL extra distance bits")
-                        })? as u32
-                } else {
-                    (distance_code << dict_type)
-                        | reader.read_bits(dict_type as u32).ok_or_else(|| {
-                            io::Error::other("Failed to read DCL extra distance bits")
-                        })? as u32
-                };
+            let distance_code = u32::from(*DISTANCE_TREE.lookup(&mut reader)?);
+            let token_offset: u32 = 1 + if token_length == 2 {
+                (distance_code << 2)
+                    | u32::try_from(reader.read_bits(2).ok_or_else(|| {
+                        io::Error::other("Failed to read DCL extra distance bits")
+                    })?)
+                    .unwrap()
+            } else {
+                (distance_code << dict_type)
+                    | u32::try_from(reader.read_bits(u32::from(dict_type)).ok_or_else(|| {
+                        io::Error::other("Failed to read DCL extra distance bits")
+                    })?)
+                    .unwrap()
+            };
             if output.len() < token_offset as usize {
                 return Err(io::Error::other("DCL token offset exceeds bytes written"));
             }

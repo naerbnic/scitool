@@ -48,6 +48,7 @@ pub trait NumConvert: num::Num {
 macro_rules! impl_bit_convert_unsigned {
     ($($t:ty),*) => {
         $(
+            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless, clippy::checked_conversions)]
             impl NumConvert for $t {
                 const SIGNEDNESS: Signedness = Signedness::Unsigned;
                 const BITS: u32 = <$t>::BITS;
@@ -83,6 +84,13 @@ macro_rules! impl_bit_convert_unsigned {
 macro_rules! impl_bit_convert_signed {
     ($($t:ty),*) => {
         $(
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_lossless,
+                clippy::cast_sign_loss,
+                clippy::checked_conversions,
+                clippy::cast_possible_wrap
+            )]
             impl NumConvert for $t {
                 const SIGNEDNESS: Signedness = Signedness::Signed;
                 const BITS: u32 = <$t>::BITS;

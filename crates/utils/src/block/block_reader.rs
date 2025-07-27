@@ -13,11 +13,13 @@ pub struct BlockReader {
 
 impl BlockReader {
     /// Creates a new reader from the block.
+    #[must_use]
     pub fn new(block: MemBlock) -> Self {
         Self { curr_pos: 0, block }
     }
 
     /// Returns the portion of the block that has not yet been read.
+    #[must_use]
     pub fn into_rest(self) -> MemBlock {
         let curr_pos: u64 = self.curr_pos.try_into().unwrap();
         self.block.sub_buffer(curr_pos..)
@@ -72,6 +74,7 @@ impl DataReader for BlockReader {
     }
 
     fn tell(&mut self) -> io::Result<u32> {
+        #[expect(clippy::cast_possible_truncation)]
         Ok(self.curr_pos as u32)
     }
 

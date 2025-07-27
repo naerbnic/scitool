@@ -83,6 +83,7 @@ impl BlockSource {
     }
 
     /// Returns the size of the block source.
+    #[must_use]
     pub fn size(&self) -> u64 {
         self.size
     }
@@ -95,6 +96,7 @@ impl BlockSource {
 
     /// Returns a sub-block source that represents a subrange of the current
     /// block source.
+    #[must_use]
     pub fn subblock<R>(&self, range: R) -> Self
     where
         R: RangeBounds<u64>,
@@ -130,6 +132,7 @@ impl BlockSource {
         }
     }
 
+    #[must_use]
     pub fn split_at(self, at: u64) -> (Self, Self) {
         assert!(
             at <= self.size,
@@ -142,6 +145,7 @@ impl BlockSource {
 
     /// Returns a lazy block that represents the current block source that can
     /// be opened on demand.
+    #[must_use]
     pub fn to_lazy_block(&self) -> LazyBlock {
         LazyBlock::from_block_source(self.clone())
     }

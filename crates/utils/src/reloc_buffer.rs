@@ -26,6 +26,7 @@ pub enum RelocSize {
 
 impl RelocSize {
     /// Returns the size of the reloc in bytes.
+    #[must_use]
     pub fn byte_size(&self) -> usize {
         match self {
             RelocSize::I8 => 1,
@@ -192,6 +193,7 @@ impl RelocatableBuffer {
     }
 
     /// Creates a new buffer builder, for constructing a new buffer.
+    #[must_use]
     pub fn builder() -> RelocatableBufferBuilder {
         RelocatableBufferBuilder {
             section: Self::new(1),
@@ -200,6 +202,7 @@ impl RelocatableBuffer {
 
     /// Create a new buffer with no relocations or symbols that contains the
     /// given data.
+    #[must_use]
     pub fn from_vec(data: Vec<u8>, alignment: usize) -> Self {
         Self {
             data,

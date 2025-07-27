@@ -54,6 +54,7 @@ impl ValidationError {
         ValidationError::Single(err.into())
     }
 
+    #[must_use]
     pub fn from_boxed(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
         match err.downcast::<ValidationError>() {
             Ok(err) => *err,
@@ -68,6 +69,7 @@ impl ValidationError {
         Self::from_boxed(Box::new(err))
     }
 
+    #[must_use]
     pub fn with_context(self, context: impl Into<String>) -> Self {
         match self {
             ValidationError::Context(mut ctxt) => {
@@ -81,6 +83,7 @@ impl ValidationError {
         }
     }
 
+    #[must_use]
     pub fn join(self, other: Self) -> Self {
         match (self, other) {
             (ValidationError::Multiple(mut first), ValidationError::Multiple(second)) => {
@@ -116,10 +119,13 @@ where
 }
 
 pub trait ResultExt {
+    #[must_use]
     fn join(self, other: Self) -> Self;
+    #[must_use]
     fn join_err(self, other: ValidationError) -> Self;
     fn append(&mut self, other: Self);
     fn append_err(&mut self, other: ValidationError);
+    #[must_use]
     fn with_context(self, context: impl Into<String>) -> Self;
 }
 
@@ -211,6 +217,7 @@ pub struct MultiValidator {
 }
 
 impl MultiValidator {
+    #[must_use]
     pub fn new() -> Self {
         Self { result: Ok(()) }
     }
@@ -220,7 +227,7 @@ impl MultiValidator {
         E: std::error::Error + Send + Sync + 'static,
     {
         if let Err(err) = item {
-            self.result.append_err(ValidationError::from_any(err))
+            self.result.append_err(ValidationError::from_any(err));
         }
         self
     }

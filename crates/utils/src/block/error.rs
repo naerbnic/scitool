@@ -24,6 +24,7 @@ impl std::fmt::Debug for ReadError {
 
 impl ReadError {
     /// Create a new error from an [`io::Error`].
+    #[must_use]
     pub fn new(err: io::Error) -> Self {
         Self(err)
     }

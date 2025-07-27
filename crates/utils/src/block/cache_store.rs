@@ -21,7 +21,7 @@ struct CacheKey(*const ());
 
 impl CacheKey {
     fn new<T>(data: &Arc<T>) -> Self {
-        CacheKey(Arc::as_ptr(data) as *const ())
+        CacheKey(Arc::as_ptr(data).cast::<()>())
     }
 }
 
@@ -190,7 +190,7 @@ impl<T> CacheStore<T> {
 
     pub fn insert(&self, data: T) -> CacheRef<T> {
         let cache_entry = self.0.allocate(data);
-        CacheRef::new(self.0.clone(), cache_entry)
+        CacheRef::new(&self.0, &cache_entry)
     }
 }
 
@@ -200,14 +200,15 @@ pub struct CacheRef<T> {
 }
 
 impl<T> CacheRef<T> {
-    fn new(store: Arc<StoreInner<T>>, entry: Arc<CacheEntry<T>>) -> Self {
+    fn new(store: &Arc<StoreInner<T>>, entry: &Arc<CacheEntry<T>>) -> Self {
         entry.increment_ref_count();
         CacheRef {
-            store: Arc::downgrade(&store),
-            entry: Arc::downgrade(&entry),
+            store: Arc::downgrade(store),
+            entry: Arc::downgrade(entry),
         }
     }
 
+    #[must_use]
     pub fn lock(&self) -> Option<Guard<'_, T>> {
         self.entry.upgrade().map(|e| Guard {
             entry: e,
@@ -219,7 +220,7 @@ impl<T> CacheRef<T> {
 impl<T> Clone for CacheRef<T> {
     fn clone(&self) -> Self {
         if let (Some(store), Some(entry)) = (self.store.upgrade(), self.entry.upgrade()) {
-            Self::new(store, entry)
+            Self::new(&store, &entry)
         } else {
             CacheRef {
                 store: Weak::new(),

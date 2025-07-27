@@ -118,7 +118,7 @@ impl<R: Read + Seek> DataReader for IoDataReader<R> {
     }
 
     fn seek_to(&mut self, offset: u32) -> io::Result<()> {
-        self.0.seek(io::SeekFrom::Start(offset as u64))?;
+        self.0.seek(io::SeekFrom::Start(u64::from(offset)))?;
         Ok(())
     }
 

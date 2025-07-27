@@ -88,12 +88,14 @@ impl LazyBlock {
         }
     }
 
+    #[must_use]
     pub fn from_block_source(source: BlockSource) -> Self {
         Self {
             source: Arc::new(RangeLazyBlockImpl { source }),
         }
     }
 
+    #[must_use]
     pub fn from_mem_block(block: MemBlock) -> Self {
         Self {
             source: Arc::new(MemLazyBlockImpl { block }),
@@ -106,8 +108,9 @@ impl LazyBlock {
         self.source.open()
     }
 
-    /// Creates a new LazyBlock that transforms the result of the current block
+    /// Creates a new `LazyBlock` that transforms the result of the current block
     /// with the given function when opened.
+    #[must_use]
     pub fn map<F>(self, map_fn: F) -> Self
     where
         F: Fn(MemBlock) -> ReadResult<MemBlock> + Send + Sync + 'static,
@@ -122,6 +125,7 @@ impl LazyBlock {
 
     /// Creates a new lazy block that checks properties about the resulting
     /// block.
+    #[must_use]
     pub fn with_check<F>(&self, check_fn: F) -> Self
     where
         F: Fn(&MemBlock) -> ReadResult<()> + Send + Sync + 'static,

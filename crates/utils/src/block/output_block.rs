@@ -26,7 +26,7 @@ impl Buf for BlockData<'_> {
     }
 
     fn advance(&mut self, cnt: usize) {
-        self.0.advance(cnt)
+        self.0.advance(cnt);
     }
 }
 
@@ -56,11 +56,11 @@ pub struct CompositeOutputBlock {
 
 impl OutputBlockImpl for CompositeOutputBlock {
     fn size(&self) -> u64 {
-        self.blocks.iter().map(|b| b.size()).sum()
+        self.blocks.iter().map(OutputBlock::size).sum()
     }
 
     fn blocks(&self) -> BufIter<'_> {
-        Box::new(self.blocks.iter().flat_map(|b| b.blocks()))
+        Box::new(self.blocks.iter().flat_map(OutputBlock::blocks))
     }
 }
 
@@ -113,6 +113,7 @@ impl OutputBlock {
         }))
     }
 
+    #[must_use]
     pub fn size(&self) -> u64 {
         self.0.size()
     }

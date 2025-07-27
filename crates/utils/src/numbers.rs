@@ -22,12 +22,15 @@ pub fn safe_unsigned_narrow(number: u16) -> anyhow::Result<u8> {
     Ok((number & 0xFF) as u8)
 }
 
+#[must_use]
+#[expect(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 pub fn signed_extend_byte(byte: u8) -> u16 {
-    byte as i8 as i16 as u16
+    i16::from(byte as i8) as u16
 }
 
+#[must_use]
 pub fn unsigned_extend_byte(byte: u8) -> u16 {
-    byte as u16
+    u16::from(byte)
 }
 
 pub fn read_byte<R: std::io::Read>(mut buf: R) -> anyhow::Result<u8> {
@@ -52,6 +55,7 @@ pub fn write_word<W: std::io::Write>(mut buf: W, word: u16) -> anyhow::Result<()
     Ok(())
 }
 
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn safe_narrow_from_isize(size: isize) -> anyhow::Result<u16> {
     let top_bits_mask = !0x7FFFisize;
     let top_bits = size & top_bits_mask;
@@ -63,6 +67,7 @@ pub fn safe_narrow_from_isize(size: isize) -> anyhow::Result<u16> {
     Ok(size as usize as u16)
 }
 
+#[must_use]
 pub fn read_u16_le_from_slice(slice: &[u8], at: usize) -> u16 {
     u16::from_le_bytes(slice[at..][..2].try_into().unwrap())
 }

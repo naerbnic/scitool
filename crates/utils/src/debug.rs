@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 /// Writes a header for the hex dump to the output writer.
 ///
 /// Inserts the given number of spaces before the header, to align with the data.
@@ -37,9 +39,10 @@ fn write_dump_line<W: std::io::Write>(
     let empty_hex_suffix = "   ".repeat(16 - line_end);
     let line_hex = data[..line_length]
         .iter()
-        .map(|b| format!("{b:02X} "))
-        .collect::<Vec<_>>()
-        .join("");
+        .fold(String::new(), |mut acc, b| {
+            write!(acc, "{b:02X} ").unwrap();
+            acc
+        });
     let empty_ascii_prefix = " ".repeat(line_start);
     let empty_ascii_suffix = " ".repeat(16 - line_end);
     let line_ascii = data[..line_length]

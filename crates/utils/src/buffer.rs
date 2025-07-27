@@ -68,6 +68,10 @@ pub trait Index: num::Num + std::fmt::Debug + Ord + Copy {
 macro_rules! impl_index {
     ($($ty:ty),*) => {
         $(
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::checked_conversions,
+            )]
             impl Index for $ty {
                 const BITS: u32 = std::mem::size_of::<$ty>() as u32 * 8;
 
@@ -98,10 +102,11 @@ pub trait NarrowedIndex: Index + Sized + Copy {
 macro_rules! impl_narrowed_index {
     ($($small:ty),*) => {
         $(
-                impl NarrowedIndex for $small {
-                    fn widened_max_size() -> usize {
-                        assert!(<$small>::BITS <= usize::BITS);
-                        let max = <$small>::MAX as usize;
+            #[allow(clippy::cast_possible_truncation)]
+            impl NarrowedIndex for $small {
+                fn widened_max_size() -> usize {
+                    assert!(<$small>::BITS <= usize::BITS);
+                    let max = <$small>::MAX as usize;
                         if max == usize::MAX {
                             max
                         } else {
@@ -154,6 +159,7 @@ pub trait Buffer: Sized + Clone {
         Self: 'g;
 
     fn size(&self) -> u64;
+    #[must_use]
     fn sub_buffer_from_range(self, start: u64, end: u64) -> Self;
     fn split_at(self, at: u64) -> (Self, Self);
     fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, Self::Error>;
@@ -212,7 +218,7 @@ pub trait Buffer: Sized + Clone {
 
     fn read_length_delimited_block(self, item_size: u64) -> anyhow::Result<(Self, Self)> {
         let (num_blocks, next) = self.read_value::<u16>()?;
-        let total_block_size = (num_blocks as u64).checked_mul(item_size).unwrap();
+        let total_block_size = u64::from(num_blocks).checked_mul(item_size).unwrap();
         Ok(next.split_at(total_block_size))
     }
 
@@ -252,7 +258,9 @@ impl Buffer for &[u8] {
     }
 
     fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, NoError> {
-        Ok(&self[start as usize..end as usize])
+        let start = usize::try_from(start).unwrap();
+        let end = usize::try_from(end).unwrap();
+        Ok(&self[start..end])
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
@@ -273,6 +281,7 @@ impl Buffer for &[u8] {
 }
 
 pub trait BufferExt: Buffer {
+    #[must_use]
     fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> Self
     where
         T: TryInto<u64> + num::Num + Copy,

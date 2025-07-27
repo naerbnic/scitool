@@ -183,18 +183,21 @@ pub struct Expr(ExprInner);
 
 impl Expr {
     /// Create a new expression that references a local symbol.
+    #[must_use]
     pub fn new_local(symbol: Symbol) -> Self {
         Expr(ExprInner::Value(LeafValue::LocalSymbol(symbol)))
     }
 
     /// Create a new expression that references an external symbol
     /// (which does not have to be an address).
+    #[must_use]
     pub fn new_external(value: Symbol) -> Self {
         Expr(ExprInner::Value(LeafValue::ExternalValue(value)))
     }
 
     /// Create a new expression that references an arbitrary
     /// constant value.
+    #[must_use]
     pub fn new_const(value: i64) -> Self {
         Expr(ExprInner::Value(LeafValue::Immediate(
             IntermediateValue::new_exact(value),
@@ -203,21 +206,25 @@ impl Expr {
 
     /// Create a new expression that references the address
     /// of the relocation itself.
+    #[must_use]
     pub fn new_current_address() -> Self {
         Expr(ExprInner::Value(LeafValue::CurrentAddress))
     }
 
     /// Create a new expression that is the sum of two other expressions.
+    #[must_use]
     pub fn new_add(a: Self, b: Self) -> Self {
         Expr(ExprInner::Sum(Box::new(a), Box::new(b)))
     }
 
     /// Create a new expression that is the difference of two other expressions.
+    #[must_use]
     pub fn new_subtract(a: Self, b: Self) -> Self {
         Expr(ExprInner::Difference(Box::new(a), Box::new(b)))
     }
 
     /// Create a new expression that is the constant scalar product of another expression.
+    #[must_use]
     pub fn new_scalar_product(coeff: i64, expr: Self) -> Self {
         Expr(ExprInner::ScalarProduct(coeff, Box::new(expr)))
     }

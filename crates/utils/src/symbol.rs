@@ -39,7 +39,7 @@ struct UniquePayload {
 
 pub struct SymbolId(Arc<dyn Any + Send + Sync>);
 
-/// All of the methods on SymbolId are private, as we're hiding the fact that
+/// All of the methods on `SymbolId` are private, as we're hiding the fact that
 /// the ID is the internal payload of an Arc.
 impl SymbolId {
     fn new() -> Self {
@@ -84,7 +84,7 @@ impl SymbolId {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// This is a private method so that we can expose SymbolId as a borrowable
+    /// This is a private method so that we can expose `SymbolId` as a borrowable
     /// value without letting clients clone it.
     fn do_clone(&self) -> Self {
         Self(Arc::clone(&self.0))
@@ -133,7 +133,7 @@ impl std::hash::Hash for SymbolId {
 /// A unique symbol that can be used to identify a value.
 ///
 /// This symbol is guaranteed to be unique from all other symbols generated
-/// with new() or with_name(). It can be cloned, compared, hashed, and printed.
+/// with `new()` or `with_name()`. It can be cloned, compared, hashed, and printed.
 ///
 /// It can also be detected when it is the only clone left, to ensure that any
 /// values using it as a key are unreachable.
@@ -149,18 +149,20 @@ impl Symbol {
     ///
     /// It is guaranteed to be unique by comparison and hash with all other
     /// symbols at the time it's created.
+    #[must_use]
     pub fn new() -> Self {
         Self::new_from_id(SymbolId::new())
     }
 
     /// Creates a new unique symbol with a name.
     ///
-    /// This is identical to new() above, but provides the created symbol with
+    /// This is identical to `new()` above, but provides the created symbol with
     /// a name for debugging purposes.
     pub fn with_name(name: impl Into<String>) -> Self {
         Self::new_from_id(SymbolId::with_name(name.into()))
     }
 
+    #[must_use]
     pub fn id(&self) -> &SymbolId {
         &self.0
     }
@@ -259,6 +261,7 @@ pub struct WeakSymbolMap<V> {
 }
 
 impl<V> WeakSymbolMap<V> {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             map: std::collections::HashMap::new(),
@@ -286,6 +289,7 @@ impl<V> WeakSymbolMap<V> {
         }
     }
 
+    #[must_use]
     pub fn get(&self, key: &Symbol) -> Option<&V> {
         self.map.get(key.id())
     }
@@ -294,30 +298,40 @@ impl<V> WeakSymbolMap<V> {
         self.map.remove(key.id())
     }
 
+    #[must_use]
     pub fn contains_key(&self, key: &Symbol) -> bool {
         self.map.contains_key(key.id())
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
     pub fn clear(&mut self) {
-        self.map.clear()
+        self.map.clear();
     }
 
     pub fn keys(&self) -> impl Iterator<Item = Symbol> + '_ {
-        self.map.keys().filter_map(|k| k.try_upgrade())
+        self.map.keys().filter_map(WeakSymbol::try_upgrade)
     }
 
     pub fn values(&self) -> impl Iterator<Item = &V> {
         self.map
             .iter()
             .filter_map(|(k, v)| k.try_upgrade().map(|_| v))
+    }
+
+    #[must_use]
+    pub fn iter(&self) -> WeakSymbolMapIter<'_, V> {
+        WeakSymbolMapIter {
+            inner: self.map.iter(),
+        }
     }
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
@@ -465,7 +479,7 @@ mod tests {
             debug_str.starts_with("[#"),
             "Expected \"[#\", got {debug_str:?}"
         );
-        assert!(debug_str.ends_with("]"), "Expected \"], got {debug_str:?}");
+        assert!(debug_str.ends_with(']'), "Expected \"], got {debug_str:?}");
     }
 
     #[test]
@@ -518,7 +532,7 @@ mod tests {
         let debug_str = format!("{weak_sym:?}");
         assert!(debug_str.contains("test_symbol"));
         assert!(debug_str.starts_with("[Weak: #"));
-        assert!(debug_str.ends_with("]"));
+        assert!(debug_str.ends_with(']'));
     }
 
     #[test]

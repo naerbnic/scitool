@@ -16,6 +16,7 @@ pub struct MemBlock {
 
 impl MemBlock {
     /// Create the block from a vector of bytes.
+    #[must_use]
     pub fn from_vec(data: Vec<u8>) -> Self {
         Self::from_slice_owner(data.into_boxed_slice())
     }
@@ -56,6 +57,7 @@ impl MemBlock {
     }
 
     /// Returns the size of the block.
+    #[must_use]
     pub fn size(&self) -> usize {
         self.size
     }
@@ -85,6 +87,7 @@ impl MemBlock {
     ///
     /// Panics if the argument originated from another block, and is not fully
     /// contained within the current block
+    #[must_use]
     pub fn offset_in(&self, contained_block: &MemBlock) -> usize {
         assert!(Arc::ptr_eq(&self.data, &contained_block.data));
         assert!(self.start <= contained_block.start);
@@ -148,7 +151,9 @@ impl Buffer for MemBlock {
     }
 
     fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, NoError> {
-        Ok(&self[start as usize..end as usize])
+        let start = usize::try_from(start).unwrap();
+        let end = usize::try_from(end).unwrap();
+        Ok(&self[start..end])
     }
 
     fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
