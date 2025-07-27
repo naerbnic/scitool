@@ -12,7 +12,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Book, ConditionId, ConversationId, LineId, NounId, RoleId, RoomId, VerbId,
+    Book, ConditionId, ConversationId, NounId, RoleId, RoomId, VerbId,
     rich_text::{RichText, TextItem},
 };
 
@@ -299,7 +299,8 @@ fn build_lines(
                 .get(&line.conversation().id())
                 .expect("Line's conversation should be in the conversation index map"),
         },
-    ).0
+    )
+    .0
 }
 
 fn build_line_text_segment(segment: &TextItem) -> LineSegment {
@@ -332,7 +333,6 @@ fn format_book(book: &Book) -> BookFormat {
     let (nouns, noun_index_map) = build_nouns(book, &room_index_map);
     let (conversations, conversation_index_map) =
         build_conversations(book, &verb_index_map, &condition_index_map, &noun_index_map);
-    let lines = build_lines(book, &role_index_map, &conversation_index_map);
     BookFormat {
         project_name: book.project_name().to_string(),
         roles,
@@ -341,7 +341,7 @@ fn format_book(book: &Book) -> BookFormat {
         conditions,
         nouns,
         conversations,
-        lines,
+        lines: build_lines(book, &role_index_map, &conversation_index_map),
     }
 }
 
@@ -350,4 +350,10 @@ where
     S: serde::Serializer,
 {
     format_book(book).serialize(serializer)
+}
+
+#[must_use]
+pub fn json_schema() -> String {
+    serde_json::to_string(schemars::schema_for!(BookFormat).as_value())
+        .expect("Failed to serialize a serde_json::Value")
 }

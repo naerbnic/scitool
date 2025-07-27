@@ -12,6 +12,7 @@ scidev-common = { path = "../common" }
 itertools = "0.13.0"
 thiserror = "1.0.63"
 schemars = "1.0.4"
+serde_json = "1.0.141"
 
 [lints]
 workspace = true
