@@ -29,7 +29,7 @@ iter-over-hash-type = "warn"
 precedence-bits = "warn"
 # use-debug = "warn"
 todo = "warn"
-# mod-module-files = "warn"
+mod-module-files = "warn"
 
 mixed-read-write-in-expression = "deny"
 infinite-loop = "deny"

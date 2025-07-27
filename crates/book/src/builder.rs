@@ -117,11 +117,15 @@ impl MessageEntry {
 pub(super) struct Conversation(BTreeMap<RawSequenceId, MessageEntry>);
 
 impl Conversation {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self(BTreeMap::new())
     }
 
-    pub fn add_message(&mut self, message: MessageId, record: &MessageRecord) -> BuildResult<()> {
+    pub(super) fn add_message(
+        &mut self,
+        message: MessageId,
+        record: &MessageRecord,
+    ) -> BuildResult<()> {
         match self.0.entry(RawSequenceId::new(message.sequence())) {
             btree_map::Entry::Vacant(vac) => {
                 vac.insert(MessageEntry {
@@ -194,7 +198,7 @@ pub(super) struct ConditionEntry {
 }
 
 impl ConditionEntry {
-    pub fn desc(&self) -> Option<&str> {
+    pub(super) fn desc(&self) -> Option<&str> {
         self.desc.as_deref()
     }
 }
@@ -216,7 +220,7 @@ pub(super) struct NounEntry {
 }
 
 impl NounEntry {
-    pub fn with_config(noun_entry: config::NounEntry) -> Self {
+    pub(super) fn with_config(noun_entry: config::NounEntry) -> Self {
         Self {
             desc: Some(noun_entry.desc),
             is_cutscene: noun_entry.is_cutscene,
