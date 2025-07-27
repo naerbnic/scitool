@@ -85,11 +85,12 @@ impl RawMapResource {
     }
 
     pub fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
+        const TERM_BYTES: &[u8] = &[0xFF; 10];
+
         for entry in &self.entries {
             entry.write_to(writer)?;
         }
         // Write the terminator entry, consisting of an entry of all 0xFFs.
-        const TERM_BYTES: &[u8] = &[0xFF; 10];
         writer.write_slice(TERM_BYTES)?;
         Ok(())
     }
@@ -109,14 +110,17 @@ pub struct VoiceSample {
 }
 
 impl VoiceSample {
+    #[must_use]
     pub fn new(format: AudioFormat, data: BlockSource) -> Self {
         VoiceSample { format, data }
     }
 
+    #[must_use]
     pub fn format(&self) -> AudioFormat {
         self.format
     }
 
+    #[must_use]
     pub fn data(&self) -> &BlockSource {
         &self.data
     }
@@ -142,24 +146,21 @@ impl AudioVolumeBuilder {
         }
     }
 
-    pub fn add_entry(&mut self, sample: VoiceSample) -> anyhow::Result<u32> {
+    pub fn add_entry(&mut self, sample: &VoiceSample) -> anyhow::Result<u32> {
         // Check if the entry is vaild. Variable is copied in case we need to use it to
         // calculate the new file offset.
-        let _format = match self.format {
-            Some(format) => {
-                ensure!(
-                    format == sample.format,
-                    "Audio format mismatch: expected {:?}, got {:?}",
-                    format,
-                    sample.format
-                );
-                format
-            }
-            None => {
-                let format = sample.format;
-                self.format = Some(sample.format);
-                format
-            }
+        let _format = if let Some(format) = self.format {
+            ensure!(
+                format == sample.format,
+                "Audio format mismatch: expected {:?}, got {:?}",
+                format,
+                sample.format
+            );
+            format
+        } else {
+            let format = sample.format;
+            self.format = Some(sample.format);
+            format
         };
         let logical_offset = self.curr_offset;
         let data = sample.data.clone();
@@ -176,7 +177,10 @@ impl AudioVolumeBuilder {
         //
         // To keep things simple, assume we are using one of these two options, which means if we
         // can just use the size of the current entry as the size of this entry.
-        self.curr_offset += data.size() as u32;
+        #[expect(clippy::cast_possible_truncation)]
+        {
+            self.curr_offset += data.size() as u32;
+        }
         self.entries.push(AudioVolumeEntry {
             logical_offset,
             data,
@@ -184,15 +188,17 @@ impl AudioVolumeBuilder {
         Ok(logical_offset)
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     fn header_size(&self) -> u32 {
         4 + // The size of the 4CC header (e.g. "MP3 " or "FLAC")
         4 + // The number of entries in the compressed volume table
         (8 * self.entries.len() as u32) // The size of all the entries
     }
 
-    fn to_raw_of_compressed_format(&self, archive_type: &[u8; 4]) -> OutputBlock {
+    fn to_raw_of_compressed_format(&self, archive_type: [u8; 4]) -> OutputBlock {
         let mut header_bytes = bytes::BytesMut::new();
-        header_bytes.extend_from_slice(archive_type);
+        header_bytes.extend_from_slice(&archive_type);
+        #[expect(clippy::cast_possible_truncation)]
         header_bytes.put_u32_le(self.entries.len() as u32);
         let mut curr_data_offset = self.header_size();
         for entry in &self.entries {
@@ -200,7 +206,10 @@ impl AudioVolumeBuilder {
             header_bytes.put_u32_le(curr_data_offset);
             curr_data_offset += u32::try_from(entry.data.size()).unwrap();
         }
-        assert_eq!(self.header_size(), header_bytes.len() as u32);
+        #[expect(clippy::cast_possible_truncation)]
+        {
+            assert_eq!(self.header_size(), header_bytes.len() as u32);
+        }
         let header: OutputBlock = header_bytes.freeze().into();
         let mut volume_blocks = Vec::new();
         volume_blocks.push(header);
@@ -212,9 +221,9 @@ impl AudioVolumeBuilder {
 
     pub fn to_raw(&self) -> OutputBlock {
         match self.format {
-            Some(AudioFormat::Mp3) => self.to_raw_of_compressed_format(b"MP3 "),
-            Some(AudioFormat::Flac) => self.to_raw_of_compressed_format(b"FLAC"),
-            Some(AudioFormat::Ogg) => self.to_raw_of_compressed_format(b"OGG "),
+            Some(AudioFormat::Mp3) => self.to_raw_of_compressed_format(*b"MP3 "),
+            Some(AudioFormat::Flac) => self.to_raw_of_compressed_format(*b"FLAC"),
+            Some(AudioFormat::Ogg) => self.to_raw_of_compressed_format(*b"OGG "),
             Some(AudioFormat::Wav) => {
                 // WAV files are not treated as compressed, so we can just
                 // concatenate the entries together.
@@ -241,6 +250,7 @@ pub struct Audio36ResourceBuilder {
 }
 
 impl Audio36ResourceBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Audio36ResourceBuilder {
             maps: BTreeMap::new(),
@@ -252,7 +262,7 @@ impl Audio36ResourceBuilder {
         &mut self,
         room: u16,
         entry: MessageId,
-        sample: VoiceSample,
+        sample: &VoiceSample,
     ) -> anyhow::Result<()> {
         let offset: u32 = self.volume.add_entry(sample)?;
 
@@ -295,10 +305,12 @@ pub struct VoiceSampleResources {
 }
 
 impl VoiceSampleResources {
+    #[must_use]
     pub fn map_resources(&self) -> &[Resource] {
         &self.map_resources
     }
 
+    #[must_use]
     pub fn audio_volume(&self) -> &OutputBlock {
         &self.audio_volume
     }

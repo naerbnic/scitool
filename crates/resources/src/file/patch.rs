@@ -10,15 +10,11 @@ pub fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>
     // Parse the filename to get the resource ID.
 
     // The stem of the file is the resource ID as an integer.
-    let stem = if let Some(stem) = patch_file.file_stem().and_then(OsStr::to_str) {
-        stem
-    } else {
+    let Some(stem) = patch_file.file_stem().and_then(OsStr::to_str) else {
         return Ok(None);
     };
 
-    let ext = if let Some(ext) = patch_file.extension().and_then(OsStr::to_str) {
-        ext
-    } else {
+    let Some(ext) = patch_file.extension().and_then(OsStr::to_str) else {
         return Ok(None);
     };
 
@@ -28,9 +24,7 @@ pub fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>
         return Ok(None);
     };
 
-    let res_type = if let Ok(res_type) = ResourceType::from_file_ext(ext) {
-        res_type
-    } else {
+    let Ok(res_type) = ResourceType::from_file_ext(ext) else {
         return Ok(None);
     };
 
@@ -60,12 +54,13 @@ pub fn try_patch_from_file(patch_file: &Path) -> anyhow::Result<Option<Resource>
         let real_header_size = header_data[1];
         if real_header_size != 0 {
             log::warn!(
-                "Patch file header size is not 0, got (size {real_header_size}) {header_data:?} ({patch_file:?}, {res_type:?})",
+                "Patch file header size is not 0, got (size {real_header_size}) {header_data:?} ({}, {res_type:?})",
+                patch_file.display()
             );
         }
-        rest.subblock(real_header_size as u64..).to_lazy_block()
+        rest.subblock(u64::from(real_header_size)..).to_lazy_block()
     } else {
-        rest.subblock(header_size as u64..).to_lazy_block()
+        rest.subblock(u64::from(header_size)..).to_lazy_block()
     };
 
     Ok(Some(Resource {

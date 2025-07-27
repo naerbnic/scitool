@@ -16,9 +16,17 @@ fn one_u8() -> u8 {
     1
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Required by serde skip_serializing_if attribute"
+)]
 fn is_zero_u8(x: &u8) -> bool {
     *x == 0
 }
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Required by serde skip_serializing_if attribute"
+)]
 fn is_one_u8(x: &u8) -> bool {
     *x == 1
 }
@@ -49,18 +57,22 @@ impl MessageId {
         }
     }
 
+    #[must_use]
     pub fn noun(&self) -> u8 {
         self.noun
     }
 
+    #[must_use]
     pub fn verb(&self) -> u8 {
         self.verb
     }
 
+    #[must_use]
     pub fn condition(&self) -> u8 {
         self.condition
     }
 
+    #[must_use]
     pub fn sequence(&self) -> u8 {
         self.sequence
     }
@@ -82,10 +94,12 @@ pub struct MessageRecord {
 }
 
 impl MessageRecord {
+    #[must_use]
     pub fn text(&self) -> &str {
         &self.text
     }
 
+    #[must_use]
     pub fn talker(&self) -> u8 {
         self.talker
     }
@@ -168,7 +182,7 @@ impl RoomMessageSet {
     }
 }
 
-pub fn parse_message_resource(msg_res: MemBlock) -> anyhow::Result<RoomMessageSet> {
+pub fn parse_message_resource(msg_res: &MemBlock) -> anyhow::Result<RoomMessageSet> {
     let mut reader = BlockReader::new(msg_res.clone());
     let version_num = reader.read_u32_le()? / 1000;
     let raw_records = match version_num {
@@ -179,7 +193,7 @@ pub fn parse_message_resource(msg_res: MemBlock) -> anyhow::Result<RoomMessageSe
     let messages = raw_records
         .into_iter()
         .map(|raw_record| {
-            let record = resolve_raw_record(&msg_res, raw_record)?;
+            let record = resolve_raw_record(msg_res, raw_record)?;
             Ok((raw_record.id, record))
         })
         .collect::<anyhow::Result<BTreeMap<_, _>>>()?;

@@ -25,7 +25,7 @@ impl ExportMessages {
         let resource_set = open_game_resources(&self.root_dir)?;
         let mut messages = Vec::new();
         for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.load_data()?)?;
+            let msg_resources = parse_message_resource(&res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
                 let message_id = {
                     msg_out::MessageId {
@@ -94,7 +94,7 @@ impl PrintMessages {
         // Extra testing for building a conversation.
 
         for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.load_data()?)?;
+            let msg_resources = parse_message_resource(&res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
                 if let Some(room) = self.room {
                     if res.id().resource_num() != room {
@@ -169,7 +169,7 @@ impl CheckMessages {
         // Extra testing for building a conversation.
 
         for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.load_data()?)?;
+            let msg_resources = parse_message_resource(&res.load_data()?)?;
             for (msg_id, record) in msg_resources.messages() {
                 builder.add_message(res.id().resource_num(), msg_id, record)?;
             }
@@ -218,7 +218,7 @@ impl PrintTalkers {
         let resource_set = open_game_resources(&self.root_dir)?;
         let mut talkers = BTreeSet::new();
         for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(res.load_data()?)?;
+            let msg_resources = parse_message_resource(&res.load_data()?)?;
             for (_, record) in msg_resources.messages() {
                 talkers.insert(record.talker());
             }

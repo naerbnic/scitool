@@ -127,11 +127,12 @@ impl DataFile {
         DataFile { data }
     }
 
-    pub fn read_raw_contents(&self, location: &ResourceLocation) -> io::Result<RawContents> {
-        let (header, rest) =
-            RawEntryHeader::from_block_source(&self.data.subblock(location.file_offset as u64..))?;
-        let resource_block = rest.subblock(..header.packed_size as u64);
-        assert_eq!(resource_block.size(), header.packed_size as u64);
+    pub fn read_raw_contents(&self, location: ResourceLocation) -> io::Result<RawContents> {
+        let (header, rest) = RawEntryHeader::from_block_source(
+            &self.data.subblock(u64::from(location.file_offset)..),
+        )?;
+        let resource_block = rest.subblock(..u64::from(header.packed_size));
+        assert_eq!(resource_block.size(), u64::from(header.packed_size));
         Ok(RawContents {
             res_type: header.res_type,
             res_number: header.res_number,
@@ -141,7 +142,7 @@ impl DataFile {
         })
     }
 
-    pub fn read_contents(&self, location: &ResourceLocation) -> io::Result<Contents> {
+    pub fn read_contents(&self, location: ResourceLocation) -> io::Result<Contents> {
         let raw_contents = self.read_raw_contents(location)?;
         raw_contents.try_into()
     }

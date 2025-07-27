@@ -64,6 +64,7 @@ impl ResourceType {
     }
 
     // This may need to be given a target engine type to be correct.
+    #[must_use]
     pub fn to_file_ext(&self) -> &'static str {
         match self {
             ResourceType::View => "v56",
@@ -136,6 +137,7 @@ pub struct ResourceId {
 }
 
 impl ResourceId {
+    #[must_use]
     pub fn new(type_id: ResourceType, resource_num: u16) -> ResourceId {
         ResourceId {
             type_id,
@@ -143,10 +145,12 @@ impl ResourceId {
         }
     }
 
+    #[must_use]
     pub fn type_id(&self) -> ResourceType {
         self.type_id
     }
 
+    #[must_use]
     pub fn resource_num(&self) -> u16 {
         self.resource_num
     }

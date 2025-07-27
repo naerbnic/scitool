@@ -113,7 +113,7 @@ impl SampleSet {
             // Only VecDeque implements Buffer.
             let sample_source = temp_store.store_bytes(&sample.data[..]).await?;
             let voice_sample = VoiceSample::new(AudioFormat::Ogg, sample_source);
-            builder.add_entry(sample.room, sample.message_id, voice_sample)?;
+            builder.add_entry(sample.room, sample.message_id, &voice_sample)?;
         }
         builder.build()
     }

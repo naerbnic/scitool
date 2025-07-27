@@ -78,7 +78,7 @@ impl ResourceTypeLocations {
         // file.
         assert_eq!((end - start) % 5, 0);
         let count = (end - start) / 5;
-        reader.seek_to(start as u32)?;
+        reader.seek_to(u32::from(start))?;
         let mut entries = Vec::new();
         for _ in 0..count {
             entries.push(ResourceLocationEntry::read_from(reader)?);

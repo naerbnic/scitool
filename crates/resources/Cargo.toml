@@ -12,3 +12,6 @@ log = "0.4.27"
 sci-utils = { path = "../utils" }
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.12"
+
+[lints]
+workspace = true

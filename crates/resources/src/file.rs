@@ -30,7 +30,7 @@ pub fn read_resources(
     let mut entries = BTreeMap::new();
 
     for location in resource_locations.locations() {
-        let block = data_file.read_contents(&location)?;
+        let block = data_file.read_contents(location)?;
         if block.id() != &location.id {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -102,6 +102,7 @@ pub struct ResourceSet {
 }
 
 impl ResourceSet {
+    #[must_use]
     pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
         self.entries.get(id).map(|b| Resource {
             id: *id,
@@ -132,9 +133,10 @@ impl ResourceSet {
         })
     }
 
+    #[must_use]
     pub fn with_overlay(&self, overlay: &ResourceSet) -> ResourceSet {
         let mut entries = self.entries.clone();
-        for (id, block) in overlay.entries.iter() {
+        for (id, block) in &overlay.entries {
             entries.insert(*id, block.clone());
         }
         ResourceSet { entries }
@@ -142,7 +144,7 @@ impl ResourceSet {
 
     pub fn merge(&self, other: &ResourceSet) -> io::Result<ResourceSet> {
         let mut entries = self.entries.clone();
-        for (id, block) in other.entries.iter() {
+        for (id, block) in &other.entries {
             match entries.entry(*id) {
                 btree_map::Entry::Vacant(vac) => {
                     vac.insert(block.clone());
@@ -190,12 +192,14 @@ pub struct Resource {
 }
 
 impl Resource {
+    #[must_use]
     pub fn new(id: ResourceId, source: LazyBlock) -> Resource {
         Resource { id, source }
     }
 }
 
 impl Resource {
+    #[must_use]
     pub fn id(&self) -> &ResourceId {
         &self.id
     }
