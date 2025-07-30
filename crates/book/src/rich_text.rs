@@ -23,7 +23,7 @@ impl TextStyle {
     }
 
     #[must_use]
-    pub(crate) fn of_bold() -> Self {
+    pub fn of_bold() -> Self {
         let mut style = Self::default();
         style.set_bold(true);
         style

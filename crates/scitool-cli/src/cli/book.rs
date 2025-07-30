@@ -62,7 +62,7 @@ impl ExportCommand {
         let book = builder.build()?;
 
         let output: Box<dyn std::io::Write> = if let Some(path) = &self.output {
-            Box::new(std::fs::File::open(path)?)
+            Box::new(std::fs::File::create_new(path)?)
         } else {
             Box::new(std::io::stdout().lock())
         };
