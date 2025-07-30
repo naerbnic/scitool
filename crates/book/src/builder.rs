@@ -205,15 +205,9 @@ pub(super) struct ConditionEntry {
 }
 
 impl ConditionEntry {
-    pub(super) fn desc(&self) -> Option<&str> {
-        self.desc.as_deref()
-    }
-}
-
-impl ConditionEntry {
     fn build(&self) -> super::ConditionEntry {
         super::ConditionEntry {
-            builder: self.clone(),
+            desc: self.desc.clone(),
         }
     }
 }

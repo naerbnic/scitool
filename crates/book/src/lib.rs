@@ -34,7 +34,7 @@ use crate::rich_text::RichText;
 struct ConditionEntry {
     /// If this was configured with a description in the input config file,
     /// this will be Some.
-    builder: builder::ConditionEntry,
+    desc: Option<String>,
 }
 
 struct LineEntry {
@@ -224,7 +224,7 @@ impl<'a> Condition<'a> {
     /// Get the description of this condition (if specified).
     #[must_use]
     pub fn desc(&self) -> Option<&str> {
-        self.entry.builder.desc()
+        self.entry.desc.as_deref()
     }
 
     /// Get the room this condition is part of.

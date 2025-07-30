@@ -22,6 +22,12 @@ impl RawTalkerId {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RawRoleId(String);
 
+impl RawRoleId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
 // Public IDs.
 //
 // These uniquely identify different entities in the book. They are frequently

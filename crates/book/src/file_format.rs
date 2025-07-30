@@ -5,16 +5,23 @@
 //! contain any indexes of the internal structure, but provides enough information
 //! to reconstruct the book's structure and access its contents.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 
 use schemars::JsonSchema;
+use scidev_common::{
+    ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId,
+};
 use serde::{Deserialize, Serialize};
 
+use crate::rich_text::TextStyle;
 use crate::{
-    Book, ConditionId, ConversationId, NounId, RoleId, RoomId, VerbId,
+    Book, ConditionId, ConversationId, NounId, RoleEntry, RoleId, RoomEntry, RoomId, VerbEntry,
+    VerbId,
+    ids::RawRoleId,
     rich_text::{RichText, TextItem},
 };
+use crate::{ConditionEntry, ConversationEntry, LineEntry, NounEntry};
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(transparent)]
@@ -87,6 +94,7 @@ struct NounItem {
     id: String,
     num: u8,
     description: Option<String>,
+    is_cutscene: bool,
     #[serde(rename = "parentRoom")]
     parent_room: RoomIndex,
 }
@@ -240,6 +248,7 @@ fn build_nouns(
             id: noun.id().to_string(),
             num: noun.id().noun_num(),
             description: noun.desc().map(String::from),
+            is_cutscene: noun.is_cutscene(),
             parent_room: *room_index_map
                 .get(&noun.id().room_id())
                 .expect("Noun's room should be in the room index map"),
@@ -350,6 +359,258 @@ where
     S: serde::Serializer,
 {
     format_book(book).serialize(serializer)
+}
+
+fn make_roles(formatted_book: &BookFormat) -> BTreeMap<RawRoleId, RoleEntry> {
+    let mut role_map: BTreeMap<RawRoleId, RoleEntry> = BTreeMap::new();
+    for role in &formatted_book.roles {
+        let role_id = RawRoleId::new(role.id.clone());
+        let entry = RoleEntry {
+            name: role.name.clone(),
+            short_name: role.short_name.clone(),
+        };
+        role_map.insert(role_id, entry);
+    }
+    role_map
+}
+
+fn make_verbs(formatted_book: &BookFormat) -> BTreeMap<RawVerbId, VerbEntry> {
+    let verb_map: BTreeMap<RawVerbId, VerbEntry> = formatted_book
+        .verbs
+        .iter()
+        .map(|verb| {
+            (
+                RawVerbId::new(verb.num),
+                VerbEntry {
+                    name: verb.name.clone(),
+                },
+            )
+        })
+        .collect();
+    verb_map
+}
+
+fn make_rooms(
+    formatted_book: &BookFormat,
+    room_ids: &[RoomId],
+    mut noun_map: BTreeMap<RoomId, BTreeMap<RawNounId, NounEntry>>,
+    mut condition_map: BTreeMap<RoomId, BTreeMap<RawConditionId, ConditionEntry>>,
+) -> BTreeMap<RawRoomId, RoomEntry> {
+    let mut rooms: BTreeMap<RawRoomId, RoomEntry> = BTreeMap::new();
+    for room in &formatted_book.rooms {
+        let raw_room_id = RawRoomId::new(room.num);
+        let entry = RoomEntry {
+            name: room.name.clone(),
+            nouns: noun_map
+                .remove(&room_ids[room.num as usize])
+                .unwrap_or_default(),
+            conditions: condition_map
+                .remove(&room_ids[room.num as usize])
+                .unwrap_or_default(),
+        };
+        rooms.insert(raw_room_id, entry);
+    }
+    rooms
+}
+
+fn make_condition_map(
+    formatted_book: &BookFormat,
+    room_ids: &[RoomId],
+) -> BTreeMap<RoomId, BTreeMap<RawConditionId, ConditionEntry>> {
+    let mut condition_map: BTreeMap<RoomId, BTreeMap<RawConditionId, ConditionEntry>> =
+        BTreeMap::new();
+    for cond in &formatted_book.conditions {
+        let room_id = room_ids[cond.parent_room.0];
+        let raw_cond_id = RawConditionId::new(cond.num);
+        let entry = ConditionEntry {
+            desc: cond.description.clone(),
+        };
+        condition_map
+            .entry(room_id)
+            .or_default()
+            .insert(raw_cond_id, entry);
+    }
+    condition_map
+}
+
+fn make_noun_map(
+    formatted_book: &BookFormat,
+    room_ids: &[RoomId],
+    mut conv_map: BTreeMap<NounId, BTreeMap<ConversationKey, ConversationEntry>>,
+) -> BTreeMap<RoomId, BTreeMap<RawNounId, NounEntry>> {
+    let mut noun_map: BTreeMap<RoomId, BTreeMap<RawNounId, NounEntry>> = BTreeMap::new();
+    for noun in &formatted_book.nouns {
+        let room_id = room_ids[noun.parent_room.0];
+        let raw_noun_id = RawNounId::new(noun.num);
+        let noun_id = NounId::from_room_raw(room_id, raw_noun_id);
+        let entry = NounEntry {
+            desc: noun.description.clone(),
+            is_cutscene: noun.is_cutscene,
+            conversations: conv_map.remove(&noun_id).unwrap_or_default(),
+        };
+        noun_map
+            .entry(room_id)
+            .or_default()
+            .insert(raw_noun_id, entry);
+    }
+    noun_map
+}
+
+fn make_conv_map(
+    formatted_book: &BookFormat,
+    verb_ids: &[VerbId],
+    condition_ids: &[ConditionId],
+    noun_ids: &[NounId],
+    mut line_map: BTreeMap<ConversationId, BTreeMap<RawSequenceId, LineEntry>>,
+) -> BTreeMap<NounId, BTreeMap<ConversationKey, ConversationEntry>> {
+    let mut conv_map: BTreeMap<NounId, BTreeMap<ConversationKey, ConversationEntry>> =
+        BTreeMap::new();
+    for conv in &formatted_book.conversations {
+        let noun_id = noun_ids[conv.parent_noun.0];
+        let verb_id = conv
+            .verb
+            .map_or(RawVerbId::new(0), |v| verb_ids[v.0].raw_id());
+        let condition_id = conv
+            .condition
+            .map_or(RawConditionId::new(0), |c| condition_ids[c.0].raw_id());
+        let key = ConversationKey::new(verb_id, condition_id);
+        let entry = ConversationEntry {
+            lines: line_map
+                .remove(&ConversationId::from_noun_key(noun_id, key))
+                .unwrap_or_default(),
+        };
+        conv_map.entry(noun_id).or_default().insert(key, entry);
+    }
+    conv_map
+}
+
+fn make_line_map(
+    formatted_book: &BookFormat,
+    role_ids: &[RoleId],
+    conversation_ids: &[ConversationId],
+) -> BTreeMap<ConversationId, BTreeMap<RawSequenceId, LineEntry>> {
+    let mut line_map: BTreeMap<ConversationId, BTreeMap<RawSequenceId, LineEntry>> =
+        BTreeMap::new();
+    for line in &formatted_book.lines {
+        let conversation_id = conversation_ids[line.parent_conversation.0];
+        let role = role_ids[line.role.0].raw_id().clone();
+        let sequence_id = RawSequenceId::new(line.num);
+        let entry = LineEntry {
+            role,
+            text: deserialize_rich_text(&line.text),
+        };
+        line_map
+            .entry(conversation_id)
+            .or_default()
+            .insert(sequence_id, entry);
+    }
+    line_map
+}
+
+fn deserialize_rich_text(rich_text_format: &LineText) -> RichText {
+    let mut builder = RichText::builder();
+    match rich_text_format {
+        LineText::Simple(text) => {
+            builder.add_plain_text(text);
+        }
+        LineText::Rich(segments) => {
+            for segment in segments {
+                match segment {
+                    LineSegment::Plain(text) => {
+                        builder.add_plain_text(text);
+                    }
+                    LineSegment::Rich(rich) => {
+                        builder.add_text(
+                            &rich.text,
+                            TextStyle::of_plain()
+                                .set_bold(rich.style.bold)
+                                .set_italic(rich.style.italic),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    builder.build()
+}
+
+pub fn deserialize_book<'de, D>(deserializer: D) -> Result<Book, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let formatted_book = BookFormat::deserialize(deserializer)?;
+
+    // Create Index to ID maps (in the form of vectors)
+    let role_ids: Vec<RoleId> = formatted_book
+        .roles
+        .iter()
+        .map(|role| RoleId::from_raw(RawRoleId::new(role.id.clone())))
+        .collect();
+    let verb_ids: Vec<VerbId> = formatted_book
+        .verbs
+        .iter()
+        .map(|verb| VerbId::from_raw(RawVerbId::new(verb.num)))
+        .collect();
+    let room_ids: Vec<RoomId> = formatted_book
+        .rooms
+        .iter()
+        .map(|room| RoomId::from_raw(RawRoomId::new(room.num)))
+        .collect();
+    let condition_ids: Vec<ConditionId> = formatted_book
+        .conditions
+        .iter()
+        .map(|cond| {
+            ConditionId::from_room_raw(room_ids[cond.parent_room.0], RawConditionId::new(cond.num))
+        })
+        .collect();
+    let noun_ids: Vec<NounId> = formatted_book
+        .nouns
+        .iter()
+        .map(|noun| NounId::from_room_raw(room_ids[noun.parent_room.0], RawNounId::new(noun.num)))
+        .collect();
+    let conversation_ids: Vec<ConversationId> = formatted_book
+        .conversations
+        .iter()
+        .map(|conv| {
+            ConversationId::from_noun_key(
+                noun_ids[conv.parent_noun.0],
+                ConversationKey::new(
+                    conv.verb
+                        .map_or(RawVerbId::new(0), |v| verb_ids[v.0].raw_id()),
+                    conv.condition
+                        .map_or(RawConditionId::new(0), |c| condition_ids[c.0].raw_id()),
+                ),
+            )
+        })
+        .collect();
+
+    let rooms = make_rooms(
+        &formatted_book,
+        &room_ids,
+        make_noun_map(
+            &formatted_book,
+            &room_ids,
+            make_conv_map(
+                &formatted_book,
+                &verb_ids,
+                &condition_ids,
+                &noun_ids,
+                make_line_map(&formatted_book, &role_ids, &conversation_ids),
+            ),
+        ),
+        make_condition_map(&formatted_book, &room_ids),
+    );
+
+    let verbs = make_verbs(&formatted_book);
+
+    let roles = make_roles(&formatted_book);
+
+    Ok(Book {
+        project_name: formatted_book.project_name,
+        roles,
+        verbs,
+        rooms,
+    })
 }
 
 #[must_use]

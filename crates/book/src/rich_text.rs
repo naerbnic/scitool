@@ -8,6 +8,14 @@ pub struct TextStyle {
 
 impl TextStyle {
     #[must_use]
+    pub fn of_plain() -> Self {
+        TextStyle {
+            bold: false,
+            italic: false,
+        }
+    }
+
+    #[must_use]
     pub fn of_italic() -> Self {
         let mut style = Self::default();
         style.set_italic(true);
