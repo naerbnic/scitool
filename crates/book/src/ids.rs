@@ -14,6 +14,10 @@ impl RawTalkerId {
     pub(crate) fn new(value: u8) -> Self {
         RawTalkerId(value)
     }
+
+    pub(crate) fn as_u8(self) -> u8 {
+        self.0
+    }
 }
 
 // Book Specific IDs.

@@ -21,7 +21,7 @@ pub mod rich_text;
 pub use ids::{RoleId, VerbId};
 pub use message_text::{ColorControl, Control, FontControl, MessageSegment, MessageText};
 
-use crate::rich_text::RichText;
+use crate::{ids::RawTalkerId, rich_text::RichText};
 
 // Entries
 //
@@ -39,6 +39,7 @@ struct ConditionEntry {
 
 struct LineEntry {
     text: RichText,
+    talker: RawTalkerId,
     role: RawRoleId,
 }
 
@@ -110,6 +111,11 @@ impl<'a> Line<'a> {
     #[must_use]
     pub fn conversation(&self) -> Conversation<'a> {
         self.parent.clone()
+    }
+
+    #[must_use]
+    pub fn talker_num(&self) -> u8 {
+        self.entry.talker.as_u8()
     }
 
     fn book(&self) -> &'a Book {

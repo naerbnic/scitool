@@ -114,6 +114,7 @@ impl MessageEntry {
         let message_text: MessageText = self.text.parse().map_err(BuildError::from_anyhow)?;
         Ok(super::LineEntry {
             text: RichText::from_msg_text(&message_text),
+            talker: self.talker,
             role: ctxt
                 .talkers
                 .get(&self.talker)

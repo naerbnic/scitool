@@ -1,74 +1,19 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use scidev_book::{builder::BookBuilder, config::BookConfig};
+use scidev_book::Book;
 
-use crate::output::msg as msg_out;
 use clap::{Parser, Subcommand};
 use scidev_resources::{
     ResourceType, file::open_game_resources, types::msg::parse_message_resource,
 };
 
-// My current theory is that messages are separatable into a few categories:
-
-/// Exports game messages to a JSON file.
-#[derive(Parser)]
-struct ExportMessages {
-    /// Path to the game's root directory.
-    #[clap(index = 1)]
-    root_dir: PathBuf,
-    /// Path to write the JSON output file.
-    #[clap(short = 'o', long)]
-    output: PathBuf,
-}
-
-impl ExportMessages {
-    fn run(&self) -> anyhow::Result<()> {
-        let resource_set = open_game_resources(&self.root_dir)?;
-        let mut messages = Vec::new();
-        for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(&res.load_data()?)?;
-            for (msg_id, record) in msg_resources.messages() {
-                let message_id = {
-                    msg_out::MessageId {
-                        room: res.id().resource_num(),
-                        noun: msg_id.noun(),
-                        verb: msg_id.verb(),
-                        condition: msg_id.condition(),
-                        sequence: msg_id.sequence(),
-                    }
-                };
-                let message = msg_out::Message {
-                    id: message_id,
-                    talker: record.talker(),
-                    text: record.text().to_string(),
-                };
-                messages.push(message);
-            }
-        }
-
-        eprintln!(
-            "Writing {:?} messages to {}",
-            messages.len(),
-            self.output.display()
-        );
-
-        let msg_file = msg_out::MessageFile { messages };
-        let writer = std::fs::File::create(&self.output)?;
-        serde_json::to_writer_pretty(writer, &msg_file)?;
-        Ok(())
-    }
-}
-
 /// Prints messages from the game, with optional filters.
 #[derive(Parser)]
 struct PrintMessages {
-    /// Path to the game's root directory.
+    /// Path to the book file.
     #[clap(index = 1)]
-    root_dir: PathBuf,
-    /// Path to a book configuration YAML file.
-    #[clap(long = "config")]
-    config_path: Option<PathBuf>,
+    book_path: PathBuf,
     /// Filter by talker ID.
     #[clap(short = 't', long, required = false)]
     talker: Option<u8>,
@@ -91,59 +36,54 @@ struct PrintMessages {
 
 impl PrintMessages {
     fn run(&self) -> anyhow::Result<()> {
-        if let Some(config_path) = &self.config_path {
-            let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
-            eprintln!("Loaded config from {}: {config:?}", config_path.display());
-        }
-        let resource_set = open_game_resources(&self.root_dir)?;
+        let book: Book = scidev_book::file_format::deserialize_book(
+            &mut serde_json::Deserializer::from_reader(std::fs::File::open(&self.book_path)?),
+        )?;
 
         // Extra testing for building a conversation.
 
-        for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(&res.load_data()?)?;
-            for (msg_id, record) in msg_resources.messages() {
-                if let Some(room) = self.room {
-                    if res.id().resource_num() != room {
-                        continue;
-                    }
+        for line in book.lines() {
+            if let Some(room) = self.room {
+                if line.id().room_num() != room {
+                    continue;
                 }
-                if let Some(talker) = self.talker {
-                    if record.talker() != talker {
-                        continue;
-                    }
-                }
-                if let Some(verb) = self.verb {
-                    if msg_id.verb() != verb {
-                        continue;
-                    }
-                }
-                if let Some(noun) = self.noun {
-                    if msg_id.noun() != noun {
-                        continue;
-                    }
-                }
-                if let Some(condition) = self.condition {
-                    if msg_id.condition() != condition {
-                        continue;
-                    }
-                }
-                if let Some(sequence) = self.sequence {
-                    if msg_id.sequence() != sequence {
-                        continue;
-                    }
-                }
-                println!(
-                    "(room: {:?}, n: {:?}, v: {:?}, c: {:?}, s: {:?}, t: {:?}):",
-                    res.id().resource_num(),
-                    msg_id.noun(),
-                    msg_id.verb(),
-                    msg_id.condition(),
-                    msg_id.sequence(),
-                    record.talker(),
-                );
-                let text = record.text().replace("\r\n", "\n    ");
-                println!("    {}", text.trim());
             }
+            if let Some(talker) = self.talker {
+                if line.talker_num() != talker {
+                    continue;
+                }
+            }
+            if let Some(verb) = self.verb {
+                if line.id().verb_num() != verb {
+                    continue;
+                }
+            }
+            if let Some(noun) = self.noun {
+                if line.id().noun_num() != noun {
+                    continue;
+                }
+            }
+            if let Some(condition) = self.condition {
+                if line.id().condition_num() != condition {
+                    continue;
+                }
+            }
+            if let Some(sequence) = self.sequence {
+                if line.id().sequence_num() != sequence {
+                    continue;
+                }
+            }
+            println!(
+                "(room: {:?}, n: {:?}, v: {:?}, c: {:?}, s: {:?}, t: {:?}):",
+                line.id().room_num(),
+                line.id().noun_num(),
+                line.id().verb_num(),
+                line.id().condition_num(),
+                line.id().sequence_num(),
+                line.talker_num(),
+            );
+            let text = line.text().to_plain_text().replace("\r\n", "\n    ");
+            println!("    {}", text.trim());
         }
         Ok(())
     }
@@ -152,35 +92,15 @@ impl PrintMessages {
 /// Checks message data, building a "book" and printing statistics and validation errors.
 #[derive(Parser)]
 struct CheckMessages {
-    /// Path to the game's root directory.
-    #[clap(index = 1)]
-    root_dir: PathBuf,
-    /// Path to a book configuration YAML file.
-    #[clap(long = "config")]
-    config_path: Option<PathBuf>,
+    /// Path to a book file.
+    book_path: PathBuf,
 }
 
 impl CheckMessages {
     fn run(&self) -> anyhow::Result<()> {
-        let config = if let Some(config_path) = &self.config_path {
-            let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
-            eprintln!("Loaded config from {}", config_path.display());
-            config
-        } else {
-            BookConfig::default()
-        };
-        let resource_set = open_game_resources(&self.root_dir)?;
-        let mut builder = BookBuilder::new(config)?;
-
-        // Extra testing for building a conversation.
-
-        for res in resource_set.resources_of_type(ResourceType::Message) {
-            let msg_resources = parse_message_resource(&res.load_data()?)?;
-            for (msg_id, record) in msg_resources.messages() {
-                builder.add_message(res.id().resource_num(), msg_id, record)?;
-            }
-        }
-        let book = builder.build()?;
+        let book: Book = scidev_book::file_format::deserialize_book(
+            &mut serde_json::Deserializer::from_reader(std::fs::File::open(&self.book_path)?),
+        )?;
 
         eprintln!("Num rooms: {}", book.rooms().count());
         eprintln!("Num nouns: {}", book.nouns().count());
@@ -245,8 +165,6 @@ impl PrintTalkers {
 /// The specific message command to execute.
 #[derive(Subcommand)]
 enum MessageCommand {
-    #[clap(about = "Exports game messages to a JSON file.")]
-    Export(ExportMessages),
     #[clap(about = "Prints messages from the game, with optional filters.")]
     Print(PrintMessages),
     #[clap(
@@ -271,7 +189,6 @@ pub(crate) struct Messages {
 impl Messages {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
         match &self.msg_cmd {
-            MessageCommand::Export(cmd) => cmd.run()?,
             MessageCommand::Print(cmd) => cmd.run()?,
             MessageCommand::Check(cmd) => cmd.run()?,
             MessageCommand::PrintTalkers(cmd) => cmd.run()?,

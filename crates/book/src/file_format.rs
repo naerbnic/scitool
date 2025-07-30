@@ -14,6 +14,7 @@ use scidev_common::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::ids::RawTalkerId;
 use crate::rich_text::TextStyle;
 use crate::{
     Book, ConditionId, ConversationId, NounId, RoleEntry, RoleId, RoomEntry, RoomId, VerbEntry,
@@ -112,6 +113,7 @@ struct ConversationItem {
 struct LineItem {
     id: String,
     num: u8,
+    talker_num: u8,
     role: RoleIndex,
     text: LineText,
     #[serde(rename = "parentConversation")]
@@ -300,6 +302,7 @@ fn build_lines(
         |line| LineItem {
             id: line.id().to_string(),
             num: line.id().sequence_num(),
+            talker_num: line.talker_num(),
             role: *role_index_map
                 .get(&line.role().id())
                 .expect("Line's role should be in the role index map"),
@@ -493,6 +496,7 @@ fn make_line_map(
         let sequence_id = RawSequenceId::new(line.num);
         let entry = LineEntry {
             role,
+            talker: RawTalkerId::new(line.talker_num),
             text: deserialize_rich_text(&line.text),
         };
         line_map

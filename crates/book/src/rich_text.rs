@@ -125,6 +125,14 @@ impl RichText {
     pub fn is_empty(&self) -> bool {
         self.items.iter().all(|item| item.text.is_empty())
     }
+
+    #[must_use]
+    pub fn to_plain_text(&self) -> String {
+        self.items
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<String>()
+    }
 }
 
 impl<T> From<T> for RichText
