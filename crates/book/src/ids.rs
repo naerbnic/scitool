@@ -8,11 +8,15 @@ use scidev_common::RawVerbId;
 // They are copyable, but only reference a single literal value from the SCI message
 // file. They are used to construct the public IDs that are used to navigate the book.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RawTalkerId(u8);
+pub(crate) struct RawTalkerId(u8);
 
 impl RawTalkerId {
-    pub fn new(value: u8) -> Self {
+    pub(crate) fn new(value: u8) -> Self {
         RawTalkerId(value)
+    }
+
+    pub(crate) fn as_u8(self) -> u8 {
+        self.0
     }
 }
 
@@ -21,6 +25,12 @@ impl RawTalkerId {
 /// An identifier for a role.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RawRoleId(String);
+
+impl RawRoleId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
 
 // Public IDs.
 //
@@ -73,29 +83,6 @@ impl RoleId {
 }
 
 impl std::fmt::Debug for RoleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoleId").field(&self.0.0).finish()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TalkerId(RawTalkerId);
-
-impl TalkerId {
-    pub fn from_raw(talker: RawTalkerId) -> Self {
-        TalkerId(talker)
-    }
-
-    pub fn talker_num(self) -> u8 {
-        self.0.0
-    }
-
-    pub fn raw_id(self) -> RawTalkerId {
-        self.0
-    }
-}
-
-impl std::fmt::Debug for TalkerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RoleId").field(&self.0.0).finish()
     }

@@ -1,7 +1,7 @@
 use super::{
     doc::{ContentItem, Document, Section},
-    text::RichText,
 };
+use scidev_book::rich_text::RichText;
 
 const GOOGLE_ICONS_LINK: maud::PreEscaped<&str> = maud::PreEscaped(
     r#"<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />"#,

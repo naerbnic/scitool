@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use scidev_resources::{ResourceId, ResourceType, file::open_game_resources};
 use scidev_utils::data_writer::{DataWriter, IoDataWriter};
 
+mod book;
 mod generate;
 mod msg;
 mod script;
@@ -188,6 +189,8 @@ enum Category {
     Generate(generate::Generate),
     #[clap(name = "script", about = "Commands for working with game scripts.")]
     Script(script::Script),
+    #[clap(name = "book", about = "Commands for working with game books.")]
+    Book(book::BookCommand),
 }
 
 impl Category {
@@ -197,6 +200,7 @@ impl Category {
             Category::Message(msg) => msg.run(),
             Category::Generate(generate) => generate.run(),
             Category::Script(script) => script.run(),
+            Category::Book(book) => book.run(),
         }
     }
 }

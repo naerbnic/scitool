@@ -6,10 +6,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::text;
 use schemars::JsonSchema;
-use scidev_common as common;
+use scidev_book::rich_text;
 use scidev_book::{self as book, Book};
+use scidev_common as common;
+
+use crate::generate::text;
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, JsonSchema)]
 #[serde(transparent)]
 pub(crate) struct LineId(String);
@@ -79,8 +82,8 @@ pub(crate) struct TextPiece {
     pub style: TextStyle,
 }
 
-impl From<&text::TextItem> for TextPiece {
-    fn from(item: &text::TextItem) -> Self {
+impl From<&rich_text::TextItem> for TextPiece {
+    fn from(item: &rich_text::TextItem) -> Self {
         TextPiece {
             text: item.text().to_string(),
             style: TextStyle {
@@ -96,8 +99,8 @@ pub(crate) struct RichText {
     pub items: Vec<TextPiece>,
 }
 
-impl From<text::RichText> for RichText {
-    fn from(text: text::RichText) -> Self {
+impl From<rich_text::RichText> for RichText {
+    fn from(text: rich_text::RichText) -> Self {
         let items = text.items().iter().map(Into::into).collect();
         RichText { items }
     }
@@ -115,7 +118,7 @@ impl From<book::Line<'_>> for Line {
         Self {
             id: line.id().into(),
             role: line.role().id().into(),
-            text: text::RichText::from_msg_text(line.text()).into(),
+            text: line.text().clone().into(),
         }
     }
 }
