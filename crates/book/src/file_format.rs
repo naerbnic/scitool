@@ -392,21 +392,17 @@ fn make_verbs(formatted_book: &BookFormat) -> BTreeMap<RawVerbId, VerbEntry> {
 
 fn make_rooms(
     formatted_book: &BookFormat,
-    room_ids: &[RoomId],
     mut noun_map: BTreeMap<RoomId, BTreeMap<RawNounId, NounEntry>>,
     mut condition_map: BTreeMap<RoomId, BTreeMap<RawConditionId, ConditionEntry>>,
 ) -> BTreeMap<RawRoomId, RoomEntry> {
     let mut rooms: BTreeMap<RawRoomId, RoomEntry> = BTreeMap::new();
     for room in &formatted_book.rooms {
         let raw_room_id = RawRoomId::new(room.num);
+        let room_id = RoomId::from_raw(raw_room_id);
         let entry = RoomEntry {
             name: room.name.clone(),
-            nouns: noun_map
-                .remove(&room_ids[room.num as usize])
-                .unwrap_or_default(),
-            conditions: condition_map
-                .remove(&room_ids[room.num as usize])
-                .unwrap_or_default(),
+            nouns: noun_map.remove(&room_id).unwrap_or_default(),
+            conditions: condition_map.remove(&room_id).unwrap_or_default(),
         };
         rooms.insert(raw_room_id, entry);
     }
@@ -586,7 +582,6 @@ where
 
     let rooms = make_rooms(
         &formatted_book,
-        &room_ids,
         make_noun_map(
             &formatted_book,
             &room_ids,
@@ -614,7 +609,14 @@ where
 }
 
 #[must_use]
-pub fn json_schema() -> String {
-    serde_json::to_string(schemars::schema_for!(BookFormat).as_value())
-        .expect("Failed to serialize a serde_json::Value")
+pub fn json_schema(pretty_print: bool) -> String {
+    let schema = schemars::schema_for!(BookFormat);
+    let schema = schema.as_value();
+
+    if pretty_print {
+        serde_json::to_string_pretty(&schema)
+    } else {
+        serde_json::to_string(&schema)
+    }
+    .expect("Failed to serialize schema to JSON")
 }
