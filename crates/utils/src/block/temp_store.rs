@@ -72,18 +72,17 @@ mod tests {
 
     use super::*;
     use crate::block::MemBlock;
-    use macro_rules_attribute::apply;
     use smol_macros::test;
-
-    #[apply(test!)]
-    async fn test_temp_store() -> anyhow::Result<()> {
-        let mut store = TempStore::new()?;
-        let buffer = MemBlock::from_vec(vec![1, 2, 3, 4]);
-        let block_source = store.store(buffer).await?;
-        assert_eq!(block_source.size(), 4);
-        let mut read_data = Vec::new();
-        read_data.put(block_source.lock().unwrap());
-        assert_eq!(read_data, vec![1, 2, 3, 4]);
-        Ok(())
+    test! {
+        async fn test_temp_store() -> anyhow::Result<()> {
+            let mut store = TempStore::new()?;
+            let buffer = MemBlock::from_vec(vec![1, 2, 3, 4]);
+            let block_source = store.store(buffer).await?;
+            assert_eq!(block_source.size(), 4);
+            let mut read_data = Vec::new();
+            read_data.put(block_source.lock().unwrap());
+            assert_eq!(read_data, vec![1, 2, 3, 4]);
+            Ok(())
+        }
     }
 }
