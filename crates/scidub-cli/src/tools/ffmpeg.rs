@@ -82,7 +82,8 @@ impl FfmpegTool {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()?;
-        let stdout = tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
+        let stdout =
+            tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
         let (status, output, _, ()) = futures::join!(
             child.wait(),
             output_state.wait(),

@@ -1,4 +1,3 @@
-
 mod cmds;
 
 fn main() -> anyhow::Result<()> {
