@@ -12,7 +12,7 @@ use scidev_utils::block::{BlockReader, BlockSource, LazyBlock, MemBlock};
 
 use super::{ResourceId, ResourceType};
 
-use futures::io::AsyncWriteExt;
+use tokio::io::AsyncWriteExt;
 
 mod data;
 mod map;
@@ -208,7 +208,7 @@ impl Resource {
         Ok(self.source.open()?)
     }
 
-    pub async fn write_patch<W: futures::io::AsyncWrite + Unpin>(
+    pub async fn write_patch<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         mut writer: W,
     ) -> anyhow::Result<()> {

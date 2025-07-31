@@ -1,6 +1,8 @@
 use clap::Parser;
 
-mod cmds;
+mod compile_audio;
+mod export_scannable;
+mod try_scan;
 
 #[derive(Parser)]
 struct Cli {
@@ -11,14 +13,14 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Cmd {
     #[clap(name = "compile-audio")]
-    CompileAudio(cmds::CompileAudio),
+    CompileAudio(compile_audio::CompileAudio),
     #[clap(name = "export-scannable")]
-    ExportScannable(cmds::ExportScannable),
+    ExportScannable(export_scannable::ExportScannable),
     #[clap(name = "try-scan")]
-    TryScan(cmds::TryScan),
+    TryScan(try_scan::TryScan),
 }
 
-async fn async_main() -> anyhow::Result<()> {
+pub(crate) async fn async_main() -> anyhow::Result<()> {
     let args = Cli::parse();
     match &args.command {
         Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
@@ -26,9 +28,4 @@ async fn async_main() -> anyhow::Result<()> {
         Cmd::TryScan(try_scan) => try_scan.run().await?,
     }
     Ok(())
-}
-
-fn main() -> anyhow::Result<()> {
-    let exec = smol::LocalExecutor::new();
-    smol::block_on(exec.run(async_main()))
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::Buf;
 
 use crate::buffer::Buffer;
-use futures::io::AsyncWriteExt;
+use tokio::io::AsyncWriteExt;
 
 pub struct BlockData<'a>(Box<dyn bytes::Buf + 'a>);
 
@@ -133,7 +133,7 @@ impl OutputBlock {
         Ok(())
     }
 
-    pub async fn write_to_async<W: futures::io::AsyncWrite + Unpin>(
+    pub async fn write_to_async<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         mut writer: W,
     ) -> anyhow::Result<()> {

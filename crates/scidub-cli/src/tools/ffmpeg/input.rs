@@ -8,7 +8,7 @@ use super::tcp;
 /// lifetime of the `FFMpeg` process.
 pub trait InputState {
     fn url(&self) -> OsString;
-    fn wait(self) -> impl Future<Output = anyhow::Result<()>>;
+    fn wait(self) -> impl std::future::Future<Output = anyhow::Result<()>>;
 }
 
 struct SimpleInputState(OsString);
@@ -24,18 +24,18 @@ impl InputState for SimpleInputState {
 
 struct TcpInputState {
     /// Thread handling the TCP connection.
-    task: smol::Task<anyhow::Result<()>>,
+    task: tokio::task::JoinHandle<anyhow::Result<()>>,
     /// URL of the input.
     local_addr: SocketAddr,
 }
 
 impl TcpInputState {
-    async fn new<R: smol::io::AsyncRead + Send + 'static>(
-        read: R,
+    async fn new<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+        mut read: R,
         timeout: std::time::Instant,
     ) -> anyhow::Result<Self> {
-        let (local_addr, task) = tcp::start_tcp(timeout, async move |stream| {
-            smol::io::copy(read, stream).await?;
+        let (local_addr, task) = tcp::start_tcp(timeout, async move |mut stream| {
+            tokio::io::copy(&mut read, &mut stream).await?;
             Ok(())
         })
         .await?;
@@ -49,7 +49,7 @@ impl InputState for TcpInputState {
     }
 
     async fn wait(self) -> anyhow::Result<()> {
-        self.task.await?;
+        self.task.await??;
         Ok(())
     }
 }
@@ -74,7 +74,7 @@ pub struct ReaderInput<R>(R);
 
 impl<R> ReaderInput<R>
 where
-    R: smol::io::AsyncRead + Send + Unpin + 'static,
+    R: tokio::io::AsyncRead + Send + Unpin + 'static,
 {
     pub fn new(reader: R) -> Self {
         Self(reader)
@@ -83,7 +83,7 @@ where
 
 impl<R> Input for ReaderInput<R>
 where
-    R: smol::io::AsyncRead + Clone + Send + Unpin + 'static,
+    R: tokio::io::AsyncRead + Clone + Send + Unpin + 'static,
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         TcpInputState::new(

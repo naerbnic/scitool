@@ -13,8 +13,7 @@ pub(crate) struct ExportScannable {
 
 impl ExportScannable {
     pub(crate) async fn run(&self) -> anyhow::Result<()> {
-        let sample_dir =
-            scitool_fan_dub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?;
+        let sample_dir = scidub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?;
         sample_dir.save_to_scannable_dir(&self.output).await?;
         Ok(())
     }

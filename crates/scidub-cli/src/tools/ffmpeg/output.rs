@@ -1,13 +1,11 @@
 use std::{ffi::OsString, net::SocketAddr, path::Path};
 
-use smol::io::Cursor;
-
 use super::tcp;
 
 pub trait OutputState {
     type OutputType;
     fn url(&self) -> OsString;
-    fn wait(self) -> impl Future<Output = anyhow::Result<Self::OutputType>>;
+    fn wait(self) -> impl std::future::Future<Output = anyhow::Result<Self::OutputType>>;
 }
 
 struct SimpleOutputState(OsString);
@@ -24,7 +22,7 @@ impl OutputState for SimpleOutputState {
 
 struct TcpOutputState {
     /// Thread handling the TCP connection.
-    task: smol::Task<anyhow::Result<Vec<u8>>>,
+    task: tokio::task::JoinHandle<anyhow::Result<Vec<u8>>>,
     /// URL of the input.
     local_addr: SocketAddr,
 }
@@ -32,9 +30,9 @@ struct TcpOutputState {
 impl TcpOutputState {
     async fn new(timeout: std::time::Instant) -> anyhow::Result<Self> {
         let (local_addr, task) = tcp::start_tcp(timeout, {
-            async move |stream| {
+            async move |mut stream| {
                 let mut output = Vec::new();
-                smol::io::copy(stream, Cursor::new(&mut output)).await?;
+                tokio::io::copy(&mut stream, &mut output).await?;
                 Ok(output)
             }
         })
@@ -50,7 +48,7 @@ impl OutputState for TcpOutputState {
     }
 
     async fn wait(self) -> anyhow::Result<Vec<u8>> {
-        self.task.await
+        self.task.await?
     }
 }
 

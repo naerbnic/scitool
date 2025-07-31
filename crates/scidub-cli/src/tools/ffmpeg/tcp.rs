@@ -1,26 +1,26 @@
 use std::net::SocketAddr;
 
-use async_net::TcpStream;
-use smol::Task;
+use tokio::net::TcpStream;
+use tokio::task::JoinHandle;
 
 pub(crate) async fn start_tcp<F, Fut, R>(
     timeout: std::time::Instant,
     body: F,
-) -> anyhow::Result<(SocketAddr, Task<anyhow::Result<R>>)>
+) -> anyhow::Result<(SocketAddr, JoinHandle<anyhow::Result<R>>)>
 where
     F: FnOnce(TcpStream) -> Fut + Send + 'static,
-    Fut: Future<Output = anyhow::Result<R>> + Send,
+    Fut: std::future::Future<Output = anyhow::Result<R>> + Send,
     R: Send + 'static,
 {
-    let listener = smol::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let local_addr = listener.local_addr()?;
     log::debug!("Listening on {local_addr}");
 
-    let timer = smol::Timer::at(timeout);
+    let timer = tokio::time::sleep_until(timeout.into());
 
-    let task = smol::spawn(async move {
-        let stream = smol::future::or(
-            async move {
+    let task = tokio::spawn(async move {
+        let stream = tokio::select! {
+            result = async {
                 let (stream, _) = listener.accept().await?;
                 log::info!(
                     "{}: Accepted connection from {}",
@@ -28,13 +28,11 @@ where
                     stream.peer_addr()?
                 );
                 Ok(stream)
-            },
-            async move {
-                timer.await;
+            } => result,
+            () = timer => {
                 Err(anyhow::anyhow!("Connection timed out."))
-            },
-        )
-        .await?;
+            }
+        }?;
         body(stream).await
     });
     Ok((local_addr, task))

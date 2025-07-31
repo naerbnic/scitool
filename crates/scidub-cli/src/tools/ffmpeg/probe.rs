@@ -1,6 +1,6 @@
 use std::{path::PathBuf, str::FromStr};
 
-use futures::TryFutureExt;
+use futures::TryFutureExt as _;
 use serde::Deserialize;
 
 use super::input::InputState;
@@ -60,7 +60,7 @@ impl Probe {
 
     pub(crate) async fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
         let in_state = input.create_state().await?;
-        let mut command = smol::process::Command::new(&self.path);
+        let mut command = tokio::process::Command::new(&self.path);
         command
             .arg("-i")
             .arg(in_state.url())

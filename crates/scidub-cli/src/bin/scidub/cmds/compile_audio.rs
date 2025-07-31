@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use futures::{FutureExt, TryStreamExt, stream::FuturesUnordered};
-use scitool_fan_dub_cli::{path::LookupPath, tools::ffmpeg::FfmpegTool};
+use scidub_cli::{path::LookupPath, tools::ffmpeg::FfmpegTool};
 
 async fn execute_all<F>(futures: impl IntoIterator<Item = F>) -> anyhow::Result<()>
 where
@@ -58,16 +58,15 @@ impl CompileAudio {
         );
         let sample_dir = match self.scan_type {
             ScanType::Legacy => {
-                scitool_fan_dub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?
+                scidub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?
             }
             ScanType::Scannable => {
-                let scan =
-                    scitool_fan_dub_cli::file::AudioSampleScan::read_from_dir(&self.sample_dir)?;
+                let scan = scidub_cli::file::AudioSampleScan::read_from_dir(&self.sample_dir)?;
                 anyhow::ensure!(
                     !scan.has_duplicates(),
                     "Duplicate files found in scan directory",
                 );
-                scitool_fan_dub_cli::resources::SampleDir::from_sample_scan(&scan)?
+                scidub_cli::resources::SampleDir::from_sample_scan(&scan)?
             }
         };
         let resources = sample_dir.to_audio_resources(&ffmpeg_tool, 4).await?;
@@ -77,7 +76,7 @@ impl CompileAudio {
         futures::try_join!(
             async {
                 let resource_aud_file =
-                    smol::fs::File::create(output_dir.join("resource.aud")).await?;
+                    tokio::fs::File::create(output_dir.join("resource.aud")).await?;
                 resources
                     .audio_volume()
                     .write_to_async(resource_aud_file)
@@ -91,7 +90,7 @@ impl CompileAudio {
                         res.id().resource_num(),
                         res.id().type_id().to_file_ext()
                     ));
-                    let open_file = smol::fs::File::create(output_dir.join(&file)).await?;
+                    let open_file = tokio::fs::File::create(output_dir.join(&file)).await?;
                     res.write_patch(open_file).await?;
                     Ok::<_, anyhow::Error>(())
                 }

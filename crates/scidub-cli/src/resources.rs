@@ -127,7 +127,7 @@ pub struct SampleDir {
 impl SampleDir {
     pub async fn load_dir(path: &Path) -> anyhow::Result<Self> {
         let samples_file = path.join("samples.json");
-        let samples_file_contents = smol::fs::read(&samples_file).await?;
+        let samples_file_contents = tokio::fs::read(&samples_file).await?;
         let sample_set: SampleSet =
             serde_json::from_reader(std::io::Cursor::new(samples_file_contents))?;
         Ok(Self {
@@ -223,10 +223,10 @@ impl SampleDir {
                 let target_path = path.join(new_path);
                 // Create the target directory if it doesn't exist.
                 let target_dir = target_path.parent().unwrap();
-                smol::fs::create_dir_all(target_dir).await?;
+                tokio::fs::create_dir_all(target_dir).await?;
                 // Copy the file to the new location.
-                smol::fs::create_dir_all(target_dir).await?;
-                smol::fs::copy(source_path, target_path).await?;
+                tokio::fs::create_dir_all(target_dir).await?;
+                tokio::fs::copy(source_path, target_path).await?;
                 Ok::<_, anyhow::Error>(())
             })
             .collect::<FuturesUnordered<_>>();
