@@ -2,7 +2,6 @@ use scidev_utils::{
     block::{BlockReader, MemBlock},
     buffer::{Buffer, BufferExt, BufferOpsExt},
     data_reader::DataReader,
-    numbers::modify_u16_le_in_slice,
 };
 
 use super::selectors::SelectorTable;
@@ -11,6 +10,19 @@ use bytes::{Buf, BufMut};
 mod object;
 
 pub use object::Object;
+
+fn modify_u16_le_in_slice(
+    slice: &mut [u8],
+    at: usize,
+    body: impl FnOnce(u16) -> anyhow::Result<u16>,
+) -> anyhow::Result<()> {
+    let slice: &mut [u8] = &mut slice[at..][..2];
+    let slice: &mut [u8; 2] = slice.try_into()?;
+    let value = u16::from_le_bytes(*slice);
+    let new_value = body(value)?;
+    slice.copy_from_slice(&new_value.to_le_bytes());
+    Ok(())
+}
 
 fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> anyhow::Result<()>
 where
