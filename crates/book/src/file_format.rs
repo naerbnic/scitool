@@ -62,6 +62,7 @@ struct BookFormat {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct RoleItem {
     id: String,
+    raw: String,
     name: String,
     #[serde(rename = "shortName")]
     short_name: String,
@@ -184,6 +185,7 @@ fn build_roles(book: &Book) -> (Vec<RoleItem>, HashMap<RoleId, RoleIndex>) {
         RoleIndex,
         |role| RoleItem {
             id: format!("role-{}", role.id().as_str()),
+            raw: role.id().to_string(),
             name: role.name().to_string(),
             short_name: role.short_name().to_string(),
         },
@@ -367,7 +369,7 @@ where
 fn make_roles(formatted_book: &BookFormat) -> BTreeMap<RawRoleId, RoleEntry> {
     let mut role_map: BTreeMap<RawRoleId, RoleEntry> = BTreeMap::new();
     for role in &formatted_book.roles {
-        let role_id = RawRoleId::new(role.id.clone());
+        let role_id = RawRoleId::new(role.raw.clone());
         let entry = RoleEntry {
             name: role.name.clone(),
             short_name: role.short_name.clone(),

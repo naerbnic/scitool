@@ -1,40 +1,21 @@
 use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
-use scidev_book::{Book, builder::BookBuilder, config::BookConfig};
-use scidev_resources::{
-    ResourceType, file::open_game_resources, types::msg::parse_message_resource,
-};
+use scidev_book::Book;
 
-use crate::generate::json::GameScript;
+use crate::generate::{csv::generate_csv, json::GameScript};
 
 #[derive(Parser)]
 struct CommonArgs {
-    /// Path to the game's root directory.
-    root_dir: PathBuf,
-    /// Path to the book configuration YAML file.
-    config_path: PathBuf,
+    /// Path to the book file.
+    book_path: PathBuf,
 }
 
 fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
-    let config = if args.config_path.exists() {
-        let config: BookConfig = serde_yml::from_reader(std::fs::File::open(&args.config_path)?)?;
-        config
-    } else {
-        BookConfig::default()
-    };
-    let resource_set = open_game_resources(&args.root_dir)?;
-    let mut builder = BookBuilder::new(config)?;
-
-    // Extra testing for building a conversation.
-
-    for res in resource_set.resources_of_type(ResourceType::Message) {
-        let msg_resources = parse_message_resource(&res.load_data()?)?;
-        for (msg_id, record) in msg_resources.messages() {
-            builder.add_message(res.id().resource_num(), msg_id, record)?;
-        }
-    }
-    Ok(builder.build()?)
+    let book: Book = scidev_book::file_format::deserialize_book(
+        &mut serde_json::Deserializer::from_reader(std::fs::File::open(&args.book_path)?),
+    )?;
+    Ok(book)
 }
 
 /// Generates a JSON representation of the game script.
@@ -74,6 +55,25 @@ impl GenerateJsonSchema {
     }
 }
 
+#[derive(Parser)]
+struct GenerateCsv {
+    #[clap(flatten)]
+    common: CommonArgs,
+
+    /// Base URL for the game script page.
+    #[clap(long, default_value = "https://sq5-fan-dub.github.io/script")]
+    base_url: String,
+}
+
+impl GenerateCsv {
+    fn run(&self) -> anyhow::Result<()> {
+        let book = load_book(&self.common)?;
+        let csv = generate_csv(&book, &self.base_url)?;
+        println!("{csv}");
+        Ok(())
+    }
+}
+
 /// The specific generation command to execute.
 #[derive(Subcommand)]
 enum GenerateCommand {
@@ -84,6 +84,8 @@ enum GenerateCommand {
         about = "Generates the JSON schema for the game script structure and prints it to stdout."
     )]
     JsonSchema(GenerateJsonSchema),
+    #[clap(about = "Generates a CSV representation of the game script.")]
+    Csv(GenerateCsv),
 }
 
 /// Commands for generating different file formats from game data.
@@ -99,6 +101,7 @@ impl Generate {
         match &self.msg_cmd {
             GenerateCommand::Json(cmd) => cmd.run(),
             GenerateCommand::JsonSchema(cmd) => cmd.run(),
+            GenerateCommand::Csv(cmd) => cmd.run(),
         }
     }
 }

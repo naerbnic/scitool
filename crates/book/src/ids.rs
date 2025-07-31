@@ -82,6 +82,12 @@ impl RoleId {
     }
 }
 
+impl std::fmt::Display for RoleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "role-{}", self.0.0)
+    }
+}
+
 impl std::fmt::Debug for RoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RoleId").field(&self.0.0).finish()
