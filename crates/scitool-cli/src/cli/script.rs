@@ -54,14 +54,14 @@ impl ScriptCommand {
 
 /// Commands for working with game scripts.
 #[derive(Parser)]
-pub(crate) struct Script {
+pub struct Script {
     /// The specific script command to execute.
     #[clap(subcommand)]
     command: ScriptCommand,
 }
 
 impl Script {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         self.command.run()
     }
 }

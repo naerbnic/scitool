@@ -46,14 +46,14 @@ enum GenerateCommand {
 
 /// Commands for generating different file formats from game data.
 #[derive(Parser)]
-pub(crate) struct Generate {
+pub struct Generate {
     /// The specific generation command to execute.
     #[clap(subcommand)]
     msg_cmd: GenerateCommand,
 }
 
 impl Generate {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         match &self.msg_cmd {
             GenerateCommand::Csv(cmd) => cmd.run(),
         }

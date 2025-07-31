@@ -9,12 +9,12 @@ use scidev_resources::file::open_game_resources;
 use scidev_resources::types::msg::parse_message_resource;
 
 #[derive(Parser)]
-pub(crate) struct BookCommand {
+pub struct BookCommand {
     #[clap(subcommand)]
     book_cmd: SubCommand,
 }
 impl BookCommand {
-    pub(crate) fn run(&self) -> Result<(), anyhow::Error> {
+    pub fn run(&self) -> Result<(), anyhow::Error> {
         match &self.book_cmd {
             SubCommand::Export(export) => export.run()?,
             SubCommand::Validate(validate) => validate.run()?,
