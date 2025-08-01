@@ -1,21 +1,13 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use scidev_book::Book;
 
-use crate::generate::csv::generate_csv;
+use scitool_cli::commands::generate::generate_csv;
 
 #[derive(Parser)]
 struct CommonArgs {
     /// Path to the book file.
     book_path: PathBuf,
-}
-
-fn load_book(args: &CommonArgs) -> anyhow::Result<Book> {
-    let book: Book = scidev_book::file_format::deserialize_book(
-        &mut serde_json::Deserializer::from_reader(std::fs::File::open(&args.book_path)?),
-    )?;
-    Ok(book)
 }
 
 #[derive(Parser)]
@@ -30,8 +22,7 @@ struct GenerateCsv {
 
 impl GenerateCsv {
     fn run(&self) -> anyhow::Result<()> {
-        let book = load_book(&self.common)?;
-        let csv = generate_csv(&book, &self.base_url)?;
+        let csv = generate_csv(&self.common.book_path, &self.base_url)?;
         println!("{csv}");
         Ok(())
     }
@@ -46,14 +37,14 @@ enum GenerateCommand {
 
 /// Commands for generating different file formats from game data.
 #[derive(Parser)]
-pub struct Generate {
+pub(super) struct Generate {
     /// The specific generation command to execute.
     #[clap(subcommand)]
     msg_cmd: GenerateCommand,
 }
 
 impl Generate {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub(super) fn run(&self) -> anyhow::Result<()> {
         match &self.msg_cmd {
             GenerateCommand::Csv(cmd) => cmd.run(),
         }

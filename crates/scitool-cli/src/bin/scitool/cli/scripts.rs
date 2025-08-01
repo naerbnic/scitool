@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use scitool_cli::commands::scripts::generate_headers;
+
 /// Generates script header files (`selectors.sh` and `classdef.sh`) from game resources.
 #[derive(Parser)]
 struct GenerateHeaders {
@@ -21,15 +23,11 @@ struct GenerateHeaders {
 
 impl GenerateHeaders {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
-        let exports = scidev_header_gen::SciScriptExports::read_from_resources(&self.game_dir)?;
-
-        let selectors_file = std::fs::File::create(self.out_dir.join(&self.selectors_path))?;
-        exports.write_selector_header_to(std::io::BufWriter::new(selectors_file))?;
-
-        let classdef_file = std::fs::File::create(self.out_dir.join(&self.classdef_path))?;
-        exports.write_classdef_header_to(std::io::BufWriter::new(classdef_file))?;
-
-        Ok(())
+        generate_headers(
+            &self.game_dir,
+            &self.out_dir.join(&self.selectors_path),
+            &self.out_dir.join(&self.classdef_path),
+        )
     }
 }
 
@@ -54,14 +52,14 @@ impl ScriptCommand {
 
 /// Commands for working with game scripts.
 #[derive(Parser)]
-pub struct Script {
+pub(super) struct Script {
     /// The specific script command to execute.
     #[clap(subcommand)]
     command: ScriptCommand,
 }
 
 impl Script {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub(super) fn run(&self) -> anyhow::Result<()> {
         self.command.run()
     }
 }

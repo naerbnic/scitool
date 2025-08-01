@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 
-pub(crate) mod book;
-pub(crate) mod resources;
+mod book;
+mod generate;
+mod messages;
+mod resources;
+mod scripts;
 
 /// A command line tool for working with Sierra adventure games written in the SCI engine.
 #[derive(Parser)]
@@ -24,14 +27,14 @@ enum Category {
     #[clap(name = "res", about = "Commands for working with game resources.")]
     Resource(resources::Resource),
     #[clap(name = "msg", about = "Commands for working with game messages.")]
-    Message(scitool_cli::cli::msg::Messages),
+    Message(messages::Messages),
     #[clap(
         name = "gen",
         about = "Commands for generating various outputs from game data."
     )]
-    Generate(scitool_cli::cli::generate::Generate),
+    Generate(generate::Generate),
     #[clap(name = "script", about = "Commands for working with game scripts.")]
-    Script(scitool_cli::cli::script::Script),
+    Script(scripts::Script),
     #[clap(name = "book", about = "Commands for working with game books.")]
     Book(book::BookCommand),
 }

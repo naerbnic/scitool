@@ -6,12 +6,12 @@ use clap::Subcommand;
 use scitool_cli::commands::book::{export_book, export_schema, validate_book};
 
 #[derive(Parser)]
-pub(crate) struct BookCommand {
+pub(super) struct BookCommand {
     #[clap(subcommand)]
     book_cmd: SubCommand,
 }
 impl BookCommand {
-    pub(crate) fn run(&self) -> Result<(), anyhow::Error> {
+    pub(super) fn run(&self) -> Result<(), anyhow::Error> {
         match &self.book_cmd {
             SubCommand::Export(export) => export.run()?,
             SubCommand::Validate(validate) => validate.run()?,
@@ -29,7 +29,7 @@ enum SubCommand {
 }
 
 #[derive(Parser)]
-pub(crate) struct ExportCommand {
+struct ExportCommand {
     config: PathBuf,
     game: PathBuf,
     /// Path to the output file. If not specified, writes to stdout.
@@ -38,7 +38,7 @@ pub(crate) struct ExportCommand {
 }
 
 impl ExportCommand {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         let output: Box<dyn std::io::Write> = if let Some(path) = &self.output {
             Box::new(std::fs::File::create_new(path)?)
         } else {
@@ -50,12 +50,12 @@ impl ExportCommand {
 }
 
 #[derive(Parser)]
-pub(crate) struct ValidateCommand {
+struct ValidateCommand {
     book: PathBuf,
 }
 
 impl ValidateCommand {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         validate_book(&self.book)?;
         Ok(())
     }
@@ -68,7 +68,7 @@ struct SchemaCommand {
 }
 
 impl SchemaCommand {
-    pub(crate) fn run(&self) {
+    fn run(&self) {
         export_schema(self.pretty);
     }
 }
