@@ -1,3 +1,4 @@
+#![allow(clippy::doc_markdown, reason = "Docstrings are converted to user help")]
 use clap::{Parser, Subcommand};
 
 mod book;
@@ -24,18 +25,24 @@ impl Cli {
 /// The category of command to run.
 #[derive(Subcommand)]
 enum Category {
-    #[clap(name = "res", about = "Commands for working with game resources.")]
+    /// Commands for working with game resources.
+    #[clap(name = "resources", visible_alias = "res")]
     Resource(resources::Resource),
-    #[clap(name = "msg", about = "Commands for working with game messages.")]
+
+    /// Commands for working with game messages.
+    #[clap(name = "messages", visible_alias = "msg")]
     Message(messages::Messages),
-    #[clap(
-        name = "gen",
-        about = "Commands for generating various outputs from game data."
-    )]
+
+    /// Commands for generating various outputs from game data.
+    #[clap(name = "generate", visible_alias = "gen")]
     Generate(generate::Generate),
-    #[clap(name = "script", about = "Commands for working with game scripts.")]
+
+    /// Commands for working with game scripts.
+    #[clap(name = "script")]
     Script(scripts::Script),
-    #[clap(name = "book", about = "Commands for working with game books.")]
+
+    /// Commands for working with game books.
+    #[clap(name = "book")]
     Book(book::BookCommand),
 }
 

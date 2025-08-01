@@ -8,23 +8,28 @@ use scitool_cli::commands::messages::{LineFilter, check_messages, for_each_line,
 #[derive(Parser)]
 struct PrintMessages {
     /// Path to the book file.
-    #[clap(index = 1)]
     book_path: PathBuf,
+
     /// Filter by talker ID.
     #[clap(short = 't', long, required = false)]
     talker: Option<u8>,
+
     /// Filter by room ID.
     #[clap(short = 'r', long, required = false)]
     room: Option<u16>,
+
     /// Filter by verb ID.
     #[clap(short = 'v', long, required = false)]
     verb: Option<u8>,
+
     /// Filter by noun ID.
     #[clap(short = 'n', long, required = false)]
     noun: Option<u8>,
+
     /// Filter by condition ID.
     #[clap(short = 'c', long, required = false)]
     condition: Option<u8>,
+
     /// Filter by sequence ID.
     #[clap(short = 's', long, required = false)]
     sequence: Option<u8>,
@@ -88,16 +93,13 @@ impl PrintTalkers {
 /// The specific message command to execute.
 #[derive(Subcommand)]
 enum MessageCommand {
-    #[clap(about = "Prints messages from the game, with optional filters.")]
+    /// Prints messages from the game, with optional filters.
     Print(PrintMessages),
-    #[clap(
-        about = "Checks message data, building a \"book\" and printing statistics and validation errors."
-    )]
+
+    /// Checks message data, building a "book" and printing statistics and validation errors.
     Check(CheckMessages),
-    #[clap(
-        name = "print-talkers",
-        about = "Prints a list of all unique talker IDs found in the game messages."
-    )]
+
+    /// Prints a list of all unique talker IDs found in the game messages.
     PrintTalkers(PrintTalkers),
 }
 

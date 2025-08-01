@@ -23,15 +23,24 @@ impl BookCommand {
 
 #[derive(Subcommand)]
 enum SubCommand {
+    /// Exports the book to a file or stdout.
     Export(ExportCommand),
+
+    /// Validates the book file for correctness.
     Validate(ValidateCommand),
+
+    /// Exports the schema for the book format.
     Schema(SchemaCommand),
 }
 
 #[derive(Parser)]
 struct ExportCommand {
+    /// Path to the configuration file.
     config: PathBuf,
+
+    /// Path to the game's root directory.
     game: PathBuf,
+
     /// Path to the output file. If not specified, writes to stdout.
     #[clap(long, short)]
     output: Option<PathBuf>,
@@ -51,6 +60,7 @@ impl ExportCommand {
 
 #[derive(Parser)]
 struct ValidateCommand {
+    /// Path to the book file to validate.
     book: PathBuf,
 }
 
@@ -63,6 +73,7 @@ impl ValidateCommand {
 
 #[derive(Parser)]
 struct SchemaCommand {
+    /// If set, pretty-prints the schema output.
     #[clap(short, long, default_value = "false")]
     pretty: bool,
 }

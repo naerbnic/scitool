@@ -21,13 +21,13 @@ impl Resource {
 /// The specific resource command to execute.
 #[derive(Subcommand)]
 enum ResourceCommand {
-    #[clap(name = "list", about = "Lists resources in the game.")]
+    /// Lists resources in the game.
     List(ListResources),
-    #[clap(
-        about = "Extracts a resource and saves it as a patch file. Supported types are Script (SCR) and Heap (HEP)."
-    )]
-    ExtractAsPatch(ExtractResourceAsPatch),
-    #[clap(about = "Dumps the hexadecimal content of a resource.")]
+
+    /// Extracts a resource and saves it as a patch file. Supported types are Script (SCR) and Heap (HEP).
+    Extract(ExtractResourceAsPatch),
+
+    /// Dumps the hexadecimal content of a resource.
     Dump(DumpResource),
 }
 
@@ -35,7 +35,7 @@ impl ResourceCommand {
     fn run(&self) -> anyhow::Result<()> {
         match self {
             ResourceCommand::List(list) => list.run()?,
-            ResourceCommand::ExtractAsPatch(extract) => extract.run()?,
+            ResourceCommand::Extract(extract) => extract.run()?,
             ResourceCommand::Dump(dump) => dump.run()?,
         }
         Ok(())
@@ -48,7 +48,7 @@ struct ListResources {
     /// Path to the game's root directory.
     #[clap(index = 1)]
     root_dir: PathBuf,
-    #[expect(clippy::doc_markdown, reason = "This is a user-directed help")]
+
     /// Filter by resource type (e.g., Script, Heap, View, Pic, Sound, Message, Font, Cursor, Patch, AudioPath, Vocab, Palette, Wave, Audio, Sync).
     #[clap(long = "type", short = 't')]
     res_type: Option<ResourceType>,
@@ -69,17 +69,18 @@ impl ListResources {
 #[allow(clippy::doc_markdown, reason = "Docstrings are converted to user help")]
 struct ExtractResourceAsPatch {
     /// Path to the game's root directory.
-    #[clap(index = 1)]
     root_dir: PathBuf,
+
     /// The type of the resource to extract (e.g., Script, Heap).
-    #[clap(index = 2)]
     resource_type: ResourceType,
+
     /// The ID of the resource to extract.
-    #[clap(index = 3)]
     resource_id: u16,
+
     /// If set, prints what would be done without actually writing files.
     #[clap(short = 'n', long, default_value = "false")]
     dry_run: bool,
+
     /// Directory to save the output file. Defaults to <root_dir>.
     #[clap(short = 'o', long)]
     output_dir: Option<PathBuf>,
@@ -118,13 +119,12 @@ impl ExtractResourceAsPatch {
 #[derive(Parser)]
 struct DumpResource {
     /// Path to the game's root directory.
-    #[clap(index = 1)]
     root_dir: PathBuf,
+
     /// The type of the resource to dump.
-    #[clap(index = 2)]
     resource_type: ResourceType,
+
     /// The ID of the resource to dump.
-    #[clap(index = 3)]
     resource_id: u16,
 }
 

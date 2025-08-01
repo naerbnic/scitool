@@ -31,7 +31,7 @@ impl GenerateCsv {
 /// The specific generation command to execute.
 #[derive(Subcommand)]
 enum GenerateCommand {
-    #[clap(about = "Generates a CSV representation of the game script.")]
+    /// Generates a CSV representation of the game script.
     Csv(GenerateCsv),
 }
 
