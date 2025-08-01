@@ -1,4 +1,4 @@
-use std::{io::Write, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use scidev_resources::{ResourceId, ResourceType};
@@ -131,8 +131,7 @@ struct DumpResource {
 impl DumpResource {
     fn run(&self) -> anyhow::Result<()> {
         let resource_id = ResourceId::new(self.resource_type, self.resource_id);
-        let dump = dump_resource(&self.root_dir, resource_id)?;
-        std::io::stdout().lock().write_all(dump.as_bytes())?;
+        dump_resource(&self.root_dir, resource_id, std::io::stdout().lock())?;
         Ok(())
     }
 }
