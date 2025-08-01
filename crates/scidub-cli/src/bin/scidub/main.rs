@@ -1,6 +1,10 @@
+use crate::cmds::Cli;
+use clap::Parser;
+
 mod cmds;
 
-fn main() -> anyhow::Result<()> {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(cmds::async_main())
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    Cli::parse().run().await?;
+    Ok(())
 }

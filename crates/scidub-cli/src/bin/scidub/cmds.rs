@@ -5,9 +5,20 @@ mod export_scannable;
 mod try_scan;
 
 #[derive(Parser)]
-struct Cli {
+pub(crate) struct Cli {
     #[clap(subcommand)]
     command: Cmd,
+}
+
+impl Cli {
+    pub(crate) async fn run(&self) -> anyhow::Result<()> {
+        match &self.command {
+            Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
+            Cmd::ExportScannable(export_scannable) => export_scannable.run().await?,
+            Cmd::TryScan(try_scan) => try_scan.run().await?,
+        }
+        Ok(())
+    }
 }
 
 #[derive(clap::Subcommand)]
@@ -18,14 +29,4 @@ enum Cmd {
     ExportScannable(export_scannable::ExportScannable),
     #[clap(name = "try-scan")]
     TryScan(try_scan::TryScan),
-}
-
-pub(crate) async fn async_main() -> anyhow::Result<()> {
-    let args = Cli::parse();
-    match &args.command {
-        Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
-        Cmd::ExportScannable(export_scannable) => export_scannable.run().await?,
-        Cmd::TryScan(try_scan) => try_scan.run().await?,
-    }
-    Ok(())
 }
