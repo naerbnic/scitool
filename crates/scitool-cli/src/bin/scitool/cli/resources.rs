@@ -2,10 +2,7 @@ use std::{io::Write, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use scidev_resources::{ResourceId, ResourceType};
-use scitool_cli::commands::{
-    dump_resource::dump_resource, extract_resource_as_patch::extract_resource_as_patch,
-    list_resources::list_resources,
-};
+use scitool_cli::commands::resources::{dump_resource, extract_resource_as_patch, list_resources};
 
 /// Commands for working with game resources.
 #[derive(Parser)]

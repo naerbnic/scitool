@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+pub(crate) mod book;
 pub(crate) mod resources;
 
 /// A command line tool for working with Sierra adventure games written in the SCI engine.
@@ -32,7 +33,7 @@ enum Category {
     #[clap(name = "script", about = "Commands for working with game scripts.")]
     Script(scitool_cli::cli::script::Script),
     #[clap(name = "book", about = "Commands for working with game books.")]
-    Book(scitool_cli::cli::book::BookCommand),
+    Book(book::BookCommand),
 }
 
 impl Category {
