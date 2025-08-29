@@ -115,7 +115,7 @@ impl ClassDeclSet {
         Ok(Self { classes })
     }
 
-    pub fn classes(&self) -> impl Iterator<Item = Class> {
+    pub fn classes(&'_ self) -> impl Iterator<Item = Class<'_>> {
         self.classes.values().map(|data| Class { root: self, data })
     }
 }

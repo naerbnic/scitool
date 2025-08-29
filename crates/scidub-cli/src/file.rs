@@ -86,8 +86,8 @@ impl AudioSampleScan {
     }
 
     pub fn get_duplicates(
-        &self,
-    ) -> impl Iterator<Item = (LineId, impl IntoIterator<Item = AudioSample>)> {
+        &'_ self,
+    ) -> impl Iterator<Item = (LineId, impl IntoIterator<Item = AudioSample<'_>>)> {
         self.line_id_map
             .iter()
             .filter(|(_, entries)| entries.len() > 1)
@@ -99,7 +99,7 @@ impl AudioSampleScan {
             })
     }
 
-    pub fn get_valid_entries(&self) -> impl Iterator<Item = (LineId, AudioSample)> {
+    pub fn get_valid_entries(&'_ self) -> impl Iterator<Item = (LineId, AudioSample<'_>)> {
         self.line_id_map
             .iter()
             .filter(|(_, entries)| entries.len() == 1)
@@ -150,7 +150,7 @@ impl AudioSampleEntry {
     }
 
     #[must_use]
-    pub fn get_sample(&self, line_id: LineId) -> Option<AudioSample> {
+    pub fn get_sample(&'_ self, line_id: LineId) -> Option<AudioSample<'_>> {
         match self {
             AudioSampleEntry::PlainFile { line_id: id, path } => {
                 if *id == line_id {

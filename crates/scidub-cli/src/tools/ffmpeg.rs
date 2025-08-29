@@ -104,10 +104,10 @@ impl FfmpegTool {
                             }
                             progress_info = Vec::new();
                         } else {
-                            if key == "out_time_ms" {
-                                if let Ok(time) = value.parse::<u64>() {
-                                    curr_out_time = time;
-                                }
+                            if key == "out_time_ms"
+                                && let Ok(time) = value.parse::<u64>()
+                            {
+                                curr_out_time = time;
                             }
                             let value = value.trim().to_string();
                             progress_info.push((key.to_string(), value));

@@ -432,7 +432,7 @@ impl Book {
         &self.project_name
     }
 
-    pub fn rooms(&self) -> impl Iterator<Item = Room> {
+    pub fn rooms(&'_ self) -> impl Iterator<Item = Room<'_>> {
         self.rooms.iter().map(|(&raw_id, entry)| Room {
             parent: self,
             raw_id,
@@ -440,7 +440,7 @@ impl Book {
         })
     }
 
-    pub fn roles(&self) -> impl Iterator<Item = Role> {
+    pub fn roles(&'_ self) -> impl Iterator<Item = Role<'_>> {
         self.roles.iter().map(|(raw_id, entry)| Role {
             parent: self,
             raw_id,
@@ -448,7 +448,7 @@ impl Book {
         })
     }
 
-    pub fn verbs(&self) -> impl Iterator<Item = Verb> {
+    pub fn verbs(&'_ self) -> impl Iterator<Item = Verb<'_>> {
         self.verbs.iter().map(|(&raw_id, entry)| Verb {
             parent: self,
             raw_id,
@@ -456,25 +456,25 @@ impl Book {
         })
     }
 
-    pub fn nouns(&self) -> impl Iterator<Item = Noun> {
+    pub fn nouns(&'_ self) -> impl Iterator<Item = Noun<'_>> {
         self.rooms().flat_map(|room| room.nouns())
     }
 
-    pub fn conversations(&self) -> impl Iterator<Item = Conversation> + '_ {
+    pub fn conversations(&'_ self) -> impl Iterator<Item = Conversation<'_>> + '_ {
         self.nouns().flat_map(|noun| noun.conversations())
     }
 
-    pub fn lines(&self) -> impl Iterator<Item = Line> + '_ {
+    pub fn lines(&'_ self) -> impl Iterator<Item = Line<'_>> + '_ {
         self.conversations()
             .flat_map(|conversation| conversation.lines())
     }
 
-    pub fn conditions(&self) -> impl Iterator<Item = Condition> + '_ {
+    pub fn conditions(&'_ self) -> impl Iterator<Item = Condition<'_>> + '_ {
         self.rooms().flat_map(|room| room.conditions())
     }
 
     #[must_use]
-    pub fn get_role(&self, id: &RoleId) -> Option<Role> {
+    pub fn get_role(&'_ self, id: &RoleId) -> Option<Role<'_>> {
         self.roles
             .get_key_value(id.raw_id())
             .map(|(raw_id, entry)| Role {
@@ -485,7 +485,7 @@ impl Book {
     }
 
     #[must_use]
-    pub fn get_verb(&self, id: VerbId) -> Option<Verb> {
+    pub fn get_verb(&'_ self, id: VerbId) -> Option<Verb<'_>> {
         self.verbs
             .get_key_value(&id.raw_id())
             .map(|(&raw_id, entry)| Verb {
@@ -496,7 +496,7 @@ impl Book {
     }
 
     #[must_use]
-    pub fn get_room(&self, id: RoomId) -> Option<Room> {
+    pub fn get_room(&'_ self, id: RoomId) -> Option<Room<'_>> {
         self.rooms
             .get_key_value(&id.raw_id())
             .map(|(&raw_id, entry)| Room {
@@ -507,25 +507,25 @@ impl Book {
     }
 
     #[must_use]
-    pub fn get_condition(&self, id: ConditionId) -> Option<Condition> {
+    pub fn get_condition(&'_ self, id: ConditionId) -> Option<Condition<'_>> {
         self.get_room(id.room_id())
             .and_then(|room| room.get_condition_inner(id.raw_id()))
     }
 
     #[must_use]
-    pub fn get_noun(&self, id: NounId) -> Option<Noun> {
+    pub fn get_noun(&'_ self, id: NounId) -> Option<Noun<'_>> {
         self.get_room(id.room_id())
             .and_then(|room| room.get_noun_inner(id.raw_id()))
     }
 
     #[must_use]
-    pub fn get_conversation(&self, id: ConversationId) -> Option<Conversation> {
+    pub fn get_conversation(&'_ self, id: ConversationId) -> Option<Conversation<'_>> {
         self.get_noun(id.noun_id())
             .and_then(|noun| noun.get_conversation_inner(id.conversation_key()))
     }
 
     #[must_use]
-    pub fn get_line(&self, id: LineId) -> Option<Line> {
+    pub fn get_line(&'_ self, id: LineId) -> Option<Line<'_>> {
         self.get_conversation(id.conv_id())
             .and_then(|conversation| conversation.get_line_inner(id.raw_id()))
     }

@@ -232,13 +232,13 @@ impl<T> Clone for CacheRef<T> {
 
 impl<T> Drop for CacheRef<T> {
     fn drop(&mut self) {
-        if let Some(entry) = self.entry.upgrade() {
-            if entry.decrement_ref_count() {
-                // Entry is no longer referenced, we can remove it from the store
-                if let Some(store) = self.store.upgrade() {
-                    let mut guard = store.lock();
-                    guard.evict_key(CacheKey::new(&entry));
-                }
+        if let Some(entry) = self.entry.upgrade()
+            && entry.decrement_ref_count()
+        {
+            // Entry is no longer referenced, we can remove it from the store
+            if let Some(store) = self.store.upgrade() {
+                let mut guard = store.lock();
+                guard.evict_key(CacheKey::new(&entry));
             }
         }
     }

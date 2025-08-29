@@ -51,35 +51,35 @@ pub fn for_each_line(
         &mut serde_json::Deserializer::from_reader(std::fs::File::open(book_path)?),
     )?;
     for line in book.lines() {
-        if let Some(room) = filter.room {
-            if line.id().room_num() != room {
-                continue;
-            }
+        if let Some(room) = filter.room
+            && line.id().room_num() != room
+        {
+            continue;
         }
-        if let Some(talker) = filter.talker {
-            if line.talker_num() != talker {
-                continue;
-            }
+        if let Some(talker) = filter.talker
+            && line.talker_num() != talker
+        {
+            continue;
         }
-        if let Some(verb) = filter.verb {
-            if line.id().verb_num() != verb {
-                continue;
-            }
+        if let Some(verb) = filter.verb
+            && line.id().verb_num() != verb
+        {
+            continue;
         }
-        if let Some(noun) = filter.noun {
-            if line.id().noun_num() != noun {
-                continue;
-            }
+        if let Some(noun) = filter.noun
+            && line.id().noun_num() != noun
+        {
+            continue;
         }
-        if let Some(condition) = filter.condition {
-            if line.id().condition_num() != condition {
-                continue;
-            }
+        if let Some(condition) = filter.condition
+            && line.id().condition_num() != condition
+        {
+            continue;
         }
-        if let Some(sequence) = filter.sequence {
-            if line.id().sequence_num() != sequence {
-                continue;
-            }
+        if let Some(sequence) = filter.sequence
+            && line.id().sequence_num() != sequence
+        {
+            continue;
         }
 
         body(&line)?;

@@ -165,10 +165,10 @@ pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
     let mut patches = Vec::new();
     for entry in root_dir.read_dir()? {
         let entry = entry?;
-        if entry.file_type()?.is_file() {
-            if let Some(patch_res) = try_patch_from_file(&entry.path())? {
-                patches.push(patch_res);
-            }
+        if entry.file_type()?.is_file()
+            && let Some(patch_res) = try_patch_from_file(&entry.path())?
+        {
+            patches.push(patch_res);
         }
     }
 
