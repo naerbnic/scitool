@@ -378,15 +378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -742,22 +733,12 @@ name = "scidev-book"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools",
  "schemars 1.0.4",
  "scidev",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "scidev-header-gen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "itertools 0.14.0",
- "scidev",
- "serde",
 ]
 
 [[package]]
@@ -767,7 +748,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
- "itertools 0.13.0",
+ "itertools",
  "log",
  "scidev",
  "serde",
@@ -784,11 +765,10 @@ dependencies = [
  "bitter",
  "clap",
  "csv",
- "itertools 0.13.0",
+ "itertools",
  "schemars 0.8.22",
  "scidev",
  "scidev-book",
- "scidev-header-gen",
  "serde",
  "serde_json",
  "serde_yml",

@@ -10,19 +10,19 @@ use scidev::{
 };
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
-pub struct Selector {
+pub(super) struct Selector {
     name: String,
     id: u16,
 }
 
 impl Selector {
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub fn id(&self) -> u16 {
+    pub(super) fn id(&self) -> u16 {
         self.id
     }
 }
@@ -93,25 +93,25 @@ fn topo_sort<'a>(classes: impl IntoIterator<Item = Class<'a>>) -> Vec<Class<'a>>
 }
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
-pub struct Property {
+pub(super) struct Property {
     name: String,
     base_value: u16,
 }
 
 impl Property {
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub fn base_value(&self) -> u16 {
+    pub(super) fn base_value(&self) -> u16 {
         self.base_value
     }
 }
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
-pub struct ClassDef {
+pub(super) struct ClassDef {
     name: String,
     script_num: u16,
     species: u16,
@@ -123,32 +123,32 @@ pub struct ClassDef {
 
 impl ClassDef {
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub fn script_num(&self) -> u16 {
+    pub(super) fn script_num(&self) -> u16 {
         self.script_num
     }
 
     #[must_use]
-    pub fn species(&self) -> u16 {
+    pub(super) fn species(&self) -> u16 {
         self.species
     }
 
     #[must_use]
-    pub fn super_class(&self) -> Option<u16> {
+    pub(super) fn super_class(&self) -> Option<u16> {
         self.super_class
     }
 
     #[must_use]
-    pub fn properties(&self) -> &[Property] {
+    pub(super) fn properties(&self) -> &[Property] {
         &self.properties
     }
 
     #[must_use]
-    pub fn methods(&self) -> &[String] {
+    pub(super) fn methods(&self) -> &[String] {
         &self.methods
     }
 }
@@ -196,13 +196,13 @@ fn dump_class_defs(resource_set: &ResourceSet) -> anyhow::Result<Vec<ClassDef>> 
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct SciScriptExports {
-    pub selectors: Vec<Selector>,
-    pub class_defs: Vec<ClassDef>,
+pub(super) struct SciScriptExports {
+    pub(super) selectors: Vec<Selector>,
+    pub(super) class_defs: Vec<ClassDef>,
 }
 
 impl SciScriptExports {
-    pub fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
+    pub(super) fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
         let resource_set = file::open_game_resources(root_dir)?;
 
         let selectors = dump_selectors(&resource_set)?;
@@ -215,17 +215,10 @@ impl SciScriptExports {
         })
     }
 
-    #[must_use]
-    pub fn selectors(&self) -> &[Selector] {
-        &self.selectors
-    }
-
-    #[must_use]
-    pub fn class_defs(&self) -> &[ClassDef] {
-        &self.class_defs
-    }
-
-    pub fn write_selector_header_to(&self, mut out: impl std::io::Write) -> anyhow::Result<()> {
+    pub(super) fn write_selector_header_to(
+        &self,
+        mut out: impl std::io::Write,
+    ) -> anyhow::Result<()> {
         // Note that we leave the next write location at the end of the line,
         // to write the correct closing paren.
         write!(out, "(selectors")?;
@@ -237,7 +230,10 @@ impl SciScriptExports {
         Ok(())
     }
 
-    pub fn write_classdef_header_to(&self, mut out: impl std::io::Write) -> anyhow::Result<()> {
+    pub(super) fn write_classdef_header_to(
+        &self,
+        mut out: impl std::io::Write,
+    ) -> anyhow::Result<()> {
         // Note that we leave the next write location at the end of the line,
         // to write the correct closing paren.
 

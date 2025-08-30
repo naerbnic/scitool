@@ -1,6 +1,7 @@
 use std::{fs::File, io::BufWriter, path::Path};
 
-use scidev_header_gen::SciScriptExports;
+use self::headers::SciScriptExports;
+mod headers;
 
 pub fn generate_headers(
     game_dir: &Path,
