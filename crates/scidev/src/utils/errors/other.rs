@@ -105,7 +105,7 @@ impl<T> OptionExt<T> for Option<T> {
 macro_rules! ensure_other {
     ($cond:expr, $msg:literal, $($arg:expr),*) => {
         if !$cond {
-            return Err(OtherError::from_msg(format!($msg, $($arg)*)).into());
+            return Err(OtherError::from_msg(format!($msg, $($arg),*)).into());
         }
     };
     ($cond:expr, $msg:literal) => {
@@ -115,4 +115,13 @@ macro_rules! ensure_other {
     };
 }
 
-pub(crate) use ensure_other;
+macro_rules! bail_other {
+    ($msg:literal, $($arg:expr),*) => {
+        return Err(OtherError::from_msg(format!($msg, $($arg),*)).into())
+    };
+    ($msg:literal) => {
+        return Err(OtherError::from_msg($msg).into())
+    };
+}
+
+pub(crate) use {bail_other, ensure_other};

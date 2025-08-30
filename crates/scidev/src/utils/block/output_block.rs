@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use bytes::Buf;
 
-use crate::utils::buffer::Buffer;
+use crate::utils::{
+    buffer::Buffer,
+    errors::other::{OtherError, ResultExt},
+};
 use tokio::io::AsyncWriteExt;
 
 pub struct BlockData<'a>(Box<dyn bytes::Buf + 'a>);
@@ -30,7 +33,15 @@ impl Buf for BlockData<'_> {
     }
 }
 
-type BufIter<'a> = Box<dyn Iterator<Item = anyhow::Result<BlockData<'a>>> + 'a>;
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OutputBlockError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    ReadError(#[from] OtherError),
+}
+
+type BufIter<'a> = Box<dyn Iterator<Item = Result<BlockData<'a>, OutputBlockError>> + 'a>;
 
 trait OutputBlockImpl: Send + Sync {
     fn size(&self) -> u64;
@@ -82,7 +93,9 @@ where
         Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size as u64;
             let end = std::cmp::min(start + self.max_block_size as u64, self.size());
-            Ok(BlockData::new(self.buffer.lock_range(start, end)?))
+            Ok(BlockData::new(
+                self.buffer.lock_range(start, end).with_other_err()?,
+            ))
         }))
     }
 }
@@ -98,6 +111,14 @@ impl OutputBlockImpl for BytesOutputBlock {
         let block = BlockData::new(self.0.clone());
         Box::new(std::iter::once(Ok(block)))
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WriteError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
 }
 
 pub struct OutputBlock(Arc<dyn OutputBlockImpl>);
@@ -118,15 +139,15 @@ impl OutputBlock {
         self.0.size()
     }
 
-    pub fn blocks(&self) -> impl Iterator<Item = anyhow::Result<BlockData<'_>>> + '_ {
+    pub fn blocks(&self) -> impl Iterator<Item = Result<BlockData<'_>, OutputBlockError>> + '_ {
         self.0.blocks()
     }
 
-    pub fn write_to<W: std::io::Write>(&self, mut writer: W) -> anyhow::Result<()> {
+    pub fn write_to<W: std::io::Write>(&self, mut writer: W) -> Result<(), WriteError> {
         for block in self.blocks() {
-            let mut block = block?;
+            let mut block = block.with_other_err()?;
             while block.has_remaining() {
-                let bytes_written = writer.write(block.chunk())?;
+                let bytes_written = writer.write(block.chunk()).with_other_err()?;
                 block.advance(bytes_written);
             }
         }
@@ -136,11 +157,11 @@ impl OutputBlock {
     pub async fn write_to_async<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         mut writer: W,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), WriteError> {
         for block in self.blocks() {
-            let mut block = block?;
+            let mut block = block.with_other_err()?;
             while block.has_remaining() {
-                let bytes_written = writer.write(block.chunk()).await?;
+                let bytes_written = writer.write(block.chunk()).await.with_other_err()?;
                 block.advance(bytes_written);
             }
         }

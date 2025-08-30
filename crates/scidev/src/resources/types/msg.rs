@@ -4,6 +4,7 @@ use crate::utils::{
     block::{BlockReader, MemBlock},
     buffer::BufferExt,
     data_reader::DataReader,
+    errors::{bail_other, other::OtherError, prelude::*},
 };
 
 use serde::{Deserialize, Serialize};
@@ -105,34 +106,38 @@ impl MessageRecord {
     }
 }
 
-fn parse_message_resource_v4(msg_res: MemBlock) -> anyhow::Result<Vec<RawMessageRecord>> {
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub struct ParseError(#[from] OtherError);
+
+fn parse_message_resource_v4(msg_res: MemBlock) -> Result<Vec<RawMessageRecord>, ParseError> {
     let mut reader = BlockReader::new(msg_res);
-    let _header_data = reader.read_u32_le()?;
-    let message_count = reader.read_u16_le()?;
+    let _header_data = reader.read_u32_le().with_other_err()?;
+    let message_count = reader.read_u16_le().with_other_err()?;
 
     let mut raw_msg_records = Vec::new();
     for _ in 0..message_count {
         let id = {
-            let noun = reader.read_u8()?;
-            let verb = reader.read_u8()?;
-            let condition = reader.read_u8()?;
-            let sequence = reader.read_u8()?;
+            let noun = reader.read_u8().with_other_err()?;
+            let verb = reader.read_u8().with_other_err()?;
+            let condition = reader.read_u8().with_other_err()?;
+            let sequence = reader.read_u8().with_other_err()?;
             MessageId::new(noun, verb, condition, sequence)
         };
 
-        let talker = reader.read_u8()?;
-        let text_offset = reader.read_u16_le()?;
+        let talker = reader.read_u8().with_other_err()?;
+        let text_offset = reader.read_u16_le().with_other_err()?;
 
         let ref_id = {
-            let noun = reader.read_u8()?;
-            let verb = reader.read_u8()?;
-            let condition = reader.read_u8()?;
+            let noun = reader.read_u8().with_other_err()?;
+            let verb = reader.read_u8().with_other_err()?;
+            let condition = reader.read_u8().with_other_err()?;
             MessageId::new(noun, verb, condition, None)
         };
 
         // According to ScummVM, the record size is 11, but I don't know the purpose of
         // the last byte.
-        let _unknown = reader.read_u8()?;
+        let _unknown = reader.read_u8().with_other_err()?;
 
         let raw_record = RawMessageRecord {
             id,
@@ -147,23 +152,23 @@ fn parse_message_resource_v4(msg_res: MemBlock) -> anyhow::Result<Vec<RawMessage
     Ok(raw_msg_records)
 }
 
-fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> anyhow::Result<String> {
+fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, ParseError> {
     let mut reader = BlockReader::new(msg_res.clone().sub_buffer(offset as usize..));
     let mut text = Vec::new();
     loop {
-        let ch = reader.read_u8()?;
+        let ch = reader.read_u8().with_other_err()?;
         if ch == 0 {
             break;
         }
         text.push(ch);
     }
-    Ok(String::from_utf8(text)?)
+    Ok(String::from_utf8(text).with_other_err()?)
 }
 
 fn resolve_raw_record(
     msg_res: &MemBlock,
     raw_record: RawMessageRecord,
-) -> anyhow::Result<MessageRecord> {
+) -> Result<MessageRecord, ParseError> {
     let text = read_string_at_offset(msg_res, raw_record.text_offset)?;
     Ok(MessageRecord {
         _ref_id: raw_record.ref_id,
@@ -182,12 +187,12 @@ impl RoomMessageSet {
     }
 }
 
-pub fn parse_message_resource(msg_res: &MemBlock) -> anyhow::Result<RoomMessageSet> {
+pub fn parse_message_resource(msg_res: &MemBlock) -> Result<RoomMessageSet, ParseError> {
     let mut reader = BlockReader::new(msg_res.clone());
-    let version_num = reader.read_u32_le()? / 1000;
+    let version_num = reader.read_u32_le().with_other_err()? / 1000;
     let raw_records = match version_num {
         4 => parse_message_resource_v4(reader.into_rest())?,
-        _ => anyhow::bail!("Unsupported message resource version: {}", version_num),
+        _ => bail_other!("Unsupported message resource version: {}", version_num),
     };
 
     let messages = raw_records
@@ -196,6 +201,6 @@ pub fn parse_message_resource(msg_res: &MemBlock) -> anyhow::Result<RoomMessageS
             let record = resolve_raw_record(msg_res, raw_record)?;
             Ok((raw_record.id, record))
         })
-        .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+        .collect::<Result<BTreeMap<_, _>, ParseError>>()?;
     Ok(RoomMessageSet { messages })
 }

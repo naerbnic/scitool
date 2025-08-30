@@ -7,8 +7,8 @@ use crate::utils::{
     block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
     data_reader::DataReader,
     data_writer::{DataWriter, IoDataWriter},
+    errors::{ensure_other, other::OtherError, prelude::*},
 };
-use anyhow::ensure;
 use bytes::BufMut;
 
 use crate::resources::{ResourceId, ResourceType, file::Resource};
@@ -137,6 +137,13 @@ struct AudioVolumeBuilder {
     curr_offset: u32,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum AudioVolumeBuilderError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 impl AudioVolumeBuilder {
     pub(crate) fn new() -> Self {
         AudioVolumeBuilder {
@@ -146,11 +153,14 @@ impl AudioVolumeBuilder {
         }
     }
 
-    pub(crate) fn add_entry(&mut self, sample: &VoiceSample) -> anyhow::Result<u32> {
+    pub(crate) fn add_entry(
+        &mut self,
+        sample: &VoiceSample,
+    ) -> Result<u32, AudioVolumeBuilderError> {
         // Check if the entry is vaild. Variable is copied in case we need to use it to
         // calculate the new file offset.
         let _format = if let Some(format) = self.format {
-            ensure!(
+            ensure_other!(
                 format == sample.format,
                 "Audio format mismatch: expected {:?}, got {:?}",
                 format,
@@ -263,7 +273,7 @@ impl Audio36ResourceBuilder {
         room: u16,
         entry: MessageId,
         sample: &VoiceSample,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), AudioVolumeBuilderError> {
         let offset: u32 = self.volume.add_entry(sample)?;
 
         let resource_map = self.maps.entry(room).or_insert_with(RawMapResource::new);
@@ -273,11 +283,12 @@ impl Audio36ResourceBuilder {
         Ok(())
     }
 
-    pub fn build(self) -> anyhow::Result<VoiceSampleResources> {
+    pub fn build(self) -> Result<VoiceSampleResources, AudioVolumeBuilderError> {
         let mut map_resources = Vec::new();
         for (room, map) in self.maps {
             let mut map_data = Vec::new();
-            map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))?;
+            map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))
+                .with_other_err()?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
                 LazyBlock::from_mem_block(MemBlock::from_vec(map_data)),

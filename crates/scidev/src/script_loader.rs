@@ -80,7 +80,8 @@ impl ScriptLoader {
                 .load_data()
                 .with_other_err()?;
 
-            let loaded_script = mem_loader::LoadedScript::load(&selectors, &script_data, &heap).with_other_err()?;
+            let loaded_script =
+                mem_loader::LoadedScript::load(&selectors, &script_data, &heap).with_other_err()?;
 
             loaded_scripts.insert(ScriptId(script_num), loaded_script);
         }
@@ -104,13 +105,20 @@ impl ScriptLoader {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ClassDeclSetError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 pub struct ClassDeclSet {
     classes: HashMap<Species, ClassData>,
 }
 
 impl ClassDeclSet {
-    pub fn new(resources: &ResourceSet) -> anyhow::Result<Self> {
-        let loader = ScriptLoader::load_from(resources)?;
+    pub fn new(resources: &ResourceSet) -> Result<Self, ClassDeclSetError> {
+        let loader = ScriptLoader::load_from(resources).with_other_err()?;
         let mut classes = HashMap::new();
         for (script_id, loaded_script) in loader.loaded_scripts() {
             for object in loaded_script.objects() {

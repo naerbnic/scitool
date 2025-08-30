@@ -100,6 +100,13 @@ impl ResourceBlocks {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum OpenGameResourcesError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 pub struct ResourceSet {
     entries: BTreeMap<ResourceId, ResourceBlocks>,
 }
@@ -164,12 +171,12 @@ impl ResourceSet {
     }
 }
 
-pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
+pub fn open_game_resources(root_dir: &Path) -> Result<ResourceSet, OpenGameResourcesError> {
     let mut patches = Vec::new();
-    for entry in root_dir.read_dir()? {
-        let entry = entry?;
-        if entry.file_type()?.is_file()
-            && let Some(patch_res) = try_patch_from_file(&entry.path())?
+    for entry in root_dir.read_dir().with_other_err()? {
+        let entry = entry.with_other_err()?;
+        if entry.file_type().with_other_err()?.is_file()
+            && let Some(patch_res) = try_patch_from_file(&entry.path()).with_other_err()?
         {
             patches.push(patch_res);
         }
@@ -178,15 +185,15 @@ pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
     let main_set = {
         let map_file = root_dir.join("RESOURCE.MAP");
         let data_file = root_dir.join("RESOURCE.000");
-        read_resources(&map_file, &data_file, &patches)?
+        read_resources(&map_file, &data_file, &patches).with_other_err()?
     };
 
     let message_set = {
         let map_file = root_dir.join("MESSAGE.MAP");
         let data_file = root_dir.join("RESOURCE.MSG");
-        read_resources(&map_file, &data_file, &[])?
+        read_resources(&map_file, &data_file, &[]).with_other_err()?
     };
-    Ok(main_set.merge(&message_set)?)
+    Ok(main_set.merge(&message_set).with_other_err()?)
 }
 
 #[derive(Debug, thiserror::Error)]

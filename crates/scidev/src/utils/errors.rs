@@ -8,7 +8,7 @@ pub mod prelude {
     pub use super::other::OptionExt as _;
 }
 
-pub(crate) use other::ensure_other;
+pub(crate) use other::{ensure_other, bail_other};
 
 pub trait ErrorExt {
     fn get_in_chain<E: std::error::Error + 'static>(&self) -> Option<&E>;

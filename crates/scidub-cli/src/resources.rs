@@ -109,7 +109,7 @@ impl SampleSet {
 
         let mut conversion_stream =
             futures::stream::iter(conversion_ops).buffer_unordered(num_concurrent);
-        let mut temp_store = TempStore::new()?;
+        let mut temp_store = TempStore::create()?;
         while let Some(result) = conversion_stream.next().await {
             let sample = result?;
             // Only VecDeque implements Buffer.
@@ -117,7 +117,7 @@ impl SampleSet {
             let voice_sample = VoiceSample::new(AudioFormat::Ogg, sample_source);
             builder.add_entry(sample.room, sample.message_id, &voice_sample)?;
         }
-        builder.build()
+        Ok(builder.build()?)
     }
 }
 
