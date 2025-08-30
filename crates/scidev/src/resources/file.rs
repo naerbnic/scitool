@@ -8,7 +8,10 @@ use std::{
 use data::DataFile;
 
 use self::patch::try_patch_from_file;
-use crate::utils::block::{BlockReader, BlockSource, LazyBlock, MemBlock};
+use crate::utils::{
+    block::{BlockReader, BlockSource, LazyBlock, MemBlock},
+    errors::{other::OtherError, prelude::*},
+};
 
 use super::{ResourceId, ResourceType};
 
@@ -186,6 +189,14 @@ pub fn open_game_resources(root_dir: &Path) -> anyhow::Result<ResourceSet> {
     Ok(main_set.merge(&message_set)?)
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ResourceLoadError(#[from] OtherError);
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ResourcePatchError(#[from] OtherError);
+
 pub struct Resource {
     id: ResourceId,
     source: LazyBlock,
@@ -204,16 +215,20 @@ impl Resource {
         &self.id
     }
 
-    pub fn load_data(&self) -> anyhow::Result<MemBlock> {
-        Ok(self.source.open()?)
+    pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
+        Ok(self.source.open().with_other_err()?)
     }
 
     pub async fn write_patch<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         mut writer: W,
-    ) -> anyhow::Result<()> {
-        writer.write_all(&[self.id.type_id().into(), 0]).await?;
-        writer.write_all(&self.source.open()?).await?;
+    ) -> Result<(), ResourcePatchError> {
+        writer
+            .write_all(&[self.id.type_id().into(), 0])
+            .await
+            .with_other_err()?;
+        let data = self.source.open().with_other_err()?;
+        writer.write_all(&data).await.with_other_err()?;
         Ok(())
     }
 }

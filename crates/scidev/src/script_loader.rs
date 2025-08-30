@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::resources::{ResourceId, ResourceType, file::ResourceSet};
+use crate::{
+    resources::{ResourceId, ResourceType, file::ResourceSet},
+    utils::errors::{other::OtherError, prelude::*},
+};
 use mem_loader::LoadedScript;
 
 mod mem_loader;
@@ -42,31 +45,42 @@ impl std::fmt::Debug for Species {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ScriptLoadError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 pub struct ScriptLoader {
     selectors: selectors::SelectorTable,
     loaded_scripts: HashMap<ScriptId, LoadedScript>,
 }
 
 impl ScriptLoader {
-    pub fn load_from(resources: &ResourceSet) -> anyhow::Result<Self> {
+    pub fn load_from(resources: &ResourceSet) -> Result<Self, ScriptLoadError> {
         let selector_table_data = resources
             .get_resource(&ResourceId::new(
                 ResourceType::Vocab,
                 SELECTOR_TABLE_VOCAB_NUM,
             ))
-            .ok_or_else(|| anyhow::anyhow!("Selector table not found"))?
-            .load_data()?;
-        let selectors = selectors::SelectorTable::load_from(&selector_table_data)?;
+            .ok_or_else_other(|| "Selector table not found")?
+            .load_data()
+            .with_other_err()?;
+        let selectors =
+            selectors::SelectorTable::load_from(&selector_table_data).with_other_err()?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
-            let script_data = script.load_data()?;
+            let script_data = script.load_data().with_other_err()?;
             let heap = resources
                 .get_resource(&ResourceId::new(ResourceType::Heap, script_num))
-                .ok_or_else(|| anyhow::anyhow!("Heap not found for script {}", script_num))?
-                .load_data()?;
+                .ok_or_else_other(|| "Selector heap not found")?
+                .load_data()
+                .with_other_err()?;
 
-            let loaded_script = mem_loader::LoadedScript::load(&selectors, &script_data, &heap)?;
+            let loaded_script = mem_loader::LoadedScript::load(&selectors, &script_data, &heap).with_other_err()?;
 
             loaded_scripts.insert(ScriptId(script_num), loaded_script);
         }

@@ -7,7 +7,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::utils::buffer::{Buffer, BufferExt};
+use crate::utils::{
+    buffer::{Buffer, BufferExt},
+    errors::{other::OtherError, prelude::*},
+};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -16,6 +19,12 @@ impl SharedString {
     fn new(s: String) -> Self {
         Self(Arc::new(s))
     }
+
+    fn from_utf8(bytes: Vec<u8>) -> Result<Self, std::string::FromUtf8Error> {
+        let string = String::from_utf8(bytes)?;
+        Ok(Self::new(string))
+    }
+
     fn as_str(&self) -> &str {
         &self.0
     }
@@ -61,6 +70,10 @@ impl std::fmt::Debug for Selector {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub(crate) struct SelectorTableLoadError(#[from] OtherError);
+
 #[derive(Debug)]
 struct SelectorTableInner {
     entries: BTreeMap<u16, Selector>,
@@ -71,12 +84,15 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub fn load_from<B: Buffer + Clone>(data: &B) -> anyhow::Result<Self> {
+    pub(crate) fn load_from<B: Buffer + Clone>(data: &B) -> Result<Self, SelectorTableLoadError> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
-        let (num_entries_minus_one, entries_table) = data.clone().read_value::<u16>()?;
+        let (num_entries_minus_one, entries_table) =
+            data.clone().read_value::<u16>().with_other_err()?;
         let num_entries = num_entries_minus_one + 1;
-        let (selector_offsets, _) = entries_table.read_values(num_entries as usize)?;
+        let (selector_offsets, _) = entries_table
+            .read_values(num_entries as usize)
+            .with_other_err()?;
         let mut entries: HashMap<_, Vec<_>> = HashMap::new();
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();
 
@@ -85,10 +101,13 @@ impl SelectorTable {
                 hash_map::Entry::Occupied(occupied_entry) => occupied_entry.get().clone(),
                 hash_map::Entry::Vacant(vacant_entry) => {
                     let entry_data = data.clone().sub_buffer(selector_offset..);
-                    let (string_length, entry_data) = entry_data.read_value::<u16>()?;
-                    let name = SharedString::new(String::from_utf8(
-                        entry_data.sub_buffer(..string_length).to_vec()?,
-                    )?);
+                    let (string_length, entry_data) =
+                        entry_data.read_value::<u16>().with_other_err()?;
+                    let entry_data = entry_data
+                        .sub_buffer(..string_length)
+                        .to_vec()
+                        .with_other_err()?;
+                    let name = SharedString::from_utf8(entry_data).with_other_err()?;
                     vacant_entry.insert(name).clone()
                 }
             };

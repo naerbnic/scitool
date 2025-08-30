@@ -1,6 +1,7 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
+    errors::{ensure_other, other::{OtherError, ResultExt}},
 };
 
 use crate::script_loader::selectors::{Selector, SelectorTable};
@@ -13,7 +14,8 @@ struct MethodRecord {
 
 impl FromFixedBytes for MethodRecord {
     const SIZE: usize = 4;
-    fn parse<B: bytes::Buf>(mut bytes: B) -> anyhow::Result<Self> {
+    type Error = OtherError;
+    fn parse<B: bytes::Buf>(mut bytes: B) -> Result<Self, Self::Error> {
         Ok(Self {
             selector_id: bytes.get_u16_le(),
             method_offset: bytes.get_u16_le(),
@@ -33,11 +35,11 @@ impl ObjectData {
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
         obj_data: MemBlock,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, FromBlockError> {
         let var_selector_offfset = obj_data.read_u16_le_at(4);
         let method_record_offset = obj_data.read_u16_le_at(6);
         let padding = obj_data.read_u16_le_at(8);
-        anyhow::ensure!(padding == 0);
+        ensure_other!(padding == 0, "Invalid object padding");
 
         let var_selectors = loaded_data
             .clone()
@@ -46,7 +48,7 @@ impl ObjectData {
         let (method_records, _) = loaded_data
             .clone()
             .sub_buffer(method_record_offset as usize..)
-            .read_length_delimited_block(4)?;
+            .read_length_delimited_block(4).with_other_err()?;
 
         Ok(Self {
             selector_table: selector_table.clone(),
@@ -109,6 +111,13 @@ impl ObjectData {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum FromBlockError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 pub struct Object {
     data: ObjectData,
 
@@ -121,11 +130,11 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn from_block(
+    pub(crate) fn from_block(
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
         obj_data: MemBlock,
-    ) -> anyhow::Result<Object> {
+    ) -> Result<Object, FromBlockError> {
         // Read the standard properties.
         //
         // We can ony do this with selectors that are officially built in, which

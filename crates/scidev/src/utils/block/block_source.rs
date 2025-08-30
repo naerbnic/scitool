@@ -5,7 +5,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::utils::buffer::Buffer;
+use crate::utils::{
+    buffer::{Buffer, BufferResult},
+    errors::other::ResultExt,
+};
 
 use super::{LazyBlock, MemBlock, ReadError, ReadResult};
 
@@ -152,7 +155,6 @@ impl BlockSource {
 }
 
 impl Buffer for BlockSource {
-    type Error = ReadError;
     type Guard<'g>
         = MemBlock
     where
@@ -170,8 +172,8 @@ impl Buffer for BlockSource {
         self.split_at(at)
     }
 
-    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, Self::Error> {
-        let block = self.subblock(start..end).open()?;
+    fn lock_range(&self, start: u64, end: u64) -> BufferResult<Self::Guard<'_>> {
+        let block = self.subblock(start..end).open().with_other_err()?;
         Ok(block)
     }
 }

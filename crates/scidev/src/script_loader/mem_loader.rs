@@ -2,6 +2,11 @@ use crate::utils::{
     block::{BlockReader, MemBlock},
     buffer::{Buffer, BufferExt, BufferOpsExt},
     data_reader::DataReader,
+    errors::{
+        ensure_other,
+        other::{OtherError, ResultExt},
+        prelude::*,
+    },
 };
 
 use super::selectors::SelectorTable;
@@ -11,38 +16,46 @@ mod object;
 
 pub use object::Object;
 
-fn modify_u16_le_in_slice(
+fn modify_u16_le_in_slice<E>(
     slice: &mut [u8],
     at: usize,
-    body: impl FnOnce(u16) -> anyhow::Result<u16>,
-) -> anyhow::Result<()> {
+    body: impl FnOnce(u16) -> Result<u16, E>,
+) -> Result<(), OtherError>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
     let slice: &mut [u8] = &mut slice[at..][..2];
-    let slice: &mut [u8; 2] = slice.try_into()?;
+    let slice: &mut [u8; 2] = slice.try_into().with_other_err()?;
     let value = u16::from_le_bytes(*slice);
-    let new_value = body(value)?;
+    let new_value = body(value).with_other_err()?;
     slice.copy_from_slice(&new_value.to_le_bytes());
     Ok(())
 }
 
-fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> anyhow::Result<()>
+fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> Result<(), OtherError>
 where
     B: Buffer,
 {
-    let (relocation_entries, rest) = relocations.read_length_delimited_records::<u16>()?;
-    anyhow::ensure!(rest.is_empty());
+    let (relocation_entries, rest) = relocations
+        .read_length_delimited_records::<u16>()
+        .with_other_err()?;
+    ensure_other!(rest.is_empty(), "Relocation entries must be fully consumed");
 
     for reloc_entry in relocation_entries {
-        modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| Ok(v.wrapping_add(offset)))?;
+        modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| {
+            Ok::<_, OtherError>(v.wrapping_add(offset))
+        })
+        .with_other_err()?;
     }
     Ok(())
 }
 
-fn read_null_terminated_string_at(buffer: &[u8], offset: usize) -> anyhow::Result<&str> {
+fn read_null_terminated_string_at(buffer: &[u8], offset: usize) -> Result<&str, OtherError> {
     let null_pos = buffer[offset..]
         .iter()
         .position(|&b| b == 0)
-        .ok_or_else(|| anyhow::anyhow!("No null terminator found in string"))?;
-    Ok(std::str::from_utf8(&buffer[offset..offset + null_pos])?)
+        .ok_or_else_other(|| "No null terminator found in string")?;
+    std::str::from_utf8(&buffer[offset..offset + null_pos]).with_other_err()
 }
 
 pub(crate) struct Heap {
@@ -60,7 +73,7 @@ impl Heap {
         selector_table: &SelectorTable,
         loaded_script: &MemBlock,
         resource_data: MemBlock,
-    ) -> anyhow::Result<Heap> {
+    ) -> Result<Heap, FromBlockError> {
         let relocations_offset = resource_data.read_u16_le_at(0);
         let heap_data = resource_data
             .clone()
@@ -79,10 +92,11 @@ impl Heap {
                 break;
             }
 
-            anyhow::ensure!(magic == 0x1234u16);
+            ensure_other!(magic == 0x1234u16, "Invalid object magic number");
             let object_size = heap_data.read_u16_le_at(2);
             let (object_data, next_heap_data) = heap_data.split_at((object_size * 2).into());
-            let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
+            let new_obj =
+                Object::from_block(selector_table, loaded_script, object_data).with_other_err()?;
             objects.push(new_obj);
             heap_data = next_heap_data;
         }
@@ -90,9 +104,10 @@ impl Heap {
         let mut strings = Vec::new();
         // Find all strings
         while !heap_data.is_empty() {
-            let Some(null_pos) = heap_data.iter().position(|b| b == &0) else {
-                anyhow::bail!("No null terminator found in string heap");
-            };
+            let null_pos = heap_data
+                .iter()
+                .position(|b| b == &0)
+                .ok_or_else_other(|| "No null terminator found in string heap")?;
             let (string_data, next_heap_data) =
                 heap_data.split_at((null_pos + 1).try_into().unwrap());
             strings.push(string_data);
@@ -121,6 +136,13 @@ impl Relocations {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum FromBlockError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 pub(crate) struct Script {
     #[expect(dead_code)]
     data: MemBlock,
@@ -131,15 +153,16 @@ pub(crate) struct Script {
 }
 
 impl Script {
-    pub(crate) fn from_block(data: MemBlock) -> anyhow::Result<Self> {
+    pub(crate) fn from_block(data: MemBlock) -> Result<Self, FromBlockError> {
         let relocation_offset = {
             let mut reader = BlockReader::new(data.clone());
-            reader.read_u16_le()?
+            reader.read_u16_le().with_other_err()?
         };
         let (script_data, relocations) = data.clone().split_at(relocation_offset.into());
         let (exports, _) = script_data
             .sub_buffer(2..)
-            .read_length_delimited_records::<u16>()?;
+            .read_length_delimited_records::<u16>()
+            .with_other_err()?;
 
         Ok(Self {
             data,
@@ -157,6 +180,13 @@ where
     data.sub_buffer(relocation_offset..)
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ScriptLoadError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
 pub struct LoadedScript {
     #[expect(dead_code)]
     heap_offset: u16,
@@ -172,12 +202,15 @@ impl LoadedScript {
         selector_table: &SelectorTable,
         script_data: &B,
         heap_data: &B,
-    ) -> anyhow::Result<LoadedScript>
+    ) -> Result<LoadedScript, ScriptLoadError>
     where
         B: Buffer + Clone,
     {
         let heap_offset = script_data.size();
-        anyhow::ensure!(heap_offset % 2 == 0);
+        ensure_other!(
+            heap_offset % 2 == 0,
+            "Heap offset must be be 2-byte-aligned"
+        );
 
         #[expect(clippy::cast_possible_truncation)]
         let u16_heap_offset = heap_offset as u16;
@@ -185,8 +218,8 @@ impl LoadedScript {
         // Concat the two blocks.
         //
         // It may be possible to get rid of the relocation block, but it's not clear.
-        let mut loaded_script: Vec<u8> = script_data.to_vec()?;
-        loaded_script.put(heap_data.lock()?);
+        let mut loaded_script: Vec<u8> = script_data.to_vec().with_other_err()?;
+        loaded_script.put(heap_data.lock().with_other_err()?);
 
         {
             let (script_data_slice, heap_data_slice) =
@@ -200,8 +233,8 @@ impl LoadedScript {
 
         let loaded_script = MemBlock::from_vec(loaded_script);
         let (script_data, heap_data) = loaded_script.clone().split_at(heap_offset);
-        let script = Script::from_block(script_data)?;
-        let heap = Heap::from_block(selector_table, &loaded_script, heap_data)?;
+        let script = Script::from_block(script_data).with_other_err()?;
+        let heap = Heap::from_block(selector_table, &loaded_script, heap_data).with_other_err()?;
 
         Ok(LoadedScript {
             heap_offset: u16_heap_offset,

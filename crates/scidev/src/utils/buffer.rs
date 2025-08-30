@@ -1,6 +1,9 @@
 use std::ops::{Bound, RangeBounds};
 
+use crate::utils::errors::prelude::*;
 use bytes::BufMut;
+
+use crate::utils::errors::other::OtherError;
 
 pub trait BufferOpsExt {
     fn read_u16_le_at(&self, offset: usize) -> u16;
@@ -15,12 +18,14 @@ impl BufferOpsExt for [u8] {
 
 pub trait ToFixedBytes {
     const SIZE: usize;
-    fn to_bytes(&self, dest: &mut [u8]) -> anyhow::Result<()>;
+    type Error: std::error::Error + Send + Sync + 'static;
+    fn to_bytes(&self, dest: &mut [u8]) -> Result<(), Self::Error>;
 }
 
 pub trait FromFixedBytes: Sized {
     const SIZE: usize;
-    fn parse<B: bytes::Buf>(bytes: B) -> anyhow::Result<Self>;
+    type Error: std::error::Error + Send + Sync + 'static;
+    fn parse<B: bytes::Buf>(bytes: B) -> Result<Self, Self::Error>;
 }
 
 macro_rules! impl_fixed_bytes_for_num {
@@ -28,8 +33,9 @@ macro_rules! impl_fixed_bytes_for_num {
         $(
             impl ToFixedBytes for $num {
                 const SIZE: usize = std::mem::size_of::<$num>();
+                type Error = OtherError;
 
-                fn to_bytes(&self, dest: &mut [u8]) -> anyhow::Result<()> {
+                fn to_bytes(&self, dest: &mut [u8]) -> Result<(), Self::Error> {
                     dest.copy_from_slice(&self.to_le_bytes());
                     Ok(())
                 }
@@ -37,8 +43,9 @@ macro_rules! impl_fixed_bytes_for_num {
 
             impl FromFixedBytes for $num {
                 const SIZE: usize = std::mem::size_of::<$num>();
+                type Error = OtherError;
 
-                fn parse<B: bytes::Buf>(bytes: B) -> anyhow::Result<Self> {
+                fn parse<B: bytes::Buf>(bytes: B) -> Result<Self, Self::Error> {
                     let mut byte_array = [0u8; <Self as FromFixedBytes>::SIZE];
                     (&mut byte_array[..]).put(bytes);
                     Ok(Self::from_le_bytes(byte_array))
@@ -145,6 +152,25 @@ impl<T> NoErrorResultExt<T> for Result<T, NoError> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum BufferError {
+    #[doc(hidden)]
+    #[error(transparent)]
+    Other(#[from] OtherError),
+}
+
+impl BufferError {
+    pub fn from_other_error<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        BufferError::Other(OtherError::new(err))
+    }
+}
+
+pub type BufferResult<T> = Result<T, BufferError>;
+
 /// An abstraction over types that contain a buffer of bytes.
 ///
 /// This is designed to be usable with both mutable and immutable byte
@@ -153,7 +179,6 @@ impl<T> NoErrorResultExt<T> for Result<T, NoError> {
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
 pub trait Buffer: Sized + Clone {
-    type Error: std::error::Error + Send + Sync + 'static;
     type Guard<'g>: bytes::Buf
     where
         Self: 'g;
@@ -162,18 +187,20 @@ pub trait Buffer: Sized + Clone {
     #[must_use]
     fn sub_buffer_from_range(self, start: u64, end: u64) -> Self;
     fn split_at(self, at: u64) -> (Self, Self);
-    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, Self::Error>;
+    fn lock_range(&self, start: u64, end: u64) -> BufferResult<Self::Guard<'_>>;
 
-    fn lock(&self) -> Result<Self::Guard<'_>, Self::Error> {
+    fn lock(&self) -> BufferResult<Self::Guard<'_>> {
         self.lock_range(0, self.size())
     }
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
     // Functions that can be implemented in terms of the above functions.
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
-        let (first, second) = self.split_at(T::SIZE.try_into().unwrap());
-        T::parse(first.lock()?).map(|value| (value, second))
+    fn read_value<T: FromFixedBytes>(self) -> BufferResult<(T, Self)> {
+        let (first, second) = self.split_at(T::SIZE.try_into().with_other_err()?);
+        let guard = first.lock().with_other_err()?;
+        let value = T::parse(guard).with_other_err()?;
+        Ok((value, second))
     }
 
     fn is_empty(&self) -> bool {
@@ -194,9 +221,9 @@ pub trait Buffer: Sized + Clone {
         chunks
     }
 
-    fn split_values<T: FromFixedBytes>(self) -> anyhow::Result<Vec<T>> {
+    fn split_values<T: FromFixedBytes>(self) -> BufferResult<Vec<T>> {
         let buf_size = self.size();
-        let item_size: u64 = T::SIZE.try_into().unwrap();
+        let item_size: u64 = T::SIZE.try_into().with_other_err()?;
         assert!((buf_size % item_size) == 0);
         let (values, rest) = self.read_values::<T>((buf_size / item_size).try_into().unwrap())?;
         assert!(rest.is_empty());
@@ -205,7 +232,7 @@ pub trait Buffer: Sized + Clone {
 
     /// Reads N values from the front of the buffer, returning the values and the
     /// remaining buffer.
-    fn read_values<T: FromFixedBytes>(self, count: usize) -> anyhow::Result<(Vec<T>, Self)> {
+    fn read_values<T: FromFixedBytes>(self, count: usize) -> BufferResult<(Vec<T>, Self)> {
         let mut values = Vec::with_capacity(count);
         let mut remaining = self;
         for _ in 0..count {
@@ -216,7 +243,7 @@ pub trait Buffer: Sized + Clone {
         Ok((values, remaining))
     }
 
-    fn read_length_delimited_block(self, item_size: u64) -> anyhow::Result<(Self, Self)> {
+    fn read_length_delimited_block(self, item_size: u64) -> BufferResult<(Self, Self)> {
         let (num_blocks, next) = self.read_value::<u16>()?;
         let total_block_size = u64::from(num_blocks).checked_mul(item_size).unwrap();
         Ok(next.split_at(total_block_size))
@@ -224,13 +251,13 @@ pub trait Buffer: Sized + Clone {
 
     /// Reads a sequence of values, where the first value is a little endian
     /// u16 indicating the number of values to read.
-    fn read_length_delimited_records<T: FromFixedBytes>(self) -> anyhow::Result<(Vec<T>, Self)> {
+    fn read_length_delimited_records<T: FromFixedBytes>(self) -> BufferResult<(Vec<T>, Self)> {
         let (num_records, next) = self.read_value::<u16>()?;
         let (values, next) = next.read_values::<T>(num_records as usize)?;
         Ok((values, next))
     }
 
-    fn to_vec(&self) -> Result<Vec<u8>, Self::Error> {
+    fn to_vec(&self) -> BufferResult<Vec<u8>> {
         let mut vec = Vec::with_capacity(self.size().try_into().unwrap());
         vec.put(self.lock()?);
         Ok(vec)
@@ -238,7 +265,6 @@ pub trait Buffer: Sized + Clone {
 }
 
 impl Buffer for &[u8] {
-    type Error = NoError;
     type Guard<'g>
         = &'g [u8]
     where
@@ -257,18 +283,19 @@ impl Buffer for &[u8] {
         (*self).split_at(at.try_into().unwrap())
     }
 
-    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, NoError> {
+    fn lock_range(&self, start: u64, end: u64) -> BufferResult<Self::Guard<'_>> {
         let start = usize::try_from(start).unwrap();
         let end = usize::try_from(end).unwrap();
         Ok(&self[start..end])
     }
 
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
+    fn read_value<T: FromFixedBytes>(self) -> BufferResult<(T, Self)> {
         let (first, second) = self.split_at(T::SIZE);
-        T::parse(first).map(|value| (value, second))
+        let value = T::parse(first).with_other_err()?;
+        Ok((value, second))
     }
 
-    fn read_values<T: FromFixedBytes>(self, count: usize) -> anyhow::Result<(Vec<T>, Self)> {
+    fn read_values<T: FromFixedBytes>(self, count: usize) -> BufferResult<(Vec<T>, Self)> {
         let mut values = Vec::with_capacity(count);
         let mut remaining = self;
         for _ in 0..count {

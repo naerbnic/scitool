@@ -2,7 +2,10 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::utils::buffer::{Buffer, BufferExt, FromFixedBytes, NoError};
+use crate::utils::{
+    buffer::{Buffer, BufferExt, BufferResult, FromFixedBytes},
+    errors::other::ResultExt,
+};
 
 use super::{ReadError, ReadResult};
 
@@ -111,7 +114,6 @@ impl AsRef<[u8]> for MemBlock {
 }
 
 impl Buffer for MemBlock {
-    type Error = NoError;
     type Guard<'g> = &'g [u8];
     fn size(&self) -> u64 {
         self.size.try_into().unwrap()
@@ -150,15 +152,15 @@ impl Buffer for MemBlock {
         (self.clone().sub_buffer(..at), self.sub_buffer(at..))
     }
 
-    fn lock_range(&self, start: u64, end: u64) -> Result<Self::Guard<'_>, NoError> {
+    fn lock_range(&self, start: u64, end: u64) -> BufferResult<Self::Guard<'_>> {
         let start = usize::try_from(start).unwrap();
         let end = usize::try_from(end).unwrap();
         Ok(&self[start..end])
     }
 
-    fn read_value<T: FromFixedBytes>(self) -> anyhow::Result<(T, Self)> {
+    fn read_value<T: FromFixedBytes>(self) -> BufferResult<(T, Self)> {
         let value_bytes: &[u8] = &self[..T::SIZE];
-        let value = T::parse(value_bytes)?;
+        let value = T::parse(value_bytes).with_other_err()?;
         let item_size: u64 = T::SIZE.try_into().unwrap();
         let remaining = self.sub_buffer(item_size..);
         Ok((value, remaining))
