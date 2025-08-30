@@ -1,10 +1,10 @@
-pub mod other;
 pub mod context;
+pub mod other;
 
 pub mod prelude {
+    pub use super::ErrorExt as _;
     pub use super::context::ResultExt as _;
     pub use super::other::ResultExt as _;
-    pub use super::ErrorExt as _;
 }
 
 pub trait ErrorExt {

@@ -3,13 +3,13 @@ use std::{
     io::{self, Cursor},
 };
 
-use anyhow::ensure;
-use bytes::BufMut;
 use crate::utils::{
     block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
     data_reader::DataReader,
     data_writer::{DataWriter, IoDataWriter},
 };
+use anyhow::ensure;
+use bytes::BufMut;
 
 use crate::resources::{ResourceId, ResourceType, file::Resource};
 
