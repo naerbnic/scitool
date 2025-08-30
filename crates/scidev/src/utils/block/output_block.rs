@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytes::Buf;
 
-use crate::buffer::Buffer;
+use crate::utils::buffer::Buffer;
 use tokio::io::AsyncWriteExt;
 
 pub struct BlockData<'a>(Box<dyn bytes::Buf + 'a>);

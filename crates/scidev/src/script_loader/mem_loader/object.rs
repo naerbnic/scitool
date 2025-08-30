@@ -1,9 +1,9 @@
-use scidev_utils::{
+use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
 };
 
-use crate::selectors::{Selector, SelectorTable};
+use crate::script_loader::selectors::{Selector, SelectorTable};
 
 struct MethodRecord {
     selector_id: u16,

@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{buffer::BufferExt, data_reader::DataReader};
+use crate::utils::{buffer::BufferExt, data_reader::DataReader};
 
 use super::{MemBlock, ReadError};
 

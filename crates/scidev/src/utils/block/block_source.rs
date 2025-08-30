@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::buffer::Buffer;
+use crate::utils::buffer::Buffer;
 
 use super::{LazyBlock, MemBlock, ReadError, ReadResult};
 

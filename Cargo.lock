@@ -725,10 +725,16 @@ dependencies = [
 name = "scidev"
 version = "0.1.0"
 dependencies = [
- "scidev-common",
- "scidev-resources",
- "scidev-script-loader",
- "scidev-utils",
+ "anyhow",
+ "bitter",
+ "bytes",
+ "clap",
+ "log",
+ "num",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokio",
 ]
 
 [[package]]
@@ -745,14 +751,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scidev-common"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "scidev-header-gen"
 version = "0.1.0"
 dependencies = [
@@ -760,43 +758,6 @@ dependencies = [
  "itertools 0.14.0",
  "scidev",
  "serde",
-]
-
-[[package]]
-name = "scidev-resources"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "clap",
- "log",
- "scidev-utils",
- "serde",
- "thiserror 2.0.16",
- "tokio",
-]
-
-[[package]]
-name = "scidev-script-loader"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "scidev-resources",
- "scidev-utils",
-]
-
-[[package]]
-name = "scidev-utils"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitter",
- "bytes",
- "num",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
 ]
 
 [[package]]

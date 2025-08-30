@@ -1,4 +1,4 @@
-use scidev_utils::{
+use crate::utils::{
     block::{BlockReader, MemBlock},
     buffer::{Buffer, BufferExt, BufferOpsExt},
     data_reader::DataReader,

@@ -1,8 +1,8 @@
 use std::{ffi::OsStr, path::Path};
 
-use scidev_utils::block::BlockSource;
+use crate::utils::block::BlockSource;
 
-use crate::{ResourceId, ResourceType};
+use crate::resources::{ResourceId, ResourceType};
 
 use super::Resource;
 

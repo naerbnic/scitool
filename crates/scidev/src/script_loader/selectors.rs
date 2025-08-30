@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use scidev_utils::buffer::{Buffer, BufferExt};
+use crate::utils::buffer::{Buffer, BufferExt};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);

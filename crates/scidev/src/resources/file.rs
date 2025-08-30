@@ -8,7 +8,7 @@ use std::{
 use data::DataFile;
 
 use patch::try_patch_from_file;
-use scidev_utils::block::{BlockReader, BlockSource, LazyBlock, MemBlock};
+use crate::utils::block::{BlockReader, BlockSource, LazyBlock, MemBlock};
 
 use super::{ResourceId, ResourceType};
 

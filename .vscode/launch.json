@@ -35,7 +35,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'scidev_utils'",
+            "name": "Debug unit tests in library 'scidev::utils'",
             "cargo": {
                 "args": [
                     "test",
@@ -44,7 +44,7 @@
                     "--package=sci-utils"
                 ],
                 "filter": {
-                    "name": "scidev_utils",
+                    "name": "scidev::utils",
                     "kind": "lib"
                 }
             },

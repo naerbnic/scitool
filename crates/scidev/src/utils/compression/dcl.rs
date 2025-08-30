@@ -2,7 +2,7 @@ use std::io;
 
 use bitter::BitReader;
 
-use crate::block::MemBlock;
+use crate::utils::block::MemBlock;
 
 use super::huffman::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 

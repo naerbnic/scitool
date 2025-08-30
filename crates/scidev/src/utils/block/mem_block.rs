@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::buffer::{Buffer, BufferExt, FromFixedBytes, NoError};
+use crate::utils::buffer::{Buffer, BufferExt, FromFixedBytes, NoError};
 
 use super::{ReadError, ReadResult};
 

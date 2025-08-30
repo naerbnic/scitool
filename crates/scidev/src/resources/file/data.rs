@@ -1,7 +1,7 @@
 use std::io;
 
-use crate::{ResourceId, ResourceType};
-use scidev_utils::{
+use crate::resources::{ResourceId, ResourceType};
+use crate::utils::{
     block::{BlockSource, LazyBlock},
     compression::dcl::decompress_dcl,
     data_reader::{DataReader, FromBlockSource},

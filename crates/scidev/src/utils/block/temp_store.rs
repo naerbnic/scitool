@@ -5,7 +5,7 @@ use std::{
 
 use bytes::Buf;
 
-use crate::buffer::Buffer;
+use crate::utils::buffer::Buffer;
 
 use super::BlockSource;
 
@@ -71,7 +71,7 @@ mod tests {
     use bytes::BufMut;
 
     use super::*;
-    use crate::block::MemBlock;
+    use crate::utils::block::MemBlock;
     #[tokio::test]
     async fn test_temp_store() -> anyhow::Result<()> {
         let mut store = TempStore::new()?;
