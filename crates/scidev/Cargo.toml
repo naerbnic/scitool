@@ -1,0 +1,13 @@
+[package]
+name = "scidev"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+scidev-common = { path = "../common" }
+scidev-resources = { path = "../resources" }
+scidev-script-loader = { path = "../script-loader" }
+scidev-utils = { path = "../utils" }
+
+[lints]
+workspace = true

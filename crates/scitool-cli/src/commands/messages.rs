@@ -1,9 +1,9 @@
 use std::{collections::BTreeSet, path::Path};
 
-use scidev_book::Book;
-use scidev_resources::{
+use scidev::resources::{
     ResourceType, file::open_game_resources, types::msg::parse_message_resource,
 };
+use scidev_book::Book;
 
 pub struct LineFilter {
     /// Filter by talker ID.

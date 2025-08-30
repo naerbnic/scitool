@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, btree_map};
 
 use itertools::Itertools;
 
-use scidev_common::{
-    ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId,
+use scidev::{
+    common::{ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
+    resources::types::msg::{MessageId, MessageRecord},
+    utils::validation::{IteratorExt as _, MultiValidator, ValidationError},
 };
-use scidev_resources::types::msg::{MessageId, MessageRecord};
-use scidev_utils::validation::{IteratorExt as _, MultiValidator, ValidationError};
 
 use crate::{MessageText, rich_text::RichText};
 

@@ -8,12 +8,9 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-scidev-utils = { path = "../utils" }
-scidev-resources = { path = "../resources" }
-scidev-script-loader = { path = "../script-loader" }
 scidev-header-gen = { path = "../header-gen" }
-scidev-common = { path = "../common" }
 scidev-book = { path = "../book" }
+scidev = { path = "../scidev" }
 clap = { version = "4.5.16", features = ["derive"] }
 anyhow = "1.0.86"
 bitter = "0.7.0"

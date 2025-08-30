@@ -6,8 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.97"
 itertools = "0.14.0"
-scidev-resources = { path = "../resources" }
-scidev-script-loader = { path = "../script-loader" }
+scidev = { path = "../scidev" }
 serde = { version = "1.0.219", features = ["derive"] }
 
 [lints]

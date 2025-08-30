@@ -1,8 +1,11 @@
-use scidev_resources::ResourceType;
-use scidev_utils::data_writer::{DataWriter, IoDataWriter};
+use scidev::{
+    resources::{ResourceId, ResourceType, file::open_game_resources},
+    utils::{
+        data_writer::{DataWriter, IoDataWriter},
+        debug::hex_dump_to,
+    },
+};
 use std::path::Path;
-
-use scidev_resources::{ResourceId, file::open_game_resources};
 
 pub fn dump_resource(
     root_dir: &Path,
@@ -14,7 +17,7 @@ pub fn dump_resource(
         .get_resource(&resource_id)
         .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
     let data = res.load_data()?;
-    scidev_utils::debug::hex_dump_to(output, &data, 0)?;
+    hex_dump_to(output, &data, 0)?;
     Ok(())
 }
 

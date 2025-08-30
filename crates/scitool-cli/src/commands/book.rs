@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use scidev_book::{builder::BookBuilder, config::BookConfig};
-use scidev_resources::{
+use scidev::resources::{
     ResourceType, file::open_game_resources, types::msg::parse_message_resource,
 };
+use scidev_book::{builder::BookBuilder, config::BookConfig};
 
 pub fn export_book(
     config_path: &Path,

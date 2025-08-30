@@ -4,11 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-scidev-utils = { path = "../utils" }
+scidev = { path = "../scidev" }
 serde = { version = "1.0.210", features = ["derive"] }
 anyhow = "1.0.86"
-scidev-resources = { path = "../resources" }
-scidev-common = { path = "../common" }
 itertools = "0.13.0"
 thiserror = "1.0.63"
 schemars = "1.0.4"

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use scidev_resources::{ResourceId, ResourceType};
+use scidev::resources::{ResourceId, ResourceType};
 use scitool_cli::commands::resources::{dump_resource, extract_resource_as_patch, list_resources};
 
 /// Commands for working with game resources.

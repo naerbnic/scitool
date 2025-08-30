@@ -7,9 +7,7 @@ edition = "2024"
 anyhow = { version = "1.0.97", features = ["backtrace"] }
 futures = "0.3.31"
 serde = { version = "1.0.219", features = ["derive"] }
-scidev-resources = { path = "../resources" }
-scidev-utils = { path = "../utils" }
-scidev-common = { path = "../common" }
+scidev = { path = "../scidev" }
 tokio = { version = "1.0", features = ["full"] }
 clap = "4.5.32"
 serde_json = "1.0.140"

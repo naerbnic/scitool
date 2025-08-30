@@ -5,12 +5,14 @@ use std::{
 
 use futures::{prelude::*, stream::FuturesUnordered};
 use itertools::Itertools;
-use scidev_common::{LineId, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
-use scidev_resources::types::{
-    audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
-    msg::MessageId,
+use scidev::utils::block::temp_store::TempStore;
+use scidev::{
+    common::{LineId, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
+    resources::types::{
+        audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
+        msg::MessageId,
+    },
 };
-use scidev_utils::block::temp_store::TempStore;
 use serde::{Deserialize, Serialize};
 
 use crate::{

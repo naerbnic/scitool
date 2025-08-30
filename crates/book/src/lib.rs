@@ -5,11 +5,13 @@ use std::collections::BTreeMap;
 
 use ids::RawRoleId;
 
-use scidev_common::{
-    ConditionId, ConversationId, ConversationKey, LineId, NounId, RawConditionId, RawNounId,
-    RawRoomId, RawSequenceId, RawVerbId, RoomId,
+use scidev::{
+    common::{
+        ConditionId, ConversationId, ConversationKey, LineId, NounId, RawConditionId, RawNounId,
+        RawRoomId, RawSequenceId, RawVerbId, RoomId,
+    },
+    utils::validation::{MultiValidator, ValidationError},
 };
-use scidev_utils::validation::{MultiValidator, ValidationError};
 
 pub mod builder;
 pub mod config;
