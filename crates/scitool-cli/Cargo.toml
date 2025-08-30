@@ -8,7 +8,6 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-scidev-book = { path = "../book" }
 scidev = { path = "../scidev" }
 clap = { version = "4.5.16", features = ["derive"] }
 anyhow = "1.0.86"

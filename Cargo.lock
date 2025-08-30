@@ -747,12 +747,15 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "csv",
  "futures",
  "itertools",
  "log",
  "scidev",
+ "scidev-book",
  "serde",
  "serde_json",
+ "serde_yml",
  "tokio",
  "walkdir",
 ]
@@ -768,7 +771,6 @@ dependencies = [
  "itertools",
  "schemars 0.8.22",
  "scidev",
- "scidev-book",
  "serde",
  "serde_json",
  "serde_yml",

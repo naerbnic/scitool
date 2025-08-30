@@ -1,8 +1,6 @@
 #![allow(clippy::doc_markdown, reason = "Docstrings are converted to user help")]
 use clap::{Parser, Subcommand};
 
-mod book;
-mod generate;
 mod messages;
 mod resources;
 mod scripts;
@@ -33,17 +31,9 @@ enum Category {
     #[clap(name = "messages", visible_alias = "msg")]
     Message(messages::Messages),
 
-    /// Commands for generating various outputs from game data.
-    #[clap(name = "generate", visible_alias = "gen")]
-    Generate(generate::Generate),
-
     /// Commands for working with game scripts.
     #[clap(name = "script")]
     Script(scripts::Script),
-
-    /// Commands for working with game books.
-    #[clap(name = "book")]
-    Book(book::BookCommand),
 }
 
 impl Category {
@@ -51,9 +41,7 @@ impl Category {
         match self {
             Category::Resource(res) => res.run(),
             Category::Message(msg) => msg.run(),
-            Category::Generate(generate) => generate.run(),
             Category::Script(script) => script.run(),
-            Category::Book(book) => book.run(),
         }
     }
 }
