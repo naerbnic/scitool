@@ -729,19 +729,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scidev-book"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "itertools",
- "schemars 1.0.4",
- "scidev",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "scidub-cli"
 version = "0.0.0"
 dependencies = [
@@ -751,11 +738,12 @@ dependencies = [
  "futures",
  "itertools",
  "log",
+ "schemars 1.0.4",
  "scidev",
- "scidev-book",
  "serde",
  "serde_json",
  "serde_yml",
+ "thiserror 1.0.69",
  "tokio",
  "walkdir",
 ]

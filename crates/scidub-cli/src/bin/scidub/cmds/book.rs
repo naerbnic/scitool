@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::Subcommand;
-use scidev_book::Book;
+use scidub_cli::book::Line;
 
 use std::path::Path;
 
 use scidev::resources::{
     ResourceType, file::open_game_resources, types::msg::parse_message_resource,
 };
-use scidev_book::{builder::BookBuilder, config::BookConfig};
+use scidub_cli::book::{Book, builder::BookBuilder, config::BookConfig, file_format};
 
 fn export_book(
     config_path: &Path,
@@ -35,15 +35,15 @@ fn export_book(
     }
     let book = builder.build()?;
 
-    scidev_book::file_format::serialize_book(&book, &mut serde_json::Serializer::new(output))?;
+    file_format::serialize_book(&book, &mut serde_json::Serializer::new(output))?;
 
     Ok(())
 }
 
 fn validate_book(book_path: &Path) -> anyhow::Result<()> {
-    let book = scidev_book::file_format::deserialize_book(
-        &mut serde_json::Deserializer::from_reader(std::fs::File::open(book_path)?),
-    )?;
+    let book = file_format::deserialize_book(&mut serde_json::Deserializer::from_reader(
+        std::fs::File::open(book_path)?,
+    ))?;
 
     eprintln!(
         "Book loaded successfully with {} entries.",
@@ -54,7 +54,7 @@ fn validate_book(book_path: &Path) -> anyhow::Result<()> {
 }
 
 fn export_schema(pretty: bool) {
-    let json_schema = scidev_book::file_format::json_schema(pretty);
+    let json_schema = file_format::json_schema(pretty);
     println!("{json_schema}");
 }
 
@@ -98,11 +98,11 @@ impl LineFilter {
 fn for_each_line(
     book_path: &Path,
     filter: &LineFilter,
-    mut body: impl for<'a> FnMut(&'a scidev_book::Line<'a>) -> anyhow::Result<()>,
+    mut body: impl for<'a> FnMut(&'a Line<'a>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let book: Book = scidev_book::file_format::deserialize_book(
-        &mut serde_json::Deserializer::from_reader(std::fs::File::open(book_path)?),
-    )?;
+    let book: Book = file_format::deserialize_book(&mut serde_json::Deserializer::from_reader(
+        std::fs::File::open(book_path)?,
+    ))?;
     for line in book.lines() {
         if let Some(room) = filter.room
             && line.id().room_num() != room

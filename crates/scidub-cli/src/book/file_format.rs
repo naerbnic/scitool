@@ -14,15 +14,15 @@ use scidev::common::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::ids::RawTalkerId;
-use crate::rich_text::TextStyle;
-use crate::{
+use crate::book::ids::RawTalkerId;
+use crate::book::rich_text::TextStyle;
+use crate::book::{
     Book, ConditionId, ConversationId, NounId, RoleEntry, RoleId, RoomEntry, RoomId, VerbEntry,
     VerbId,
     ids::RawRoleId,
     rich_text::{RichText, TextItem},
 };
-use crate::{ConditionEntry, ConversationEntry, LineEntry, NounEntry};
+use crate::book::{ConditionEntry, ConversationEntry, LineEntry, NounEntry};
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(transparent)]

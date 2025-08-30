@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use scidev_book::Book;
+use scidub_cli::book::{Book, file_format};
 
 #[derive(Serialize)]
 struct LineRecord {
@@ -24,9 +24,9 @@ struct LineRecord {
 }
 
 fn load_book(book_path: &Path) -> anyhow::Result<Book> {
-    let book: Book = scidev_book::file_format::deserialize_book(
-        &mut serde_json::Deserializer::from_reader(std::fs::File::open(book_path)?),
-    )?;
+    let book: Book = file_format::deserialize_book(&mut serde_json::Deserializer::from_reader(
+        std::fs::File::open(book_path)?,
+    ))?;
     Ok(book)
 }
 

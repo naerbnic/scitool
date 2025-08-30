@@ -8,7 +8,7 @@ use scidev::{
     utils::validation::{IteratorExt as _, MultiValidator, ValidationError},
 };
 
-use crate::{MessageText, rich_text::RichText};
+use crate::book::{MessageText, rich_text::RichText};
 
 use super::{
     Book,

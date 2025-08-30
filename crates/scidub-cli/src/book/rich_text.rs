@@ -1,4 +1,4 @@
-use crate::{Control, FontControl, MessageSegment, MessageText};
+use crate::book::{Control, FontControl, MessageSegment, MessageText};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextStyle {
