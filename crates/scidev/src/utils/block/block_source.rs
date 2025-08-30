@@ -7,7 +7,7 @@ use std::{
 
 use crate::utils::{
     buffer::{Buffer, BufferResult},
-    errors::other::ResultExt,
+    errors::prelude::*,
 };
 
 use super::{LazyBlock, MemBlock, ReadError, ReadResult};

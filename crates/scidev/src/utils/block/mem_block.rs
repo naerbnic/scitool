@@ -4,7 +4,7 @@ use bytes::BufMut;
 
 use crate::utils::{
     buffer::{Buffer, BufferExt, BufferResult, FromFixedBytes},
-    errors::other::ResultExt,
+    errors::prelude::*,
 };
 
 use super::{ReadError, ReadResult};

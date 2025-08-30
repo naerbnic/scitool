@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     resources::{ResourceId, ResourceType, file::ResourceSet},
-    utils::errors::{other::OtherError, prelude::*},
+    utils::errors::{OtherError, prelude::*},
 };
 use mem_loader::LoadedScript;
 

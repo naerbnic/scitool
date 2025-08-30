@@ -9,7 +9,7 @@ use std::{
 
 use crate::utils::{
     buffer::{Buffer, BufferExt},
-    errors::{other::OtherError, prelude::*},
+    errors::{OtherError, prelude::*},
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

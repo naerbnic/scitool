@@ -7,7 +7,7 @@ use crate::utils::{
     block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
     data_reader::DataReader,
     data_writer::{DataWriter, IoDataWriter},
-    errors::{ensure_other, other::OtherError, prelude::*},
+    errors::{OtherError, ensure_other, prelude::*},
 };
 use bytes::BufMut;
 

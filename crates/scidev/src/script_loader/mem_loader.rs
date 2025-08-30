@@ -2,11 +2,7 @@ use crate::utils::{
     block::{BlockReader, MemBlock},
     buffer::{Buffer, BufferExt, BufferOpsExt},
     data_reader::DataReader,
-    errors::{
-        ensure_other,
-        other::{OtherError, ResultExt},
-        prelude::*,
-    },
+    errors::{OtherError, ensure_other, prelude::*},
 };
 
 use super::selectors::SelectorTable;

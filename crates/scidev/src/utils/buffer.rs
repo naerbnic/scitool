@@ -3,7 +3,7 @@ use std::ops::{Bound, RangeBounds};
 use crate::utils::errors::prelude::*;
 use bytes::BufMut;
 
-use crate::utils::errors::other::OtherError;
+use crate::utils::errors::OtherError;
 
 pub trait BufferOpsExt {
     fn read_u16_le_at(&self, offset: usize) -> u16;

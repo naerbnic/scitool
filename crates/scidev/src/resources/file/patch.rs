@@ -4,7 +4,7 @@ use crate::utils::block::BlockSource;
 
 use crate::resources::{ResourceId, ResourceType};
 use crate::utils::errors::ensure_other;
-use crate::utils::errors::other::{OtherError, ResultExt};
+use crate::utils::errors::{OtherError, prelude::*};
 
 use super::Resource;
 

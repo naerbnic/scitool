@@ -1,7 +1,7 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
-    errors::{ensure_other, other::{OtherError, ResultExt}},
+    errors::{OtherError, ensure_other, prelude::*},
 };
 
 use crate::script_loader::selectors::{Selector, SelectorTable};
@@ -48,7 +48,8 @@ impl ObjectData {
         let (method_records, _) = loaded_data
             .clone()
             .sub_buffer(method_record_offset as usize..)
-            .read_length_delimited_block(4).with_other_err()?;
+            .read_length_delimited_block(4)
+            .with_other_err()?;
 
         Ok(Self {
             selector_table: selector_table.clone(),

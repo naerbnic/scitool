@@ -4,7 +4,7 @@ use crate::utils::{
     block::{BlockReader, MemBlock},
     buffer::BufferExt,
     data_reader::DataReader,
-    errors::{bail_other, other::OtherError, prelude::*},
+    errors::{OtherError, bail_other, prelude::*},
 };
 
 use serde::{Deserialize, Serialize};

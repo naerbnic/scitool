@@ -10,7 +10,7 @@ use data::DataFile;
 use self::patch::try_patch_from_file;
 use crate::utils::{
     block::{BlockReader, BlockSource, LazyBlock, MemBlock},
-    errors::{other::OtherError, prelude::*},
+    errors::{OtherError, prelude::*},
 };
 
 use super::{ResourceId, ResourceType};
