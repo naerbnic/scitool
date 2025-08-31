@@ -224,7 +224,7 @@ impl AudioVolumeBuilder {
         let mut volume_blocks = Vec::new();
         volume_blocks.push(header);
         for entry in &self.entries {
-            volume_blocks.push(OutputBlock::from_buffer(entry.data.clone()));
+            volume_blocks.push(OutputBlock::from_block_source(entry.data.clone()));
         }
         volume_blocks.into_iter().collect()
     }
@@ -239,7 +239,7 @@ impl AudioVolumeBuilder {
                 // concatenate the entries together.
                 let mut volume_blocks = Vec::new();
                 for entry in &self.entries {
-                    volume_blocks.push(OutputBlock::from_buffer(entry.data.clone()));
+                    volume_blocks.push(OutputBlock::from_block_source(entry.data.clone()));
                 }
                 volume_blocks.into_iter().collect()
             }

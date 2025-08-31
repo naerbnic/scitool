@@ -3,6 +3,7 @@
 //! The resource table is stored as Vocab:997.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap, hash_map},
     sync::Arc,
 };
@@ -20,8 +21,11 @@ impl SharedString {
         Self(Arc::new(s))
     }
 
-    fn from_utf8(bytes: Vec<u8>) -> Result<Self, std::string::FromUtf8Error> {
-        let string = String::from_utf8(bytes)?;
+    fn from_utf8<'a, B>(bytes: B) -> Result<Self, std::string::FromUtf8Error>
+    where
+        B: Into<Cow<'a, [u8]>>,
+    {
+        let string = String::from_utf8(bytes.into().into_owned())?;
         Ok(Self::new(string))
     }
 
@@ -103,11 +107,8 @@ impl SelectorTable {
                     let entry_data = data.clone().sub_buffer(selector_offset..);
                     let (string_length, entry_data) =
                         entry_data.read_value::<u16>().with_other_err()?;
-                    let entry_data = entry_data
-                        .sub_buffer(..string_length)
-                        .to_vec()
-                        .with_other_err()?;
-                    let name = SharedString::from_utf8(entry_data).with_other_err()?;
+                    let entry_buffer = entry_data.sub_buffer(..string_length);
+                    let name = SharedString::from_utf8(entry_buffer.as_slice()).with_other_err()?;
                     vacant_entry.insert(name).clone()
                 }
             };

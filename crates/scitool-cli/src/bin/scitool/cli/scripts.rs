@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use scitool_cli::commands::scripts::generate_headers;
+use scitool_cli::commands::scripts::{dump_headers, generate_headers};
 
 /// Generates script header files (`selectors.sh` and `classdef.sh`) from game resources.
 #[derive(Parser)]
@@ -22,15 +22,23 @@ struct GenerateHeaders {
     /// Filename for the class definition header. Defaults to `classdef.sh`
     #[arg(short = 'c', long, default_value = "classdef.sh")]
     classdef_path: PathBuf,
+
+    #[arg(short = 'n', long, default_value = "false")]
+    dry_run: bool,
 }
 
 impl GenerateHeaders {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
-        generate_headers(
-            &self.game_dir,
-            &self.out_dir.join(&self.selectors_path),
-            &self.out_dir.join(&self.classdef_path),
-        )
+        if self.dry_run {
+            dump_headers(&self.game_dir, std::io::stdout())?;
+        } else {
+            generate_headers(
+                &self.game_dir,
+                &self.out_dir.join(&self.selectors_path),
+                &self.out_dir.join(&self.classdef_path),
+            )?;
+        }
+        Ok(())
     }
 }
 

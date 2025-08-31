@@ -1,8 +1,11 @@
-use crate::utils::{
-    block::{BlockReader, MemBlock},
-    buffer::{Buffer, BufferExt, BufferOpsExt},
-    data_reader::DataReader,
-    errors::{OtherError, ensure_other, prelude::*},
+use crate::{
+    script_loader::errors::MalformedDataError,
+    utils::{
+        block::{BlockReader, MemBlock},
+        buffer::{Buffer, BufferExt, BufferOpsExt},
+        data_reader::DataReader,
+        errors::{OtherError, ensure_other, prelude::*},
+    },
 };
 
 use super::selectors::SelectorTable;
@@ -12,20 +15,12 @@ mod object;
 
 pub use object::Object;
 
-fn modify_u16_le_in_slice<E>(
-    slice: &mut [u8],
-    at: usize,
-    body: impl FnOnce(u16) -> Result<u16, E>,
-) -> Result<(), OtherError>
-where
-    E: std::error::Error + Send + Sync + 'static,
-{
+fn modify_u16_le_in_slice(slice: &mut [u8], at: usize, body: impl FnOnce(u16) -> u16) {
     let slice: &mut [u8] = &mut slice[at..][..2];
-    let slice: &mut [u8; 2] = slice.try_into().with_other_err()?;
+    let slice: &mut [u8; 2] = slice.try_into().unwrap();
     let value = u16::from_le_bytes(*slice);
-    let new_value = body(value).with_other_err()?;
+    let new_value = body(value);
     slice.copy_from_slice(&new_value.to_le_bytes());
-    Ok(())
 }
 
 fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> Result<(), OtherError>
@@ -38,10 +33,7 @@ where
     ensure_other!(rest.is_empty(), "Relocation entries must be fully consumed");
 
     for reloc_entry in relocation_entries {
-        modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| {
-            Ok::<_, OtherError>(v.wrapping_add(offset))
-        })
-        .with_other_err()?;
+        modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| v.wrapping_add(offset));
     }
     Ok(())
 }
@@ -104,8 +96,7 @@ impl Heap {
                 .iter()
                 .position(|b| b == &0)
                 .ok_or_else_other(|| "No null terminator found in string heap")?;
-            let (string_data, next_heap_data) =
-                heap_data.split_at((null_pos + 1).try_into().unwrap());
+            let (string_data, next_heap_data) = heap_data.split_at(null_pos + 1);
             strings.push(string_data);
             heap_data = next_heap_data;
         }
@@ -134,6 +125,8 @@ impl Relocations {
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum FromBlockError {
+    #[error(transparent)]
+    MalformedData(#[from] MalformedDataError),
     #[doc(hidden)]
     #[error(transparent)]
     Other(#[from] OtherError),
@@ -158,7 +151,7 @@ impl Script {
         let (exports, _) = script_data
             .sub_buffer(2..)
             .read_length_delimited_records::<u16>()
-            .with_other_err()?;
+            .map_err(MalformedDataError::map_from("Export table"))?;
 
         Ok(Self {
             data,
@@ -172,7 +165,7 @@ fn extract_relocation_block<B>(data: B) -> B
 where
     B: Buffer,
 {
-    let relocation_offset = data.lock().unwrap().get_u16_le();
+    let relocation_offset = data.as_slice().get_u16_le();
     data.sub_buffer(relocation_offset..)
 }
 
@@ -214,12 +207,11 @@ impl LoadedScript {
         // Concat the two blocks.
         //
         // It may be possible to get rid of the relocation block, but it's not clear.
-        let mut loaded_script: Vec<u8> = script_data.to_vec().with_other_err()?;
-        loaded_script.put(heap_data.lock().with_other_err()?);
+        let mut loaded_script: Vec<u8> = script_data.as_slice().to_vec();
+        loaded_script.put(heap_data.as_slice());
 
         {
-            let (script_data_slice, heap_data_slice) =
-                loaded_script.split_at_mut(heap_offset.try_into().unwrap());
+            let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
             let script_relocation_block = extract_relocation_block(script_data.clone());
             let heap_relocation_block = extract_relocation_block(heap_data.clone());
 

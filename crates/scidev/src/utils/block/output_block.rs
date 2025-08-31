@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bytes::Buf;
 
 use crate::utils::{
+    block::BlockSource,
     buffer::Buffer,
     errors::{OtherError, prelude::*},
 };
@@ -85,16 +86,16 @@ where
     T: Buffer + Send + Sync,
 {
     fn size(&self) -> u64 {
-        self.buffer.size()
+        self.buffer.size().try_into().unwrap()
     }
 
     fn blocks(&self) -> BufIter<'_> {
-        let num_blocks = self.size().div_ceil(self.max_block_size as u64);
+        let num_blocks = self.buffer.size().div_ceil(self.max_block_size);
         Box::new((0..num_blocks).map(move |i| {
-            let start = i * self.max_block_size as u64;
-            let end = std::cmp::min(start + self.max_block_size as u64, self.size());
+            let start = i * self.max_block_size;
+            let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
             Ok(BlockData::new(
-                self.buffer.lock_range(start, end).with_other_err()?,
+                self.buffer.clone().sub_buffer_from_range(start, end),
             ))
         }))
     }
@@ -110,6 +111,32 @@ impl OutputBlockImpl for BytesOutputBlock {
     fn blocks(&self) -> BufIter<'_> {
         let block = BlockData::new(self.0.clone());
         Box::new(std::iter::once(Ok(block)))
+    }
+}
+
+struct BlockSourceOutputBlock {
+    source: BlockSource,
+    max_block_size: usize,
+}
+
+impl OutputBlockImpl for BlockSourceOutputBlock {
+    fn size(&self) -> u64 {
+        self.source.size()
+    }
+
+    fn blocks(&self) -> BufIter<'_> {
+        let num_blocks = self.source.size().div_ceil(self.max_block_size as u64);
+        Box::new((0..num_blocks).map(move |i| {
+            let start = i * self.max_block_size as u64;
+            let end = std::cmp::min(start + self.max_block_size as u64, self.source.size());
+            Ok(BlockData::new(
+                self.source
+                    .clone()
+                    .subblock(start..end)
+                    .open()
+                    .with_other_err()?,
+            ))
+        }))
     }
 }
 
@@ -130,6 +157,14 @@ impl OutputBlock {
     {
         Self(Arc::new(BufferOutputBlock {
             buffer,
+            max_block_size: 4 * 1024 * 1024,
+        }))
+    }
+
+    #[must_use]
+    pub fn from_block_source(source: BlockSource) -> Self {
+        Self(Arc::new(BlockSourceOutputBlock {
+            source,
             max_block_size: 4 * 1024 * 1024,
         }))
     }

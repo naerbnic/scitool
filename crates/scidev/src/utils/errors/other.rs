@@ -39,7 +39,7 @@ impl OtherError {
         OtherError(anyhow::Error::msg(msg))
     }
 
-    fn add_context(self, msg: String) -> Self {
+    pub fn add_context(self, msg: String) -> Self {
         OtherError(self.0.context(msg))
     }
 }
@@ -62,13 +62,23 @@ impl std::error::Error for OtherError {
     }
 }
 
+pub trait OtherMapper {
+    type Error;
+    fn map_other(self, other: OtherError) -> Self::Error;
+}
+
 pub trait ResultExt<T, E>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
     fn with_other_err(self) -> Result<T, OtherError>;
-    #[expect(single_use_lifetimes, reason = "anon lifetimes in impls is unstable")]
-    fn with_other_context<'a>(self, msg: impl Into<Cow<'a, str>>) -> Result<T, OtherError>;
+    fn with_other_context<'a, M>(self, msg: M) -> Result<T, OtherError>
+    where
+        M: Into<Cow<'a, str>>;
+
+    fn map_other<M>(self, mapper: M) -> Result<T, M::Error>
+    where
+        M: OtherMapper<Error = E>;
 }
 
 impl<T, E> ResultExt<T, E> for Result<T, E>
@@ -79,9 +89,21 @@ where
         self.map_err(OtherError::new)
     }
 
-    #[expect(single_use_lifetimes, reason = "anon lifetimes in impls is unstable")]
-    fn with_other_context<'a>(self, msg: impl Into<Cow<'a, str>>) -> Result<T, OtherError> {
+    fn with_other_context<'a, M>(self, msg: M) -> Result<T, OtherError>
+    where
+        M: Into<Cow<'a, str>>,
+    {
         self.map_err(move |e| OtherError::new(e).add_context(msg.into().into_owned()))
+    }
+
+    fn map_other<M>(self, mapper: M) -> Result<T, M::Error>
+    where
+        M: OtherMapper<Error = E>,
+    {
+        match self {
+            Ok(value) => Ok(value),
+            Err(other) => Err(mapper.map_other(OtherError::new(other))),
+        }
     }
 }
 

@@ -2,10 +2,7 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::utils::{
-    buffer::{Buffer, BufferExt, BufferResult, FromFixedBytes},
-    errors::prelude::*,
-};
+use crate::utils::buffer::{Buffer, BufferExt};
 
 use super::{ReadError, ReadResult};
 
@@ -114,14 +111,13 @@ impl AsRef<[u8]> for MemBlock {
 }
 
 impl Buffer for MemBlock {
-    type Guard<'g> = &'g [u8];
-    fn size(&self) -> u64 {
-        self.size.try_into().unwrap()
+    fn size(&self) -> usize {
+        self.size
     }
 
-    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
-        let start: usize = start.try_into().unwrap();
-        let end: usize = end.try_into().unwrap();
+    fn sub_buffer_from_range(self, start: usize, end: usize) -> Self {
+        let start: usize = start;
+        let end: usize = end;
 
         // Actual start/end are offsets from self.start
         let start = self.start + start;
@@ -142,28 +138,12 @@ impl Buffer for MemBlock {
         }
     }
 
-    fn split_at(self, at: u64) -> (Self, Self) {
-        assert!(
-            at <= self.size.try_into().unwrap(),
-            "Tried to split a block of size {} at offset {}",
-            self.size,
-            at
-        );
+    fn split_at(self, at: usize) -> (Self, Self) {
         (self.clone().sub_buffer(..at), self.sub_buffer(at..))
     }
 
-    fn lock_range(&self, start: u64, end: u64) -> BufferResult<Self::Guard<'_>> {
-        let start = usize::try_from(start).unwrap();
-        let end = usize::try_from(end).unwrap();
-        Ok(&self[start..end])
-    }
-
-    fn read_value<T: FromFixedBytes>(self) -> BufferResult<(T, Self)> {
-        let value_bytes: &[u8] = &self[..T::SIZE];
-        let value = T::parse(value_bytes).with_other_err()?;
-        let item_size: u64 = T::SIZE.try_into().unwrap();
-        let remaining = self.sub_buffer(item_size..);
-        Ok((value, remaining))
+    fn as_slice(&self) -> &[u8] {
+        &self[..]
     }
 }
 

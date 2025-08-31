@@ -70,7 +70,7 @@ impl TempStore {
     where
         B: Buffer + Send + Sync + 'static,
     {
-        self.create_temp_block(buffer.lock().with_other_err()?)
+        self.create_temp_block(buffer)
             .await
     }
 
@@ -103,7 +103,7 @@ mod tests {
         let block_source = store.store(buffer).await?;
         assert_eq!(block_source.size(), 4);
         let mut read_data = Vec::new();
-        read_data.put(block_source.lock().unwrap());
+        read_data.put(block_source.to_buffer()?);
         assert_eq!(read_data, vec![1, 2, 3, 4]);
         Ok(())
     }

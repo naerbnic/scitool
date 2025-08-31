@@ -9,6 +9,8 @@ use mem_loader::LoadedScript;
 mod mem_loader;
 mod selectors;
 
+pub mod errors;
+
 pub use mem_loader::Object;
 
 const SELECTOR_TABLE_VOCAB_NUM: u16 = 997;

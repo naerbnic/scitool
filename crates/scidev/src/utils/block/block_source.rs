@@ -5,10 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::utils::{
-    buffer::{Buffer, BufferResult},
-    errors::prelude::*,
-};
+use crate::utils::buffer::Buffer;
 
 use super::{LazyBlock, MemBlock, ReadError, ReadResult};
 
@@ -146,34 +143,14 @@ impl BlockSource {
         (self.clone().subblock(..at), self.subblock(at..))
     }
 
+    pub fn to_buffer(&self) -> ReadResult<impl Buffer> {
+        self.open()
+    }
+
     /// Returns a lazy block that represents the current block source that can
     /// be opened on demand.
     #[must_use]
     pub fn to_lazy_block(&self) -> LazyBlock {
         LazyBlock::from_block_source(self.clone())
-    }
-}
-
-impl Buffer for BlockSource {
-    type Guard<'g>
-        = MemBlock
-    where
-        Self: 'g;
-
-    fn size(&self) -> u64 {
-        self.size
-    }
-
-    fn sub_buffer_from_range(self, start: u64, end: u64) -> Self {
-        self.subblock(start..end)
-    }
-
-    fn split_at(self, at: u64) -> (Self, Self) {
-        self.split_at(at)
-    }
-
-    fn lock_range(&self, start: u64, end: u64) -> BufferResult<Self::Guard<'_>> {
-        let block = self.subblock(start..end).open().with_other_err()?;
-        Ok(block)
     }
 }

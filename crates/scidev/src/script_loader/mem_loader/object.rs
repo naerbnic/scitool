@@ -1,7 +1,9 @@
-use crate::utils::{
-    block::MemBlock,
-    buffer::{Buffer, BufferExt, BufferOpsExt, FromFixedBytes},
-    errors::{OtherError, ensure_other, prelude::*},
+use crate::{
+    script_loader::errors::MalformedDataError,
+    utils::{
+        block::MemBlock,
+        buffer::{Buffer, BufferExt, FromFixedBytes},
+    },
 };
 
 use crate::script_loader::selectors::{Selector, SelectorTable};
@@ -14,20 +16,19 @@ struct MethodRecord {
 
 impl FromFixedBytes for MethodRecord {
     const SIZE: usize = 4;
-    type Error = OtherError;
-    fn parse<B: bytes::Buf>(mut bytes: B) -> Result<Self, Self::Error> {
-        Ok(Self {
+    fn parse<B: bytes::Buf>(mut bytes: B) -> Self {
+        Self {
             selector_id: bytes.get_u16_le(),
             method_offset: bytes.get_u16_le(),
-        })
+        }
     }
 }
 
 pub(crate) struct ObjectData {
     selector_table: SelectorTable,
-    obj_data: MemBlock,
-    var_selectors: MemBlock,
-    method_records: MemBlock,
+    obj_data: Vec<u16>,
+    property_ids: Vec<u16>,
+    method_records: Vec<MethodRecord>,
 }
 
 impl ObjectData {
@@ -35,36 +36,49 @@ impl ObjectData {
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
         obj_data: MemBlock,
-    ) -> Result<Self, FromBlockError> {
-        let var_selector_offfset = obj_data.read_u16_le_at(4);
-        let method_record_offset = obj_data.read_u16_le_at(6);
-        let padding = obj_data.read_u16_le_at(8);
-        ensure_other!(padding == 0, "Invalid object padding");
+    ) -> Result<Self, MalformedDataError> {
+        let obj_data = obj_data
+            .split_values::<u16>()
+            .map_err(MalformedDataError::map_from("Object data"))?;
+        let var_selector_offfset = obj_data[2];
+        let method_record_offset = obj_data[3];
+        let padding = obj_data[4];
+        if padding != 0 {
+            return Err(MalformedDataError::new("Expected padding field to be zero"));
+        }
 
         let var_selectors = loaded_data
             .clone()
             .sub_buffer(var_selector_offfset as usize..method_record_offset as usize);
 
+        let property_ids = var_selectors
+            .split_values::<u16>()
+            .map_err(MalformedDataError::map_from("Property IDs"))?;
+
         let (method_records, _) = loaded_data
             .clone()
             .sub_buffer(method_record_offset as usize..)
             .read_length_delimited_block(4)
-            .with_other_err()?;
+            .map_err(MalformedDataError::map_from("Method records"))?;
+
+        let method_records = method_records
+            .split_values::<MethodRecord>()
+            .map_err(MalformedDataError::map_from("Method records entries"))?;
 
         Ok(Self {
             selector_table: selector_table.clone(),
             obj_data,
-            var_selectors,
+            property_ids,
             method_records,
         })
     }
 
     pub(crate) fn get_num_properties(&self) -> usize {
-        self.var_selectors.len() / 2
+        self.property_ids.len()
     }
 
     pub(crate) fn get_num_fields(&self) -> usize {
-        self.obj_data.len() / 2
+        self.obj_data.len()
     }
 
     pub(crate) fn get_property_by_name(&self, name: &str) -> Option<u16> {
@@ -74,49 +88,32 @@ impl ObjectData {
 
     pub(crate) fn get_property_by_id(&self, id: u16) -> Option<u16> {
         let index = self
-            .var_selectors
-            .clone()
-            .split_values::<u16>()
-            .ok()?
+            .property_ids
             .iter()
             .position(|found_id| *found_id == id)?;
-        Some(self.obj_data.clone().split_values::<u16>().ok()?[index])
+        Some(self.obj_data[index])
     }
 
     pub(crate) fn get_property_at_index(&self, index: usize) -> Option<u16> {
-        let properties = self.obj_data.clone().split_values::<u16>().ok()?;
-        properties.get(index).copied()
+        self.obj_data.get(index).copied()
     }
 
     pub(crate) fn get_method_selectors(&self) -> impl Iterator<Item = &Selector> {
-        self.method_records
-            .clone()
-            .split_values::<MethodRecord>()
-            .unwrap()
-            .into_iter()
-            .map(|record| {
-                self.selector_table
-                    .get_selector_by_id(record.selector_id)
-                    .unwrap()
-            })
+        self.method_records.iter().map(|record| {
+            self.selector_table
+                .get_selector_by_id(record.selector_id)
+                .unwrap()
+        })
     }
 
     pub(crate) fn properties(&self) -> impl Iterator<Item = (&Selector, u16)> {
-        let var_selector_ids = self.var_selectors.clone().split_values::<u16>().unwrap();
-        let fields = self.obj_data.clone().split_values::<u16>().unwrap();
-        assert_eq!(var_selector_ids.len(), fields.len());
-        var_selector_ids
-            .into_iter()
+        assert_eq!(self.property_ids.len(), self.obj_data.len());
+        self.property_ids
+            .iter()
+            .copied()
             .map(|selector_id| self.selector_table.get_selector_by_id(selector_id).unwrap())
-            .zip(fields)
+            .zip(self.obj_data.iter().copied())
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum FromBlockError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OtherError),
 }
 
 pub struct Object {
@@ -135,7 +132,7 @@ impl Object {
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
         obj_data: MemBlock,
-    ) -> Result<Object, FromBlockError> {
+    ) -> Result<Object, MalformedDataError> {
         // Read the standard properties.
         //
         // We can ony do this with selectors that are officially built in, which
@@ -176,11 +173,10 @@ impl Object {
                 }
             });
 
-        if script != 0xFFFF {
-            assert_eq!(
-                object_data.get_num_properties(),
-                object_data.get_num_fields()
-            );
+        if script != 0xFFFF && object_data.get_num_properties() != object_data.get_num_fields() {
+            return Err(MalformedDataError::new(
+                "Class has script but number of properties does not equal number of fields",
+            ));
         }
 
         Ok(Self {
