@@ -1,7 +1,9 @@
 use std::io;
 
-use crate::resources::{ResourceId, ResourceType};
-use crate::utils::data_reader::DataReader;
+use crate::{
+    resources::{ResourceId, ResourceType},
+    utils::data_reader::DataReader,
+};
 
 #[derive(Debug)]
 pub(crate) struct ResourceIndexEntry {

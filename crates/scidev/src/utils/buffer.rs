@@ -3,13 +3,19 @@ use std::ops::{Bound, RangeBounds};
 use bytes::{Buf, BufMut};
 
 pub trait BufferOpsExt {
-    fn read_u16_le_at(&self, offset: usize) -> u16;
+    fn read_u16_le_at(&self, offset: usize) -> BufferResult<u16>;
 }
 
 impl BufferOpsExt for [u8] {
-    fn read_u16_le_at(&self, offset: usize) -> u16 {
+    fn read_u16_le_at(&self, offset: usize) -> BufferResult<u16> {
+        if offset + 2 > self.len() {
+            return Err(BufferError::NotEnoughData {
+                required: offset + 2,
+                available: self.len(),
+            });
+        }
         let bytes = &self[offset..][..2];
-        u16::from_le_bytes(bytes.try_into().unwrap())
+        Ok(u16::from_le_bytes(bytes.try_into().unwrap()))
     }
 }
 
@@ -164,16 +170,15 @@ pub type BufferResult<T> = Result<T, BufferError>;
 /// into the buffer.
 pub trait Buffer: Buf + Sized + Clone {
     fn size(&self) -> usize;
-    #[must_use]
-    fn sub_buffer_from_range(self, start: usize, end: usize) -> Self;
-    fn split_at(self, at: usize) -> (Self, Self);
+    fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self>;
+    fn split_at(self, at: usize) -> BufferResult<(Self, Self)>;
     fn as_slice(&self) -> &[u8];
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
     // Functions that can be implemented in terms of the above functions.
     fn read_value<T: FromFixedBytes>(self) -> BufferResult<(T, Self)> {
-        let (first, second) = self.split_at(T::SIZE);
+        let (first, second) = self.split_at(T::SIZE)?;
         assert!(first.size() <= T::SIZE);
         if first.size() < T::SIZE {
             return Err(BufferError::NotEnoughData {
@@ -203,7 +208,7 @@ pub trait Buffer: Buf + Sized + Clone {
             });
         }
         while remaining.size() != 0 {
-            let (chunk, new_remaining) = remaining.split_at(chunk_size);
+            let (chunk, new_remaining) = remaining.split_at(chunk_size)?;
             chunks.push(chunk);
             remaining = new_remaining;
         }
@@ -239,8 +244,10 @@ pub trait Buffer: Buf + Sized + Clone {
 
     fn read_length_delimited_block(self, item_size: usize) -> BufferResult<(Self, Self)> {
         let (num_blocks, next) = self.read_value::<u16>()?;
-        let total_block_size = usize::from(num_blocks).checked_mul(item_size).unwrap();
-        Ok(next.split_at(total_block_size))
+        let total_block_size = usize::from(num_blocks)
+            .checked_mul(item_size)
+            .expect("Size calculation should not overflow");
+        next.split_at(total_block_size)
     }
 
     /// Reads a sequence of values, where the first value is a little endian
@@ -257,12 +264,25 @@ impl Buffer for &[u8] {
         self.len()
     }
 
-    fn sub_buffer_from_range(self, start: usize, end: usize) -> Self {
-        &self[start..end]
+    fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self> {
+        assert!(start <= end);
+        if end > self.len() {
+            return Err(BufferError::NotEnoughData {
+                required: end,
+                available: self.len(),
+            });
+        }
+        Ok(&self[start..end])
     }
 
-    fn split_at(self, at: usize) -> (Self, Self) {
-        (*self).split_at(at)
+    fn split_at(self, at: usize) -> BufferResult<(Self, Self)> {
+        if at > self.len() {
+            return Err(BufferError::NotEnoughData {
+                required: at,
+                available: self.len(),
+            });
+        }
+        Ok((*self).split_at(at))
     }
 
     fn as_slice(&self) -> &[u8] {
@@ -271,22 +291,44 @@ impl Buffer for &[u8] {
 }
 
 pub trait BufferExt: Buffer {
-    #[must_use]
-    fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> Self
+    fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> BufferResult<Self>
     where
-        T: TryInto<usize> + num::Num + Copy,
-        T::Error: std::fmt::Debug,
+        T: Into<usize> + num::Num + Copy,
     {
-        let start = match range.start_bound() {
-            Bound::Included(&start) => start.try_into().unwrap(),
-            Bound::Excluded(&start) => (start + T::one()).try_into().unwrap(),
-            Bound::Unbounded => 0,
+        let given_start = match range.start_bound() {
+            Bound::Included(&start) => Some(start),
+            Bound::Excluded(&start) => Some(start + T::one()),
+            Bound::Unbounded => None,
         };
-        let end = match range.end_bound() {
-            Bound::Included(&end) => (end + T::one()).try_into().unwrap(),
-            Bound::Excluded(&end) => end.try_into().unwrap(),
-            Bound::Unbounded => self.size(),
+
+        let given_end = match range.end_bound() {
+            Bound::Included(&end) => Some(end + T::one()),
+            Bound::Excluded(&end) => Some(end),
+            Bound::Unbounded => None,
         };
+
+        let given_start = given_start.map(Into::into);
+        let given_end = given_end.map(Into::into);
+
+        if let Some(start) = given_start
+            && let Some(end) = given_end
+        {
+            assert!(start <= end);
+        }
+
+        let start = given_start.unwrap_or(0);
+        let end = given_end.unwrap_or(self.size());
+
+        if start > end {
+            // This must have been caused by an implicit range endpoint, so treat
+            // it as an error, not a panic.
+            return Err(BufferError::NotEnoughData {
+                required: start,
+                available: end,
+            });
+        }
+
+        assert!(start <= end);
         self.sub_buffer_from_range(start, end)
     }
 }

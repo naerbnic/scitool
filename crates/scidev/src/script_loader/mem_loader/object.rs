@@ -35,21 +35,21 @@ impl ObjectData {
     pub(crate) fn from_block(
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
-        obj_data: MemBlock,
+        obj_data: Vec<u16>,
     ) -> Result<Self, MalformedDataError> {
-        let obj_data = obj_data
-            .split_values::<u16>()
-            .map_err(MalformedDataError::map_from("Object data"))?;
         let var_selector_offfset = obj_data[2];
         let method_record_offset = obj_data[3];
         let padding = obj_data[4];
         if padding != 0 {
-            return Err(MalformedDataError::new("Expected padding field to be zero"));
+            return Err(MalformedDataError::new(format!(
+                "Expected padding field to be zero: {padding:x}"
+            )));
         }
 
         let var_selectors = loaded_data
             .clone()
-            .sub_buffer(var_selector_offfset as usize..method_record_offset as usize);
+            .sub_buffer(var_selector_offfset as usize..method_record_offset as usize)
+            .map_err(MalformedDataError::map_from("Var selector block"))?;
 
         let property_ids = var_selectors
             .split_values::<u16>()
@@ -58,6 +58,7 @@ impl ObjectData {
         let (method_records, _) = loaded_data
             .clone()
             .sub_buffer(method_record_offset as usize..)
+            .map_err(MalformedDataError::map_from("Method record block"))?
             .read_length_delimited_block(4)
             .map_err(MalformedDataError::map_from("Method records"))?;
 
@@ -131,7 +132,7 @@ impl Object {
     pub(crate) fn from_block(
         selector_table: &SelectorTable,
         loaded_data: &MemBlock,
-        obj_data: MemBlock,
+        obj_data: Vec<u16>,
     ) -> Result<Object, MalformedDataError> {
         // Read the standard properties.
         //

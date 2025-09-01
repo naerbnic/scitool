@@ -21,8 +21,7 @@ impl BlockReader {
     /// Returns the portion of the block that has not yet been read.
     #[must_use]
     pub fn into_rest(self) -> MemBlock {
-        let curr_pos: u64 = self.curr_pos.try_into().unwrap();
-        self.block.sub_buffer(curr_pos..)
+        self.block.sub_buffer(self.curr_pos..).unwrap()
     }
 }
 

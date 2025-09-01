@@ -1,15 +1,14 @@
 use crate::{
     script_loader::errors::MalformedDataError,
     utils::{
-        block::{BlockReader, MemBlock},
+        block::MemBlock,
         buffer::{Buffer, BufferExt, BufferOpsExt},
-        data_reader::DataReader,
         errors::{OtherError, ensure_other, prelude::*},
     },
 };
 
 use super::selectors::SelectorTable;
-use bytes::{Buf, BufMut};
+use bytes::BufMut;
 
 mod object;
 
@@ -23,14 +22,21 @@ fn modify_u16_le_in_slice(slice: &mut [u8], at: usize, body: impl FnOnce(u16) ->
     slice.copy_from_slice(&new_value.to_le_bytes());
 }
 
-fn apply_relocations<B>(buffer: &mut [u8], relocations: B, offset: u16) -> Result<(), OtherError>
+fn apply_relocations<B>(
+    buffer: &mut [u8],
+    relocations: B,
+    offset: u16,
+) -> Result<(), MalformedDataError>
 where
     B: Buffer,
 {
     let (relocation_entries, rest) = relocations
         .read_length_delimited_records::<u16>()
-        .with_other_err()?;
-    ensure_other!(rest.is_empty(), "Relocation entries must be fully consumed");
+        .map_err(MalformedDataError::map_from("Relocation Table Contents"))?;
+    ensure_other!(
+        rest.is_empty(),
+        "Relocation block size and length must match"
+    );
 
     for reloc_entry in relocation_entries {
         modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| v.wrapping_add(offset));
@@ -62,31 +68,48 @@ impl Heap {
         loaded_script: &MemBlock,
         resource_data: MemBlock,
     ) -> Result<Heap, FromBlockError> {
-        let relocations_offset = resource_data.read_u16_le_at(0);
+        let relocations_offset = resource_data
+            .read_u16_le_at(0)
+            .map_err(MalformedDataError::map_from("Relocation offset"))?;
         let heap_data = resource_data
             .clone()
-            .sub_buffer(..relocations_offset as usize);
-        let num_locals = heap_data.read_u16_le_at(2);
-        let (locals, mut heap_data) = heap_data.sub_buffer(4..).split_at((num_locals * 2).into());
+            .sub_buffer(2..relocations_offset as usize)
+            .map_err(MalformedDataError::map_from("Separate heap data"))?;
+        let (num_locals, heap_data) = heap_data
+            .read_value::<u16>()
+            .map_err(MalformedDataError::map_from("Num locals"))?;
+        let (locals, mut heap_data) = heap_data
+            .split_at((num_locals * 2).into())
+            .map_err(MalformedDataError::map_from("Splitting locals."))?;
 
         let mut objects = Vec::new();
         // Find all objects
         loop {
-            let magic = heap_data.read_u16_le_at(0);
+            let (magic, curr_heap_data) = heap_data
+                .clone()
+                .read_value::<u16>()
+                .map_err(MalformedDataError::map_from("Object Magic"))?;
             if magic == 0 {
                 // Indicates that we've gotten to the last object on the heap.
                 // Break out of the loop.
-                heap_data = heap_data.sub_buffer(2..);
+                heap_data = curr_heap_data;
                 break;
             }
 
             ensure_other!(magic == 0x1234u16, "Invalid object magic number");
-            let object_size = heap_data.read_u16_le_at(2);
-            let (object_data, next_heap_data) = heap_data.split_at((object_size * 2).into());
+            let (num_object_fields, _) = curr_heap_data
+                .read_value::<u16>()
+                .map_err(MalformedDataError::map_from("Num Object Fields"))?;
+
+            let (object_data, heap_data_after_object) = heap_data
+                .read_values(num_object_fields.into())
+                .map_err(MalformedDataError::map_from("Object fields"))?;
+
+            // The size is based from the very start of the object, so we reuse the curr_heap_data.
             let new_obj =
                 Object::from_block(selector_table, loaded_script, object_data).with_other_err()?;
             objects.push(new_obj);
-            heap_data = next_heap_data;
+            heap_data = heap_data_after_object;
         }
 
         let mut strings = Vec::new();
@@ -96,9 +119,11 @@ impl Heap {
                 .iter()
                 .position(|b| b == &0)
                 .ok_or_else_other(|| "No null terminator found in string heap")?;
-            let (string_data, next_heap_data) = heap_data.split_at(null_pos + 1);
+            let (string_data, curr_heap_data) = heap_data
+                .split_at(null_pos + 1)
+                .map_err(MalformedDataError::map_from("String entry"))?;
             strings.push(string_data);
-            heap_data = next_heap_data;
+            heap_data = curr_heap_data;
         }
 
         Ok(Self {
@@ -132,57 +157,19 @@ pub(crate) enum FromBlockError {
     Other(#[from] OtherError),
 }
 
-pub(crate) struct Script {
-    #[expect(dead_code)]
-    data: MemBlock,
-    #[expect(dead_code)]
-    relocations: MemBlock,
-    #[expect(dead_code)]
-    exports: Vec<u16>,
-}
-
-impl Script {
-    pub(crate) fn from_block(data: MemBlock) -> Result<Self, FromBlockError> {
-        let relocation_offset = {
-            let mut reader = BlockReader::new(data.clone());
-            reader.read_u16_le().with_other_err()?
-        };
-        let (script_data, relocations) = data.clone().split_at(relocation_offset.into());
-        let (exports, _) = script_data
-            .sub_buffer(2..)
-            .read_length_delimited_records::<u16>()
-            .map_err(MalformedDataError::map_from("Export table"))?;
-
-        Ok(Self {
-            data,
-            relocations,
-            exports,
-        })
-    }
-}
-
-fn extract_relocation_block<B>(data: B) -> B
+fn extract_relocation_block<B>(data: B) -> Result<B, MalformedDataError>
 where
-    B: Buffer,
+    B: Buffer + Clone,
 {
-    let relocation_offset = data.as_slice().get_u16_le();
+    let (relocation_offset, _) = data
+        .clone()
+        .read_value::<u16>()
+        .map_err(MalformedDataError::map_from("Relocation offset"))?;
     data.sub_buffer(relocation_offset..)
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ScriptLoadError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OtherError),
+        .map_err(MalformedDataError::map_from("Relocation block"))
 }
 
 pub struct LoadedScript {
-    #[expect(dead_code)]
-    heap_offset: u16,
-    #[expect(dead_code)]
-    full_buffer: MemBlock,
-    #[expect(dead_code)]
-    script: Script,
     heap: Heap,
 }
 
@@ -191,7 +178,7 @@ impl LoadedScript {
         selector_table: &SelectorTable,
         script_data: &B,
         heap_data: &B,
-    ) -> Result<LoadedScript, ScriptLoadError>
+    ) -> Result<LoadedScript, MalformedDataError>
     where
         B: Buffer + Clone,
     {
@@ -212,24 +199,21 @@ impl LoadedScript {
 
         {
             let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
-            let script_relocation_block = extract_relocation_block(script_data.clone());
-            let heap_relocation_block = extract_relocation_block(heap_data.clone());
+            let script_relocation_block = extract_relocation_block(script_data.clone())?;
+            let heap_relocation_block = extract_relocation_block(heap_data.clone())?;
 
             apply_relocations(script_data_slice, script_relocation_block, u16_heap_offset)?;
             apply_relocations(heap_data_slice, heap_relocation_block, u16_heap_offset)?;
         }
 
         let loaded_script = MemBlock::from_vec(loaded_script);
-        let (script_data, heap_data) = loaded_script.clone().split_at(heap_offset);
-        let script = Script::from_block(script_data).with_other_err()?;
+        let heap_data = loaded_script
+            .clone()
+            .sub_buffer(heap_offset..)
+            .expect("Constructed to have the correct offset.");
         let heap = Heap::from_block(selector_table, &loaded_script, heap_data).with_other_err()?;
 
-        Ok(LoadedScript {
-            heap_offset: u16_heap_offset,
-            full_buffer: loaded_script,
-            script,
-            heap,
-        })
+        Ok(LoadedScript { heap })
     }
 
     pub fn objects(&self) -> impl Iterator<Item = &Object> {

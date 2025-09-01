@@ -95,7 +95,10 @@ where
             let start = i * self.max_block_size;
             let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
             Ok(BlockData::new(
-                self.buffer.clone().sub_buffer_from_range(start, end),
+                self.buffer
+                    .clone()
+                    .sub_buffer_from_range(start, end)
+                    .with_other_err()?,
             ))
         }))
     }

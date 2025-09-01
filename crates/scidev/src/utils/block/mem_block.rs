@@ -2,11 +2,11 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::utils::buffer::{Buffer, BufferExt};
+use crate::utils::buffer::{Buffer, BufferError, BufferExt, BufferResult};
 
 use super::{ReadError, ReadResult};
 
-/// An in-memory block of data that is cheap to clone, and create subranges of.
+/// An in-memory block of data that is cheap to clone and create subranges of.
 #[derive(Clone)]
 pub struct MemBlock {
     start: usize,
@@ -115,31 +115,39 @@ impl Buffer for MemBlock {
         self.size
     }
 
-    fn sub_buffer_from_range(self, start: usize, end: usize) -> Self {
+    fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self> {
         let start: usize = start;
         let end: usize = end;
+
+        assert!(start <= end);
+
+        if start > self.size {
+            return Err(BufferError::NotEnoughData {
+                required: end,
+                available: self.size,
+            });
+        }
+
+        if end > self.size {
+            return Err(BufferError::NotEnoughData {
+                required: end,
+                available: self.size,
+            });
+        }
 
         // Actual start/end are offsets from self.start
         let start = self.start + start;
         let end = self.start + end;
 
-        assert!(start <= end);
-        assert!(
-            end <= self.start + self.size,
-            "End: {} Size: {}",
-            end,
-            self.start + self.size
-        );
-
-        Self {
+        Ok(Self {
             start,
             size: end - start,
             data: self.data,
-        }
+        })
     }
 
-    fn split_at(self, at: usize) -> (Self, Self) {
-        (self.clone().sub_buffer(..at), self.sub_buffer(at..))
+    fn split_at(self, at: usize) -> BufferResult<(Self, Self)> {
+        Ok((self.clone().sub_buffer(..at)?, self.sub_buffer(at..)?))
     }
 
     fn as_slice(&self) -> &[u8] {
