@@ -5,9 +5,8 @@ use crate::{
     utils::{
         block::{BlockSource, LazyBlock},
         compression::dcl::decompress_dcl,
-        data_reader::FromBlockSource,
-        errors::{OtherError, prelude::*},
-        mem_reader::MemReader,
+        data_reader::{FromBlockSource, FromBlockSourceError},
+        mem_reader::{self, MemReader},
     },
 };
 
@@ -30,12 +29,12 @@ impl FromBlockSource for RawEntryHeader {
         9
     }
 
-    fn parse<'a, M: MemReader<'a>>(mut reader: M) -> Result<Self, OtherError> {
-        let res_type = reader.read_u8().with_other_err()?;
-        let res_number = reader.read_u16_le().with_other_err()?;
-        let packed_size = reader.read_u16_le().with_other_err()?;
-        let unpacked_size = reader.read_u16_le().with_other_err()?;
-        let compression_type = reader.read_u16_le().with_other_err()?;
+    fn parse<'a, M: MemReader<'a>>(mut reader: M) -> mem_reader::Result<Self> {
+        let res_type = reader.read_u8()?;
+        let res_number = reader.read_u16_le()?;
+        let packed_size = reader.read_u16_le()?;
+        let unpacked_size = reader.read_u16_le()?;
+        let compression_type = reader.read_u16_le()?;
         Ok(RawEntryHeader {
             res_type,
             res_number,
@@ -119,6 +118,23 @@ impl TryFrom<RawContents> for Contents {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    MemReader(#[from] mem_reader::Error),
+}
+
+impl From<FromBlockSourceError> for Error {
+    fn from(err: FromBlockSourceError) -> Self {
+        match err {
+            FromBlockSourceError::Io(io_err) => Self::Io(io_err),
+            FromBlockSourceError::MemReader(mem_err) => Self::MemReader(mem_err),
+        }
+    }
+}
+
 pub(crate) struct DataFile {
     data: BlockSource,
 }
@@ -131,7 +147,7 @@ impl DataFile {
     pub(crate) fn read_raw_contents(
         &self,
         location: ResourceLocation,
-    ) -> Result<RawContents, OtherError> {
+    ) -> Result<RawContents, Error> {
         let (header, rest) = RawEntryHeader::from_block_source(
             &self.data.subblock(u64::from(location.file_offset)..),
         )?;
@@ -146,8 +162,8 @@ impl DataFile {
         })
     }
 
-    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, OtherError> {
+    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, Error> {
         let raw_contents = self.read_raw_contents(location)?;
-        raw_contents.try_into().with_other_err()
+        Ok(raw_contents.try_into()?)
     }
 }

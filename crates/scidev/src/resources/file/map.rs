@@ -1,8 +1,6 @@
-use std::io;
-
 use crate::{
     resources::{ResourceId, ResourceType},
-    utils::data_reader::DataReader,
+    utils::mem_reader::{self, MemReader},
 };
 
 #[derive(Debug)]
@@ -12,7 +10,9 @@ pub(crate) struct ResourceIndexEntry {
 }
 
 impl ResourceIndexEntry {
-    pub(crate) fn read_from<R: DataReader>(mut reader: R) -> io::Result<ResourceIndexEntry> {
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
+    ) -> mem_reader::Result<ResourceIndexEntry> {
         let type_id = reader.read_u8()?;
         let file_offset = reader.read_u16_le()?;
         Ok(ResourceIndexEntry {
@@ -29,10 +29,12 @@ pub(crate) struct ResourceIndex {
 }
 
 impl ResourceIndex {
-    pub(crate) fn read_from<R: DataReader>(mut reader: R) -> io::Result<ResourceIndex> {
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
+    ) -> mem_reader::Result<ResourceIndex> {
         let mut entries = Vec::new();
         loop {
-            let entry = ResourceIndexEntry::read_from(&mut reader)?;
+            let entry = ResourceIndexEntry::read_from(reader)?;
             if entry.type_id == 0xFF {
                 return Ok(ResourceIndex {
                     entries,
@@ -51,7 +53,9 @@ pub(crate) struct ResourceLocationEntry {
 }
 
 impl ResourceLocationEntry {
-    pub(crate) fn read_from<R: DataReader>(reader: &mut R) -> io::Result<ResourceLocationEntry> {
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
+    ) -> mem_reader::Result<ResourceLocationEntry> {
         let resource_num = reader.read_u16_le()?;
         let body = reader.read_u24_le()?;
         assert_eq!(body & 0xF000_0000, 0);
@@ -70,17 +74,17 @@ pub(crate) struct ResourceTypeLocations {
 }
 
 impl ResourceTypeLocations {
-    pub(crate) fn read_from<R: DataReader>(
-        reader: &mut R,
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
         type_id: ResourceType,
         start: u16,
         end: u16,
-    ) -> io::Result<ResourceTypeLocations> {
+    ) -> mem_reader::Result<ResourceTypeLocations> {
         // Despite documentation to the contrary, SCI11 uses 5 byte entries in the resource map
         // file.
         assert_eq!((end - start) % 5, 0);
         let count = (end - start) / 5;
-        reader.seek_to(u32::from(start))?;
+        reader.seek_to(usize::from(start))?;
         let mut entries = Vec::new();
         for _ in 0..count {
             entries.push(ResourceLocationEntry::read_from(reader)?);
@@ -95,8 +99,10 @@ pub(crate) struct ResourceLocations {
 }
 
 impl ResourceLocations {
-    pub(crate) fn read_from<R: DataReader>(mut reader: R) -> io::Result<ResourceLocations> {
-        let index = ResourceIndex::read_from(&mut reader)?;
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
+    ) -> mem_reader::Result<ResourceLocations> {
+        let index = ResourceIndex::read_from(reader)?;
         let mut type_locations = Vec::new();
 
         let end_offsets = index
@@ -107,7 +113,7 @@ impl ResourceLocations {
             .chain(std::iter::once(index.end));
         for (entry, end_offset) in index.entries.iter().zip(end_offsets) {
             let locations = ResourceTypeLocations::read_from(
-                &mut reader,
+                reader,
                 entry.type_id.try_into().unwrap(),
                 entry.file_offset,
                 end_offset,

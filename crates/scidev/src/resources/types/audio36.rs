@@ -5,9 +5,9 @@ use std::{
 
 use crate::utils::{
     block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
-    data_reader::DataReader,
     data_writer::{DataWriter, IoDataWriter},
     errors::{OtherError, ensure_other, prelude::*},
+    mem_reader::{self, MemReader},
 };
 use bytes::BufMut;
 
@@ -25,7 +25,9 @@ struct RawMapEntry {
 }
 
 impl RawMapEntry {
-    pub(crate) fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapEntry> {
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
+    ) -> mem_reader::Result<RawMapEntry> {
         let noun = reader.read_u8()?;
         let verb = reader.read_u8()?;
         let cond = reader.read_u8()?;
@@ -72,7 +74,9 @@ impl RawMapResource {
     }
 
     #[expect(dead_code)]
-    pub(crate) fn read_from<R: DataReader>(reader: &mut R) -> io::Result<RawMapResource> {
+    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+        reader: &mut M,
+    ) -> mem_reader::Result<RawMapResource> {
         let mut entries = Vec::new();
         loop {
             let entry = RawMapEntry::read_from(reader)?;

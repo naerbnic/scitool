@@ -9,8 +9,9 @@ use data::DataFile;
 
 use self::patch::try_patch_from_file;
 use crate::utils::{
-    block::{BlockReader, BlockSource, LazyBlock, MemBlock},
+    block::{BlockSource, LazyBlock, MemBlock},
     errors::{OtherError, prelude::*},
+    mem_reader::{self, BufferMemReader},
 };
 
 use super::{ResourceId, ResourceType};
@@ -21,31 +22,47 @@ mod data;
 mod map;
 mod patch;
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("I/O error during operation: {0}")]
+    Io(#[from] io::Error),
+    #[error("Malformed data: {0}")]
+    MalformedData(#[from] mem_reader::Error),
+    #[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
+    ResourceIdMismatch {
+        expected: ResourceId,
+        got: ResourceId,
+    },
+}
+
+impl From<data::Error> for Error {
+    fn from(err: data::Error) -> Self {
+        match err {
+            data::Error::Io(io_err) => Self::Io(io_err),
+            data::Error::MemReader(mem_err) => Self::MalformedData(mem_err),
+        }
+    }
+}
+
 pub fn read_resources(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource],
-) -> Result<ResourceSet, OtherError> {
-    let map_file =
-        MemBlock::from_reader(File::open(map_file).with_other_err()?).with_other_err()?;
-    let data_file =
-        DataFile::new(BlockSource::from_path(data_file.to_path_buf()).with_other_err()?);
+) -> Result<ResourceSet, Error> {
+    let map_file = MemBlock::from_reader(File::open(map_file)?)?;
+    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
-        map::ResourceLocations::read_from(BlockReader::new(map_file)).with_other_err()?;
+        map::ResourceLocations::read_from(&mut BufferMemReader::new(&map_file))?;
 
     let mut entries = BTreeMap::new();
 
     for location in resource_locations.locations() {
         let block = data_file.read_contents(location)?;
         if block.id() != &location.id {
-            return Err(OtherError::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "Resource ID mismatch: expected {:?}, got {:?}",
-                    location.id,
-                    block.id()
-                ),
-            )));
+            return Err(Error::ResourceIdMismatch {
+                expected: location.id,
+                got: *block.id(),
+            });
         }
         entries.insert(
             location.id,
