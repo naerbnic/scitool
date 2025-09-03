@@ -1,6 +1,7 @@
 use std::{any::TypeId, backtrace::BacktraceStatus, borrow::Cow, mem::MaybeUninit, ops::Bound};
 
 use crate::utils::buffer::{Buffer, BufferError, FromFixedBytes};
+use std::fmt::Debug;
 
 fn convert_if_different<T, Target, F>(value: T, convert: F) -> Target
 where
@@ -72,7 +73,7 @@ impl std::error::Error for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub trait MemReader<'a> {
+pub trait MemReader<'a>: Clone {
     type Sibling<'b>: MemReader<'b>
     where
         Self: 'b;
@@ -143,6 +144,12 @@ pub trait MemReader<'a> {
         Ok(values)
     }
 
+    fn read_until<T: FromFixedBytes + Debug>(
+        &mut self,
+        context: &str,
+        pred: impl Fn(&T) -> bool,
+    ) -> Result<Vec<T>>;
+
     /// Splits the block into chunks of the given size. Panics if the block size
     /// is not a multiple of the chunk size.
     fn with_chunks<F, R, E>(&mut self, chunk_size: usize, context: &str, body: F) -> Result<Vec<R>>
@@ -151,9 +158,7 @@ pub trait MemReader<'a> {
         E: std::error::Error + Send + Sync + 'static;
 
     fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
-        let values = Vec::with_capacity(self.remaining() / T::SIZE);
-        self.with_chunks(T::SIZE, context, |mut r| r.read_value::<T>("value"))?;
-        Ok(values)
+        self.with_chunks(T::SIZE, context, |mut r| r.read_value::<T>("value"))
     }
 
     fn read_length_delimited_block<'b>(
@@ -286,13 +291,15 @@ where
         }
     }
 
-    #[expect(dead_code)]
     #[track_caller]
-    fn err_with_message(&self, message: String) -> Error {
+    fn err_with_message<Msg>(&self, message: Msg) -> Error
+    where
+        Msg: Into<String>,
+    {
         Error {
             backtrace: std::backtrace::Backtrace::capture(),
             contexts: self.make_context(),
-            contents: Contents::Message(message),
+            contents: Contents::Message(message.into()),
         }
     }
 
@@ -382,6 +389,24 @@ where
 
     fn read_remainder_slice(&mut self) -> &'a [u8] {
         self.get_whole_slice()
+    }
+
+    fn read_until<T: FromFixedBytes + Debug>(
+        &mut self,
+        context: &str,
+        pred: impl Fn(&T) -> bool,
+    ) -> Result<Vec<T>> {
+        let mut values = Vec::new();
+        while !self.is_empty() {
+            let mut value_data = self.read_to_subreader(context, T::SIZE)?;
+            let value = T::parse(value_data.read_remainder_slice());
+            let matches = pred(&value);
+            values.push(value);
+            if matches {
+                return Ok(values);
+            }
+        }
+        Err(self.err_with_message("Got to end before matching value."))
     }
 
     fn sub_reader_range<'b, R, Ctxt>(
