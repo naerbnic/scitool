@@ -5,12 +5,13 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap, hash_map},
+    fmt::Debug,
     sync::Arc,
 };
 
 use crate::{
     script_loader::errors::MalformedDataError,
-    utils::buffer::{Buffer, BufferExt},
+    utils::{buffer::Buffer, mem_reader::MemReader},
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -84,16 +85,22 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub(crate) fn load_from<B: Buffer + Clone>(data: &B) -> Result<Self, MalformedDataError> {
+    pub(crate) fn load_from<B: Buffer + Debug>(
+        data: &MemReader<'_, B>,
+    ) -> Result<Self, MalformedDataError> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
-        let (num_entries_minus_one, entries_table) = data
-            .clone()
-            .read_value::<u16>()
+
+        let mut index_table = data
+            .sub_reader_range("Selector index table", ..)
+            .map_err(MalformedDataError::map_from("Selector index table"))?;
+
+        let num_entries_minus_one = index_table
+            .read_value::<u16>("Selector Count")
             .map_err(MalformedDataError::map_from("Selector Count"))?;
         let num_entries = num_entries_minus_one + 1;
-        let (selector_offsets, _) = entries_table
-            .read_values(num_entries as usize)
+        let selector_offsets = index_table
+            .read_values::<u16>("Selector offsets", num_entries.into())
             .map_err(MalformedDataError::map_from("Selector offsets"))?;
         let mut entries: HashMap<_, Vec<_>> = HashMap::new();
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();
@@ -102,17 +109,16 @@ impl SelectorTable {
             let name = match offset_map.entry(selector_offset) {
                 hash_map::Entry::Occupied(occupied_entry) => occupied_entry.get().clone(),
                 hash_map::Entry::Vacant(vacant_entry) => {
-                    let entry_data = data
-                        .clone()
-                        .sub_buffer(selector_offset..)
+                    let mut entry_data = data
+                        .sub_reader_range("Selector entry", usize::from(selector_offset)..)
                         .map_err(MalformedDataError::map_from("Selector entry"))?;
-                    let (string_length, entry_data) = entry_data
-                        .read_value::<u16>()
+                    let string_length = entry_data
+                        .read_value::<u16>("Selector string length")
                         .map_err(MalformedDataError::map_from("Selector string length"))?;
-                    let entry_buffer = entry_data
-                        .sub_buffer(..string_length)
+                    let mut entry_buffer = entry_data
+                        .sub_reader_range("Selector string data", ..usize::from(string_length))
                         .map_err(MalformedDataError::map_from("Selector string data"))?;
-                    let name = SharedString::from_utf8(entry_buffer.as_slice())
+                    let name = SharedString::from_utf8(entry_buffer.read_remainder_slice())
                         .map_err(MalformedDataError::map_from("Expected valid utf-8 string"))?;
                     vacant_entry.insert(name).clone()
                 }
