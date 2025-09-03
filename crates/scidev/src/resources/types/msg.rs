@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::utils::{
     block::MemBlock,
-    buffer::{Buffer, BufferExt},
+    buffer::BufferExt,
     errors::{OtherError, bail_other, prelude::*},
-    mem_reader::MemReader,
+    mem_reader::{BufferMemReader, MemReader},
 };
 
 use serde::{Deserialize, Serialize};
@@ -110,12 +110,9 @@ impl MessageRecord {
 #[error(transparent)]
 pub struct ParseError(#[from] OtherError);
 
-fn parse_message_resource_v4<B>(
-    mut reader: MemReader<'_, B>,
-) -> Result<Vec<RawMessageRecord>, ParseError>
-where
-    B: Buffer,
-{
+fn parse_message_resource_v4<'a, M: MemReader<'a>>(
+    mut reader: M,
+) -> Result<Vec<RawMessageRecord>, ParseError> {
     let _header_data = reader.read_u32_le().with_other_err()?;
     let message_count = reader.read_u16_le().with_other_err()?;
 
@@ -161,7 +158,7 @@ fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, Pars
         .clone()
         .sub_buffer(offset as usize..)
         .with_other_err()?;
-    let mut reader = MemReader::new(&base_buffer);
+    let mut reader = BufferMemReader::new(&base_buffer);
     let mut text = Vec::new();
     loop {
         let ch = reader.read_u8().with_other_err()?;
@@ -196,7 +193,7 @@ impl RoomMessageSet {
 }
 
 pub fn parse_message_resource(msg_res: &MemBlock) -> Result<RoomMessageSet, ParseError> {
-    let mut reader = MemReader::new(msg_res);
+    let mut reader = BufferMemReader::new(msg_res);
     let version_num = reader.read_u32_le().with_other_err()? / 1000;
     let raw_records = match version_num {
         4 => parse_message_resource_v4(reader)?,

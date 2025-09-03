@@ -9,10 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{
-    script_loader::errors::MalformedDataError,
-    utils::{buffer::Buffer, mem_reader::MemReader},
-};
+use crate::{script_loader::errors::MalformedDataError, utils::mem_reader::MemReader};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -85,9 +82,7 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub(crate) fn load_from<B: Buffer + Debug>(
-        data: &MemReader<'_, B>,
-    ) -> Result<Self, MalformedDataError> {
+    pub(crate) fn load_from<'a, M: MemReader<'a>>(data: &M) -> Result<Self, MalformedDataError> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
 

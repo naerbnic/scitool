@@ -1,6 +1,6 @@
 use std::{any::TypeId, backtrace::BacktraceStatus, borrow::Cow, mem::MaybeUninit, ops::Bound};
 
-use crate::utils::buffer::{Buffer, BufferError, BufferExt, FromFixedBytes};
+use crate::utils::buffer::{Buffer, BufferError, FromFixedBytes};
 
 fn convert_if_different<T, Target, F>(value: T, convert: F) -> Target
 where
@@ -72,8 +72,136 @@ impl std::error::Error for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub trait MemReader<'a> {
+    type Sibling<'b>: MemReader<'b>
+    where
+        Self: 'b;
+
+    fn seek_to(&mut self, offset: usize) -> Result<()>;
+
+    #[must_use]
+    fn tell(&self) -> usize;
+
+    #[must_use]
+    fn data_size(&self) -> usize;
+
+    fn read_exact(&mut self, len: usize) -> Result<&[u8]>;
+
+    fn read_remainder_slice(&mut self) -> &'a [u8];
+
+    #[must_use]
+    fn remaining(&self) -> usize;
+
+    #[must_use]
+    fn is_empty(&self) -> bool;
+
+    fn sub_reader_range<'b, R, Ctxt>(
+        &'b self,
+        context: Ctxt,
+        range: R,
+    ) -> Result<Self::Sibling<'b>>
+    where
+        R: std::ops::RangeBounds<usize>,
+        Ctxt: Into<Cow<'b, str>>;
+
+    fn sub_reader_at_offset_length<'b, Ctxt>(
+        &'b self,
+        context: Ctxt,
+        offset: usize,
+        length: Option<usize>,
+    ) -> Result<Self::Sibling<'b>>
+    where
+        Ctxt: Into<Cow<'b, str>>,
+    {
+        self.sub_reader_range(context, offset..offset + length.unwrap_or(self.remaining()))
+    }
+
+    fn read_to_subreader<'b, Ctxt>(
+        &'b mut self,
+        context: Ctxt,
+        len: usize,
+    ) -> Result<Self::Sibling<'b>>
+    where
+        Ctxt: Into<Cow<'b, str>>;
+
+    /// Reads a value from the front of the buffer, returning the value and the
+    /// remaining buffer.
+    // Functions that can be implemented in terms of the above functions.
+    fn read_value<T: FromFixedBytes>(&mut self, context: &str) -> Result<T> {
+        let mut value_data = self.read_to_subreader(context, T::SIZE)?;
+        let value = T::parse(value_data.read_remainder_slice());
+        Ok(value)
+    }
+
+    /// Reads N values from the front of the buffer, returning the values and the
+    /// remaining buffer.
+    fn read_values<T: FromFixedBytes>(&mut self, context: &str, count: usize) -> Result<Vec<T>> {
+        let mut values = Vec::with_capacity(count);
+        for i in 0..count {
+            values.push(self.read_value(&format!("{context}[{i}]"))?);
+        }
+        Ok(values)
+    }
+
+    /// Splits the block into chunks of the given size. Panics if the block size
+    /// is not a multiple of the chunk size.
+    fn with_chunks<F, R, E>(&mut self, chunk_size: usize, context: &str, body: F) -> Result<Vec<R>>
+    where
+        F: for<'b> FnMut(Self::Sibling<'b>) -> std::result::Result<R, E>,
+        E: std::error::Error + Send + Sync + 'static;
+
+    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
+        let values = Vec::with_capacity(self.remaining() / T::SIZE);
+        self.with_chunks(T::SIZE, context, |mut r| r.read_value::<T>("value"))?;
+        Ok(values)
+    }
+
+    fn read_length_delimited_block<'b>(
+        &'b mut self,
+        context: &'b str,
+        item_size: usize,
+    ) -> Result<Self::Sibling<'b>> {
+        let num_blocks = self.read_value::<u16>(&format!("{context}(length)"))?;
+        let total_block_size = usize::from(num_blocks)
+            .checked_mul(item_size)
+            .expect("Size calculation should not overflow");
+        self.read_to_subreader(format!("{context}(contents)"), total_block_size)
+    }
+
+    /// Reads a sequence of values, where the first value is a little endian
+    /// u16 indicating the number of values to read.
+    fn read_length_delimited_records<T: FromFixedBytes>(
+        &mut self,
+        context: &str,
+    ) -> Result<Vec<T>> {
+        let num_records = self.read_value::<u16>(&format!("{context}(length)"))?;
+        self.read_values::<T>(&format!("{context}(values)"), num_records as usize)
+    }
+
+    fn read_u8(&mut self) -> Result<u8> {
+        let buf = self.read_exact(1)?;
+        Ok(buf[0])
+    }
+
+    fn read_u16_le(&mut self) -> Result<u16> {
+        let buf = self.read_exact(2)?;
+        Ok(u16::from_le_bytes(buf.try_into().unwrap()))
+    }
+
+    fn read_u24_le(&mut self) -> Result<u32> {
+        let buf = self.read_exact(3)?;
+        assert!(buf.len() == 3);
+        Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], 0]))
+    }
+
+    fn read_u32_le(&mut self) -> Result<u32> {
+        let buf = self.read_exact(4)?;
+        Ok(u32::from_le_bytes(buf.try_into().unwrap()))
+    }
+}
+
 #[derive(Clone)]
-pub struct MemReader<'a, B: 'a> {
+pub struct BufferMemReader<'a, B: 'a> {
     buffer: &'a B,
     start: usize,
     end: usize,
@@ -81,7 +209,7 @@ pub struct MemReader<'a, B: 'a> {
     context: ReaderContext<'a, B>,
 }
 
-impl<'a, B: 'a> std::fmt::Debug for MemReader<'a, B> {
+impl<'a, B: 'a> std::fmt::Debug for BufferMemReader<'a, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemReader")
             .field("start", &self.start)
@@ -95,12 +223,12 @@ impl<'a, B: 'a> std::fmt::Debug for MemReader<'a, B> {
 enum ReaderContext<'a, B> {
     Root,
     Prev {
-        prev_reader: &'a MemReader<'a, B>,
+        prev_reader: &'a BufferMemReader<'a, B>,
         context: Option<Cow<'a, str>>,
     },
 }
 
-impl<'a, B: 'a> MemReader<'a, B>
+impl<'a, B: 'a> BufferMemReader<'a, B>
 where
     B: Buffer,
 {
@@ -173,10 +301,10 @@ where
         start: usize,
         end: usize,
         context: Option<Cow<'new, str>>,
-    ) -> MemReader<'new, B> {
+    ) -> BufferMemReader<'new, B> {
         let new_start = self.start + start;
         let new_end = self.start + end;
-        MemReader {
+        BufferMemReader {
             buffer: self.buffer,
             start: new_start,
             end: new_end,
@@ -207,12 +335,60 @@ where
             context: ReaderContext::Root,
         }
     }
+}
 
-    pub fn sub_reader_range<'b, R, Ctxt>(
+impl<'a, B: 'a> MemReader<'a> for BufferMemReader<'a, B>
+where
+    B: Buffer,
+{
+    type Sibling<'b>
+        = BufferMemReader<'b, B>
+    where
+        Self: 'b;
+
+    fn tell(&self) -> usize {
+        self.position
+    }
+
+    fn data_size(&self) -> usize {
+        self.end - self.start
+    }
+
+    fn seek_to(&mut self, offset: usize) -> Result<()> {
+        if self.data_size() < offset {
+            return Err(self.err_with_context()(BufferError::NotEnoughData {
+                required: offset,
+                available: self.data_size(),
+            }));
+        }
+
+        self.position = offset;
+        Ok(())
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&[u8]> {
+        let buffer_data = self.get_slice(len)?;
+        self.position += len;
+        Ok(buffer_data)
+    }
+
+    fn remaining(&self) -> usize {
+        self.end - self.start - self.position
+    }
+
+    fn is_empty(&self) -> bool {
+        self.remaining() == 0
+    }
+
+    fn read_remainder_slice(&mut self) -> &'a [u8] {
+        self.get_whole_slice()
+    }
+
+    fn sub_reader_range<'b, R, Ctxt>(
         &'b self,
         context: Ctxt,
         range: R,
-    ) -> Result<MemReader<'b, B>>
+    ) -> Result<BufferMemReader<'b, B>>
     where
         R: std::ops::RangeBounds<usize>,
         Ctxt: Into<Cow<'b, str>>,
@@ -257,29 +433,11 @@ where
         ))
     }
 
-    pub fn sub_reader_at_offset_length<'b, Ctxt>(
-        &'b self,
-        context: Ctxt,
-        offset: usize,
-        length: Option<usize>,
-    ) -> Result<MemReader<'b, B>>
-    where
-        Ctxt: Into<Cow<'b, str>>,
-    {
-        self.sub_reader_range(context, offset..offset + length.unwrap_or(self.remaining()))
-    }
-
-    pub fn read_exact(&mut self, len: usize) -> Result<&[u8]> {
-        let buffer_data = self.get_slice(len)?;
-        self.position += len;
-        Ok(buffer_data)
-    }
-
-    pub fn read_to_subreader<'b, Ctxt>(
+    fn read_to_subreader<'b, Ctxt>(
         &'b mut self,
         context: Ctxt,
         len: usize,
-    ) -> Result<MemReader<'b, B>>
+    ) -> Result<BufferMemReader<'b, B>>
     where
         Ctxt: Into<Cow<'b, str>>,
     {
@@ -291,60 +449,16 @@ where
         Ok(sub_reader)
     }
 
-    pub fn read_remainder_slice(&mut self) -> &'a [u8] {
-        self.get_whole_slice()
-    }
-
-    #[must_use]
-    pub fn into_buffer(self) -> B {
-        let buf_start = self.start + self.position;
-        let buf_end = self.end;
-        self.buffer.clone().sub_buffer(buf_start..buf_end).unwrap()
-    }
-
-    /// Reads a value from the front of the buffer, returning the value and the
-    /// remaining buffer.
-    // Functions that can be implemented in terms of the above functions.
-    pub fn read_value<T: FromFixedBytes>(&mut self, context: &str) -> Result<T> {
-        let value_data = self.read_to_subreader(context, T::SIZE)?;
-        let value = T::parse(value_data.get_whole_slice());
-        Ok(value)
-    }
-
-    /// Reads N values from the front of the buffer, returning the values and the
-    /// remaining buffer.
-    pub fn read_values<T: FromFixedBytes>(
-        &mut self,
-        context: &str,
-        count: usize,
-    ) -> Result<Vec<T>> {
-        let mut values = Vec::with_capacity(count);
-        for i in 0..count {
-            values.push(self.read_value(&format!("{context}[{i}]"))?);
-        }
-        Ok(values)
-    }
-
-    #[must_use]
-    pub fn remaining(&self) -> usize {
-        self.end - self.start - self.position
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.remaining() == 0
-    }
-
     /// Splits the block into chunks of the given size. Panics if the block size
     /// is not a multiple of the chunk size.
-    pub fn with_chunks<F, R, E>(
+    fn with_chunks<F, R, E>(
         &mut self,
         chunk_size: usize,
         context: &str,
         mut body: F,
     ) -> Result<Vec<R>>
     where
-        F: for<'b> FnMut(MemReader<'b, B>) -> std::result::Result<R, E>,
+        F: for<'b> FnMut(BufferMemReader<'b, B>) -> std::result::Result<R, E>,
         E: std::error::Error + Send + Sync + 'static,
     {
         let mut chunks = Vec::new();
@@ -369,79 +483,5 @@ where
             index += 1;
         }
         Ok(chunks)
-    }
-
-    #[expect(dead_code)]
-    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
-        let values = Vec::with_capacity(self.remaining() / T::SIZE);
-        self.with_chunks(T::SIZE, context, |mut r| r.read_value::<T>("value"))?;
-        Ok(values)
-    }
-
-    #[expect(dead_code)]
-    fn read_length_delimited_block<'b>(
-        &'b mut self,
-        context: &'b str,
-        item_size: usize,
-    ) -> Result<MemReader<'b, B>> {
-        let num_blocks = self.read_value::<u16>(&format!("{context}(length)"))?;
-        let total_block_size = usize::from(num_blocks)
-            .checked_mul(item_size)
-            .expect("Size calculation should not overflow");
-        self.read_to_subreader(format!("{context}(contents)"), total_block_size)
-    }
-
-    /// Reads a sequence of values, where the first value is a little endian
-    /// u16 indicating the number of values to read.
-    #[expect(dead_code)]
-    fn read_length_delimited_records<T: FromFixedBytes>(
-        &mut self,
-        context: &str,
-    ) -> Result<Vec<T>> {
-        let num_records = self.read_value::<u16>(&format!("{context}(length)"))?;
-        self.read_values::<T>(&format!("{context}(values)"), num_records as usize)
-    }
-
-    pub fn seek_to(&mut self, offset: usize) -> Result<()> {
-        if self.data_size() < offset {
-            return Err(self.err_with_context()(BufferError::NotEnoughData {
-                required: offset,
-                available: self.data_size(),
-            }));
-        }
-
-        self.position = offset;
-        Ok(())
-    }
-
-    #[must_use]
-    pub fn tell(&self) -> usize {
-        self.position
-    }
-
-    #[must_use]
-    pub fn data_size(&self) -> usize {
-        self.end - self.start
-    }
-
-    pub fn read_u8(&mut self) -> Result<u8> {
-        let buf = self.read_exact(1)?;
-        Ok(buf[0])
-    }
-
-    pub fn read_u16_le(&mut self) -> Result<u16> {
-        let buf = self.read_exact(2)?;
-        Ok(u16::from_le_bytes(buf.try_into().unwrap()))
-    }
-
-    pub fn read_u24_le(&mut self) -> Result<u32> {
-        let buf = self.read_exact(3)?;
-        assert!(buf.len() == 3);
-        Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], 0]))
-    }
-
-    pub fn read_u32_le(&mut self) -> Result<u32> {
-        let buf = self.read_exact(4)?;
-        Ok(u32::from_le_bytes(buf.try_into().unwrap()))
     }
 }

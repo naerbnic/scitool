@@ -4,7 +4,7 @@ use crate::{
     resources::{ResourceId, ResourceType, file::ResourceSet},
     utils::{
         errors::{OtherError, prelude::*},
-        mem_reader::MemReader,
+        mem_reader::BufferMemReader,
     },
 };
 use mem_loader::LoadedScript;
@@ -73,7 +73,7 @@ impl ScriptLoader {
             .ok_or_else_other(|| "Selector table not found")?
             .load_data()
             .with_other_err()?;
-        let reader = MemReader::new(&selector_table_data);
+        let reader = BufferMemReader::new(&selector_table_data);
         let selectors = selectors::SelectorTable::load_from(&reader).with_other_err()?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {

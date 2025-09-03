@@ -1,10 +1,14 @@
 use std::io;
 
-use crate::resources::{ResourceId, ResourceType};
-use crate::utils::{
-    block::{BlockSource, LazyBlock},
-    compression::dcl::decompress_dcl,
-    data_reader::{DataReader, FromBlockSource},
+use crate::{
+    resources::{ResourceId, ResourceType},
+    utils::{
+        block::{BlockSource, LazyBlock},
+        compression::dcl::decompress_dcl,
+        data_reader::FromBlockSource,
+        errors::{OtherError, prelude::*},
+        mem_reader::MemReader,
+    },
 };
 
 use super::map::ResourceLocation;
@@ -26,15 +30,12 @@ impl FromBlockSource for RawEntryHeader {
         9
     }
 
-    fn parse<R>(mut reader: R) -> io::Result<Self>
-    where
-        R: DataReader,
-    {
-        let res_type = reader.read_u8()?;
-        let res_number = reader.read_u16_le()?;
-        let packed_size = reader.read_u16_le()?;
-        let unpacked_size = reader.read_u16_le()?;
-        let compression_type = reader.read_u16_le()?;
+    fn parse<'a, M: MemReader<'a>>(mut reader: M) -> Result<Self, OtherError> {
+        let res_type = reader.read_u8().with_other_err()?;
+        let res_number = reader.read_u16_le().with_other_err()?;
+        let packed_size = reader.read_u16_le().with_other_err()?;
+        let unpacked_size = reader.read_u16_le().with_other_err()?;
+        let compression_type = reader.read_u16_le().with_other_err()?;
         Ok(RawEntryHeader {
             res_type,
             res_number,
@@ -127,7 +128,10 @@ impl DataFile {
         DataFile { data }
     }
 
-    pub(crate) fn read_raw_contents(&self, location: ResourceLocation) -> io::Result<RawContents> {
+    pub(crate) fn read_raw_contents(
+        &self,
+        location: ResourceLocation,
+    ) -> Result<RawContents, OtherError> {
         let (header, rest) = RawEntryHeader::from_block_source(
             &self.data.subblock(u64::from(location.file_offset)..),
         )?;
@@ -142,8 +146,8 @@ impl DataFile {
         })
     }
 
-    pub(crate) fn read_contents(&self, location: ResourceLocation) -> io::Result<Contents> {
+    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, OtherError> {
         let raw_contents = self.read_raw_contents(location)?;
-        raw_contents.try_into()
+        raw_contents.try_into().with_other_err()
     }
 }

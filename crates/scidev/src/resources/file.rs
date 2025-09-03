@@ -25,24 +25,27 @@ pub fn read_resources(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource],
-) -> io::Result<ResourceSet> {
-    let map_file = MemBlock::from_reader(File::open(map_file)?)?;
-    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
-    let resource_locations = map::ResourceLocations::read_from(BlockReader::new(map_file))?;
+) -> Result<ResourceSet, OtherError> {
+    let map_file =
+        MemBlock::from_reader(File::open(map_file).with_other_err()?).with_other_err()?;
+    let data_file =
+        DataFile::new(BlockSource::from_path(data_file.to_path_buf()).with_other_err()?);
+    let resource_locations =
+        map::ResourceLocations::read_from(BlockReader::new(map_file)).with_other_err()?;
 
     let mut entries = BTreeMap::new();
 
     for location in resource_locations.locations() {
         let block = data_file.read_contents(location)?;
         if block.id() != &location.id {
-            return Err(io::Error::new(
+            return Err(OtherError::new(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "Resource ID mismatch: expected {:?}, got {:?}",
                     location.id,
                     block.id()
                 ),
-            ));
+            )));
         }
         entries.insert(
             location.id,
