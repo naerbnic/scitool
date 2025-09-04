@@ -2,7 +2,7 @@ use crate::{
     script_loader::errors::MalformedDataError,
     utils::{
         block::MemBlock,
-        buffer::{Buffer, BufferExt},
+        buffer::BufferExt,
         errors::{OtherError, ensure_other, prelude::*},
         mem_reader::{BufferMemReader, MemReader},
     },

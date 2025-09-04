@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use bytes::{BufMut};
+use bytes::BufMut;
 
 pub trait BufferOpsExt {
     fn read_u16_le_at(&self, offset: usize) -> BufferResult<u16>;
@@ -169,17 +169,13 @@ pub type BufferResult<T> = Result<T, BufferError>;
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
 pub trait Buffer: Sized + Clone {
-    fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self>;
-    fn split_at(self, at: usize) -> BufferResult<(Self, Self)>;
-    fn as_slice(&self) -> &[u8];
-
-    fn size(&self) -> usize {
-        self.as_slice().len()
-    }
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> BufferResult<Self>;
+    fn get_slice(&self, offset: usize, len: usize) -> BufferResult<&[u8]>;
+    fn size(&self) -> usize;
 }
 
 impl Buffer for &[u8] {
-    fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self> {
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> BufferResult<Self> {
         assert!(start <= end);
         if end > self.len() {
             return Err(BufferError::NotEnoughData {
@@ -190,18 +186,13 @@ impl Buffer for &[u8] {
         Ok(&self[start..end])
     }
 
-    fn split_at(self, at: usize) -> BufferResult<(Self, Self)> {
-        if at > self.len() {
-            return Err(BufferError::NotEnoughData {
-                required: at,
-                available: self.len(),
-            });
-        }
-        Ok((*self).split_at(at))
+    fn get_slice(&self, offset: usize, len: usize) -> BufferResult<&[u8]> {
+        assert!(offset + len <= self.len());
+        Ok(&self[offset..offset + len])
     }
 
-    fn as_slice(&self) -> &[u8] {
-        self
+    fn size(&self) -> usize {
+        self.len()
     }
 }
 
@@ -245,6 +236,10 @@ pub trait BufferExt: Buffer {
 
         assert!(start <= end);
         self.sub_buffer_from_range(start, end)
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.get_slice(0, self.size()).unwrap()
     }
 }
 

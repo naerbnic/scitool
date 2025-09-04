@@ -4,7 +4,7 @@ use bytes::Buf;
 
 use crate::utils::{
     block::BlockSource,
-    buffer::Buffer,
+    buffer::{Buffer, BufferExt as _},
     errors::{OtherError, prelude::*},
 };
 use tokio::io::AsyncWriteExt;

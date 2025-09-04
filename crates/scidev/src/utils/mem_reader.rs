@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::utils::{
-    buffer::{Buffer, BufferError, FromFixedBytes},
+    buffer::{Buffer, BufferError, BufferExt as _, FromFixedBytes},
     errors::{AnyInvalidDataError, BlockContext, InvalidDataError, OtherError},
 };
 

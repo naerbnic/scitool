@@ -6,7 +6,7 @@ use std::{
 use bytes::Buf;
 
 use crate::utils::{
-    buffer::Buffer,
+    buffer::{Buffer, BufferExt as _},
     errors::{OtherError, prelude::*},
 };
 
@@ -70,8 +70,7 @@ impl TempStore {
     where
         B: Buffer + Send + Sync + 'static,
     {
-        self.create_temp_block(buffer.as_slice())
-            .await
+        self.create_temp_block(buffer.as_slice()).await
     }
 
     async fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource, StoreError>
