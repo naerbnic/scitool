@@ -1,7 +1,7 @@
 use std::{
     any::TypeId,
-    backtrace::BacktraceStatus,
     borrow::Cow,
+    error::Error as StdError,
     fmt::{Debug, Display},
     mem::MaybeUninit,
     ops::Bound,
@@ -9,7 +9,7 @@ use std::{
 
 use crate::utils::{
     buffer::{Buffer, BufferError, FromFixedBytes},
-    errors::{BlockContext, InvalidDataError, OtherError},
+    errors::{AnyInvalidDataError, BlockContext, InvalidDataError, OtherError},
 };
 
 fn convert_if_different<T, Target, F>(value: T, convert: F) -> Target
@@ -31,36 +31,27 @@ where
 }
 
 #[derive(Debug)]
-pub struct Error {
-    backtrace: std::backtrace::Backtrace,
-    invalid_data: InvalidDataError<OtherError>,
-}
+pub struct Error(AnyInvalidDataError);
 
 impl Error {
     pub fn new<E>(invalid_data: InvalidDataError<E>) -> Self
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: StdError + Send + Sync + 'static,
     {
-        Self {
-            backtrace: std::backtrace::Backtrace::capture(),
-            invalid_data: invalid_data.map(OtherError::new),
-        }
+        Self(invalid_data.into())
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.invalid_data, f)?;
-        if let BacktraceStatus::Captured = self.backtrace.status() {
-            write!(f, "\n\nBacktrace:\n{}", self.backtrace)?;
-        }
+        Display::fmt(&self.0, f)?;
         Ok(())
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        std::error::Error::source(&self.invalid_data)
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        StdError::source(&self.0)
     }
 }
 
@@ -148,7 +139,7 @@ pub trait MemReader<'a>: Clone {
     fn with_chunks<F, R, E>(&mut self, chunk_size: usize, context: &str, body: F) -> Result<Vec<R>>
     where
         F: for<'b> FnMut(Self::Sibling<'b>) -> std::result::Result<R, E>,
-        E: std::error::Error + Send + Sync + 'static;
+        E: StdError + Send + Sync + 'static;
 
     fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
         self.with_chunks(T::SIZE, context, |mut r| r.read_value::<T>("value"))
@@ -236,7 +227,7 @@ where
     #[allow(unsafe_code)]
     fn err_with_context<E>(&self) -> impl FnOnce(E) -> Error
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: StdError + Send + Sync + 'static,
     {
         move |err| {
             convert_if_different(err, |err| {
@@ -440,7 +431,7 @@ where
     ) -> Result<Vec<R>>
     where
         F: for<'b> FnMut(BufferMemReader<'b, B>) -> std::result::Result<R, E>,
-        E: std::error::Error + Send + Sync + 'static,
+        E: StdError + Send + Sync + 'static,
     {
         let mut chunks = Vec::new();
         let overflow = self.remaining() % chunk_size;
