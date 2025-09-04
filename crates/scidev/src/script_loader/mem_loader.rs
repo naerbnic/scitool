@@ -154,11 +154,13 @@ fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Malforme
     let relocation_offset = reader
         .read_value::<u16>("Relocation offset")
         .map_err(MalformedDataError::map_from("Relocation offset"))?;
+    ensure_other!(
+        relocation_offset as usize <= cloned_data.size(),
+        "Relocation offset out of bounds"
+    );
     Ok((
         relocation_offset,
-        cloned_data
-            .sub_buffer(relocation_offset as usize..)
-            .map_err(MalformedDataError::map_from("Relocation block"))?,
+        cloned_data.sub_buffer(relocation_offset as usize..),
     ))
 }
 
@@ -205,8 +207,7 @@ impl LoadedScript {
         let loaded_script = MemBlock::from_vec(loaded_script);
         let heap_data = loaded_script
             .clone()
-            .sub_buffer(heap_offset..heap_offset + heap_relocation_offset as usize)
-            .expect("Constructed to have the correct offset.");
+            .sub_buffer(heap_offset..heap_offset + heap_relocation_offset as usize);
         let heap = Heap::from_block(
             selector_table,
             &BufferMemReader::new(&loaded_script),

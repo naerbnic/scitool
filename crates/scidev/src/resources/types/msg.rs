@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::utils::{
     block::MemBlock,
     buffer::BufferExt,
-    errors::{OtherError, bail_other, prelude::*},
+    errors::{OtherError, bail_other, ensure_other, prelude::*},
     mem_reader::{BufferMemReader, MemReader},
 };
 
@@ -154,10 +154,11 @@ fn parse_message_resource_v4<'a, M: MemReader<'a>>(
 }
 
 fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, ParseError> {
-    let base_buffer = msg_res
-        .clone()
-        .sub_buffer(offset as usize..)
-        .with_other_err()?;
+    ensure_other!(
+        offset as usize <= msg_res.size(),
+        "String offset out of bounds"
+    );
+    let base_buffer = msg_res.clone().sub_buffer(offset as usize..);
     let mut reader = BufferMemReader::new(&base_buffer);
     let mut text = Vec::new();
     loop {

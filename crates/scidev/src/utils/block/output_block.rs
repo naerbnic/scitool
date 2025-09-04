@@ -5,7 +5,7 @@ use bytes::Buf;
 use crate::utils::{
     block::BlockSource,
     buffer::{Buffer, BufferExt as _},
-    errors::{OtherError, prelude::*},
+    errors::{OtherError, ensure_other, prelude::*},
 };
 use tokio::io::AsyncWriteExt;
 
@@ -129,11 +129,9 @@ where
         Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size;
             let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
+            ensure_other!(end <= self.buffer.size(), "Block range out of bounds");
             Ok(BlockData::from_buffer(
-                self.buffer
-                    .clone()
-                    .sub_buffer_from_range(start, end)
-                    .with_other_err()?,
+                self.buffer.clone().sub_buffer_from_range(start, end),
             ))
         }))
     }

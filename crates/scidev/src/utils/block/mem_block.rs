@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::utils::buffer::{Buffer, BufferError, BufferResult};
+use crate::utils::buffer::Buffer;
 
 use super::{ReadError, ReadResult};
 
@@ -111,46 +111,26 @@ impl AsRef<[u8]> for MemBlock {
 }
 
 impl Buffer for MemBlock {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> BufferResult<Self> {
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
         let start: usize = start;
         let end: usize = end;
 
         assert!(start <= end);
 
-        if start > self.size {
-            return Err(BufferError::NotEnoughData {
-                required: end,
-                available: self.size,
-            });
-        }
-
-        if end > self.size {
-            return Err(BufferError::NotEnoughData {
-                required: end,
-                available: self.size,
-            });
-        }
-
         // Actual start/end are offsets from self.start
         let start = self.start + start;
         let end = self.start + end;
 
-        Ok(Self {
+        Self {
             start,
             size: end - start,
             data: self.data.clone(),
-        })
+        }
     }
 
-    fn get_slice(&self, offset: usize, len: usize) -> BufferResult<&[u8]> {
-        if offset + len > self.size {
-            return Err(BufferError::NotEnoughData {
-                required: offset + len,
-                available: self.size,
-            });
-        }
-
-        Ok(&self[offset..][..len])
+    fn get_slice(&self, offset: usize, len: usize) -> &[u8] {
+        assert!(offset + len <= self.size);
+        &self[offset..][..len]
     }
 
     fn size(&self) -> usize {

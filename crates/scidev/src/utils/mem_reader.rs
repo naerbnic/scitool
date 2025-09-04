@@ -8,9 +8,18 @@ use std::{
 };
 
 use crate::utils::{
-    buffer::{Buffer, BufferError, BufferExt as _, FromFixedBytes},
+    buffer::{Buffer, BufferExt as _, FromFixedBytes},
     errors::{AnyInvalidDataError, BlockContext, InvalidDataError, OtherError},
 };
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum BufferError {
+    #[error("Not enough data in buffer. Needed {required}, but only {available} available.")]
+    NotEnoughData { required: usize, available: usize },
+    #[error("Buffer size is not a multiple of {required}. Had overflow of {overflow} instead.")]
+    NotDivisible { required: usize, overflow: usize },
+}
 
 fn convert_if_different<T, Target, F>(value: T, convert: F) -> Target
 where

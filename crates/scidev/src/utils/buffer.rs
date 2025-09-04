@@ -2,23 +2,6 @@ use std::ops::{Bound, RangeBounds};
 
 use bytes::BufMut;
 
-pub trait BufferOpsExt {
-    fn read_u16_le_at(&self, offset: usize) -> BufferResult<u16>;
-}
-
-impl BufferOpsExt for [u8] {
-    fn read_u16_le_at(&self, offset: usize) -> BufferResult<u16> {
-        if offset + 2 > self.len() {
-            return Err(BufferError::NotEnoughData {
-                required: offset + 2,
-                available: self.len(),
-            });
-        }
-        let bytes = &self[offset..][..2];
-        Ok(u16::from_le_bytes(bytes.try_into().unwrap()))
-    }
-}
-
 pub trait ToFixedBytes {
     const SIZE: usize;
     fn to_bytes(&self, dest: &mut [u8]);
@@ -150,17 +133,6 @@ impl<T> NoErrorResultExt<T> for Result<T, NoError> {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum BufferError {
-    #[error("Not enough data in buffer. Needed {required}, but only {available} available.")]
-    NotEnoughData { required: usize, available: usize },
-    #[error("Buffer size is not a multiple of {required}. Had overflow of {overflow} instead.")]
-    NotDivisible { required: usize, overflow: usize },
-}
-
-pub type BufferResult<T> = Result<T, BufferError>;
-
 /// An abstraction over types that contain a buffer of bytes.
 ///
 /// This is designed to be usable with both mutable and immutable byte
@@ -169,26 +141,22 @@ pub type BufferResult<T> = Result<T, BufferError>;
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
 pub trait Buffer: Sized + Clone {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> BufferResult<Self>;
-    fn get_slice(&self, offset: usize, len: usize) -> BufferResult<&[u8]>;
+    #[must_use]
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self;
+    fn get_slice(&self, offset: usize, len: usize) -> &[u8];
     fn size(&self) -> usize;
 }
 
 impl Buffer for &[u8] {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> BufferResult<Self> {
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
         assert!(start <= end);
-        if end > self.len() {
-            return Err(BufferError::NotEnoughData {
-                required: end,
-                available: self.len(),
-            });
-        }
-        Ok(&self[start..end])
+        assert!(end <= self.len());
+        &self[start..end]
     }
 
-    fn get_slice(&self, offset: usize, len: usize) -> BufferResult<&[u8]> {
+    fn get_slice(&self, offset: usize, len: usize) -> &[u8] {
         assert!(offset + len <= self.len());
-        Ok(&self[offset..offset + len])
+        &self[offset..offset + len]
     }
 
     fn size(&self) -> usize {
@@ -197,49 +165,31 @@ impl Buffer for &[u8] {
 }
 
 pub trait BufferExt: Buffer {
-    fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> BufferResult<Self>
+    #[must_use]
+    fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> Self
     where
-        T: Into<usize> + num::Num + Copy,
+        T: Into<usize> + Copy,
     {
-        let given_start = match range.start_bound() {
-            Bound::Included(&start) => Some(start),
-            Bound::Excluded(&start) => Some(start + T::one()),
-            Bound::Unbounded => None,
+        let start = match range.start_bound() {
+            Bound::Included(&start) => start.into(),
+            Bound::Excluded(&start) => start.into() + 1,
+            Bound::Unbounded => 0usize,
         };
 
-        let given_end = match range.end_bound() {
-            Bound::Included(&end) => Some(end + T::one()),
-            Bound::Excluded(&end) => Some(end),
-            Bound::Unbounded => None,
+        let end = match range.end_bound() {
+            Bound::Included(&end) => end.into() + 1,
+            Bound::Excluded(&end) => end.into(),
+            Bound::Unbounded => self.size(),
         };
 
-        let given_start = given_start.map(Into::into);
-        let given_end = given_end.map(Into::into);
-
-        if let Some(start) = given_start
-            && let Some(end) = given_end
-        {
-            assert!(start <= end);
-        }
-
-        let start = given_start.unwrap_or(0);
-        let end = given_end.unwrap_or(self.size());
-
-        if start > end {
-            // This must have been caused by an implicit range endpoint, so treat
-            // it as an error, not a panic.
-            return Err(BufferError::NotEnoughData {
-                required: start,
-                available: end,
-            });
-        }
+        assert!(start <= end);
 
         assert!(start <= end);
         self.sub_buffer_from_range(start, end)
     }
 
     fn as_slice(&self) -> &[u8] {
-        self.get_slice(0, self.size()).unwrap()
+        self.get_slice(0, self.size())
     }
 }
 
