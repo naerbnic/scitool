@@ -1,7 +1,16 @@
-use std::{any::TypeId, backtrace::BacktraceStatus, borrow::Cow, mem::MaybeUninit, ops::Bound};
+use std::{
+    any::TypeId,
+    backtrace::BacktraceStatus,
+    borrow::Cow,
+    fmt::{Debug, Display},
+    mem::MaybeUninit,
+    ops::Bound,
+};
 
-use crate::utils::buffer::{Buffer, BufferError, FromFixedBytes};
-use std::fmt::Debug;
+use crate::utils::{
+    buffer::{Buffer, BufferError, FromFixedBytes},
+    errors::{BlockContext, InvalidDataError, OtherError},
+};
 
 fn convert_if_different<T, Target, F>(value: T, convert: F) -> Target
 where
@@ -22,39 +31,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct Context {
-    start: usize,
-    end: usize,
-    message: Option<String>,
-}
-
-#[derive(Debug)]
-enum Contents {
-    Message(String),
-    Error(Box<dyn std::error::Error + Send + Sync + 'static>),
-}
-
-#[derive(Debug)]
 pub struct Error {
     backtrace: std::backtrace::Backtrace,
-    contexts: Vec<Context>,
-    contents: Contents,
+    invalid_data: InvalidDataError<OtherError>,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.contents {
-            Contents::Message(msg) => write!(f, "{msg}")?,
-            Contents::Error(err) => write!(f, "Error: {err}")?,
+impl Error {
+    pub fn new<E>(invalid_data: InvalidDataError<E>) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self {
+            backtrace: std::backtrace::Backtrace::capture(),
+            invalid_data: invalid_data.map(OtherError::new),
         }
+    }
+}
 
-        for context in &self.contexts {
-            if let Some(msg) = &context.message {
-                write!(f, " at [{}..{}] ({})", context.start, context.end, msg)?;
-            } else {
-                write!(f, " at [{}..{}]", context.start, context.end)?;
-            }
-        }
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.invalid_data, f)?;
         if let BacktraceStatus::Captured = self.backtrace.status() {
             write!(f, "\n\nBacktrace:\n{}", self.backtrace)?;
         }
@@ -64,10 +60,7 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.contents {
-            Contents::Message(_) => None,
-            Contents::Error(err) => Some(err.as_ref()),
-        }
+        std::error::Error::source(&self.invalid_data)
     }
 }
 
@@ -129,7 +122,7 @@ pub trait MemReader<'a>: Clone {
     /// remaining buffer.
     // Functions that can be implemented in terms of the above functions.
     fn read_value<T: FromFixedBytes>(&mut self, context: &str) -> Result<T> {
-        let mut value_data = self.read_to_subreader(context, T::SIZE)?;
+        let mut value_data = self.read_to_subreader(context.to_owned(), T::SIZE)?;
         let value = T::parse(value_data.read_remainder_slice());
         Ok(value)
     }
@@ -211,10 +204,10 @@ pub struct BufferMemReader<'a, B: 'a> {
     start: usize,
     end: usize,
     position: usize,
-    context: ReaderContext<'a, B>,
+    context: BlockContext<'a>,
 }
 
-impl<'a, B: 'a> std::fmt::Debug for BufferMemReader<'a, B> {
+impl<'a, B: 'a> Debug for BufferMemReader<'a, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemReader")
             .field("start", &self.start)
@@ -224,18 +217,9 @@ impl<'a, B: 'a> std::fmt::Debug for BufferMemReader<'a, B> {
     }
 }
 
-#[derive(Debug, Clone)]
-enum ReaderContext<'a, B> {
-    Root,
-    Prev {
-        prev_reader: &'a BufferMemReader<'a, B>,
-        context: Option<Cow<'a, str>>,
-    },
-}
-
 impl<'a, B: 'a> BufferMemReader<'a, B>
 where
-    B: Buffer,
+    B: Buffer + 'a,
 {
     fn check_read_length(&self, len: usize) -> Result<()> {
         let remaining = self.end - self.start - self.position;
@@ -248,34 +232,6 @@ where
         Ok(())
     }
 
-    fn make_context(&self) -> Vec<Context> {
-        let mut contexts = Vec::new();
-        let mut curr_reader = self;
-        loop {
-            match &curr_reader.context {
-                ReaderContext::Root => {
-                    contexts.push(Context {
-                        start: curr_reader.start,
-                        end: curr_reader.end,
-                        message: None,
-                    });
-                    return contexts;
-                }
-                ReaderContext::Prev {
-                    prev_reader,
-                    context,
-                } => {
-                    contexts.push(Context {
-                        start: curr_reader.start - prev_reader.start,
-                        end: curr_reader.end - prev_reader.start,
-                        message: context.as_ref().map(|s| s.clone().into_owned()),
-                    });
-                    curr_reader = prev_reader;
-                }
-            }
-        }
-    }
-
     #[track_caller]
     #[allow(unsafe_code)]
     fn err_with_context<E>(&self) -> impl FnOnce(E) -> Error
@@ -283,10 +239,8 @@ where
         E: std::error::Error + Send + Sync + 'static,
     {
         move |err| {
-            convert_if_different(err, |err| Error {
-                backtrace: std::backtrace::Backtrace::capture(),
-                contexts: self.make_context(),
-                contents: Contents::Error(Box::new(err)),
+            convert_if_different(err, |err| {
+                Error::new(self.context.create_error(self.position, err))
             })
         }
     }
@@ -296,19 +250,21 @@ where
     where
         Msg: Into<String>,
     {
-        Error {
-            backtrace: std::backtrace::Backtrace::capture(),
-            contexts: self.make_context(),
-            contents: Contents::Message(message.into()),
-        }
+        Error::new(
+            self.context
+                .create_error(self.position, OtherError::from_msg(message.into())),
+        )
     }
 
-    fn make_sub_reader<'new>(
-        &'new self,
+    fn make_sub_reader<NewD>(
+        &self,
         start: usize,
         end: usize,
-        context: Option<Cow<'new, str>>,
-    ) -> BufferMemReader<'new, B> {
+        context: NewD,
+    ) -> BufferMemReader<'_, B>
+    where
+        NewD: Display + Debug + Clone + 'static,
+    {
         let new_start = self.start + start;
         let new_end = self.start + end;
         BufferMemReader {
@@ -316,10 +272,7 @@ where
             start: new_start,
             end: new_end,
             position: 0,
-            context: ReaderContext::Prev {
-                prev_reader: self,
-                context,
-            },
+            context: self.context.nested(self.start, self.end, context),
         }
     }
 
@@ -339,7 +292,7 @@ where
             start: 0,
             end: buf.size(),
             position: 0,
-            context: ReaderContext::Root,
+            context: BlockContext::new_root(buf.size()),
         }
     }
 }
@@ -454,7 +407,7 @@ where
         Ok(self.make_sub_reader(
             self.position + start,
             self.position + end,
-            Some(context.into()),
+            context.into().into_owned(),
         ))
     }
 
@@ -469,8 +422,11 @@ where
         self.check_read_length(len)?;
         let old_position = self.position;
         self.position += len;
-        let sub_reader =
-            self.make_sub_reader(old_position, old_position + len, Some(context.into()));
+        let sub_reader = self.make_sub_reader(
+            old_position,
+            old_position + len,
+            context.into().into_owned(),
+        );
         Ok(sub_reader)
     }
 
@@ -497,11 +453,8 @@ where
         let mut index = 0;
         while !self.is_empty() {
             let entry_context = format!("{context}[{index}]");
-            let sub_reader = self.make_sub_reader(
-                self.position,
-                self.position + chunk_size,
-                Some(entry_context.into()),
-            );
+            let sub_reader =
+                self.make_sub_reader(self.position, self.position + chunk_size, entry_context);
 
             chunks.push(body(sub_reader).map_err(self.err_with_context())?);
             self.position += chunk_size;

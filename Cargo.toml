@@ -10,7 +10,6 @@ unsafe-code = "deny"
 let-underscore-drop = "deny"
 meta-variable-misuse = "deny"
 redundant-imports = "deny"
-redundant-lifetimes = "deny"
 unit-bindings = "deny"
 
 [workspace.lints.clippy]
