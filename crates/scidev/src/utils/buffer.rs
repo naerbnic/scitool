@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use bytes::{Buf, BufMut};
+use bytes::{BufMut};
 
 pub trait BufferOpsExt {
     fn read_u16_le_at(&self, offset: usize) -> BufferResult<u16>;
@@ -168,18 +168,17 @@ pub type BufferResult<T> = Result<T, BufferError>;
 ///
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
-pub trait Buffer: Buf + Sized + Clone {
-    fn size(&self) -> usize;
+pub trait Buffer: Sized + Clone {
     fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self>;
     fn split_at(self, at: usize) -> BufferResult<(Self, Self)>;
     fn as_slice(&self) -> &[u8];
+
+    fn size(&self) -> usize {
+        self.as_slice().len()
+    }
 }
 
 impl Buffer for &[u8] {
-    fn size(&self) -> usize {
-        self.len()
-    }
-
     fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self> {
         assert!(start <= end);
         if end > self.len() {

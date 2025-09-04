@@ -76,6 +76,34 @@ impl OutputBlockImpl for CompositeOutputBlock {
     }
 }
 
+struct BufferBlockDataImpl<B> {
+    buffer: B,
+    position: usize,
+}
+
+impl<B: Buffer> BufferBlockDataImpl<B> {
+    fn new(buffer: B) -> Self {
+        Self {
+            buffer,
+            position: 0,
+        }
+    }
+}
+
+impl<B: Buffer> bytes::Buf for BufferBlockDataImpl<B> {
+    fn remaining(&self) -> usize {
+        self.buffer.size() - self.position
+    }
+
+    fn chunk(&self) -> &[u8] {
+        &self.buffer.as_slice()[self.position..]
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        self.position += cnt;
+    }
+}
+
 struct BufferOutputBlock<T> {
     buffer: T,
     max_block_size: usize,
@@ -94,12 +122,12 @@ where
         Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size;
             let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
-            Ok(BlockData::new(
+            Ok(BlockData::new(BufferBlockDataImpl::new(
                 self.buffer
                     .clone()
                     .sub_buffer_from_range(start, end)
                     .with_other_err()?,
-            ))
+            )))
         }))
     }
 }

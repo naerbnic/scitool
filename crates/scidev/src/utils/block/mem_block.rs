@@ -111,10 +111,6 @@ impl AsRef<[u8]> for MemBlock {
 }
 
 impl Buffer for MemBlock {
-    fn size(&self) -> usize {
-        self.size
-    }
-
     fn sub_buffer_from_range(self, start: usize, end: usize) -> BufferResult<Self> {
         let start: usize = start;
         let end: usize = end;
