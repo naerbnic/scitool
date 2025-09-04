@@ -18,6 +18,13 @@ impl<'a> BlockData<'a> {
     {
         Self(Box::new(buf))
     }
+
+    pub fn from_buffer<B>(buf: B) -> Self
+    where
+        B: Buffer + 'a,
+    {
+        Self(Box::new(BufferBlockDataImpl::new(buf)))
+    }
 }
 
 impl Buf for BlockData<'_> {
@@ -122,12 +129,12 @@ where
         Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size;
             let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
-            Ok(BlockData::new(BufferBlockDataImpl::new(
+            Ok(BlockData::from_buffer(
                 self.buffer
                     .clone()
                     .sub_buffer_from_range(start, end)
                     .with_other_err()?,
-            )))
+            ))
         }))
     }
 }
@@ -160,7 +167,7 @@ impl OutputBlockImpl for BlockSourceOutputBlock {
         Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size as u64;
             let end = std::cmp::min(start + self.max_block_size as u64, self.source.size());
-            Ok(BlockData::new(
+            Ok(BlockData::from_buffer(
                 self.source
                     .clone()
                     .subblock(start..end)

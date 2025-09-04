@@ -156,19 +156,3 @@ impl std::fmt::Debug for MemBlock {
         f.debug_tuple("Block").field(&&self[..]).finish()
     }
 }
-
-impl bytes::Buf for MemBlock {
-    fn remaining(&self) -> usize {
-        self.size
-    }
-
-    fn chunk(&self) -> &[u8] {
-        &self[..]
-    }
-
-    fn advance(&mut self, cnt: usize) {
-        assert!(cnt <= self.size);
-        self.start += cnt;
-        self.size -= cnt;
-    }
-}
