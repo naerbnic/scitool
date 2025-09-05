@@ -16,7 +16,7 @@ use super::map::ResourceLocation;
 ///
 /// This is based on the SCI1.1 data file format.
 #[derive(Debug)]
-pub(crate) struct RawEntryHeader {
+struct RawEntryHeader {
     res_type: u8,
     res_number: u16,
     packed_size: u16,
@@ -45,7 +45,7 @@ impl FromBlockSource for RawEntryHeader {
     }
 }
 
-pub(crate) struct RawContents {
+struct RawContents {
     res_type: u8,
     res_number: u16,
     unpacked_size: u16,
@@ -147,10 +147,7 @@ impl DataFile {
         DataFile { data }
     }
 
-    pub(crate) fn read_raw_contents(
-        &self,
-        location: ResourceLocation,
-    ) -> Result<RawContents, Error> {
+    fn read_raw_contents(&self, location: ResourceLocation) -> Result<RawContents, Error> {
         let (header, rest) = RawEntryHeader::from_block_source(
             &self.data.subblock(u64::from(location.file_offset)..),
         )?;
