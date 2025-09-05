@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     resources::{ResourceId, ResourceType, file::ResourceSet},
     utils::{
-        errors::{OtherError, prelude::*},
+        errors::{AnyInvalidDataError, OtherError, prelude::*},
         mem_reader::BufferMemReader,
     },
 };
@@ -53,6 +53,12 @@ impl std::fmt::Debug for Species {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ScriptLoadError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    InvalidData(#[from] AnyInvalidDataError),
+
     #[doc(hidden)]
     #[error(transparent)]
     Other(#[from] OtherError),
@@ -74,7 +80,7 @@ impl ScriptLoader {
             .load_data()
             .with_other_err()?;
         let reader = BufferMemReader::new(&selector_table_data);
-        let selectors = selectors::SelectorTable::load_from(&reader).with_other_err()?;
+        let selectors = selectors::SelectorTable::load_from(&reader)?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
