@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::utils::{
-    block::{BlockSource, LazyBlock, MemBlock, output_block::OutputBlock},
+    block::{BlockSource, LazyBlock, MemBlock, OutputBlock},
     data_writer::{DataWriter, IoDataWriter},
     errors::{OtherError, ensure_other, prelude::*},
     mem_reader::{self, MemReader},

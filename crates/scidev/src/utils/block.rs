@@ -1,16 +1,15 @@
 //! Types that are used to work with ranges of bytes data.
 
-mod block_reader;
 mod block_source;
-pub mod cache_store;
-mod error;
 mod lazy_block;
 mod mem_block;
-pub mod output_block;
-pub mod temp_store;
+mod output_block;
+mod temp_store;
 
-pub use block_reader::BlockReader;
-pub use block_source::{BlockSource, FromBlockSource, FromBlockSourceError};
-pub use error::{ReadError, ReadResult};
-pub use lazy_block::LazyBlock;
-pub use mem_block::MemBlock;
+pub use block_source::{
+    BlockSource, Error as BlockSourceError, FromBlockSource, FromBlockSourceError,
+};
+pub use lazy_block::{Error as LazyBlockError, LazyBlock};
+pub use mem_block::{FromReaderError as MemBlockFromReaderError, MemBlock};
+pub use output_block::OutputBlock;
+pub use temp_store::TempStore;

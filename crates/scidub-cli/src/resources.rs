@@ -5,7 +5,7 @@ use std::{
 
 use futures::{prelude::*, stream::FuturesUnordered};
 use itertools::Itertools;
-use scidev::utils::block::temp_store::TempStore;
+use scidev::utils::block::TempStore;
 use scidev::{
     common::{LineId, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
     resources::types::{

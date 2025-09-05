@@ -8,8 +8,8 @@ use super::huffman::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 
 pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
-    let input_data = input.read_all()?;
-    let input_size = input_data.len();
+    let input_size = input.size();
+    let input_data = input.read_all();
     let mut reader = bitter::LittleEndianReader::new(&input_data);
     let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
     let Some(mode) = reader.read_u8() else {

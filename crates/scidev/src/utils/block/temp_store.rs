@@ -4,8 +4,9 @@ use std::{
 };
 
 use crate::utils::{
+    block::{block_source, lazy_block},
     buffer::{Buffer, BufferCursor},
-    errors::{OtherError, prelude::*},
+    errors::{prelude::*, OtherError},
 };
 
 use super::BlockSource;
@@ -38,6 +39,24 @@ pub enum StoreError {
     #[doc(hidden)]
     #[error(transparent)]
     Other(#[from] OtherError),
+}
+
+impl From<lazy_block::Error> for StoreError {
+    fn from(value: lazy_block::Error) -> Self {
+        match value {
+            lazy_block::Error::Io(io_err) => Self::Io(io_err),
+            lazy_block::Error::Conversion(err) => Self::Other(OtherError::new(err)),
+        }
+    }
+}
+
+impl From<block_source::Error> for StoreError {
+    fn from(value: block_source::Error) -> Self {
+        match value {
+            block_source::Error::Io(io_err) => Self::Io(io_err),
+            block_source::Error::Conversion(err) => Self::Other(OtherError::new(err)),
+        }
+    }
 }
 
 pub struct TempStore {

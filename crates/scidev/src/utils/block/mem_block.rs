@@ -4,7 +4,14 @@ use bytes::BufMut;
 
 use crate::utils::buffer::{Buffer, SplittableBuffer};
 
-use super::{ReadError, ReadResult};
+#[derive(Debug, thiserror::Error)]
+pub enum FromReaderError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+
+    #[error(transparent)]
+    Conversion(#[from] std::num::TryFromIntError),
+}
 
 /// An in-memory block of data that is cheap to clone and create subranges of.
 #[derive(Clone)]
@@ -45,42 +52,26 @@ impl MemBlock {
     }
 
     /// Read the entirety of a reader into a block.
-    pub fn from_reader<R>(mut reader: R) -> io::Result<Self>
+    pub fn from_reader<R>(mut reader: R) -> Result<Self, FromReaderError>
     where
         R: io::Read + io::Seek,
     {
         let size = reader.seek(io::SeekFrom::End(0))?;
-        let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
+        let mut data = vec![0; size.try_into()?];
         reader.seek(io::SeekFrom::Start(0))?;
         reader.read_exact(&mut data)?;
         Ok(Self::from_vec(data))
+    }
+
+    #[must_use]
+    pub fn read_all(&self) -> Vec<u8> {
+        self.to_vec()
     }
 
     /// Returns the size of the block.
     #[must_use]
     pub fn size(&self) -> usize {
         self.size
-    }
-
-    /// Reads a slice of the block into a mutable slice. Returns a read error
-    /// if the slice is out of bounds.
-    pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> ReadResult<()> {
-        if offset + buf.len() > self.size {
-            return Err(ReadError::new(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Attempted to read past the end of the block",
-            )));
-        }
-
-        buf.copy_from_slice(&self[offset..][..buf.len()]);
-        Ok(())
-    }
-
-    /// Read the entirety of the buffer into a vector.
-    pub fn read_all(&self) -> ReadResult<Vec<u8>> {
-        let mut buf = vec![0; self.size];
-        self.read_at(0, &mut buf)?;
-        Ok(buf)
     }
 
     /// Returns the offset of the contained block within the current block.

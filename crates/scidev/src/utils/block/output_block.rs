@@ -69,7 +69,7 @@ where
     }
 }
 
-pub struct CompositeOutputBlock {
+struct CompositeOutputBlock {
     blocks: Vec<OutputBlock>,
 }
 

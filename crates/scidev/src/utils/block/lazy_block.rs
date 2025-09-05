@@ -1,9 +1,29 @@
 use std::sync::Arc;
 
-use super::{BlockSource, MemBlock, ReadResult};
+use crate::utils::block::block_source;
+
+use super::{BlockSource, MemBlock};
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Conversion(#[from] std::num::TryFromIntError),
+}
+
+impl From<block_source::Error> for Error {
+    fn from(value: block_source::Error) -> Self {
+        match value {
+            block_source::Error::Io(io_err) => Self::Io(io_err),
+            block_source::Error::Conversion(conv_err) => Self::Conversion(conv_err),
+        }
+    }
+}
 
 trait LazyBlockImpl: Send + Sync {
-    fn open(&self) -> ReadResult<MemBlock>;
+    fn open(&self) -> Result<MemBlock, Error>;
     fn size(&self) -> Option<u64>;
 }
 
@@ -12,8 +32,8 @@ struct RangeLazyBlockImpl {
 }
 
 impl LazyBlockImpl for RangeLazyBlockImpl {
-    fn open(&self) -> ReadResult<MemBlock> {
-        self.source.open()
+    fn open(&self) -> Result<MemBlock, Error> {
+        Ok(self.source.open()?)
     }
 
     fn size(&self) -> Option<u64> {
@@ -25,9 +45,9 @@ struct FactoryLazyBlockImpl<F>(F);
 
 impl<F> LazyBlockImpl for FactoryLazyBlockImpl<F>
 where
-    F: Fn() -> ReadResult<MemBlock> + Send + Sync,
+    F: Fn() -> Result<MemBlock, Error> + Send + Sync,
 {
-    fn open(&self) -> ReadResult<MemBlock> {
+    fn open(&self) -> Result<MemBlock, Error> {
         (self.0)()
     }
 
@@ -43,9 +63,9 @@ struct MapLazyBlockImpl<F> {
 
 impl<F> LazyBlockImpl for MapLazyBlockImpl<F>
 where
-    F: Fn(MemBlock) -> ReadResult<MemBlock> + Send + Sync,
+    F: Fn(MemBlock) -> Result<MemBlock, Error> + Send + Sync,
 {
-    fn open(&self) -> ReadResult<MemBlock> {
+    fn open(&self) -> Result<MemBlock, Error> {
         let base_block = self.base_impl.open()?;
         (self.map_fn)(base_block)
     }
@@ -60,7 +80,7 @@ struct MemLazyBlockImpl {
 }
 
 impl LazyBlockImpl for MemLazyBlockImpl {
-    fn open(&self) -> ReadResult<MemBlock> {
+    fn open(&self) -> Result<MemBlock, Error> {
         Ok(self.block.clone())
     }
 
@@ -81,7 +101,7 @@ impl LazyBlock {
     /// Creates a lazy block that is loaded from a factory on demand.
     pub fn from_factory<F>(factory: F) -> Self
     where
-        F: Fn() -> ReadResult<MemBlock> + Send + Sync + 'static,
+        F: Fn() -> Result<MemBlock, Error> + Send + Sync + 'static,
     {
         Self {
             source: Arc::new(FactoryLazyBlockImpl(factory)),
@@ -104,7 +124,7 @@ impl LazyBlock {
 
     /// Opens a block from the lazy block source. Returns an error if the block
     /// cannot be loaded.
-    pub fn open(&self) -> ReadResult<MemBlock> {
+    pub fn open(&self) -> Result<MemBlock, Error> {
         self.source.open()
     }
 
@@ -113,7 +133,7 @@ impl LazyBlock {
     #[must_use]
     pub fn map<F>(self, map_fn: F) -> Self
     where
-        F: Fn(MemBlock) -> ReadResult<MemBlock> + Send + Sync + 'static,
+        F: Fn(MemBlock) -> Result<MemBlock, Error> + Send + Sync + 'static,
     {
         Self {
             source: Arc::new(MapLazyBlockImpl {
@@ -128,7 +148,7 @@ impl LazyBlock {
     #[must_use]
     pub fn with_check<F>(&self, check_fn: F) -> Self
     where
-        F: Fn(&MemBlock) -> ReadResult<()> + Send + Sync + 'static,
+        F: Fn(&MemBlock) -> Result<(), Error> + Send + Sync + 'static,
     {
         Self {
             source: Arc::new(MapLazyBlockImpl {

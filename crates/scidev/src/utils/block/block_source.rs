@@ -11,10 +11,20 @@ use crate::utils::{
     mem_reader::{self, BufferMemReader, MemReader, NoErrorResultExt as _},
 };
 
-use super::{LazyBlock, MemBlock, ReadError, ReadResult};
+use super::{LazyBlock, MemBlock};
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+
+    #[error("Conversion error: {0}")]
+    Conversion(#[from] std::num::TryFromIntError),
+}
 
 trait BlockSourceImpl: Send + Sync {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock>;
+    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error>;
 }
 
 struct ReaderBlockSourceImpl<R>(Mutex<R>);
@@ -23,10 +33,10 @@ impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
 where
     R: io::Read + io::Seek + Send,
 {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock> {
+    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
         let mut reader = self.0.lock().unwrap();
         reader.seek(io::SeekFrom::Start(start))?;
-        let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
+        let mut data = vec![0; size.try_into()?];
         reader.read_exact(&mut data)?;
 
         Ok(MemBlock::from_vec(data))
@@ -39,10 +49,10 @@ impl<P> BlockSourceImpl for PathBlockSourceImpl<P>
 where
     P: AsRef<Path> + Sync + Send,
 {
-    fn read_block(&self, start: u64, size: u64) -> ReadResult<MemBlock> {
+    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
         let mut file = std::fs::File::open(self.0.as_ref())?;
         file.seek(io::SeekFrom::Start(start))?;
-        let mut data = vec![0; size.try_into().map_err(ReadError::from_std_err)?];
+        let mut data = vec![0; size.try_into()?];
         file.read_exact(&mut data)?;
 
         Ok(MemBlock::from_vec(data))
@@ -61,7 +71,7 @@ pub struct BlockSource {
 impl BlockSource {
     /// Creates a block source that represents the contents of a path at the
     /// given path. Returns an error if the file cannot be opened.
-    pub fn from_path<P>(path: P) -> io::Result<Self>
+    pub fn from_path<P>(path: P) -> Result<Self, Error>
     where
         P: AsRef<Path> + Send + Sync + 'static,
     {
@@ -73,17 +83,17 @@ impl BlockSource {
         })
     }
 
-    pub fn from_reader<R>(reader: R) -> Self
+    pub fn from_reader<R>(reader: R) -> Result<Self, Error>
     where
         R: io::Read + io::Seek + Send + 'static,
     {
         let mut reader = io::BufReader::new(reader);
-        let size = reader.seek(io::SeekFrom::End(0)).unwrap();
-        Self {
+        let size = reader.seek(io::SeekFrom::End(0))?;
+        Ok(Self {
             start: 0,
             size,
             source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(reader))),
-        }
+        })
     }
 
     /// Returns the size of the block source.
@@ -94,7 +104,7 @@ impl BlockSource {
 
     /// Opens the block source, returning the block of data. Returns an error
     /// if the data cannot be read and/or loaded.
-    pub fn open(&self) -> ReadResult<MemBlock> {
+    pub fn open(&self) -> Result<MemBlock, Error> {
         self.source_impl.read_block(self.start, self.size)
     }
 
@@ -147,7 +157,7 @@ impl BlockSource {
         (self.clone().subblock(..at), self.subblock(at..))
     }
 
-    pub fn to_buffer(&self) -> ReadResult<impl Buffer> {
+    pub fn to_buffer(&self) -> Result<impl Buffer, Error> {
         self.open()
     }
 
@@ -165,6 +175,8 @@ pub enum FromBlockSourceError {
     Io(#[from] io::Error),
     #[error(transparent)]
     MemReader(#[from] AnyInvalidDataError),
+    #[error(transparent)]
+    Conversion(#[from] std::num::TryFromIntError),
 }
 
 impl From<mem_reader::Error<NoError>> for FromBlockSourceError {
@@ -176,14 +188,20 @@ impl From<mem_reader::Error<NoError>> for FromBlockSourceError {
     }
 }
 
+impl From<Error> for FromBlockSourceError {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Io(err) => Self::Io(err),
+            Error::Conversion(err) => Self::Conversion(err),
+        }
+    }
+}
+
 pub trait FromBlockSource: Sized {
     fn from_block_source(
         source: &BlockSource,
     ) -> Result<(Self, BlockSource), FromBlockSourceError> {
-        let block = source
-            .subblock(..Self::read_size() as u64)
-            .open()
-            .map_err(io::Error::from)?;
+        let block = source.subblock(..Self::read_size() as u64).open()?;
         let parse_result = Self::parse(BufferMemReader::new(&block));
         let header = parse_result.remove_no_error()?;
         let rest = source.subblock(Self::read_size() as u64..);

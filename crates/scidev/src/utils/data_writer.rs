@@ -32,7 +32,7 @@ impl<W: io::Write + io::Seek> DataWriter for IoDataWriter<W> {
     }
 
     fn write_block(&mut self, block: &MemBlock) -> io::Result<()> {
-        self.0.write_all(&block.read_all()?)
+        self.0.write_all(&block.read_all())
     }
     fn write_slice(&mut self, slice: &[u8]) -> io::Result<()> {
         self.0.write_all(slice)
