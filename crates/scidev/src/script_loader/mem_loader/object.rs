@@ -7,9 +7,7 @@ use crate::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    InvalidData(#[from] AnyInvalidDataError),
+pub enum ObjectError {
     #[error("Object data has unexpected padding bytes")]
     BadObjectPadding,
     #[error(
@@ -19,6 +17,15 @@ pub enum Error {
         num_properties: usize,
         num_fields: usize,
     },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    InvalidData(#[from] AnyInvalidDataError),
+
+    #[error(transparent)]
+    Object(#[from] ObjectError),
 }
 
 struct MethodRecord {
@@ -57,7 +64,7 @@ impl ObjectData {
         let method_record_offset = obj_data[3];
         let padding = obj_data[4];
         if padding != 0 {
-            return Err(Error::BadObjectPadding);
+            return Err(ObjectError::BadObjectPadding.into());
         }
 
         let mut var_selectors = loaded_data
@@ -199,10 +206,11 @@ impl Object {
         };
 
         if script != 0xFFFF && object_data.get_num_properties() != object_data.get_num_fields() {
-            return Err(Error::PropertyMismatch {
+            return Err(ObjectError::PropertyMismatch {
                 num_properties: object_data.get_num_properties(),
                 num_fields: object_data.get_num_fields(),
-            });
+            }
+            .into());
         }
 
         Ok(Self {

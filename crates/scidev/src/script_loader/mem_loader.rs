@@ -18,7 +18,7 @@ pub enum Error {
     InvalidData(#[from] AnyInvalidDataError),
 
     #[error(transparent)]
-    Object(object::Error),
+    Object(object::ObjectError),
 
     #[error("Script data size must be be 2-byte-aligned. Found size: {size:x}")]
     ScriptSizeNotAligned { size: usize },
@@ -28,7 +28,7 @@ impl From<object::Error> for Error {
     fn from(err: object::Error) -> Self {
         match err {
             object::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
-            err => Self::Object(err),
+            object::Error::Object(err) => Self::Object(err),
         }
     }
 }
