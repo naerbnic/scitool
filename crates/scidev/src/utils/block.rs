@@ -10,7 +10,7 @@ pub mod output_block;
 pub mod temp_store;
 
 pub use block_reader::BlockReader;
-pub use block_source::BlockSource;
+pub use block_source::{BlockSource, FromBlockSource, FromBlockSourceError};
 pub use error::{ReadError, ReadResult};
 pub use lazy_block::LazyBlock;
 pub use mem_block::MemBlock;

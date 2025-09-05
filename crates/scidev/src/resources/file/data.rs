@@ -3,9 +3,8 @@ use std::io;
 use crate::{
     resources::{ResourceId, ResourceType},
     utils::{
-        block::{BlockSource, LazyBlock},
+        block::{BlockSource, FromBlockSource, FromBlockSourceError, LazyBlock},
         compression::dcl::decompress_dcl,
-        data_reader::{FromBlockSource, FromBlockSourceError},
         errors::AnyInvalidDataError,
         mem_reader::{self, MemReader},
     },

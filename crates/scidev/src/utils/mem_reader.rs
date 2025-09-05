@@ -512,6 +512,7 @@ where
 //     Ok(chunks)
 // }
 
+/// An extension trait for reducing the shape of an error that includes [`NoError`].
 pub trait NoErrorResultExt<T> {
     type R;
     fn remove_no_error(self) -> Self::R;

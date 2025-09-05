@@ -1,7 +1,7 @@
 use scidev::{
     resources::{ResourceId, ResourceType, file::open_game_resources},
     utils::{
-        data_writer::{DataWriter, IoDataWriter},
+        data_writer::{DataWriter as _, IoDataWriter},
         debug::hex_dump_to,
     },
 };
