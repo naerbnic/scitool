@@ -1,137 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use bytes::BufMut;
-
-pub trait ToFixedBytes {
-    const SIZE: usize;
-    fn to_bytes(&self, dest: &mut [u8]);
-}
-
-pub trait FromFixedBytes: Sized {
-    const SIZE: usize;
-    fn parse<B: bytes::Buf>(bytes: B) -> Self;
-}
-
-macro_rules! impl_fixed_bytes_for_num {
-    ($($num:ty),*) => {
-        $(
-            impl ToFixedBytes for $num {
-                const SIZE: usize = std::mem::size_of::<$num>();
-
-                fn to_bytes(&self, dest: &mut [u8]) {
-                    dest.copy_from_slice(&self.to_le_bytes());
-                }
-            }
-
-            impl FromFixedBytes for $num {
-                const SIZE: usize = std::mem::size_of::<$num>();
-
-                fn parse<B: bytes::Buf>(bytes: B) -> Self {
-                    let mut byte_array = [0u8; <Self as FromFixedBytes>::SIZE];
-                    (&mut byte_array[..]).put(bytes);
-                    Self::from_le_bytes(byte_array)
-                }
-            }
-        )*
-    };
-}
-
-impl_fixed_bytes_for_num!(i8, i16, i32, i64, i128, isize);
-impl_fixed_bytes_for_num!(u8, u16, u32, u64, u128, usize);
-
-pub trait Index: num::Num + std::fmt::Debug + Ord + Copy {
-    const BITS: u32;
-    fn widen_to_usize(self) -> usize;
-    fn narrow_from_usize(idx: usize) -> Option<Self>;
-    fn widen_to<T: Index>(self) -> T {
-        assert!(Self::BITS <= T::BITS);
-        T::narrow_from_usize(self.widen_to_usize()).unwrap()
-    }
-    fn narrow_to<T: Index>(self) -> Option<T> {
-        assert!(T::BITS <= Self::BITS);
-        T::narrow_from_usize(self.widen_to_usize())
-    }
-}
-
-macro_rules! impl_index {
-    ($($ty:ty),*) => {
-        $(
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::checked_conversions,
-            )]
-            impl Index for $ty {
-                const BITS: u32 = std::mem::size_of::<$ty>() as u32 * 8;
-
-                fn widen_to_usize(self) -> usize {
-                    assert!(<$ty>::BITS <= usize::BITS);
-                    self as usize
-                }
-
-                fn narrow_from_usize(idx: usize) -> Option<Self> {
-                    assert!(<$ty>::BITS <= usize::BITS);
-                    if idx <= <$ty>::MAX as usize {
-                        Some(idx as $ty)
-                    } else {
-                        None
-                    }
-                }
-            }
-        )*
-    };
-}
-
-impl_index!(u8, u16, u32, u64, u128, usize);
-
-pub trait NarrowedIndex: Index + Sized + Copy {
-    fn widened_max_size() -> usize;
-}
-
-macro_rules! impl_narrowed_index {
-    ($($small:ty),*) => {
-        $(
-            #[allow(clippy::cast_possible_truncation)]
-            impl NarrowedIndex for $small {
-                fn widened_max_size() -> usize {
-                    assert!(<$small>::BITS <= usize::BITS);
-                    let max = <$small>::MAX as usize;
-                        if max == usize::MAX {
-                            max
-                        } else {
-                            max + 1
-                        }
-                    }
-                }
-        )*
-    };
-}
-
-impl_narrowed_index!(u16, u32, usize);
-
-#[cfg(target_pointer_width = "64")]
-impl_narrowed_index!(u64);
-
-#[derive(Debug, Copy, Clone)]
-pub enum NoError {}
-
-impl std::fmt::Display for NoError {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {}
-    }
-}
-impl std::error::Error for NoError {}
-
-pub trait NoErrorResultExt<T> {
-    fn into_ok(self) -> T;
-}
-
-impl<T> NoErrorResultExt<T> for Result<T, NoError> {
-    fn into_ok(self) -> T {
-        match self {
-            Ok(value) => value,
-        }
-    }
-}
+use crate::utils::{convert::convert_if_different, errors::NoError};
 
 /// An abstraction over types that contain a buffer of bytes.
 ///
@@ -140,23 +9,20 @@ impl<T> NoErrorResultExt<T> for Result<T, NoError> {
 ///
 /// Each buffer specifies its own index type, used as a byte offset
 /// into the buffer.
-pub trait Buffer: Sized + Clone {
-    #[must_use]
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self;
-    fn get_slice(&self, offset: usize, len: usize) -> &[u8];
+pub trait Buffer {
+    fn read_slice_at(&self, offset: usize) -> &[u8];
     fn size(&self) -> usize;
 }
 
-impl Buffer for &[u8] {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
-        assert!(start <= end);
-        assert!(end <= self.len());
-        &self[start..end]
-    }
+pub trait SplittableBuffer: Buffer + Sized + Clone {
+    #[must_use]
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self;
+}
 
-    fn get_slice(&self, offset: usize, len: usize) -> &[u8] {
-        assert!(offset + len <= self.len());
-        &self[offset..offset + len]
+impl Buffer for &[u8] {
+    fn read_slice_at(&self, offset: usize) -> &[u8] {
+        assert!(offset <= self.len());
+        &self[offset..]
     }
 
     fn size(&self) -> usize {
@@ -164,9 +30,16 @@ impl Buffer for &[u8] {
     }
 }
 
-pub trait BufferExt: Buffer {
-    #[must_use]
-    fn sub_buffer<T, R: RangeBounds<T>>(self, range: R) -> Self
+impl SplittableBuffer for &[u8] {
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
+        assert!(start <= end);
+        assert!(end <= self.len());
+        &self[start..end]
+    }
+}
+
+pub trait BufferExt: SplittableFallibleBuffer {
+    fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Result<Self, Self::Error>
     where
         T: Into<usize> + Copy,
     {
@@ -187,10 +60,81 @@ pub trait BufferExt: Buffer {
         assert!(start <= end);
         self.sub_buffer_from_range(start, end)
     }
+}
 
-    fn as_slice(&self) -> &[u8] {
-        self.get_slice(0, self.size())
+impl<T: SplittableFallibleBuffer> BufferExt for T {}
+
+pub trait FallibleBuffer {
+    type Error: std::error::Error + Send + Sync + 'static;
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error>;
+    fn size(&self) -> usize;
+}
+
+impl<T: Buffer> FallibleBuffer for T {
+    type Error = NoError;
+
+    fn read_slice(&self, offset: usize, mut buf: &mut [u8]) -> Result<(), Self::Error> {
+        let mut curr_offset = offset;
+        while !buf.is_empty() {
+            let slice = self.read_slice_at(curr_offset);
+            let to_copy = std::cmp::min(slice.len(), buf.len());
+            buf[..to_copy].copy_from_slice(&slice[..to_copy]);
+            curr_offset += to_copy;
+            buf = &mut buf[to_copy..];
+        }
+        Ok(())
+    }
+
+    fn size(&self) -> usize {
+        self.size()
     }
 }
 
-impl<T: Buffer> BufferExt for T {}
+pub trait SplittableFallibleBuffer: FallibleBuffer + Sized + Clone {
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Result<Self, Self::Error>;
+}
+
+impl<T: SplittableBuffer> SplittableFallibleBuffer for T {
+    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Result<Self, Self::Error> {
+        Ok(self.sub_buffer_from_range(start, end))
+    }
+}
+
+/// A wrapper that implements [`std::io::Read`] for any Buffer.
+pub struct BufferCursor<B> {
+    buffer: B,
+    position: usize,
+}
+
+impl<B: FallibleBuffer> BufferCursor<B> {
+    pub fn new(buffer: B) -> Self {
+        Self {
+            buffer,
+            position: 0,
+        }
+    }
+}
+
+impl<B: FallibleBuffer> std::io::Read for BufferCursor<B> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.buffer
+            .read_slice(self.position, buf)
+            .map_err(|e| convert_if_different(e, std::io::Error::other))?;
+        self.position += buf.len();
+        Ok(buf.len())
+    }
+}
+
+impl<B: Buffer> bytes::Buf for BufferCursor<B> {
+    fn remaining(&self) -> usize {
+        self.buffer.size() - self.position
+    }
+
+    fn chunk(&self) -> &[u8] {
+        self.buffer.read_slice_at(self.position)
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        self.position += cnt;
+    }
+}

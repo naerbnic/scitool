@@ -218,7 +218,7 @@ impl<E: Error + 'static> Error for InvalidDataError<E> {
 }
 
 #[derive(Debug)]
-pub(crate) struct AnyInvalidDataError(InvalidDataError<OtherError>);
+pub struct AnyInvalidDataError(InvalidDataError<OtherError>);
 
 impl<E> From<InvalidDataError<E>> for AnyInvalidDataError
 where

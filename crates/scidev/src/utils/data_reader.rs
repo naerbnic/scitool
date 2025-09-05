@@ -1,6 +1,9 @@
 use std::io;
 
-use crate::utils::mem_reader::{self, BufferMemReader, MemReader};
+use crate::utils::{
+    errors::AnyInvalidDataError,
+    mem_reader::{self, BufferMemReader, MemReader, NoErrorResultExt as _},
+};
 
 use super::block::BlockSource;
 
@@ -9,7 +12,7 @@ pub enum FromBlockSourceError {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]
-    MemReader(#[from] mem_reader::Error),
+    MemReader(#[from] AnyInvalidDataError),
 }
 
 pub trait FromBlockSource: Sized {
@@ -20,12 +23,13 @@ pub trait FromBlockSource: Sized {
             .subblock(..Self::read_size() as u64)
             .open()
             .map_err(io::Error::from)?;
-        let header = Self::parse(BufferMemReader::new(&block))?;
+        let parse_result = Self::parse(BufferMemReader::new(&block));
+        let header = parse_result.remove_no_error()?;
         let rest = source.subblock(Self::read_size() as u64..);
         Ok((header, rest))
     }
 
     fn read_size() -> usize;
 
-    fn parse<'a, M: MemReader<'a>>(reader: M) -> mem_reader::Result<Self>;
+    fn parse<M: MemReader>(reader: M) -> mem_reader::Result<Self, M::Error>;
 }

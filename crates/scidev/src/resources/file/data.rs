@@ -6,6 +6,7 @@ use crate::{
         block::{BlockSource, LazyBlock},
         compression::dcl::decompress_dcl,
         data_reader::{FromBlockSource, FromBlockSourceError},
+        errors::AnyInvalidDataError,
         mem_reader::{self, MemReader},
     },
 };
@@ -29,7 +30,7 @@ impl FromBlockSource for RawEntryHeader {
         9
     }
 
-    fn parse<'a, M: MemReader<'a>>(mut reader: M) -> mem_reader::Result<Self> {
+    fn parse<M: MemReader>(mut reader: M) -> mem_reader::Result<Self, M::Error> {
         let res_type = reader.read_u8()?;
         let res_number = reader.read_u16_le()?;
         let packed_size = reader.read_u16_le()?;
@@ -123,7 +124,7 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]
-    MemReader(#[from] mem_reader::Error),
+    MemReader(#[from] AnyInvalidDataError),
 }
 
 impl From<FromBlockSourceError> for Error {

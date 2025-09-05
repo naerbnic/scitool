@@ -33,3 +33,25 @@ where
         }
     }
 }
+
+#[derive(Debug, Copy, Clone)]
+pub enum NoError {}
+
+impl std::fmt::Display for NoError {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {}
+    }
+}
+impl std::error::Error for NoError {}
+
+pub trait NoErrorResultExt<T> {
+    fn into_ok(self) -> T;
+}
+
+impl<T> NoErrorResultExt<T> for Result<T, NoError> {
+    fn into_ok(self) -> T {
+        match self {
+            Ok(value) => value,
+        }
+    }
+}

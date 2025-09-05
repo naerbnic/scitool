@@ -1,6 +1,7 @@
 pub mod block;
 pub mod buffer;
 pub mod compression;
+pub mod convert;
 pub mod data_reader;
 pub mod data_writer;
 pub mod debug;

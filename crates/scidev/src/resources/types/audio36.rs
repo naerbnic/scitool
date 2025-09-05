@@ -25,9 +25,9 @@ struct RawMapEntry {
 }
 
 impl RawMapEntry {
-    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+    pub(crate) fn read_from<M: MemReader>(
         reader: &mut M,
-    ) -> mem_reader::Result<RawMapEntry> {
+    ) -> mem_reader::Result<RawMapEntry, M::Error> {
         let noun = reader.read_u8()?;
         let verb = reader.read_u8()?;
         let cond = reader.read_u8()?;
@@ -74,9 +74,9 @@ impl RawMapResource {
     }
 
     #[expect(dead_code)]
-    pub(crate) fn read_from<'a, M: MemReader<'a>>(
+    pub(crate) fn read_from<M: MemReader>(
         reader: &mut M,
-    ) -> mem_reader::Result<RawMapResource> {
+    ) -> mem_reader::Result<RawMapResource, M::Error> {
         let mut entries = Vec::new();
         loop {
             let entry = RawMapEntry::read_from(reader)?;

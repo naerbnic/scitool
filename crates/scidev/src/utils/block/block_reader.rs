@@ -19,6 +19,9 @@ impl BlockReader {
     /// Returns the portion of the block that has not yet been read.
     #[must_use]
     pub fn into_rest(self) -> MemBlock {
-        self.block.sub_buffer(self.curr_pos..)
+        match self.block.sub_buffer(self.curr_pos..) {
+            Ok(buf) => buf,
+            Err(e) => match e {},
+        }
     }
 }

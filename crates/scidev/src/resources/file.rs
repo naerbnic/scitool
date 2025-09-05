@@ -10,8 +10,8 @@ use data::DataFile;
 use self::patch::try_patch_from_file;
 use crate::utils::{
     block::{BlockSource, LazyBlock, MemBlock},
-    errors::{OtherError, prelude::*},
-    mem_reader::{self, BufferMemReader},
+    errors::{AnyInvalidDataError, OtherError, prelude::*},
+    mem_reader::{BufferMemReader, NoErrorResultExt},
 };
 
 use super::{ResourceId, ResourceType};
@@ -27,7 +27,7 @@ pub enum Error {
     #[error("I/O error during operation: {0}")]
     Io(#[from] io::Error),
     #[error("Malformed data: {0}")]
-    MalformedData(#[from] mem_reader::Error),
+    MalformedData(#[from] AnyInvalidDataError),
     #[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
     ResourceIdMismatch {
         expected: ResourceId,
@@ -52,7 +52,8 @@ pub fn read_resources(
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
-        map::ResourceLocations::read_from(&mut BufferMemReader::new(&map_file))?;
+        map::ResourceLocations::read_from(&mut BufferMemReader::new(&map_file))
+            .remove_no_error()?;
 
     let mut entries = BTreeMap::new();
 

@@ -1,7 +1,5 @@
-use crate::{
-    script_loader::errors::MalformedDataError,
-    utils::{buffer::FromFixedBytes, mem_reader::MemReader},
-};
+use crate::utils::mem_reader::FromFixedBytes;
+use crate::{script_loader::errors::MalformedDataError, utils::mem_reader::MemReader};
 
 use crate::script_loader::selectors::{Selector, SelectorTable};
 
@@ -29,7 +27,7 @@ pub(crate) struct ObjectData {
 }
 
 impl ObjectData {
-    pub(crate) fn from_block<'a, M: MemReader<'a>>(
+    pub(crate) fn from_block<'a, M: MemReader + 'a>(
         selector_table: &SelectorTable,
         loaded_data: &M,
         obj_data: Vec<u16>,
@@ -129,7 +127,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub(crate) fn from_block<'a, M: MemReader<'a>>(
+    pub(crate) fn from_block<'a, M: MemReader + 'a>(
         selector_table: &SelectorTable,
         loaded_data: &M,
         obj_data: Vec<u16>,
@@ -164,11 +162,11 @@ impl Object {
             if name_ptr == 0 {
                 None
             } else {
-                let mut string_data = loaded_data
+                let string_data = loaded_data
                     .sub_reader_range("object name string data", name_ptr as usize..)
                     .map_err(MalformedDataError::new)?;
                 Some(
-                    super::read_null_terminated_string(string_data.read_remainder_slice())
+                    super::read_null_terminated_string(string_data)
                         .map_err(MalformedDataError::new)?
                         .to_string(),
                 )

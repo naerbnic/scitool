@@ -4,7 +4,7 @@ use crate::{
         block::MemBlock,
         buffer::BufferExt,
         errors::{OtherError, ensure_other, prelude::*},
-        mem_reader::{BufferMemReader, MemReader},
+        mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
     },
 };
 
@@ -23,7 +23,7 @@ fn modify_u16_le_in_slice(slice: &mut [u8], at: usize, body: impl FnOnce(u16) ->
     slice.copy_from_slice(&new_value.to_le_bytes());
 }
 
-fn apply_relocations<'a, M: MemReader<'a>>(
+fn apply_relocations<'a, M: MemReader + 'a>(
     buffer: &mut [u8],
     relocations: &mut M,
     offset: u16,
@@ -42,12 +42,13 @@ fn apply_relocations<'a, M: MemReader<'a>>(
     Ok(())
 }
 
-fn read_null_terminated_string(buffer: &[u8]) -> Result<&str, OtherError> {
-    let null_pos = buffer
-        .iter()
-        .position(|&b| b == 0)
-        .ok_or_else_other(|| "No null terminator found in string")?;
-    std::str::from_utf8(&buffer[..null_pos]).with_other_err()
+fn read_null_terminated_string<M: MemReader>(mut buffer: M) -> Result<String, OtherError> {
+    let string_data = buffer
+        .read_until::<u8>("null terminated string", |b| *b == 0)
+        .with_other_err()?;
+    std::str::from_utf8(&string_data[..string_data.len() - 1])
+        .map(ToString::to_string)
+        .with_other_err()
 }
 
 pub(crate) struct Heap {
@@ -59,7 +60,7 @@ pub(crate) struct Heap {
 }
 
 impl Heap {
-    pub(crate) fn from_block<'a, M: MemReader<'a>>(
+    pub(crate) fn from_block<'a, M: MemReader + 'a>(
         selector_table: &SelectorTable,
         loaded_script: &M,
         resource_data: &mut M,
@@ -160,7 +161,9 @@ fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Malforme
     );
     Ok((
         relocation_offset,
-        cloned_data.sub_buffer(relocation_offset as usize..),
+        cloned_data
+            .sub_buffer(relocation_offset as usize..)
+            .remove_no_error(),
     ))
 }
 
@@ -186,8 +189,8 @@ impl LoadedScript {
         // Concat the two blocks.
         //
         // It may be possible to get rid of the relocation block, but it's not clear.
-        let mut loaded_script: Vec<u8> = script_data.as_slice().to_vec();
-        loaded_script.put(heap_data.as_slice());
+        let mut loaded_script: Vec<u8> = script_data.as_ref().to_vec();
+        loaded_script.put(heap_data.as_ref());
 
         let (script_data_slice, heap_data_slice) = loaded_script.split_at_mut(heap_offset);
         let (_, script_relocation_block) = extract_relocation_block(script_data)?;
@@ -207,7 +210,8 @@ impl LoadedScript {
         let loaded_script = MemBlock::from_vec(loaded_script);
         let heap_data = loaded_script
             .clone()
-            .sub_buffer(heap_offset..heap_offset + heap_relocation_offset as usize);
+            .sub_buffer(heap_offset..heap_offset + heap_relocation_offset as usize)
+            .remove_no_error();
         let heap = Heap::from_block(
             selector_table,
             &BufferMemReader::new(&loaded_script),

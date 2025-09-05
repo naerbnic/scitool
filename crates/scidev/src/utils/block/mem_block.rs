@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::utils::buffer::Buffer;
+use crate::utils::buffer::{Buffer, SplittableBuffer};
 
 use super::{ReadError, ReadResult};
 
@@ -111,6 +111,17 @@ impl AsRef<[u8]> for MemBlock {
 }
 
 impl Buffer for MemBlock {
+    fn read_slice_at(&self, offset: usize) -> &[u8] {
+        assert!(offset <= self.size);
+        &self[offset..]
+    }
+
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl SplittableBuffer for MemBlock {
     fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
         let start: usize = start;
         let end: usize = end;
@@ -126,15 +137,6 @@ impl Buffer for MemBlock {
             size: end - start,
             data: self.data.clone(),
         }
-    }
-
-    fn get_slice(&self, offset: usize, len: usize) -> &[u8] {
-        assert!(offset + len <= self.size);
-        &self[offset..][..len]
-    }
-
-    fn size(&self) -> usize {
-        self.size
     }
 }
 

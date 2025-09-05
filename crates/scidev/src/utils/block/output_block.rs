@@ -4,7 +4,7 @@ use bytes::Buf;
 
 use crate::utils::{
     block::BlockSource,
-    buffer::{Buffer, BufferExt as _},
+    buffer::{Buffer, BufferCursor, SplittableBuffer},
     errors::{OtherError, ensure_other, prelude::*},
 };
 use tokio::io::AsyncWriteExt;
@@ -23,7 +23,7 @@ impl<'a> BlockData<'a> {
     where
         B: Buffer + 'a,
     {
-        Self(Box::new(BufferBlockDataImpl::new(buf)))
+        Self(Box::new(BufferCursor::new(buf)))
     }
 }
 
@@ -83,34 +83,6 @@ impl OutputBlockImpl for CompositeOutputBlock {
     }
 }
 
-struct BufferBlockDataImpl<B> {
-    buffer: B,
-    position: usize,
-}
-
-impl<B: Buffer> BufferBlockDataImpl<B> {
-    fn new(buffer: B) -> Self {
-        Self {
-            buffer,
-            position: 0,
-        }
-    }
-}
-
-impl<B: Buffer> bytes::Buf for BufferBlockDataImpl<B> {
-    fn remaining(&self) -> usize {
-        self.buffer.size() - self.position
-    }
-
-    fn chunk(&self) -> &[u8] {
-        &self.buffer.as_slice()[self.position..]
-    }
-
-    fn advance(&mut self, cnt: usize) {
-        self.position += cnt;
-    }
-}
-
 struct BufferOutputBlock<T> {
     buffer: T,
     max_block_size: usize,
@@ -118,7 +90,7 @@ struct BufferOutputBlock<T> {
 
 impl<T> OutputBlockImpl for BufferOutputBlock<T>
 where
-    T: Buffer + Send + Sync,
+    T: SplittableBuffer + Send + Sync,
 {
     fn size(&self) -> u64 {
         self.buffer.size().try_into().unwrap()
@@ -189,7 +161,7 @@ pub struct OutputBlock(Arc<dyn OutputBlockImpl>);
 impl OutputBlock {
     pub fn from_buffer<T>(buffer: T) -> Self
     where
-        T: Buffer + Send + Sync + 'static,
+        T: SplittableBuffer + Send + Sync + 'static,
     {
         Self(Arc::new(BufferOutputBlock {
             buffer,

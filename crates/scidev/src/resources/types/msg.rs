@@ -4,7 +4,7 @@ use crate::utils::{
     block::MemBlock,
     buffer::BufferExt,
     errors::{OtherError, bail_other, ensure_other, prelude::*},
-    mem_reader::{BufferMemReader, MemReader},
+    mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
 };
 
 use serde::{Deserialize, Serialize};
@@ -110,7 +110,7 @@ impl MessageRecord {
 #[error(transparent)]
 pub struct ParseError(#[from] OtherError);
 
-fn parse_message_resource_v4<'a, M: MemReader<'a>>(
+fn parse_message_resource_v4<M: MemReader>(
     mut reader: M,
 ) -> Result<Vec<RawMessageRecord>, ParseError> {
     let _header_data = reader.read_u32_le().with_other_err()?;
@@ -158,7 +158,10 @@ fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, Pars
         offset as usize <= msg_res.size(),
         "String offset out of bounds"
     );
-    let base_buffer = msg_res.clone().sub_buffer(offset as usize..);
+    let base_buffer = msg_res
+        .clone()
+        .sub_buffer(offset as usize..)
+        .remove_no_error();
     let mut reader = BufferMemReader::new(&base_buffer);
     let mut text = Vec::new();
     loop {

@@ -3,10 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use bytes::Buf;
-
 use crate::utils::{
-    buffer::{Buffer, BufferExt as _},
+    buffer::{Buffer, BufferCursor},
     errors::{OtherError, prelude::*},
 };
 
@@ -61,26 +59,26 @@ impl TempStore {
 
     pub async fn store_bytes<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
     where
-        B: Buf,
+        B: Buffer,
     {
         self.create_temp_block(buffer).await
     }
 
     pub async fn store<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
     where
-        B: Buffer + Send + Sync + 'static,
+        B: Buffer,
     {
-        self.create_temp_block(buffer.as_slice()).await
+        self.create_temp_block(buffer).await
     }
 
     async fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource, StoreError>
     where
-        B: Buf,
+        B: Buffer,
     {
         let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?
             .keep()
             .with_other_err()?;
-        std::io::copy(&mut buffer.reader(), &mut file)?;
+        std::io::copy(&mut BufferCursor::new(buffer), &mut file)?;
         drop(file);
         Ok(BlockSource::from_path(BlockPathHandle {
             path,
@@ -102,7 +100,7 @@ mod tests {
         let block_source = store.store(buffer).await?;
         assert_eq!(block_source.size(), 4);
         let mut read_data = Vec::new();
-        read_data.put(block_source.to_buffer()?.as_slice());
+        read_data.put(BufferCursor::new(block_source.to_buffer()?));
         assert_eq!(read_data, vec![1, 2, 3, 4]);
         Ok(())
     }
