@@ -112,6 +112,7 @@ mod tests {
 
     use super::*;
     use crate::utils::block::MemBlock;
+    #[cfg_attr(miri, ignore)]
     #[tokio::test]
     async fn test_temp_store() -> anyhow::Result<()> {
         let mut store = TempStore::create()?;

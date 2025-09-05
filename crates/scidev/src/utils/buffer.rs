@@ -51,7 +51,7 @@ pub trait FallibleBuffer {
     /// Reads a slice starting at the given offset into the provided buffer.
     ///
     /// The length of the provided buffer determines how many bytes are read.
-    /// 
+    ///
     /// Panics if the end of the read region would be beyond the end of the buffer.
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error>;
 
@@ -65,6 +65,12 @@ impl<T: Buffer> FallibleBuffer for T {
     type Error = NoError;
 
     fn read_slice(&self, offset: usize, mut buf: &mut [u8]) -> Result<(), Self::Error> {
+        assert!(
+            offset + buf.len() <= self.size(),
+            "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
+            buf.len(),
+            self.size()
+        );
         let mut curr_offset = offset;
         while !buf.is_empty() {
             let slice = self.read_slice_at(curr_offset);
@@ -109,6 +115,8 @@ impl<B: FallibleBuffer> BufferCursor<B> {
 
 impl<B: FallibleBuffer> std::io::Read for BufferCursor<B> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let available = std::cmp::min(self.buffer.size() - self.position, buf.len());
+        let buf = &mut buf[..available];
         self.buffer
             .read_slice(self.position, buf)
             .map_err(|e| convert_if_different(e, std::io::Error::other))?;

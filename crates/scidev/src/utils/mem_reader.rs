@@ -374,6 +374,13 @@ where
     }
 
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), B::Error> {
+        if self.remaining() < buf.len() {
+            return Err(self.err_with_context()(BufferError::NotEnoughData {
+                required: buf.len(),
+                available: self.remaining(),
+            }));
+        }
+        
         self.buffer
             .read_slice(self.start + self.position, buf)
             .map_err(Error::BaseError)?;
