@@ -1,7 +1,25 @@
-use crate::utils::mem_reader::FromFixedBytes;
-use crate::{script_loader::errors::MalformedDataError, utils::mem_reader::MemReader};
+use crate::{
+    script_loader::selectors::{Selector, SelectorTable},
+    utils::{
+        errors::{AnyInvalidDataError, NoError},
+        mem_reader::{FromFixedBytes, MemReader, NoErrorResultExt as _},
+    },
+};
 
-use crate::script_loader::selectors::{Selector, SelectorTable};
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    InvalidData(#[from] AnyInvalidDataError),
+    #[error("Object data has unexpected padding bytes")]
+    BadObjectPadding,
+    #[error(
+        "Class has script but number of properties does not equal number of fields: {num_properties} properties, {num_fields} fields"
+    )]
+    PropertyMismatch {
+        num_properties: usize,
+        num_fields: usize,
+    },
+}
 
 struct MethodRecord {
     selector_id: u16,
@@ -27,18 +45,19 @@ pub(crate) struct ObjectData {
 }
 
 impl ObjectData {
-    pub(crate) fn from_block<'a, M: MemReader + 'a>(
+    pub(crate) fn from_block<'a, M>(
         selector_table: &SelectorTable,
         loaded_data: &M,
         obj_data: Vec<u16>,
-    ) -> Result<Self, MalformedDataError> {
+    ) -> Result<Self, Error>
+    where
+        M: MemReader<Error = NoError> + 'a,
+    {
         let var_selector_offfset = obj_data[2];
         let method_record_offset = obj_data[3];
         let padding = obj_data[4];
         if padding != 0 {
-            return Err(MalformedDataError::new(format!(
-                "Expected padding field to be zero: {padding:x}"
-            )));
+            return Err(Error::BadObjectPadding);
         }
 
         let mut var_selectors = loaded_data
@@ -46,23 +65,23 @@ impl ObjectData {
                 "Var selector table",
                 var_selector_offfset as usize..method_record_offset as usize,
             )
-            .map_err(MalformedDataError::map_from("Var selector block"))?;
+            .remove_no_error()?;
 
         let property_ids = var_selectors
             .split_values::<u16>("Property IDs")
-            .map_err(MalformedDataError::map_from("Property IDs"))?;
+            .remove_no_error()?;
 
         let mut method_record_remainder = loaded_data
             .sub_reader_range("Method record remainder", method_record_offset as usize..)
-            .map_err(MalformedDataError::map_from("Method record block"))?;
+            .remove_no_error()?;
 
         let mut method_records = method_record_remainder
             .read_length_delimited_block("Method records", 4)
-            .map_err(MalformedDataError::map_from("Method records"))?;
+            .remove_no_error()?;
 
         let method_records = method_records
             .split_values::<MethodRecord>("Method records")
-            .map_err(MalformedDataError::map_from("Method records entries"))?;
+            .remove_no_error()?;
 
         Ok(Self {
             selector_table: selector_table.clone(),
@@ -127,11 +146,14 @@ pub struct Object {
 }
 
 impl Object {
-    pub(crate) fn from_block<'a, M: MemReader + 'a>(
+    pub(crate) fn from_block<'a, M>(
         selector_table: &SelectorTable,
         loaded_data: &M,
         obj_data: Vec<u16>,
-    ) -> Result<Object, MalformedDataError> {
+    ) -> Result<Object, Error>
+    where
+        M: MemReader<Error = NoError> + 'a,
+    {
         // Read the standard properties.
         //
         // We can ony do this with selectors that are officially built in, which
@@ -164,10 +186,11 @@ impl Object {
             } else {
                 let string_data = loaded_data
                     .sub_reader_range("object name string data", name_ptr as usize..)
-                    .map_err(MalformedDataError::new)?;
+                    .remove_no_error()?;
                 Some(
                     super::read_null_terminated_string(string_data)
-                        .map_err(MalformedDataError::new)?
+                        .map_err(|e| loaded_data.create_invalid_data_error(e))
+                        .map_err(AnyInvalidDataError::from)?
                         .to_string(),
                 )
             }
@@ -176,11 +199,10 @@ impl Object {
         };
 
         if script != 0xFFFF && object_data.get_num_properties() != object_data.get_num_fields() {
-            return Err(MalformedDataError::new(format!(
-                "Class has script but number of properties does not equal number of fields: {} properties, {} fields",
-                object_data.get_num_properties(),
-                object_data.get_num_fields()
-            )));
+            return Err(Error::PropertyMismatch {
+                num_properties: object_data.get_num_properties(),
+                num_fields: object_data.get_num_fields(),
+            });
         }
 
         Ok(Self {

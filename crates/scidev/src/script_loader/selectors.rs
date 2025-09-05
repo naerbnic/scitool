@@ -119,10 +119,9 @@ impl SelectorTable {
                     let mut entry_buffer = entry_data
                         .sub_reader_range("Selector string data", ..usize::from(string_length))
                         .remove_no_error()?;
-                    // FIXME: Replace with proper error handling
                     let name =
                         SharedString::from_utf8(entry_buffer.read_remaining().remove_no_error())
-                            .unwrap();
+                            .map_err(|e| entry_buffer.create_invalid_data_error(e))?;
                     vacant_entry.insert(name).clone()
                 }
             };

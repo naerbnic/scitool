@@ -1,11 +1,8 @@
-use crate::{
-    script_loader::errors::MalformedDataError,
-    utils::{
-        block::MemBlock,
-        buffer::BufferExt,
-        errors::{OtherError, ensure_other, prelude::*},
-        mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
-    },
+use crate::utils::{
+    block::MemBlock,
+    buffer::BufferExt,
+    errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
+    mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
 };
 
 use super::selectors::SelectorTable;
@@ -15,6 +12,27 @@ mod object;
 
 pub use object::Object;
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    InvalidData(#[from] AnyInvalidDataError),
+
+    #[error(transparent)]
+    Object(object::Error),
+
+    #[error("Script data size must be be 2-byte-aligned. Found size: {size:x}")]
+    ScriptSizeNotAligned { size: usize },
+}
+
+impl From<object::Error> for Error {
+    fn from(err: object::Error) -> Self {
+        match err {
+            object::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+            err => Self::Object(err),
+        }
+    }
+}
+
 fn modify_u16_le_in_slice(slice: &mut [u8], at: usize, body: impl FnOnce(u16) -> u16) {
     let slice: &mut [u8] = &mut slice[at..][..2];
     let slice: &mut [u8; 2] = slice.try_into().unwrap();
@@ -23,18 +41,25 @@ fn modify_u16_le_in_slice(slice: &mut [u8], at: usize, body: impl FnOnce(u16) ->
     slice.copy_from_slice(&new_value.to_le_bytes());
 }
 
-fn apply_relocations<'a, M: MemReader + 'a>(
+fn apply_relocations<'a, M>(
     buffer: &mut [u8],
     relocations: &mut M,
     offset: u16,
-) -> Result<(), MalformedDataError> {
+) -> Result<(), Error>
+where
+    M: MemReader<Error = NoError> + 'a,
+{
     let relocation_entries = relocations
         .read_length_delimited_records::<u16>("Relocation Table Contents")
-        .map_err(MalformedDataError::map_from("Relocation Table Contents"))?;
-    ensure_other!(
-        relocations.is_empty(),
-        "Relocation block size and length must match"
-    );
+        .remove_no_error()?;
+    if !relocations.is_empty() {
+        return Err(
+            AnyInvalidDataError::from(relocations.create_invalid_data_error(OtherError::from_msg(
+                "Relocation block size and length must match",
+            )))
+            .into(),
+        );
+    }
 
     for reloc_entry in relocation_entries {
         modify_u16_le_in_slice(buffer, reloc_entry as usize, |v| v.wrapping_add(offset));
@@ -60,22 +85,23 @@ pub(crate) struct Heap {
 }
 
 impl Heap {
-    pub(crate) fn from_block<'a, M: MemReader + 'a>(
+    pub(crate) fn from_block<M>(
         selector_table: &SelectorTable,
         loaded_script: &M,
         resource_data: &mut M,
-    ) -> Result<Heap, FromBlockError> {
-        let _ = resource_data
-            .read_u16_le()
-            .map_err(MalformedDataError::map_from("Relocation offset"))?;
+    ) -> Result<Heap, Error>
+    where
+        M: MemReader<Error = NoError>,
+    {
+        let _ = resource_data.read_u16_le().remove_no_error()?;
         let num_locals = resource_data
             .read_value::<u16>("Num locals")
-            .map_err(MalformedDataError::map_from("Num locals"))?;
+            .remove_no_error()?;
         let locals = resource_data
             .read_to_subreader("Splitting locals.", (num_locals * 2).into())
-            .map_err(MalformedDataError::map_from("Splitting locals."))?
+            .remove_no_error()?
             .split_values::<u16>("Local variable IDs")
-            .map_err(MalformedDataError::new)?;
+            .remove_no_error()?;
 
         let mut objects = Vec::new();
         // Find all objects
@@ -83,7 +109,7 @@ impl Heap {
             let obj_start = resource_data.tell();
             let magic = resource_data
                 .read_value::<u16>("Object Magic Number")
-                .map_err(MalformedDataError::map_from("Object Magic"))?;
+                .remove_no_error()?;
             if magic == 0 {
                 // Indicates that we've gotten to the last object on the heap.
                 // Break out of the loop.
@@ -91,20 +117,26 @@ impl Heap {
                 break;
             }
 
-            ensure_other!(magic == 0x1234u16, "Invalid object magic number");
+            if magic != 0x1234u16 {
+                return Err(
+                    AnyInvalidDataError::from(resource_data.create_invalid_data_error(
+                        OtherError::from_msg("Invalid object magic number"),
+                    ))
+                    .into(),
+                );
+            }
             let num_object_fields = resource_data
                 .read_value::<u16>("Num Object Fields")
-                .map_err(MalformedDataError::map_from("Num Object Fields"))?;
+                .remove_no_error()?;
 
-            resource_data.seek_to(obj_start).unwrap();
+            resource_data.seek_to(obj_start).remove_no_error().unwrap();
 
             let object_data = resource_data
                 .read_values("Object fields", num_object_fields.into())
-                .map_err(MalformedDataError::map_from("Object fields"))?;
+                .remove_no_error()?;
 
             // The size is based from the very start of the object, so we reuse the curr_heap_data.
-            let new_obj =
-                Object::from_block(selector_table, loaded_script, object_data).with_other_err()?;
+            let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
             objects.push(new_obj);
         }
 
@@ -113,9 +145,11 @@ impl Heap {
         while !resource_data.is_empty() {
             let mut string_data = resource_data
                 .read_until::<u8>("string_obj", |b| *b == 0)
-                .map_err(MalformedDataError::new)?;
+                .remove_no_error()?;
             string_data.pop(); // Remove the null terminator.
-            let string = String::from_utf8(string_data).map_err(MalformedDataError::new)?;
+            let string = String::from_utf8(string_data)
+                .map_err(|e| resource_data.create_invalid_data_error(e))
+                .map_err(AnyInvalidDataError::from)?;
             strings.push(string);
         }
 
@@ -140,25 +174,19 @@ impl Relocations {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum FromBlockError {
-    #[error(transparent)]
-    MalformedData(#[from] MalformedDataError),
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OtherError),
-}
-
-fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), MalformedDataError> {
+fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Error> {
     let cloned_data = data.clone();
     let mut reader = BufferMemReader::new(&cloned_data);
     let relocation_offset = reader
         .read_value::<u16>("Relocation offset")
-        .map_err(MalformedDataError::map_from("Relocation offset"))?;
-    ensure_other!(
-        relocation_offset as usize <= cloned_data.size(),
-        "Relocation offset out of bounds"
-    );
+        .remove_no_error()?;
+    if relocation_offset as usize > cloned_data.size() {
+        return Err(AnyInvalidDataError::from(
+            reader
+                .create_invalid_data_error(OtherError::from_msg("Relocation offset out of bounds")),
+        )
+        .into());
+    }
     Ok((
         relocation_offset,
         cloned_data
@@ -176,12 +204,11 @@ impl LoadedScript {
         selector_table: &SelectorTable,
         script_data: &MemBlock,
         heap_data: &MemBlock,
-    ) -> Result<LoadedScript, MalformedDataError> {
+    ) -> Result<LoadedScript, Error> {
         let heap_offset = script_data.size();
-        ensure_other!(
-            heap_offset % 2 == 0,
-            "Heap offset must be be 2-byte-aligned"
-        );
+        if heap_offset % 2 != 0 {
+            return Err(Error::ScriptSizeNotAligned { size: heap_offset });
+        }
 
         #[expect(clippy::cast_possible_truncation)]
         let u16_heap_offset = heap_offset as u16;
@@ -216,8 +243,7 @@ impl LoadedScript {
             selector_table,
             &BufferMemReader::new(&loaded_script),
             &mut BufferMemReader::new(&heap_data),
-        )
-        .with_other_err()?;
+        )?;
 
         Ok(LoadedScript { heap })
     }

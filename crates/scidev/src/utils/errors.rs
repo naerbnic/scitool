@@ -10,7 +10,7 @@ pub mod prelude {
 }
 
 pub(crate) use invalid_data::{AnyInvalidDataError, BlockContext, InvalidDataError};
-pub(crate) use other::{OtherError, OtherMapper, bail_other, ensure_other};
+pub(crate) use other::{OtherError, bail_other, ensure_other};
 
 pub trait ErrorExt {
     fn get_in_chain<E: std::error::Error + 'static>(&self) -> Option<&E>;

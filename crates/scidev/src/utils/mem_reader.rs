@@ -94,7 +94,20 @@ pub trait MemReader {
 
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Self::Error>;
 
-    fn read_to_end<'buf>(&mut self, buf: &'buf mut [u8]) -> Result<&'buf [u8], Self::Error> {
+    #[must_use]
+    fn remaining(&self) -> usize;
+
+    /// Create an `InvalidDataError` with the current context and backtrace.
+    fn create_invalid_data_error<Err>(&self, message: Err) -> InvalidDataError<Err>
+    where
+        Err: StdError + Send + Sync + 'static;
+
+    #[must_use]
+    fn is_empty(&self) -> bool {
+        self.remaining() == 0
+    }
+
+    fn read_some<'buf>(&mut self, buf: &'buf mut [u8]) -> Result<&'buf [u8], Self::Error> {
         let remaining = self.remaining();
         let len = std::cmp::min(remaining, buf.len());
         let buf = &mut buf[..len];
@@ -111,12 +124,6 @@ pub trait MemReader {
         })?;
         Ok(buf)
     }
-
-    #[must_use]
-    fn remaining(&self) -> usize;
-
-    #[must_use]
-    fn is_empty(&self) -> bool;
 
     fn sub_reader_range<'b, R, Ctxt>(
         &'b self,
@@ -192,7 +199,7 @@ pub trait MemReader {
         &'b mut self,
         context: &'b str,
         item_size: usize,
-    ) -> Result<impl MemReader + 'b, Self::Error> {
+    ) -> Result<impl MemReader<Error = Self::Error> + 'b, Self::Error> {
         let num_blocks = self.read_value::<u16>(&format!("{context}(length)"))?;
         let total_block_size = usize::from(num_blocks)
             .checked_mul(item_size)
@@ -379,10 +386,6 @@ where
         self.end - self.start - self.position
     }
 
-    fn is_empty(&self) -> bool {
-        self.remaining() == 0
-    }
-
     fn read_until<T: FromFixedBytes + Debug>(
         &mut self,
         context: &str,
@@ -398,6 +401,13 @@ where
             }
         }
         Err(self.err_with_message("Got to end before matching value."))
+    }
+
+    fn create_invalid_data_error<Err>(&self, message: Err) -> InvalidDataError<Err>
+    where
+        Err: StdError + Send + Sync + 'static,
+    {
+        self.context.create_error(self.position, message)
     }
 
     fn sub_reader_range<'b, R, Ctxt>(
