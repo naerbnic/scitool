@@ -522,7 +522,7 @@ impl<T> NoErrorResultExt<T> for std::result::Result<T, Error<NoError>> {
     fn remove_no_error(self) -> Self::R {
         match self {
             Ok(value) => Ok(value),
-            Err(Error::BaseError(err)) => match err {},
+            Err(Error::BaseError(err)) => err.absurd(),
             Err(Error::InvalidData(err)) => Err(err),
         }
     }
@@ -533,7 +533,7 @@ impl<T> NoErrorResultExt<T> for std::result::Result<T, NoError> {
     fn remove_no_error(self) -> Self::R {
         match self {
             Ok(value) => value,
-            Err(err) => match err {},
+            Err(err) => err.absurd(),
         }
     }
 }

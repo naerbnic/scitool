@@ -21,7 +21,7 @@ impl BlockReader {
     pub fn into_rest(self) -> MemBlock {
         match self.block.sub_buffer(self.curr_pos..) {
             Ok(buf) => buf,
-            Err(e) => match e {},
+            Err(e) => e.absurd(),
         }
     }
 }

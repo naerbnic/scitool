@@ -11,8 +11,23 @@ use std::{
 
 use crate::utils::{
     errors::{AnyInvalidDataError, NoError},
-    mem_reader::{MemReader, NoErrorResultExt as _},
+    mem_reader::{self, MemReader, NoErrorResultExt as _},
 };
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum Error {
+    #[error(transparent)]
+    InvalidData(#[from] AnyInvalidDataError),
+}
+
+impl From<mem_reader::Error<NoError>> for Error {
+    fn from(err: mem_reader::Error<NoError>) -> Self {
+        match err {
+            mem_reader::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+            mem_reader::Error::BaseError(err) => err.absurd(),
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -85,23 +100,16 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub(crate) fn load_from<M: MemReader<Error = NoError>>(
-        data: &M,
-    ) -> Result<Self, AnyInvalidDataError> {
+    pub(crate) fn load_from<M: MemReader<Error = NoError>>(data: &M) -> Result<Self, Error> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
 
-        let mut index_table = data
-            .sub_reader_range("Selector index table", ..)
-            .remove_no_error()?;
+        let mut index_table = data.sub_reader_range("Selector index table", ..)?;
 
-        let num_entries_minus_one = index_table
-            .read_value::<u16>("Selector Count")
-            .remove_no_error()?;
+        let num_entries_minus_one = index_table.read_value::<u16>("Selector Count")?;
         let num_entries = num_entries_minus_one + 1;
-        let selector_offsets = index_table
-            .read_values::<u16>("Selector offsets", num_entries.into())
-            .remove_no_error()?;
+        let selector_offsets =
+            index_table.read_values::<u16>("Selector offsets", num_entries.into())?;
 
         let mut entries: HashMap<_, Vec<_>> = HashMap::new();
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();
@@ -110,18 +118,16 @@ impl SelectorTable {
             let name = match offset_map.entry(selector_offset) {
                 hash_map::Entry::Occupied(occupied_entry) => occupied_entry.get().clone(),
                 hash_map::Entry::Vacant(vacant_entry) => {
-                    let mut entry_data = data
-                        .sub_reader_range("Selector entry", usize::from(selector_offset)..)
-                        .remove_no_error()?;
-                    let string_length = entry_data
-                        .read_value::<u16>("Selector string length")
-                        .remove_no_error()?;
+                    let mut entry_data =
+                        data.sub_reader_range("Selector entry", usize::from(selector_offset)..)?;
+                    let string_length = entry_data.read_value::<u16>("Selector string length")?;
                     let mut entry_buffer = entry_data
-                        .sub_reader_range("Selector string data", ..usize::from(string_length))
-                        .remove_no_error()?;
+                        .sub_reader_range("Selector string data", ..usize::from(string_length))?;
                     let name =
                         SharedString::from_utf8(entry_buffer.read_remaining().remove_no_error())
-                            .map_err(|e| entry_buffer.create_invalid_data_error(e))?;
+                            .map_err(|e| {
+                                AnyInvalidDataError::from(entry_buffer.create_invalid_data_error(e))
+                            })?;
                     vacant_entry.insert(name).clone()
                 }
             };

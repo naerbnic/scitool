@@ -10,8 +10,8 @@ use data::DataFile;
 use self::patch::try_patch_from_file;
 use crate::utils::{
     block::{BlockSource, LazyBlock, MemBlock},
-    errors::{AnyInvalidDataError, OtherError, prelude::*},
-    mem_reader::{BufferMemReader, NoErrorResultExt},
+    errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
+    mem_reader::{self, BufferMemReader},
 };
 
 use super::{ResourceId, ResourceType};
@@ -44,6 +44,17 @@ impl From<data::Error> for Error {
     }
 }
 
+impl From<mem_reader::Error<NoError>> for Error {
+    fn from(err: mem_reader::Error<NoError>) -> Self {
+        match err {
+            mem_reader::Error::InvalidData(invalid_data_err) => {
+                Self::MalformedData(invalid_data_err)
+            }
+            mem_reader::Error::BaseError(err) => err.absurd(),
+        }
+    }
+}
+
 pub fn read_resources(
     map_file: &Path,
     data_file: &Path,
@@ -52,8 +63,7 @@ pub fn read_resources(
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
-        map::ResourceLocations::read_from(&mut BufferMemReader::new(&map_file))
-            .remove_no_error()?;
+        map::ResourceLocations::read_from(&mut BufferMemReader::new(&map_file))?;
 
     let mut entries = BTreeMap::new();
 

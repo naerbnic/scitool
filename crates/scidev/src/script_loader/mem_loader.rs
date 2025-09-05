@@ -2,7 +2,7 @@ use crate::utils::{
     block::MemBlock,
     buffer::BufferExt,
     errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
-    mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
+    mem_reader::{self, BufferMemReader, MemReader, NoErrorResultExt},
 };
 
 use super::selectors::SelectorTable;
@@ -13,6 +13,7 @@ mod object;
 pub use object::Object;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error(transparent)]
     InvalidData(#[from] AnyInvalidDataError),
@@ -33,6 +34,15 @@ impl From<object::Error> for Error {
     }
 }
 
+impl From<mem_reader::Error<NoError>> for Error {
+    fn from(err: mem_reader::Error<NoError>) -> Self {
+        match err {
+            mem_reader::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+            mem_reader::Error::BaseError(err) => err.absurd(),
+        }
+    }
+}
+
 fn modify_u16_le_in_slice(slice: &mut [u8], at: usize, body: impl FnOnce(u16) -> u16) {
     let slice: &mut [u8] = &mut slice[at..][..2];
     let slice: &mut [u8; 2] = slice.try_into().unwrap();
@@ -49,9 +59,8 @@ fn apply_relocations<'a, M>(
 where
     M: MemReader<Error = NoError> + 'a,
 {
-    let relocation_entries = relocations
-        .read_length_delimited_records::<u16>("Relocation Table Contents")
-        .remove_no_error()?;
+    let relocation_entries =
+        relocations.read_length_delimited_records::<u16>("Relocation Table Contents")?;
     if !relocations.is_empty() {
         return Err(
             AnyInvalidDataError::from(relocations.create_invalid_data_error(OtherError::from_msg(
@@ -93,23 +102,17 @@ impl Heap {
     where
         M: MemReader<Error = NoError>,
     {
-        let _ = resource_data.read_u16_le().remove_no_error()?;
-        let num_locals = resource_data
-            .read_value::<u16>("Num locals")
-            .remove_no_error()?;
+        let _ = resource_data.read_u16_le()?;
+        let num_locals = resource_data.read_value::<u16>("Num locals")?;
         let locals = resource_data
-            .read_to_subreader("Splitting locals.", (num_locals * 2).into())
-            .remove_no_error()?
-            .split_values::<u16>("Local variable IDs")
-            .remove_no_error()?;
+            .read_to_subreader("Splitting locals.", (num_locals * 2).into())?
+            .split_values::<u16>("Local variable IDs")?;
 
         let mut objects = Vec::new();
         // Find all objects
         loop {
             let obj_start = resource_data.tell();
-            let magic = resource_data
-                .read_value::<u16>("Object Magic Number")
-                .remove_no_error()?;
+            let magic = resource_data.read_value::<u16>("Object Magic Number")?;
             if magic == 0 {
                 // Indicates that we've gotten to the last object on the heap.
                 // Break out of the loop.
@@ -125,15 +128,12 @@ impl Heap {
                     .into(),
                 );
             }
-            let num_object_fields = resource_data
-                .read_value::<u16>("Num Object Fields")
-                .remove_no_error()?;
+            let num_object_fields = resource_data.read_value::<u16>("Num Object Fields")?;
 
-            resource_data.seek_to(obj_start).remove_no_error().unwrap();
+            resource_data.seek_to(obj_start)?;
 
-            let object_data = resource_data
-                .read_values("Object fields", num_object_fields.into())
-                .remove_no_error()?;
+            let object_data =
+                resource_data.read_values("Object fields", num_object_fields.into())?;
 
             // The size is based from the very start of the object, so we reuse the curr_heap_data.
             let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
@@ -143,9 +143,7 @@ impl Heap {
         let mut strings = Vec::new();
         // Find all strings
         while !resource_data.is_empty() {
-            let mut string_data = resource_data
-                .read_until::<u8>("string_obj", |b| *b == 0)
-                .remove_no_error()?;
+            let mut string_data = resource_data.read_until::<u8>("string_obj", |b| *b == 0)?;
             string_data.pop(); // Remove the null terminator.
             let string = String::from_utf8(string_data)
                 .map_err(|e| resource_data.create_invalid_data_error(e))
@@ -177,9 +175,7 @@ impl Relocations {
 fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Error> {
     let cloned_data = data.clone();
     let mut reader = BufferMemReader::new(&cloned_data);
-    let relocation_offset = reader
-        .read_value::<u16>("Relocation offset")
-        .remove_no_error()?;
+    let relocation_offset = reader.read_value::<u16>("Relocation offset")?;
     if relocation_offset as usize > cloned_data.size() {
         return Err(AnyInvalidDataError::from(
             reader

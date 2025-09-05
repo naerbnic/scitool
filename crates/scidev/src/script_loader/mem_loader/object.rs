@@ -2,7 +2,7 @@ use crate::{
     script_loader::selectors::{Selector, SelectorTable},
     utils::{
         errors::{AnyInvalidDataError, NoError},
-        mem_reader::{FromFixedBytes, MemReader, NoErrorResultExt as _},
+        mem_reader::{self, FromFixedBytes, MemReader},
     },
 };
 
@@ -26,6 +26,15 @@ pub enum Error {
 
     #[error(transparent)]
     Object(#[from] ObjectError),
+}
+
+impl From<mem_reader::Error<NoError>> for Error {
+    fn from(err: mem_reader::Error<NoError>) -> Self {
+        match err {
+            mem_reader::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+            mem_reader::Error::BaseError(err) => err.absurd(),
+        }
+    }
 }
 
 struct MethodRecord {
@@ -67,28 +76,20 @@ impl ObjectData {
             return Err(ObjectError::BadObjectPadding.into());
         }
 
-        let mut var_selectors = loaded_data
-            .sub_reader_range(
-                "Var selector table",
-                var_selector_offfset as usize..method_record_offset as usize,
-            )
-            .remove_no_error()?;
+        let mut var_selectors = loaded_data.sub_reader_range(
+            "Var selector table",
+            var_selector_offfset as usize..method_record_offset as usize,
+        )?;
 
-        let property_ids = var_selectors
-            .split_values::<u16>("Property IDs")
-            .remove_no_error()?;
+        let property_ids = var_selectors.split_values::<u16>("Property IDs")?;
 
         let mut method_record_remainder = loaded_data
-            .sub_reader_range("Method record remainder", method_record_offset as usize..)
-            .remove_no_error()?;
+            .sub_reader_range("Method record remainder", method_record_offset as usize..)?;
 
-        let mut method_records = method_record_remainder
-            .read_length_delimited_block("Method records", 4)
-            .remove_no_error()?;
+        let mut method_records =
+            method_record_remainder.read_length_delimited_block("Method records", 4)?;
 
-        let method_records = method_records
-            .split_values::<MethodRecord>("Method records")
-            .remove_no_error()?;
+        let method_records = method_records.split_values::<MethodRecord>("Method records")?;
 
         Ok(Self {
             selector_table: selector_table.clone(),
@@ -191,9 +192,8 @@ impl Object {
             if name_ptr == 0 {
                 None
             } else {
-                let string_data = loaded_data
-                    .sub_reader_range("object name string data", name_ptr as usize..)
-                    .remove_no_error()?;
+                let string_data =
+                    loaded_data.sub_reader_range("object name string data", name_ptr as usize..)?;
                 Some(
                     super::read_null_terminated_string(string_data)
                         .map_err(|e| loaded_data.create_invalid_data_error(e))

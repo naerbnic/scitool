@@ -35,23 +35,17 @@ where
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum NoError {}
+pub struct NoError(std::convert::Infallible);
+
+impl NoError {
+    pub fn absurd(&self) -> ! {
+        match self.0 {}
+    }
+}
 
 impl std::fmt::Display for NoError {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {}
+        match self.0 {}
     }
 }
 impl std::error::Error for NoError {}
-
-pub trait NoErrorResultExt<T> {
-    fn into_ok(self) -> T;
-}
-
-impl<T> NoErrorResultExt<T> for Result<T, NoError> {
-    fn into_ok(self) -> T {
-        match self {
-            Ok(value) => value,
-        }
-    }
-}

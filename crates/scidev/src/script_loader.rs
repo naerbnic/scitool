@@ -64,6 +64,14 @@ pub enum ScriptLoadError {
     Other(#[from] OtherError),
 }
 
+impl From<selectors::Error> for ScriptLoadError {
+    fn from(err: selectors::Error) -> Self {
+        match err {
+            selectors::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+        }
+    }
+}
+
 pub struct ScriptLoader {
     selectors: selectors::SelectorTable,
     loaded_scripts: HashMap<ScriptId, LoadedScript>,

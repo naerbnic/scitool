@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::utils::{
-    errors::AnyInvalidDataError,
+    errors::{AnyInvalidDataError, NoError},
     mem_reader::{self, BufferMemReader, MemReader, NoErrorResultExt as _},
 };
 
@@ -13,6 +13,15 @@ pub enum FromBlockSourceError {
     Io(#[from] io::Error),
     #[error(transparent)]
     MemReader(#[from] AnyInvalidDataError),
+}
+
+impl From<mem_reader::Error<NoError>> for FromBlockSourceError {
+    fn from(err: mem_reader::Error<NoError>) -> Self {
+        match err {
+            mem_reader::Error::InvalidData(invalid_data_err) => Self::MemReader(invalid_data_err),
+            mem_reader::Error::BaseError(err) => err.absurd(),
+        }
+    }
 }
 
 pub trait FromBlockSource: Sized {
