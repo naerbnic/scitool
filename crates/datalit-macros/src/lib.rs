@@ -115,7 +115,10 @@ fn parse_int_literal(lit: LitInt) -> syn::Result<Vec<u8>> {
             if hex_digits.len() % 2 != 0 {
                 return Err(syn::Error::new_spanned(
                     lit,
-                    format!("Hex literal must have an even number of digits to form bytes. Has {} digits.", hex_digits.len()),
+                    format!(
+                        "Hex literal must have an even number of digits to form bytes. Has {} digits.",
+                        hex_digits.len()
+                    ),
                 ));
             }
             return (0..hex_digits.len())
@@ -123,6 +126,27 @@ fn parse_int_literal(lit: LitInt) -> syn::Result<Vec<u8>> {
                 .map(|i| u8::from_str_radix(&hex_digits[i..i + 2], 16))
                 .collect::<Result<Vec<u8>, _>>()
                 .map_err(|e| syn::Error::new_spanned(lit, format!("Invalid hex literal: {e}")));
+        } else if literal_digits.starts_with("0b") {
+            let bin_digits = literal_digits.trim_start_matches("0b").replace('_', "");
+            if bin_digits.len() % 8 != 0 {
+                return Err(syn::Error::new_spanned(
+                    lit,
+                    format!(
+                        "Binary literal must have a multiple of 8 digits to form bytes. Has {} digits.",
+                        bin_digits.len()
+                    ),
+                ));
+            }
+            return (0..bin_digits.len())
+                .step_by(8)
+                .map(|i| u8::from_str_radix(&bin_digits[i..i + 8], 2))
+                .collect::<Result<Vec<u8>, _>>()
+                .map_err(|e| syn::Error::new_spanned(lit, format!("Invalid binary literal: {e}")));
+        } else {
+            return Err(syn::Error::new_spanned(
+                &lit,
+                "Integer literal must have a type suffix (e.g. 'u8', 'i32', etc.) or be a hex (0x...) or binary (0b...) literal",
+            ));
         }
     }
 
@@ -156,6 +180,8 @@ enum DataLitEntry {
     ByteStr(LitByteStr),
     #[peek(LitByte, name = "byte literal")]
     Byte(LitByte),
+    #[peek(syn::LitCStr, name = "C-style string literal")]
+    CStr(syn::LitCStr),
 }
 
 #[derive(derive_syn_parse::Parse)]
@@ -186,6 +212,11 @@ fn datalit_impl(input: TokenStream) -> syn::Result<TokenStream> {
             DataLitEntry::Byte(lit) => {
                 let byte = lit.value();
                 quote! { #data_var.push(#byte); }
+            }
+            DataLitEntry::CStr(lit) => {
+                let c_string = lit.value();
+                let bytes = c_string.as_bytes_with_nul();
+                quote! { #data_var.extend_from_slice(&[#(#bytes),*]); }
             }
         };
         data_statements.push(stmt);
