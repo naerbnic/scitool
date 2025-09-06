@@ -1,8 +1,41 @@
-use proc_macro2::{Literal, TokenStream};
+use proc_macro2::{Literal, Span, TokenStream};
 use quote::{ToTokens, quote};
-use syn::{Error, Ident, LitByte, LitByteStr, LitCStr, LitInt, Result};
+use syn::{Error, Ident, LitByte, LitByteStr, LitCStr, LitInt, Result, punctuated::Punctuated};
 
 use crate::{Endianness, IntType, base10_digits_to_bytes};
+
+#[derive(derive_syn_parse::Parse)]
+pub struct DataLitEntries {
+    #[call(Punctuated::parse_terminated)]
+    entries: Punctuated<DataLitEntry, syn::Token![,]>,
+}
+
+impl DataLitEntries {
+    pub fn into_tokens(self) -> Result<TokenStream> {
+        let data_var = syn::Ident::new("data", Span::call_site());
+
+        let mut data_statements = Vec::new();
+        for entry in self.entries {
+            data_statements.push(entry.into_tokens(&data_var)?);
+        }
+        Ok(quote! {
+            {
+                let mut #data_var: Vec<u8> = Vec::new();
+                #(#data_statements)*
+                #data_var
+            }
+        })
+    }
+}
+
+#[derive(derive_syn_parse::Parse)]
+pub struct SubEntry {
+    #[bracket]
+    _bracket_token: syn::token::Bracket,
+
+    #[inside(_bracket_token)]
+    entries: DataLitEntries,
+}
 
 fn parse_byte_literal<T>(
     err_context: &T,
@@ -106,6 +139,8 @@ pub enum DataLitEntry {
     Byte(LitByte),
     #[peek(LitCStr, name = "C-style string literal")]
     CStr(LitCStr),
+    #[peek(syn::token::Bracket, name = "bracketed list of entries")]
+    SubEntry(SubEntry),
 }
 
 impl DataLitEntry {
@@ -127,6 +162,10 @@ impl DataLitEntry {
                 let c_string = lit.value();
                 let bytes = c_string.as_bytes_with_nul();
                 new_literal_bytes_stmt(data_var, bytes)
+            }
+            DataLitEntry::SubEntry(sub_entry) => {
+                let stmts = sub_entry.entries.into_tokens()?;
+                quote! { #data_var.extend_from_slice(&#stmts); }
             }
         })
     }

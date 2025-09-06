@@ -16,7 +16,7 @@ mod tests {
 
     #[test]
     fn test_endian_literals() {
-        let bytes = datalit!(1u16_le, 2u16_be);
+        let bytes = datalit!(1u16_le, [2u16_be]);
         assert_eq!(bytes, vec![1u8, 0u8, 0u8, 2u8]);
     }
 
