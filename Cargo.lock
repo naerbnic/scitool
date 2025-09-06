@@ -747,7 +747,6 @@ dependencies = [
  "anyhow",
  "bitter",
  "bytes",
- "clap",
  "datalit",
  "log",
  "num",

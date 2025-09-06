@@ -1,3 +1,5 @@
+//! Types for reading the resource map file.
+
 use crate::{
     resources::{ResourceId, ResourceType},
     utils::mem_reader::{self, MemReader},

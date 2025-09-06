@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, builder::TypedValueParser};
 use scidev::resources::{ResourceId, ResourceType};
 use scitool_cli::commands::resources::{dump_resource, extract_resource_as_patch, list_resources};
 
@@ -42,6 +42,45 @@ impl ResourceCommand {
     }
 }
 
+static RESOURCE_NAME_MAP: std::sync::LazyLock<BTreeMap<&str, ResourceType>> =
+    std::sync::LazyLock::new(|| {
+        [
+            ("view", ResourceType::View),
+            ("pic", ResourceType::Pic),
+            ("script", ResourceType::Script),
+            ("scr", ResourceType::Script),
+            ("text", ResourceType::Text),
+            ("txt", ResourceType::Text),
+            ("sound", ResourceType::Sound),
+            ("memory", ResourceType::Memory),
+            ("vocab", ResourceType::Vocab),
+            ("voc", ResourceType::Vocab),
+            ("font", ResourceType::Font),
+            ("cursor", ResourceType::Cursor),
+            ("patch", ResourceType::Patch),
+            ("bitmap", ResourceType::Bitmap),
+            ("palette", ResourceType::Palette),
+            ("cdaudio", ResourceType::CdAudio),
+            ("audio", ResourceType::Audio),
+            ("sync", ResourceType::Sync),
+            ("message", ResourceType::Message),
+            ("msg", ResourceType::Message),
+            ("map", ResourceType::Map),
+            ("heap", ResourceType::Heap),
+            ("audio36", ResourceType::Audio36),
+            ("sync36", ResourceType::Sync36),
+            ("translation", ResourceType::Translation),
+            ("rave", ResourceType::Rave),
+        ]
+        .into()
+    });
+
+fn parse_resource_type() -> clap::builder::ValueParser {
+    let possible_values =
+        clap::builder::PossibleValuesParser::new(RESOURCE_NAME_MAP.keys().copied());
+    possible_values.map(|s| RESOURCE_NAME_MAP[&*s]).into()
+}
+
 /// Lists resources in the game.
 #[derive(Parser)]
 struct ListResources {
@@ -50,7 +89,7 @@ struct ListResources {
     root_dir: PathBuf,
 
     /// Filter by resource type (e.g., Script, Heap, View, Pic, Sound, Message, Font, Cursor, Patch, AudioPath, Vocab, Palette, Wave, Audio, Sync).
-    #[clap(long = "type", short = 't')]
+    #[clap(long = "type", short = 't', value_parser = parse_resource_type())]
     res_type: Option<ResourceType>,
 }
 
@@ -72,6 +111,7 @@ struct ExtractResourceAsPatch {
     root_dir: PathBuf,
 
     /// The type of the resource to extract (e.g., Script, Heap).
+    #[clap(long = "type", short = 't', value_parser = parse_resource_type())]
     resource_type: ResourceType,
 
     /// The ID of the resource to extract.
@@ -122,6 +162,7 @@ struct DumpResource {
     root_dir: PathBuf,
 
     /// The type of the resource to dump.
+    #[clap(long = "type", short = 't', value_parser = parse_resource_type())]
     resource_type: ResourceType,
 
     /// The ID of the resource to dump.
