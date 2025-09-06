@@ -37,6 +37,36 @@ impl Buffer for &[u8] {
     }
 }
 
+#[derive(Debug)]
+pub struct BufferRef<'a, T>(&'a T);
+
+impl<'a, T> From<&'a T> for BufferRef<'a, T> {
+    fn from(value: &'a T) -> Self {
+        BufferRef(value)
+    }
+}
+
+impl<T> Clone for BufferRef<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for BufferRef<'_, T> {}
+
+impl<T> Buffer for BufferRef<'_, T>
+where
+    T: Buffer,
+{
+    fn read_slice_at(&self, offset: usize) -> &[u8] {
+        self.0.read_slice_at(offset)
+    }
+
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+}
+
 impl SplittableBuffer for &[u8] {
     fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
         assert!(start <= end);
@@ -84,6 +114,35 @@ impl<T: Buffer> FallibleBuffer for T {
 
     fn size(&self) -> usize {
         self.size()
+    }
+}
+
+pub struct FallibleBufferRef<'a, T>(&'a T);
+impl<'a, T> From<&'a T> for FallibleBufferRef<'a, T> {
+    fn from(value: &'a T) -> Self {
+        FallibleBufferRef(value)
+    }
+}
+impl<T> Clone for FallibleBufferRef<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for FallibleBufferRef<'_, T> {}
+
+impl<T> FallibleBuffer for FallibleBufferRef<'_, T>
+where
+    T: FallibleBuffer,
+{
+    type Error = T::Error;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.0.read_slice(offset, buf)
+    }
+
+    fn size(&self) -> usize {
+        self.0.size()
     }
 }
 

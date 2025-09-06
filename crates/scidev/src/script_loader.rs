@@ -85,7 +85,7 @@ impl ScriptLoader {
             .ok_or_else_other(|| "Selector table not found")?
             .load_data()
             .with_other_err()?;
-        let reader = BufferMemReader::new(&selector_table_data);
+        let reader = BufferMemReader::new(selector_table_data);
         let selectors = selectors::SelectorTable::load_from(&reader)?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {

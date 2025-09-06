@@ -202,7 +202,7 @@ pub trait FromBlockSource: Sized {
         source: &BlockSource,
     ) -> Result<(Self, BlockSource), FromBlockSourceError> {
         let block = source.subblock(..Self::read_size() as u64).open()?;
-        let parse_result = Self::parse(BufferMemReader::new(&block));
+        let parse_result = Self::parse(BufferMemReader::new(block));
         let header = parse_result.remove_no_error()?;
         let rest = source.subblock(Self::read_size() as u64..);
         Ok((header, rest))

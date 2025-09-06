@@ -167,3 +167,29 @@ impl DataFile {
         Ok(raw_contents.try_into()?)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::utils::mem_reader::BufferMemReader;
+
+    use super::*;
+    use datalit::datalit;
+
+    #[test]
+    fn test_read_raw_entry_header() {
+        let data = datalit! {
+            1u8,                   // res_type
+            42u16_le,              // res_number
+            10u16_le,              // packed_size
+            20u16_le,              // unpacked_size
+            0u16_le,               // compression_type
+        };
+
+        let header: RawEntryHeader = FromBlockSource::parse(BufferMemReader::new(&*data)).unwrap();
+        assert_eq!(header.res_type, 1);
+        assert_eq!(header.res_number, 42);
+        assert_eq!(header.packed_size, 10);
+        assert_eq!(header.unpacked_size, 20);
+        assert_eq!(header.compression_type, 0);
+    }
+}

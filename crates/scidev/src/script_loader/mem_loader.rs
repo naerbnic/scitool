@@ -174,7 +174,7 @@ impl Relocations {
 
 fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Error> {
     let cloned_data = data.clone();
-    let mut reader = BufferMemReader::new(&cloned_data);
+    let mut reader = BufferMemReader::from_ref(&cloned_data);
     let relocation_offset = reader.read_value::<u16>("Relocation offset")?;
     if relocation_offset as usize > cloned_data.size() {
         return Err(AnyInvalidDataError::from(
@@ -221,12 +221,12 @@ impl LoadedScript {
 
         apply_relocations(
             script_data_slice,
-            &mut BufferMemReader::new(&script_relocation_block),
+            &mut BufferMemReader::from_ref(&script_relocation_block),
             u16_heap_offset,
         )?;
         apply_relocations(
             heap_data_slice,
-            &mut BufferMemReader::new(&heap_relocation_block),
+            &mut BufferMemReader::from_ref(&heap_relocation_block),
             u16_heap_offset,
         )?;
 
@@ -237,8 +237,8 @@ impl LoadedScript {
             .remove_no_error();
         let heap = Heap::from_block(
             selector_table,
-            &BufferMemReader::new(&loaded_script),
-            &mut BufferMemReader::new(&heap_data),
+            &BufferMemReader::from_ref(&loaded_script),
+            &mut BufferMemReader::from_ref(&heap_data),
         )?;
 
         Ok(LoadedScript { heap })

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::utils::{
     block::MemBlock,
-    buffer::BufferExt,
+    buffer::{BufferExt, BufferRef},
     errors::{OtherError, bail_other, ensure_other, prelude::*},
     mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
 };
@@ -162,7 +162,7 @@ fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, Pars
         .clone()
         .sub_buffer(offset as usize..)
         .remove_no_error();
-    let mut reader = BufferMemReader::new(&base_buffer);
+    let mut reader = BufferMemReader::new(BufferRef::from(&base_buffer));
     let mut text = Vec::new();
     loop {
         let ch = reader.read_u8().with_other_err()?;
@@ -197,7 +197,7 @@ impl RoomMessageSet {
 }
 
 pub fn parse_message_resource(msg_res: &MemBlock) -> Result<RoomMessageSet, ParseError> {
-    let mut reader = BufferMemReader::new(msg_res);
+    let mut reader = BufferMemReader::from_ref(msg_res);
     let version_num = reader.read_u32_le().with_other_err()? / 1000;
     let raw_records = match version_num {
         4 => parse_message_resource_v4(reader)?,

@@ -15,5 +15,8 @@ bitter = "0.7.0"
 num = "0.4.3"
 tempfile = "3.19.1"
 
+[dev-dependencies]
+datalit = { path = "../datalit" }
+
 [lints]
 workspace = true

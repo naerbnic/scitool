@@ -8,7 +8,7 @@ use std::{
 use bytes::BufMut;
 
 use crate::utils::{
-    buffer::FallibleBuffer,
+    buffer::{FallibleBuffer, FallibleBufferRef},
     convert::convert_if_different,
     errors::{AnyInvalidDataError, BlockContext, InvalidDataError, NoError, OtherError},
 };
@@ -243,15 +243,15 @@ pub trait MemReader {
 }
 
 #[derive(Clone)]
-pub struct BufferMemReader<'a, B: 'a> {
-    buffer: &'a B,
+pub struct BufferMemReader<'a, B> {
+    buffer: B,
     start: usize,
     end: usize,
     position: usize,
     context: BlockContext<'a>,
 }
 
-impl<'a, B: 'a> Debug for BufferMemReader<'a, B> {
+impl<B> Debug for BufferMemReader<'_, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemReader")
             .field("start", &self.start)
@@ -261,9 +261,9 @@ impl<'a, B: 'a> Debug for BufferMemReader<'a, B> {
     }
 }
 
-impl<'a, B> BufferMemReader<'a, B>
+impl<B> BufferMemReader<'_, B>
 where
-    B: FallibleBuffer + 'a,
+    B: FallibleBuffer + Clone,
 {
     fn check_read_length(&self, len: usize) -> Result<(), B::Error> {
         let remaining = self.end - self.start - self.position;
@@ -312,7 +312,7 @@ where
         let new_start = self.start + start;
         let new_end = self.start + end;
         BufferMemReader {
-            buffer: self.buffer,
+            buffer: self.buffer.clone(),
             start: new_start,
             end: new_end,
             position: 0,
@@ -320,7 +320,7 @@ where
         }
     }
 
-    pub fn new(buf: &'a B) -> Self {
+    pub fn new(buf: B) -> Self {
         let buf_len = buf.size();
         Self {
             buffer: buf,
@@ -332,9 +332,18 @@ where
     }
 }
 
-impl<'a, B> MemReader for BufferMemReader<'a, B>
+impl<'a, B> BufferMemReader<'_, FallibleBufferRef<'a, B>>
 where
-    B: FallibleBuffer + 'a,
+    B: FallibleBuffer + Clone,
+{
+    pub fn from_ref(buf: &'a B) -> Self {
+        Self::new(FallibleBufferRef::from(buf))
+    }
+}
+
+impl<B> MemReader for BufferMemReader<'_, B>
+where
+    B: FallibleBuffer + Clone,
 {
     type Error = B::Error;
 
@@ -380,7 +389,7 @@ where
                 available: self.remaining(),
             }));
         }
-        
+
         self.buffer
             .read_slice(self.start + self.position, buf)
             .map_err(Error::BaseError)?;
