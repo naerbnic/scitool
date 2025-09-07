@@ -59,6 +59,31 @@ where
     }
 }
 
+struct VecBlockSourceImpl {
+    data: Vec<u8>,
+}
+
+impl BlockSourceImpl for VecBlockSourceImpl {
+    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
+        let start: usize = start.try_into()?;
+        let size: usize = size.try_into()?;
+        let end = start + size;
+        if end > self.data.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "Tried to read block from {} to {}, but data is only {} bytes long",
+                    start,
+                    end,
+                    self.data.len()
+                ),
+            )
+            .into());
+        }
+        Ok(MemBlock::from_vec(self.data[start..end].to_vec()))
+    }
+}
+
 /// A source of blocks. These can be loaded lazily, and still can be split
 /// into sub-block-sources.
 #[derive(Clone)]
@@ -94,6 +119,16 @@ impl BlockSource {
             size,
             source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(reader))),
         })
+    }
+
+    #[must_use]
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        let size = data.len() as u64;
+        Self {
+            start: 0,
+            size,
+            source_impl: Arc::new(VecBlockSourceImpl { data }),
+        }
     }
 
     /// Returns the size of the block source.

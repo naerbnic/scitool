@@ -7,7 +7,7 @@ use crate::{
     utils::{
         block::{BlockSource, LazyBlock},
         compression::dcl::decompress_dcl,
-        errors::prelude::*,
+        errors::{OtherError, prelude::*},
     },
 };
 
@@ -51,7 +51,7 @@ impl Contents {
             _ => {
                 // Let's be lazy here.
                 LazyBlock::from_factory(move || {
-                    Err(io::Error::other(format!(
+                    Err(OtherError::from_msg(format!(
                         "Unsupported compression type: {}",
                         raw_contents.header.compression_type()
                     ))
@@ -80,5 +80,32 @@ impl Contents {
     }
     pub(crate) fn data(&self) -> &LazyBlock {
         &self.data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datalit::datalit;
+
+    use crate::utils::{mem_reader::Parse, testing::block::mem_reader_from_bytes};
+
+    #[test]
+    fn test_basic_contents() {
+        let header_data = datalit! {
+            0x80u8,
+            100u16_le,
+            4u16_le,
+            4u16_le,
+            0u16_le,
+        };
+        let header = RawEntryHeader::parse(&mut mem_reader_from_bytes(&header_data)).unwrap();
+        let content_source = BlockSource::from_vec(datalit! {
+            0x00010203
+        });
+        let contents = Contents::from_parts(header, content_source).unwrap();
+
+        let content_data = contents.data().open().unwrap();
+        assert_eq!(content_data.as_ref(), &[0, 1, 2, 3]);
     }
 }

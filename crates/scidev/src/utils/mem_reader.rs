@@ -67,6 +67,25 @@ pub enum Error<E> {
     InvalidData(AnyInvalidDataError),
 }
 
+impl<E, BaseErr> From<InvalidDataError<BaseErr>> for Error<E>
+where
+    E: StdError + Send + Sync + 'static,
+    BaseErr: StdError + Send + Sync + 'static,
+{
+    fn from(err: InvalidDataError<BaseErr>) -> Self {
+        Self::InvalidData(err.into())
+    }
+}
+
+impl<E> From<AnyInvalidDataError> for Error<E>
+where
+    E: StdError + Send + Sync + 'static,
+{
+    fn from(err: AnyInvalidDataError) -> Self {
+        Self::InvalidData(err)
+    }
+}
+
 impl<E> Error<E>
 where
     E: StdError + Send + Sync + 'static,
