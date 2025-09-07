@@ -69,3 +69,57 @@ impl Parse for ResourceLocationSet {
         Ok(ResourceLocationSet { type_locations })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{resources::ResourceType, utils::testing::block::mem_reader_from_bytes};
+    use datalit::datalit;
+
+    #[test]
+    fn test_parse() {
+        let map_data = datalit!(
+            // Index
+            0x80,   // Resource View Type
+            start(u16_le, 'res1), // Offset 0x0005
+            0x81,   // Resource Picture Type
+            start(u16_le, 'res2), // Offset 0x000A
+            0xFF,   // End Marker
+            start(u16_le, 'end), // End Offset
+
+            'res1: {
+                // View Locations (5 bytes each)
+                1u16_le,       // Resource Number 1
+                1u24_le, // Offset 0x000002
+                2u16_le,       // Resource Number 2
+                3u24_le, // Offset 0x000006
+            },
+
+            'res2: {
+                // Picture Locations (5 bytes each)
+                1u16_le,       // Resource Number 1
+                4u24_le, // Offset 0x000008
+                2u16_le,       // Resource Number 2
+                5u24_le, // Offset 0x00000A
+            },
+
+            'end: {},
+
+            // Should ignore further data.
+            0xDEADBEEF
+        );
+
+        let mut reader = mem_reader_from_bytes(&map_data);
+        let locations = ResourceLocationSet::parse(&mut reader).unwrap();
+        let locations: Vec<_> = locations.locations().collect();
+        assert_eq!(locations.len(), 4);
+        assert_eq!(locations[0].id(), ResourceId::new(ResourceType::View, 1));
+        assert_eq!(locations[0].file_offset(), 2);
+        assert_eq!(locations[1].id(), ResourceId::new(ResourceType::View, 2));
+        assert_eq!(locations[1].file_offset(), 6);
+        assert_eq!(locations[2].id(), ResourceId::new(ResourceType::Pic, 1));
+        assert_eq!(locations[2].file_offset(), 8);
+        assert_eq!(locations[3].id(), ResourceId::new(ResourceType::Pic, 2));
+        assert_eq!(locations[3].file_offset(), 10);
+    }
+}

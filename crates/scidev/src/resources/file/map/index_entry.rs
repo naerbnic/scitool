@@ -26,3 +26,20 @@ impl Parse for ResourceIndexEntry {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::utils::testing::block::mem_reader_from_bytes;
+    use datalit::datalit;
+
+    use super::*;
+
+    #[test]
+    fn test_parse() {
+        let data = datalit!(0x013412);
+        let mut reader = mem_reader_from_bytes(&data);
+        let entry = ResourceIndexEntry::parse(&mut reader).unwrap();
+        assert_eq!(entry.type_id(), 1);
+        assert_eq!(entry.file_offset(), 0x1234);
+    }
+}

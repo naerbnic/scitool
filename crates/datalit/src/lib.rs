@@ -24,4 +24,10 @@ mod tests {
         let bytes = datalit!(0b0000_0001_0010_0011_0100_0101_0110_0111_1000_1001);
         assert_eq!(bytes, vec![0x01u8, 0x23, 0x45, 0x67, 0x89]);
     }
+
+    #[test]
+    fn supports_u24() {
+        let bytes = datalit!(0x123456u24_le, 0x789ABCu24_be);
+        assert_eq!(bytes, vec![0x56u8, 0x34, 0x12, 0x78, 0x9A, 0xBC]);
+    }
 }
