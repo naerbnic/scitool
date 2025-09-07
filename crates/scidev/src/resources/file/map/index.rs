@@ -1,4 +1,4 @@
-use crate::utils::mem_reader::{self, MemReader};
+use crate::utils::mem_reader::{self, MemReader, Parse};
 
 use super::index_entry::ResourceIndexEntry;
 
@@ -18,13 +18,11 @@ impl ResourceIndex {
     }
 }
 
-impl ResourceIndex {
-    pub(crate) fn read_from<M: MemReader>(
-        reader: &mut M,
-    ) -> mem_reader::Result<ResourceIndex, M::Error> {
+impl Parse for ResourceIndex {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
         let mut entries = Vec::new();
         loop {
-            let entry = ResourceIndexEntry::read_from(reader)?;
+            let entry = ResourceIndexEntry::parse(reader)?;
             if entry.type_id() == 0xFF {
                 return Ok(ResourceIndex {
                     entries,

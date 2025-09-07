@@ -1,6 +1,6 @@
 use crate::{
     resources::ResourceType,
-    utils::mem_reader::{self, MemReader},
+    utils::mem_reader::{self, MemReader, Parse},
 };
 
 use super::location_entry::ResourceLocationEntry;
@@ -36,5 +36,11 @@ impl ResourceTypeLocations {
             entries.push(ResourceLocationEntry::read_from(reader)?);
         }
         Ok(ResourceTypeLocations { type_id, entries })
+    }
+}
+
+impl Parse for ResourceTypeLocations {
+    fn parse<M: MemReader>(_: &mut M) -> mem_reader::Result<Self, M::Error> {
+        unimplemented!("ResourceTypeLocations cannot be parsed without additional context")
     }
 }

@@ -13,7 +13,7 @@ use crate::{
     utils::{
         block::{BlockSource, BlockSourceError, LazyBlock, MemBlock, MemBlockFromReaderError},
         errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
-        mem_reader::{self, BufferMemReader},
+        mem_reader::{self, BufferMemReader, Parse as _},
     },
 };
 
@@ -91,7 +91,7 @@ pub fn read_resources(
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
-        map::ResourceLocationSet::read_from(&mut BufferMemReader::from_ref(&map_file))?;
+        map::ResourceLocationSet::parse(&mut BufferMemReader::from_ref(&map_file))?;
 
     let mut entries = BTreeMap::new();
 
