@@ -141,3 +141,10 @@ pub(crate) struct ResourceLocation {
     pub id: ResourceId,
     pub file_offset: u32,
 }
+
+impl ResourceLocation {
+    #[cfg(test)]
+    pub(crate) fn new(id: ResourceId, file_offset: u32) -> Self {
+        ResourceLocation { id, file_offset }
+    }
+}
