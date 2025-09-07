@@ -1,6 +1,6 @@
 use crate::utils::{
     block::FromBlockSource,
-    mem_reader::{self, MemReader},
+    mem_reader::{self, MemReader, Parse},
 };
 
 /// A resource entry header in a data file.
@@ -37,12 +37,8 @@ impl RawEntryHeader {
     }
 }
 
-impl FromBlockSource for RawEntryHeader {
-    fn read_size() -> usize {
-        9
-    }
-
-    fn parse<M: MemReader>(mut reader: M) -> mem_reader::Result<Self, M::Error> {
+impl Parse for RawEntryHeader {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
         let res_type = reader.read_u8()?;
         let res_number = reader.read_u16_le()?;
         let packed_size = reader.read_u16_le()?;
@@ -55,6 +51,12 @@ impl FromBlockSource for RawEntryHeader {
             unpacked_size,
             compression_type,
         })
+    }
+}
+
+impl FromBlockSource for RawEntryHeader {
+    fn read_size() -> usize {
+        9
     }
 }
 
@@ -75,8 +77,9 @@ mod tests {
             0u16_le,               // compression_type
         };
 
-        let mem_reader = mem_reader_from_bytes(&data);
-        let header: RawEntryHeader = FromBlockSource::parse(mem_reader).unwrap();
+        let mut reader = mem_reader_from_bytes(&data);
+        let header: RawEntryHeader = mem_reader::Parse::parse(&mut reader).unwrap();
+        assert_eq!(reader.tell(), 9);
         assert_eq!(header.res_type, 1);
         assert_eq!(header.res_number, 42);
         assert_eq!(header.packed_size, 10);

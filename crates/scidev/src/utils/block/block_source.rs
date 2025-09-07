@@ -197,18 +197,17 @@ impl From<Error> for FromBlockSourceError {
     }
 }
 
-pub trait FromBlockSource: Sized {
+pub trait FromBlockSource: mem_reader::Parse {
     fn from_block_source(
         source: &BlockSource,
     ) -> Result<(Self, BlockSource), FromBlockSourceError> {
         let block = source.subblock(..Self::read_size() as u64).open()?;
-        let parse_result = Self::parse(BufferMemReader::new(block));
-        let header = parse_result.remove_no_error()?;
-        let rest = source.subblock(Self::read_size() as u64..);
-        Ok((header, rest))
+        let mut reader = BufferMemReader::from_ref(&block);
+        let parse_result = Self::parse(&mut reader);
+        let value = parse_result.remove_no_error()?;
+        let rest = source.subblock(reader.tell() as u64..);
+        Ok((value, rest))
     }
 
     fn read_size() -> usize;
-
-    fn parse<M: MemReader>(reader: M) -> mem_reader::Result<Self, M::Error>;
 }

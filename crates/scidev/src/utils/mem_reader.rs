@@ -495,39 +495,6 @@ where
     }
 }
 
-// /// Splits the block into chunks of the given size. Panics if the block size
-// /// is not a multiple of the chunk size.
-// fn with_chunks<F, R, E>(
-//     &mut self,
-//     chunk_size: usize,
-//     context: &str,
-//     mut body: F,
-// ) -> Result<Vec<R>, NoError>
-// where
-//     F: for<'b> FnMut(BufferMemReader<'b, B>) -> std::result::Result<R, E>,
-//     E: StdError + Send + Sync + 'static,
-// {
-//     let mut chunks = Vec::new();
-//     let overflow = self.remaining() % chunk_size;
-//     if overflow != 0 {
-//         return Err(self.err_with_context()(BufferError::NotDivisible {
-//             required: chunk_size,
-//             overflow,
-//         }));
-//     }
-//     let mut index = 0;
-//     while !self.is_empty() {
-//         let entry_context = format!("{context}[{index}]");
-//         let sub_reader =
-//             self.make_sub_reader(self.position, self.position + chunk_size, entry_context);
-
-//         chunks.push(body(sub_reader).map_err(self.err_with_context())?);
-//         self.position += chunk_size;
-//         index += 1;
-//     }
-//     Ok(chunks)
-// }
-
 /// An extension trait for reducing the shape of an error that includes [`NoError`].
 pub trait NoErrorResultExt<T> {
     type R;
@@ -553,4 +520,13 @@ impl<T> NoErrorResultExt<T> for std::result::Result<T, NoError> {
             Err(err) => err.absurd(),
         }
     }
+}
+
+/// A trait for types that can be parsed from a `MemReader`.
+pub trait Parse: Sized {
+    /// Parses a value from the given `MemReader`.
+    /// 
+    /// This function should leave the reader at the position immediately after
+    /// the parsed value.
+    fn parse<M: MemReader>(reader: &mut M) -> Result<Self, M::Error>;
 }
