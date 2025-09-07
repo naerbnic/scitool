@@ -2,17 +2,19 @@ use std::{
     collections::{BTreeMap, btree_map},
     fs::File,
     io,
-    num::TryFromIntError,
     path::Path,
 };
 
 use data::DataFile;
 
 use self::patch::try_patch_from_file;
-use crate::utils::{
-    block::{BlockSource, BlockSourceError, LazyBlock, MemBlock, MemBlockFromReaderError},
-    errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
-    mem_reader::{self, BufferMemReader},
+use crate::{
+    resources::ConversionError,
+    utils::{
+        block::{BlockSource, BlockSourceError, LazyBlock, MemBlock, MemBlockFromReaderError},
+        errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
+        mem_reader::{self, BufferMemReader},
+    },
 };
 
 use super::{ResourceId, ResourceType};
@@ -30,7 +32,7 @@ pub enum Error {
     #[error("Malformed data: {0}")]
     MalformedData(#[from] AnyInvalidDataError),
     #[error(transparent)]
-    Conversion(#[from] TryFromIntError),
+    Conversion(#[from] ConversionError),
     #[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
     ResourceIdMismatch {
         expected: ResourceId,
@@ -63,7 +65,9 @@ impl From<BlockSourceError> for Error {
     fn from(err: BlockSourceError) -> Self {
         match err {
             BlockSourceError::Io(io_err) => Self::Io(io_err),
-            BlockSourceError::Conversion(conv_err) => Self::Conversion(conv_err),
+            BlockSourceError::Conversion(conv_err) => {
+                Self::Conversion(ConversionError::new(conv_err))
+            }
         }
     }
 }
@@ -72,7 +76,9 @@ impl From<MemBlockFromReaderError> for Error {
     fn from(err: MemBlockFromReaderError) -> Self {
         match err {
             MemBlockFromReaderError::Io(io_err) => Self::Io(io_err),
-            MemBlockFromReaderError::Conversion(conv_err) => Self::Conversion(conv_err),
+            MemBlockFromReaderError::Conversion(conv_err) => {
+                Self::Conversion(ConversionError::new(conv_err))
+            }
         }
     }
 }

@@ -1,26 +1,42 @@
-use std::io;
-
 use bitter::BitReader;
 
-use crate::utils::block::MemBlock;
+use crate::utils::{block::MemBlock, compression::errors::UnexpectedEndOfInput};
 
 use super::huffman::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
 
-pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
+#[derive(Debug, thiserror::Error)]
+pub enum DecompressionError {
+    #[error("Header error: {0}")]
+    HeaderDataError(String),
+    #[error("Entry error: {0}")]
+    EntryDataError(String),
+    #[error(transparent)]
+    UnexpectedEndOfInput(#[from] UnexpectedEndOfInput),
+    #[error("Inconsistent data: {0}")]
+    InconsistentDataError(String),
+}
+
+pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_size = input.size();
     let input_data = input.read_all();
     let mut reader = bitter::LittleEndianReader::new(&input_data);
     let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
     let Some(mode) = reader.read_u8() else {
-        return Err(io::Error::other("Failed to read DCL mode"));
+        return Err(DecompressionError::HeaderDataError(
+            "Failed to read DCL mode".into(),
+        ));
     };
     let Some(dict_type) = reader.read_u8() else {
-        return Err(io::Error::other("Failed to read DCL dictionary type"));
+        return Err(DecompressionError::HeaderDataError(
+            "Failed to read DCL dictionary type".into(),
+        ));
     };
 
     if mode != 0 && mode != 1 {
-        return Err(io::Error::other(format!("Unsupported DCL mode: {mode}")));
+        return Err(DecompressionError::HeaderDataError(format!(
+            "Unsupported DCL mode: {mode}"
+        )));
     }
 
     let dict_size = match dict_type {
@@ -28,7 +44,7 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
         5 => 2048,
         6 => 4096,
         _ => {
-            return Err(io::Error::other(format!(
+            return Err(DecompressionError::HeaderDataError(format!(
                 "Unsupported DCL dictionary type: {dict_type}"
             )));
         }
@@ -38,9 +54,7 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
     let mut dict_pos: u32 = 0;
 
     loop {
-        let should_decode_entry = reader
-            .read_bit()
-            .ok_or_else(|| io::Error::other("Failed to read DCL entry type"))?;
+        let should_decode_entry = reader.read_bit().ok_or(UnexpectedEndOfInput)?;
         if should_decode_entry {
             let length_code = *LENGTH_TREE.lookup(&mut reader)?;
             let token_length = if length_code < 8 {
@@ -49,7 +63,7 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
                 let num_bits = u32::from(length_code - 7);
                 let extra_bits: u32 = reader
                     .read_bits(num_bits)
-                    .ok_or_else(|| io::Error::other("Failed to read DCL extra length bits"))?
+                    .ok_or(UnexpectedEndOfInput)?
                     .try_into()
                     .unwrap();
 
@@ -63,19 +77,20 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
             let distance_code = u32::from(*DISTANCE_TREE.lookup(&mut reader)?);
             let token_offset: u32 = 1 + if token_length == 2 {
                 (distance_code << 2)
-                    | u32::try_from(reader.read_bits(2).ok_or_else(|| {
-                        io::Error::other("Failed to read DCL extra distance bits")
-                    })?)
-                    .unwrap()
+                    | u32::try_from(reader.read_bits(2).ok_or(UnexpectedEndOfInput)?).unwrap()
             } else {
                 (distance_code << dict_type)
-                    | u32::try_from(reader.read_bits(u32::from(dict_type)).ok_or_else(|| {
-                        io::Error::other("Failed to read DCL extra distance bits")
-                    })?)
+                    | u32::try_from(
+                        reader
+                            .read_bits(u32::from(dict_type))
+                            .ok_or(UnexpectedEndOfInput)?,
+                    )
                     .unwrap()
             };
             if output.len() < token_offset as usize {
-                return Err(io::Error::other("DCL token offset exceeds bytes written"));
+                return Err(DecompressionError::InconsistentDataError(
+                    "DCL token offset exceeds bytes written".into(),
+                ));
             }
 
             let base_index = (dict_pos.wrapping_sub(token_offset)) & dict_mask;
@@ -101,9 +116,7 @@ pub fn decompress_dcl(input: &MemBlock) -> io::Result<MemBlock> {
             let value = if mode == 1 {
                 *ASCII_TREE.lookup(&mut reader)?
             } else {
-                reader
-                    .read_u8()
-                    .ok_or_else(|| io::Error::other("Failed to read DCL byte"))?
+                reader.read_u8().ok_or(UnexpectedEndOfInput)?
             };
             output.push(value);
             dict[dict_pos as usize] = value;

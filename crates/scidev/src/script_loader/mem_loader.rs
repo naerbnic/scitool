@@ -206,8 +206,7 @@ impl LoadedScript {
             return Err(Error::ScriptSizeNotAligned { size: heap_offset });
         }
 
-        #[expect(clippy::cast_possible_truncation)]
-        let u16_heap_offset = heap_offset as u16;
+        let u16_heap_offset: u16 = heap_offset.try_into().unwrap();
 
         // Concat the two blocks.
         //

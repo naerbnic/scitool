@@ -1,5 +1,3 @@
-use std::io;
-
 use bitter::BitReader;
 
 enum HuffmanTableEntry<T> {
@@ -12,15 +10,16 @@ pub(super) struct HuffmanTable<T> {
 }
 
 impl<T> HuffmanTable<T> {
-    pub(super) fn lookup(&self, reader: &mut bitter::LittleEndianReader) -> io::Result<&T> {
+    pub(super) fn lookup(
+        &self,
+        reader: &mut bitter::LittleEndianReader,
+    ) -> Result<&T, UnexpectedEndOfInput> {
         let mut pos = 0;
         loop {
             match &self.entries[pos] {
                 HuffmanTableEntry::Leaf(value) => return Ok(value),
                 HuffmanTableEntry::Branch(left, right) => {
-                    let bit = reader
-                        .read_bit()
-                        .ok_or_else(|| io::Error::other("Failed to read bit"))?;
+                    let bit = reader.read_bit().ok_or(UnexpectedEndOfInput)?;
                     pos = if bit { *right } else { *left };
                 }
             }
@@ -744,3 +743,5 @@ mod trees {
 }
 
 pub(super) use trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
+
+use crate::utils::compression::errors::UnexpectedEndOfInput;

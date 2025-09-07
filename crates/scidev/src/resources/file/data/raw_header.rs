@@ -1,0 +1,86 @@
+use crate::utils::{
+    block::FromBlockSource,
+    mem_reader::{self, MemReader},
+};
+
+/// A resource entry header in a data file.
+///
+/// This is based on the SCI1.1 data file format.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RawEntryHeader {
+    res_type: u8,
+    res_number: u16,
+    packed_size: u16,
+    unpacked_size: u16,
+    compression_type: u16,
+}
+
+impl RawEntryHeader {
+    pub(crate) fn res_type(&self) -> u8 {
+        self.res_type
+    }
+
+    pub(crate) fn res_number(&self) -> u16 {
+        self.res_number
+    }
+
+    pub(crate) fn packed_size(&self) -> u16 {
+        self.packed_size
+    }
+
+    pub(crate) fn unpacked_size(&self) -> u16 {
+        self.unpacked_size
+    }
+
+    pub(crate) fn compression_type(&self) -> u16 {
+        self.compression_type
+    }
+}
+
+impl FromBlockSource for RawEntryHeader {
+    fn read_size() -> usize {
+        9
+    }
+
+    fn parse<M: MemReader>(mut reader: M) -> mem_reader::Result<Self, M::Error> {
+        let res_type = reader.read_u8()?;
+        let res_number = reader.read_u16_le()?;
+        let packed_size = reader.read_u16_le()?;
+        let unpacked_size = reader.read_u16_le()?;
+        let compression_type = reader.read_u16_le()?;
+        Ok(RawEntryHeader {
+            res_type,
+            res_number,
+            packed_size,
+            unpacked_size,
+            compression_type,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::utils::testing::block::mem_reader_from_bytes;
+
+    use super::*;
+    use datalit::datalit;
+
+    #[test]
+    fn test_read_raw_entry_header() {
+        let data = datalit! {
+            1u8,                   // res_type
+            42u16_le,              // res_number
+            10u16_le,              // packed_size
+            20u16_le,              // unpacked_size
+            0u16_le,               // compression_type
+        };
+
+        let mem_reader = mem_reader_from_bytes(&data);
+        let header: RawEntryHeader = FromBlockSource::parse(mem_reader).unwrap();
+        assert_eq!(header.res_type, 1);
+        assert_eq!(header.res_number, 42);
+        assert_eq!(header.packed_size, 10);
+        assert_eq!(header.unpacked_size, 20);
+        assert_eq!(header.compression_type, 0);
+    }
+}

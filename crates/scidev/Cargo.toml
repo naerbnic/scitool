@@ -16,6 +16,7 @@ tempfile = "3.19.1"
 
 [dev-dependencies]
 datalit = { path = "../datalit" }
+proptest = "1.7.0"
 
 [lints]
 workspace = true

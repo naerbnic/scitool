@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 pub mod file;
 pub mod types;
 
@@ -31,6 +33,12 @@ pub enum ResourceType {
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("Conversion Error: {0}")]
 pub struct ConversionError(String);
+
+impl ConversionError {
+    pub fn new(msg: impl Display) -> ConversionError {
+        ConversionError(msg.to_string())
+    }
+}
 
 impl ResourceType {
     pub fn from_file_ext(ext: &str) -> Result<Self, ConversionError> {

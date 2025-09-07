@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::utils::block::block_source;
+use crate::utils::{block::block_source, errors::OtherError};
 
 use super::{BlockSource, MemBlock};
 
@@ -11,6 +11,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Conversion(#[from] std::num::TryFromIntError),
+    #[error(transparent)]
+    Other(#[from] OtherError),
 }
 
 impl From<block_source::Error> for Error {

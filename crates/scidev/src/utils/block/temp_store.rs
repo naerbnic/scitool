@@ -6,7 +6,7 @@ use std::{
 use crate::utils::{
     block::{block_source, lazy_block},
     buffer::{Buffer, BufferCursor},
-    errors::{prelude::*, OtherError},
+    errors::{OtherError, prelude::*},
 };
 
 use super::BlockSource;
@@ -46,6 +46,7 @@ impl From<lazy_block::Error> for StoreError {
         match value {
             lazy_block::Error::Io(io_err) => Self::Io(io_err),
             lazy_block::Error::Conversion(err) => Self::Other(OtherError::new(err)),
+            lazy_block::Error::Other(err) => Self::Other(err),
         }
     }
 }
