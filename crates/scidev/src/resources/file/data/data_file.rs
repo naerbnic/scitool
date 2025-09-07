@@ -16,7 +16,7 @@ impl DataFile {
 
     pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, Error> {
         let (header, rest) = RawEntryHeader::from_block_source(
-            &self.data.subblock(u64::from(location.file_offset)..),
+            &self.data.subblock(u64::from(location.file_offset())..),
         )?;
         let resource_block = rest.subblock(..u64::from(header.packed_size()));
         Ok(Contents::from_parts(header, resource_block)?)

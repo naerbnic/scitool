@@ -91,20 +91,20 @@ pub fn read_resources(
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
-        map::ResourceLocations::read_from(&mut BufferMemReader::from_ref(&map_file))?;
+        map::ResourceLocationSet::read_from(&mut BufferMemReader::from_ref(&map_file))?;
 
     let mut entries = BTreeMap::new();
 
     for location in resource_locations.locations() {
         let block = data_file.read_contents(location)?;
-        if block.id() != &location.id {
+        if block.id() != &location.id() {
             return Err(Error::ResourceIdMismatch {
-                expected: location.id,
+                expected: location.id(),
                 got: *block.id(),
             });
         }
         entries.insert(
-            location.id,
+            location.id(),
             ResourceBlocks::new_of_data(block.data().clone()),
         );
     }
