@@ -28,5 +28,6 @@ fn datalit_impl(input: TokenStream) -> syn::Result<TokenStream> {
     let patch_ops_var = syn::Ident::new("patch_ops", Span::call_site());
     let mut state = EntryState::new(data_var.clone(), loc_map_var, patch_ops_var);
     let contents = entries.into_tokens(&mut state)?;
+    state.check()?;
     Ok(state.generate_expr(contents))
 }

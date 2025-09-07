@@ -59,6 +59,32 @@ impl IntType {
             _ => None,
         }
     }
+
+    pub fn to_type(self) -> syn::Ident {
+        let ident = match self {
+            IntType::U8 => "u8",
+            IntType::U16 => "u16",
+            IntType::U32 => "u32",
+            IntType::U64 => "u64",
+            IntType::USize => "usize",
+            IntType::I8 => "i8",
+            IntType::I16 => "i16",
+            IntType::I32 => "i32",
+            IntType::I64 => "i64",
+            IntType::ISize => "isize",
+        };
+        quote::format_ident!("{}", ident)
+    }
+
+    pub fn to_byte_size(self) -> usize {
+        match self {
+            IntType::U8 | IntType::I8 => 1,
+            IntType::U16 | IntType::I16 => 2,
+            IntType::U32 | IntType::I32 => 4,
+            IntType::U64 | IntType::I64 => 8,
+            IntType::USize | IntType::ISize => std::mem::size_of::<usize>(),
+        }
+    }
 }
 
 pub fn base10_digits_to_bytes(

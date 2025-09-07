@@ -12,7 +12,8 @@ struct LabelInfo {
 pub struct EntryState {
     crate_name: TokenStream,
     data_var: Ident,
-    seen_labels: BTreeMap<String, LabelInfo>,
+    defined_labels: BTreeMap<String, LabelInfo>,
+    used_labels: BTreeMap<String, LabelInfo>,
     loc_map_var: Ident,
     patch_ops_var: Ident,
 }
@@ -30,15 +31,16 @@ impl EntryState {
                 }
             },
             data_var,
-            seen_labels: BTreeMap::new(),
+            defined_labels: BTreeMap::new(),
+            used_labels: BTreeMap::new(),
             loc_map_var,
             patch_ops_var,
         }
     }
 
-    pub fn report_new_label(&mut self, label: &Lifetime) -> syn::Result<()> {
+    pub fn report_label_def(&mut self, label: &Lifetime) -> syn::Result<()> {
         let label_str = label.ident.to_string();
-        match self.seen_labels.entry(label_str) {
+        match self.defined_labels.entry(label_str) {
             Entry::Vacant(vacant) => vacant.insert(LabelInfo {
                 source_token: label.clone(),
             }),
@@ -56,12 +58,46 @@ impl EntryState {
         Ok(())
     }
 
+    pub fn report_label_use(&mut self, label: &Lifetime) {
+        let label_str = label.ident.to_string();
+        self.used_labels.entry(label_str).or_insert(LabelInfo {
+            source_token: label.clone(),
+        });
+    }
+
     pub fn data_var(&self) -> &Ident {
         &self.data_var
     }
 
     pub fn loc_map_var(&self) -> &Ident {
         &self.loc_map_var
+    }
+
+    pub fn patch_ops_var(&self) -> &Ident {
+        &self.patch_ops_var
+    }
+
+    pub fn check(&self) -> syn::Result<()> {
+        let mut errors = Vec::new();
+
+        for (label_str, label_info) in &self.used_labels {
+            if !self.defined_labels.contains_key(label_str) {
+                errors.push(syn::Error::new_spanned(
+                    &label_info.source_token,
+                    format!("Label '{label_str}' used but not defined"),
+                ));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            let combined_err = errors.into_iter().reduce(|mut acc, err| {
+                acc.combine(err);
+                acc
+            }).unwrap();
+            Err(combined_err)
+        }
     }
 
     pub fn generate_expr(&self, statements: TokenStream) -> TokenStream {
@@ -77,7 +113,7 @@ impl EntryState {
                 {#statements}
                 {
                     for op in #patch_ops_var {
-                        op.apply(&mut #data_var);
+                        op.apply(&#loc_map_var, &mut #data_var);
                     }
                 }
                 #data_var

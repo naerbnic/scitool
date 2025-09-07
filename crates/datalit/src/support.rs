@@ -48,6 +48,12 @@ impl LocationMap {
     pub fn get(&self, label: &str) -> Option<DataRange> {
         self.0.get(label).copied()
     }
+
+    #[must_use]
+    pub fn get_or_panic(&self, label: &str) -> DataRange {
+        self.get(label)
+            .unwrap_or_else(|| panic!("Label '{label}' not found in LocationMap"))
+    }
 }
 
 impl Default for LocationMap {
@@ -56,7 +62,7 @@ impl Default for LocationMap {
     }
 }
 
-type RawPatchOp = Box<dyn FnOnce(&mut [u8])>;
+type RawPatchOp = Box<dyn FnOnce(&LocationMap, &mut [u8])>;
 
 pub struct PatchOp(RawPatchOp);
 
@@ -64,12 +70,12 @@ impl PatchOp {
     #[must_use]
     pub fn new<F>(f: F) -> Self
     where
-        F: FnOnce(&mut [u8]) + 'static,
+        F: FnOnce(&LocationMap, &mut [u8]) + 'static,
     {
         Self(Box::new(f))
     }
 
-    pub fn apply(self, data: &mut [u8]) {
-        (self.0)(data);
+    pub fn apply(self, location_map: &LocationMap, data: &mut [u8]) {
+        (self.0)(location_map, data);
     }
 }

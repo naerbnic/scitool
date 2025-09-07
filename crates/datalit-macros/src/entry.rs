@@ -1,5 +1,5 @@
-use proc_macro2::{Literal, TokenStream};
-use quote::{ToTokens, format_ident, quote};
+use proc_macro2::{Literal, Span, TokenStream};
+use quote::{ToTokens, TokenStreamExt as _, format_ident, quote};
 use syn::{
     Error, Ident, Lifetime, LitByte, LitByteStr, LitCStr, LitInt, Result,
     parse::ParseStream,
@@ -11,6 +11,51 @@ use crate::{
     entry_state::EntryState,
     to_bytes::{Endianness, IntType, base10_digits_to_bytes},
 };
+
+pub struct PrimitiveSpec {
+    ident: Ident,
+    int_type: IntType,
+    endianness: Option<Endianness>,
+}
+
+impl syn::parse::Parse for PrimitiveSpec {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let ident: Ident = input.parse()?;
+        let ident_string = ident.to_string();
+        let mut suffix = ident_string.as_str();
+
+        let endianness = if suffix.ends_with("le") {
+            suffix = suffix.trim_end_matches("le");
+            suffix = suffix.trim_end_matches('_');
+            Some(Endianness::Little)
+        } else if suffix.ends_with("be") {
+            suffix = suffix.trim_end_matches("be");
+            suffix = suffix.trim_end_matches('_');
+            Some(Endianness::Big)
+        } else {
+            None
+        };
+
+        let int_type = IntType::from_suffix(suffix).ok_or_else(|| {
+            Error::new_spanned(
+                &ident,
+                format!("Invalid or missing integer type suffix: '{}'", ident),
+            )
+        })?;
+
+        Ok(PrimitiveSpec {
+            ident,
+            int_type,
+            endianness,
+        })
+    }
+}
+
+impl quote::ToTokens for PrimitiveSpec {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.append(self.ident.clone());
+    }
+}
 
 #[derive(derive_syn_parse::Parse)]
 pub struct DataLitEntries {
@@ -45,7 +90,7 @@ impl LabelledEntry {
     }
 
     pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
-        state.report_new_label(&self.label)?;
+        state.report_label_def(&self.label)?;
         let statements = self.sub_entry.into_tokens(state)?;
         let data_var = state.data_var();
         let crate_name = state.crate_name();
@@ -196,16 +241,36 @@ impl syn::parse::Parse for CallEntry {
 
 #[derive(derive_syn_parse::Parse)]
 pub struct StartCall {
+    spec: PrimitiveSpec,
+    #[prefix(syn::Token![,])]
     lifetime: Lifetime,
     _trailing: Option<syn::Token![,]>,
 }
 impl StartCall {
     pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
+        state.report_label_use(&self.lifetime);
+        let crate_name = state.crate_name();
         let data_var = state.data_var();
-        let lifetime = self.lifetime;
-        Ok(quote! {
-            let #lifetime #data_var: Vec<u8> = Vec::new();
-        })
+        let patch_ops_var = state.patch_ops_var();
+        let lifetime_str = syn::LitStr::new(&self.lifetime.ident.to_string(), Span::call_site());
+        let data_size = self.spec.int_type.to_byte_size();
+        let target_type = self.spec.int_type.to_type();
+        let bytes_func = match self.spec.endianness {
+            Some(Endianness::Little) => quote! { to_le_bytes },
+            Some(Endianness::Big) => quote! { to_be_bytes },
+            Some(Endianness::Native) => quote! { to_ne_bytes },
+            None => quote! { to_ne_bytes },
+        };
+        Ok(quote! {{
+            let curr_offset = #data_var.len();
+            #data_var.extend_from_slice(&[0u8; #data_size]);
+            #patch_ops_var.push(#crate_name::support::PatchOp::new(move |loc_map, data| {
+                let offset = loc_map.get_or_panic(#lifetime_str).start();
+                let offset_cast: #target_type = offset.try_into().expect("Offset too large for target type");
+                let source_bytes: [u8; _] = offset_cast.#bytes_func();
+                data[curr_offset..][..#data_size].copy_from_slice(&source_bytes);
+            }));
+        }})
     }
 }
 
