@@ -1,8 +1,16 @@
-use proc_macro2::{Literal, Span, TokenStream};
-use quote::{ToTokens, quote};
-use syn::{Error, Ident, LitByte, LitByteStr, LitCStr, LitInt, Result, punctuated::Punctuated};
+use proc_macro2::{Literal, TokenStream};
+use quote::{ToTokens, format_ident, quote};
+use syn::{
+    Error, Ident, Lifetime, LitByte, LitByteStr, LitCStr, LitInt, Result,
+    parse::ParseStream,
+    punctuated::Punctuated,
+    token::{Brace, Paren},
+};
 
-use crate::{Endianness, IntType, base10_digits_to_bytes};
+use crate::{
+    entry_state::EntryState,
+    to_bytes::{Endianness, IntType, base10_digits_to_bytes},
+};
 
 #[derive(derive_syn_parse::Parse)]
 pub struct DataLitEntries {
@@ -11,18 +19,48 @@ pub struct DataLitEntries {
 }
 
 impl DataLitEntries {
-    pub fn into_tokens(self) -> Result<TokenStream> {
-        let data_var = syn::Ident::new("data", Span::call_site());
-
+    pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
         let mut data_statements = Vec::new();
         for entry in self.entries {
-            data_statements.push(entry.into_tokens(&data_var)?);
+            data_statements.push(entry.into_tokens(state)?);
         }
         Ok(quote! {
             {
-                let mut #data_var: Vec<u8> = Vec::new();
                 #(#data_statements)*
-                #data_var
+            }
+        })
+    }
+}
+
+#[derive(derive_syn_parse::Parse)]
+pub struct LabelledEntry {
+    label: Lifetime,
+    #[prefix(syn::Token![:])]
+    sub_entry: Box<DataLitEntry>,
+}
+
+impl LabelledEntry {
+    pub fn peek(input: ParseStream) -> bool {
+        input.peek(Lifetime) && input.peek2(syn::Token![:])
+    }
+
+    pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
+        state.report_new_label(&self.label)?;
+        let statements = self.sub_entry.into_tokens(state)?;
+        let data_var = state.data_var();
+        let crate_name = state.crate_name();
+        let loc_map_var = state.loc_map_var();
+        let label_start = format_ident!("__{}_start", self.label.ident);
+        let label_end = format_ident!("__{}_end", self.label.ident);
+        let data_range = format_ident!("__{}_range", self.label.ident);
+        let label_str = syn::LitStr::new(&self.label.ident.to_string(), self.label.span());
+        Ok(quote! {
+            {
+                let #label_start: usize = #data_var.len();
+                #statements
+                let #label_end: usize = #data_var.len();
+                let #data_range = #crate_name::support::DataRange::new(#label_start, #label_end);
+                #loc_map_var.insert(#label_str.to_string(), #data_range);
             }
         })
     }
@@ -30,10 +68,10 @@ impl DataLitEntries {
 
 #[derive(derive_syn_parse::Parse)]
 pub struct SubEntry {
-    #[bracket]
-    _bracket_token: syn::token::Bracket,
+    #[brace]
+    _brace_token: syn::token::Brace,
 
-    #[inside(_bracket_token)]
+    #[inside(_brace_token)]
     entries: DataLitEntries,
 }
 
@@ -122,10 +160,71 @@ fn parse_int_literal(lit: LitInt) -> Result<Vec<u8>> {
     base10_digits_to_bytes(lit.base10_digits(), int_type, endianness)
 }
 
-fn new_literal_bytes_stmt(data_var: &Ident, bytes: &[u8]) -> TokenStream {
+fn new_literal_bytes_stmt(state: &mut EntryState, bytes: &[u8]) -> TokenStream {
+    let data_var = state.data_var();
     let byte_literals: Vec<_> = bytes.iter().map(|b| Literal::u8_suffixed(*b)).collect();
     quote! {
         #data_var.extend_from_slice(&[#(#byte_literals),*]);
+    }
+}
+
+pub struct CallEntry {
+    pub _name: Ident,
+    pub _call_args: Paren,
+    pub call: Call,
+}
+
+impl CallEntry {
+    pub fn peek(input: ParseStream) -> bool {
+        input.peek(Ident) && input.peek2(Paren)
+    }
+}
+
+impl syn::parse::Parse for CallEntry {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name: Ident = input.parse()?;
+        let paren_contents;
+        let call_args: Paren = syn::parenthesized!(paren_contents in input);
+        let call = Call::parse(name.clone(), &paren_contents)?;
+        Ok(CallEntry {
+            _name: name,
+            _call_args: call_args,
+            call,
+        })
+    }
+}
+
+#[derive(derive_syn_parse::Parse)]
+pub struct StartCall {
+    lifetime: Lifetime,
+    _trailing: Option<syn::Token![,]>,
+}
+impl StartCall {
+    pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
+        let data_var = state.data_var();
+        let lifetime = self.lifetime;
+        Ok(quote! {
+            let #lifetime #data_var: Vec<u8> = Vec::new();
+        })
+    }
+}
+
+pub enum Call {
+    Start(StartCall),
+}
+
+impl Call {
+    pub fn parse(name: Ident, args: ParseStream) -> Result<Self> {
+        let name_str = name.to_string();
+        Ok(match name_str.as_str() {
+            "start" => Call::Start(args.parse()?),
+            _ => {
+                return Err(Error::new_spanned(
+                    &name,
+                    format!("Unknown call: '{}'", name),
+                ));
+            }
+        })
     }
 }
 
@@ -139,34 +238,40 @@ pub enum DataLitEntry {
     Byte(LitByte),
     #[peek(LitCStr, name = "C-style string literal")]
     CStr(LitCStr),
-    #[peek(syn::token::Bracket, name = "bracketed list of entries")]
+    #[peek(Brace, name = "braced list of entries")]
     SubEntry(SubEntry),
+    #[peek_with(LabelledEntry::peek, name = "labelled entry")]
+    Labelled(LabelledEntry),
+    #[peek_with(CallEntry::peek, name = "call entry")]
+    Call(CallEntry),
 }
 
 impl DataLitEntry {
-    pub fn into_tokens(self, data_var: &Ident) -> Result<TokenStream> {
+    pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
         Ok(match self {
             DataLitEntry::Int(lit) => {
                 let bytes: Vec<_> = parse_int_literal(lit)?;
-                new_literal_bytes_stmt(data_var, &bytes)
+                new_literal_bytes_stmt(state, &bytes)
             }
             DataLitEntry::ByteStr(lit) => {
                 let bytes = lit.value();
-                new_literal_bytes_stmt(data_var, &bytes)
+                new_literal_bytes_stmt(state, &bytes)
             }
             DataLitEntry::Byte(lit) => {
+                let data_var = state.data_var();
                 let byte = lit.value();
                 quote! { #data_var.push(#byte); }
             }
             DataLitEntry::CStr(lit) => {
                 let c_string = lit.value();
                 let bytes = c_string.as_bytes_with_nul();
-                new_literal_bytes_stmt(data_var, bytes)
+                new_literal_bytes_stmt(state, bytes)
             }
-            DataLitEntry::SubEntry(sub_entry) => {
-                let stmts = sub_entry.entries.into_tokens()?;
-                quote! { #data_var.extend_from_slice(&#stmts); }
-            }
+            DataLitEntry::SubEntry(sub_entry) => sub_entry.entries.into_tokens(state)?,
+            DataLitEntry::Labelled(labelled_entry) => labelled_entry.into_tokens(state)?,
+            DataLitEntry::Call(call_entry) => match call_entry.call {
+                Call::Start(start_call) => start_call.into_tokens(state)?,
+            },
         })
     }
 }
