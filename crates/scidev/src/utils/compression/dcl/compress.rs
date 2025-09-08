@@ -1,19 +1,190 @@
-use crate::utils::compression::writer::BitWriter;
+use crate::utils::compression::{
+    bits::Bits,
+    writer::{BitWriter, LittleEndianWriter},
+};
 
-#[expect(dead_code, reason = "In process of being implemented")]
+use super::{
+    header::{CompressionMode, DictType},
+    trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE},
+};
+
 fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
-    if length < 10 {
-        writer.write_bits(3, u64::from(length - 2));
+    let (length_code, extra_bits) = if length < 10 {
+        assert!(length >= 2);
+        (length - 2, None::<Bits>)
     } else {
-        let mut length_code: u32 = 8;
-        let mut len = length - 8;
-        while len > 1 {
-            len >>= 1;
-            length_code += 1;
-        }
-        let num_extra_bits: u8 = u8::try_from(length_code - 7).unwrap();
-        let extra_bits = length - (1 << (length_code - 7)) - 8;
-        writer.write_bits(3, u64::from(length_code));
-        writer.write_bits(num_extra_bits, u64::from(extra_bits));
+        let length = length - 8;
+        // From the little end, we want to know the position of the highest set bit.
+        // Since the initial value was at least 10, then we know that we will have at
+        // least one bit set at an index of 2 or higher.
+        let first_set_bit = 32 - length.leading_zeros();
+        let num_extra_bits = first_set_bit - 1;
+        let bits = Bits::from_le_bits(length, num_extra_bits);
+        (7 + num_extra_bits, Some(bits))
+    };
+    let length_code_bits = LENGTH_TREE
+        .encoding_of(&u8::try_from(length_code).unwrap())
+        .expect("Length code should be in the tree");
+    length_code_bits.write_to(writer);
+    if let Some(extra_bits) = extra_bits {
+        extra_bits.write_to(writer);
     }
+}
+
+fn write_token_offset<W: BitWriter>(
+    dict_type: DictType,
+    writer: &mut W,
+    token_length: usize,
+    token_offset: usize,
+) {
+    assert!(token_offset > 0);
+    let encoding = token_offset - 1;
+
+    let num_extra_bits = if token_length == 2 {
+        2
+    } else {
+        usize::from(dict_type.num_extra_bits())
+    };
+
+    let extra_bits = Bits::from_le_bits(
+        u64::try_from(encoding).unwrap(),
+        u64::try_from(num_extra_bits).unwrap(),
+    );
+
+    let distance_code = encoding >> num_extra_bits;
+    let distance_code_bits = DISTANCE_TREE
+        .encoding_of(&u8::try_from(distance_code).unwrap())
+        .expect("Distance code should be in the tree");
+    distance_code_bits.write_to(writer);
+    extra_bits.write_to(writer);
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BackrefMatch {
+    offset: usize,
+    length: usize,
+}
+
+struct Dictionary {
+    data: Vec<u8>,
+    pos: usize,
+    mask: usize,
+}
+
+impl Dictionary {
+    pub(crate) fn new(dict_type: DictType) -> Self {
+        let mask = dict_type.dict_size() - 1;
+        Self {
+            data: vec![0u8; dict_type.dict_size()],
+            pos: 0,
+            mask,
+        }
+    }
+
+    fn match_len(&self, back_offset: usize, data: &[u8]) -> usize {
+        assert!(back_offset > 0);
+        assert!(back_offset <= self.data.len());
+        let mut byte_pairs = self.self_overlap_cursor(back_offset).zip(data);
+        byte_pairs.position(|(a, b)| a != *b).unwrap_or(data.len())
+    }
+
+    fn find_best_match(&self, data: &[u8]) -> Option<BackrefMatch> {
+        let mut curr_match: Option<BackrefMatch> = None;
+
+        for back_offset in 1..=self.data.len() {
+            let length = self.match_len(back_offset, data);
+            if length > curr_match.map_or(0, |m| m.length) {
+                curr_match = Some(BackrefMatch {
+                    offset: back_offset,
+                    length,
+                });
+            }
+        }
+        curr_match
+    }
+
+    fn append_data(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            let copy_len = std::cmp::min(self.data.len() - self.pos, data.len());
+            self.data[self.pos..][..copy_len].copy_from_slice(data);
+            self.pos = (self.pos + data.len()) & self.mask;
+            data = &data[copy_len..];
+        }
+    }
+
+    fn self_overlap_cursor(&self, back_offset: usize) -> DictionaryCursor<'_> {
+        assert!(back_offset > 0);
+        let cursor_pos = self.pos.wrapping_sub(back_offset) & self.mask;
+        DictionaryCursor {
+            dict: self,
+            start: cursor_pos,
+            pos: cursor_pos,
+        }
+    }
+}
+
+struct DictionaryCursor<'a> {
+    dict: &'a Dictionary,
+    start: usize,
+    pos: usize,
+}
+
+impl Iterator for DictionaryCursor<'_> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.dict.data[self.pos];
+        self.pos = (self.pos + 1) & self.dict.mask;
+        if self.pos == self.dict.pos {
+            // We implement this to allow for overlapping copies. When we reach the
+            // end of the dictionary, we wrap around back to where the cursor started.
+            // This should emulate the cursor's data being copied into the output buffer.
+            self.pos = self.start;
+        }
+        Some(value)
+    }
+}
+
+pub fn compress_dcl(
+    mode: CompressionMode,
+    dict_type: DictType,
+    mut input: &[u8],
+    output: &mut Vec<u8>,
+) {
+    let mut writer = LittleEndianWriter::new(output);
+    let mut dict = Dictionary::new(dict_type);
+    mode.write_to(&mut writer);
+    dict_type.write_to(&mut writer);
+    while !input.is_empty() {
+        if let Some(BackrefMatch { offset, length }) = dict.find_best_match(input)
+            && length >= 2
+        {
+            // Write a back-reference token
+            writer.write_bit(true);
+            write_token_length(&mut writer, u32::try_from(length).unwrap());
+            write_token_offset(dict_type, &mut writer, length, offset);
+            dict.append_data(&input[..length]);
+            input = &input[length..];
+        } else {
+            // Write a literal token
+            writer.write_bit(false);
+            let byte = input[0];
+            match mode {
+                CompressionMode::Ascii => {
+                    // We use the ASCII tree for mode 1
+                    let encoding = ASCII_TREE
+                        .encoding_of(&byte)
+                        .expect("Byte should be in the tree");
+                    encoding.write_to(&mut writer);
+                }
+                CompressionMode::Binary => {
+                    // We use a raw byte for mode 0
+                    writer.write_u8(byte);
+                }
+            }
+            input = &input[1..];
+        }
+    }
+
+    writer.write_bits(writer.bits_until_byte_aligned(), 0u64);
 }

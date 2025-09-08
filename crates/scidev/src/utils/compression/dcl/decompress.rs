@@ -2,70 +2,21 @@ use bitter::{BitReader, LittleEndianReader};
 
 use crate::utils::{block::MemBlock, compression::errors::UnexpectedEndOfInput};
 
-use super::trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE};
+use super::{
+    header::{self, CompressionHeader, CompressionMode},
+    trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecompressionError {
     #[error("Header error: {0}")]
-    HeaderDataError(String),
+    HeaderDataError(#[from] header::DecodeError),
     #[error("Entry error: {0}")]
     EntryDataError(String),
     #[error(transparent)]
     UnexpectedEndOfInput(#[from] UnexpectedEndOfInput),
     #[error("Inconsistent data: {0}")]
     InconsistentDataError(String),
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CompressionHeader {
-    mode: u8,
-    dict_type: u8,
-}
-
-impl CompressionHeader {
-    fn from_bits<R: BitReader>(reader: &mut R) -> Result<Self, DecompressionError> {
-        let Some(mode) = reader.read_u8() else {
-            return Err(DecompressionError::HeaderDataError(
-                "Failed to read DCL mode".into(),
-            ));
-        };
-        let Some(dict_type) = reader.read_u8() else {
-            return Err(DecompressionError::HeaderDataError(
-                "Failed to read DCL dictionary type".into(),
-            ));
-        };
-
-        if mode != 0 && mode != 1 {
-            return Err(DecompressionError::HeaderDataError(format!(
-                "Unsupported DCL mode: {mode}"
-            )));
-        }
-
-        if !matches!(dict_type, 4..=6) {
-            return Err(DecompressionError::HeaderDataError(format!(
-                "Unsupported DCL dictionary type: {dict_type}"
-            )));
-        }
-
-        Ok(CompressionHeader { mode, dict_type })
-    }
-
-    fn mode(self) -> u8 {
-        self.mode
-    }
-
-    fn dict_type(self) -> u8 {
-        self.dict_type
-    }
-
-    fn dict_size(self) -> usize {
-        match self.dict_type {
-            4 => 1024,
-            5 => 2048,
-            6 => 4096,
-            _ => unreachable!("dict_type should have been validated"),
-        }
-    }
 }
 
 fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionError> {
@@ -92,7 +43,7 @@ fn read_token_offset<R: BitReader>(
     let num_extra_bits = if token_length == 2 {
         2
     } else {
-        u32::from(header.dict_type())
+        u32::from(header.dict_type().num_extra_bits())
     };
     let extra_bits = reader
         .read_bits(num_extra_bits)
@@ -202,10 +153,9 @@ fn decode_byte<R: BitReader>(
     dict: &mut DecompressDictionary,
     output: &mut Vec<u8>,
 ) -> Result<LoopAction, DecompressionError> {
-    let value = if header.mode() == 1 {
-        *ASCII_TREE.lookup(reader)?
-    } else {
-        reader.read_u8().ok_or(UnexpectedEndOfInput)?
+    let value = match header.mode() {
+        CompressionMode::Ascii => *ASCII_TREE.lookup(reader)?,
+        CompressionMode::Binary => reader.read_u8().ok_or(UnexpectedEndOfInput)?,
     };
     output.push(value);
     dict.push_value(value);
@@ -218,7 +168,7 @@ fn decompress_to<R: BitReader>(
 ) -> Result<(), DecompressionError> {
     let header = CompressionHeader::from_bits(reader)?;
 
-    let mut dict = DecompressDictionary::new(header.dict_size());
+    let mut dict = DecompressDictionary::new(header.dict_type().dict_size());
 
     loop {
         let should_decode_entry = reader.read_bit().ok_or(UnexpectedEndOfInput)?;

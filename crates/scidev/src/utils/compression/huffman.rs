@@ -1,4 +1,4 @@
-use crate::utils::compression::{errors::UnexpectedEndOfInput, writer::BitWriter};
+use crate::utils::compression::{bits::Bits, errors::UnexpectedEndOfInput};
 use bitter::BitReader;
 
 enum HuffmanTableEntry {
@@ -6,17 +6,48 @@ enum HuffmanTableEntry {
     Branch(usize, usize),
 }
 
+fn visit_entries_rec<F>(entries: &[HuffmanTableEntry], pos: usize, prefix: Bits, body: &mut F)
+where
+    F: FnMut(usize, Bits),
+{
+    match &entries[pos] {
+        HuffmanTableEntry::Leaf(index) => {
+            body(*index, prefix);
+        }
+        HuffmanTableEntry::Branch(left, right) => {
+            visit_entries_rec(entries, *left, prefix.append_bit(false), body);
+            visit_entries_rec(entries, *right, prefix.append_bit(true), body);
+        }
+    }
+}
+
+fn visit_entries<F>(entries: &[HuffmanTableEntry], mut body: F)
+where
+    F: FnMut(usize, Bits),
+{
+    visit_entries_rec(entries, 0, Bits::empty(), &mut body);
+}
+
 pub(super) struct HuffmanTable<T> {
     alphabet: Vec<T>,
+    encodings: Vec<Bits>,
     entries: Vec<HuffmanTableEntry>,
 }
 
-impl<T> HuffmanTable<T> {
+impl<T> HuffmanTable<T>
+where
+    T: Ord,
+{
     pub(super) fn builder() -> Builder<T> {
         Builder {
             alphabet: Vec::new(),
             entries: Vec::new(),
         }
+    }
+
+    pub(super) fn encoding_of(&self, value: &T) -> Option<&Bits> {
+        let index = self.alphabet.binary_search(value).ok()?;
+        Some(&self.encodings[index])
     }
 
     pub(super) fn lookup<R: BitReader>(&self, reader: &mut R) -> Result<&T, UnexpectedEndOfInput> {
@@ -67,19 +98,23 @@ where
             old_to_new_indexes[*old_index] = new_index;
         }
         let new_alphabet: Vec<T> = alphabet_sort_vec.into_iter().map(|(_, v)| v).collect();
+        let new_entries: Vec<_> = std::mem::take(&mut self.entries)
+            .into_iter()
+            .map(|entry| match entry {
+                HuffmanTableEntry::Leaf(old_index) => {
+                    HuffmanTableEntry::Leaf(old_to_new_indexes[old_index])
+                }
+                HuffmanTableEntry::Branch(left, right) => HuffmanTableEntry::Branch(left, right),
+            })
+            .collect();
+        let mut encodings = vec![Bits::empty(); new_alphabet.len()];
+        visit_entries(&new_entries, |index, bits| {
+            encodings[index] = bits;
+        });
         HuffmanTable {
             alphabet: new_alphabet,
-            entries: std::mem::take(&mut self.entries)
-                .into_iter()
-                .map(|entry| match entry {
-                    HuffmanTableEntry::Leaf(old_index) => {
-                        HuffmanTableEntry::Leaf(old_to_new_indexes[old_index])
-                    }
-                    HuffmanTableEntry::Branch(left, right) => {
-                        HuffmanTableEntry::Branch(left, right)
-                    }
-                })
-                .collect(),
+            entries: new_entries,
+            encodings,
         }
     }
 }

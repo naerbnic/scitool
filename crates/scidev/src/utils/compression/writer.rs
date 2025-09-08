@@ -1,4 +1,4 @@
-pub trait BitWriter {
+pub(super) trait BitWriter {
     /// Write a single bit to the output.
     fn write_bit(&mut self, bit: bool);
 
@@ -12,14 +12,14 @@ pub trait BitWriter {
     fn bits_until_byte_aligned(&self) -> u8;
 }
 
-pub struct LittleEndianWriter<'a> {
+pub(super) struct LittleEndianWriter<'a> {
     output: &'a mut Vec<u8>,
     curr_byte: u8,
     bits_filled: u8,
 }
 
 impl<'a> LittleEndianWriter<'a> {
-    pub fn new(output: &'a mut Vec<u8>) -> Self {
+    pub(super) fn new(output: &'a mut Vec<u8>) -> Self {
         LittleEndianWriter {
             output,
             curr_byte: 0,
