@@ -85,6 +85,41 @@ fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionE
     Ok(token_length)
 }
 
+fn read_token_offset<R: BitReader>(
+    header: CompressionHeader,
+    token_length: u32,
+    reader: &mut R,
+) -> Result<u32, DecompressionError> {
+    let distance_code = u32::from(*DISTANCE_TREE.lookup(reader)?);
+    let token_offset: u32 = 1 + if token_length == 2 {
+        (distance_code << 2)
+            | u32::try_from(reader.read_bits(2).ok_or(UnexpectedEndOfInput)?).unwrap()
+    } else {
+        (distance_code << header.dict_type())
+            | u32::try_from(
+                reader
+                    .read_bits(u32::from(header.dict_type()))
+                    .ok_or(UnexpectedEndOfInput)?,
+            )
+            .unwrap()
+    };
+
+    Ok(token_offset)
+}
+
+fn write_dict_entry(
+    dict: &mut DecompressDictionary,
+    token_offset: u32,
+    token_length: u32,
+    output: &mut Vec<u8>,
+) {
+    let mut cursor = dict.new_cursor_at_offset(token_offset);
+
+    for _ in 0..token_length {
+        output.push(cursor.next_value());
+    }
+}
+
 struct DecompressDictionary {
     data: Vec<u8>,
     pos: u32,
@@ -150,10 +185,10 @@ enum LoopAction {
 }
 
 fn decode_entry<R: BitReader>(
-    reader: &mut R,
-    output: &mut Vec<u8>,
-    dict: &mut DecompressDictionary,
     header: CompressionHeader,
+    reader: &mut R,
+    dict: &mut DecompressDictionary,
+    output: &mut Vec<u8>,
 ) -> Result<LoopAction, DecompressionError> {
     let token_length = read_token_length(reader)?;
 
@@ -161,29 +196,29 @@ fn decode_entry<R: BitReader>(
         return Ok(LoopAction::Stop);
     }
 
-    let distance_code = u32::from(*DISTANCE_TREE.lookup(reader)?);
-    let token_offset: u32 = 1 + if token_length == 2 {
-        (distance_code << 2)
-            | u32::try_from(reader.read_bits(2).ok_or(UnexpectedEndOfInput)?).unwrap()
-    } else {
-        (distance_code << header.dict_type())
-            | u32::try_from(
-                reader
-                    .read_bits(u32::from(header.dict_type()))
-                    .ok_or(UnexpectedEndOfInput)?,
-            )
-            .unwrap()
-    };
+    let token_offset = read_token_offset(header, token_length, reader)?;
     if output.len() < token_offset as usize {
         return Err(DecompressionError::InconsistentDataError(
             "DCL token offset exceeds bytes written".into(),
         ));
     }
-    let mut cursor = dict.new_cursor_at_offset(token_offset);
+    write_dict_entry(dict, token_offset, token_length, output);
+    Ok(LoopAction::Continue)
+}
 
-    for _ in 0..token_length {
-        output.push(cursor.next_value());
-    }
+fn decode_byte<R: BitReader>(
+    header: CompressionHeader,
+    reader: &mut R,
+    dict: &mut DecompressDictionary,
+    output: &mut Vec<u8>,
+) -> Result<LoopAction, DecompressionError> {
+    let value = if header.mode() == 1 {
+        *ASCII_TREE.lookup(reader)?
+    } else {
+        reader.read_u8().ok_or(UnexpectedEndOfInput)?
+    };
+    output.push(value);
+    dict.push_value(value);
     Ok(LoopAction::Continue)
 }
 
@@ -198,16 +233,9 @@ fn decompress_to<R: BitReader>(
     loop {
         let should_decode_entry = reader.read_bit().ok_or(UnexpectedEndOfInput)?;
         let action = if should_decode_entry {
-            decode_entry(reader, output, &mut dict, header)?
+            decode_entry(header, reader, &mut dict, output)?
         } else {
-            let value = if header.mode() == 1 {
-                *ASCII_TREE.lookup(reader)?
-            } else {
-                reader.read_u8().ok_or(UnexpectedEndOfInput)?
-            };
-            output.push(value);
-            dict.push_value(value);
-            LoopAction::Continue
+            decode_byte(header, reader, &mut dict, output)?
         };
 
         if let LoopAction::Stop = action {
