@@ -10,10 +10,7 @@ pub(super) struct HuffmanTable<T> {
 }
 
 impl<T> HuffmanTable<T> {
-    pub(super) fn lookup(
-        &self,
-        reader: &mut bitter::LittleEndianReader,
-    ) -> Result<&T, UnexpectedEndOfInput> {
+    pub(super) fn lookup<R: BitReader>(&self, reader: &mut R) -> Result<&T, UnexpectedEndOfInput> {
         let mut pos = 0;
         loop {
             match &self.entries[pos] {

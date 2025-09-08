@@ -1,4 +1,4 @@
-use bitter::BitReader;
+use bitter::{BitReader, LittleEndianReader};
 
 use crate::utils::{block::MemBlock, compression::errors::UnexpectedEndOfInput};
 
@@ -16,12 +16,10 @@ pub enum DecompressionError {
     InconsistentDataError(String),
 }
 
-pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> {
-    // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
-    let input_size = input.size();
-    let input_data = input.read_all();
-    let mut reader = bitter::LittleEndianReader::new(&input_data);
-    let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
+fn decompress_to<R: BitReader>(
+    reader: &mut R,
+    output: &mut Vec<u8>,
+) -> Result<(), DecompressionError> {
     let Some(mode) = reader.read_u8() else {
         return Err(DecompressionError::HeaderDataError(
             "Failed to read DCL mode".into(),
@@ -56,7 +54,7 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
     loop {
         let should_decode_entry = reader.read_bit().ok_or(UnexpectedEndOfInput)?;
         if should_decode_entry {
-            let length_code = *LENGTH_TREE.lookup(&mut reader)?;
+            let length_code = *LENGTH_TREE.lookup(reader)?;
             let token_length = if length_code < 8 {
                 u32::from(length_code + 2)
             } else {
@@ -74,7 +72,7 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
                 break;
             }
 
-            let distance_code = u32::from(*DISTANCE_TREE.lookup(&mut reader)?);
+            let distance_code = u32::from(*DISTANCE_TREE.lookup(reader)?);
             let token_offset: u32 = 1 + if token_length == 2 {
                 (distance_code << 2)
                     | u32::try_from(reader.read_bits(2).ok_or(UnexpectedEndOfInput)?).unwrap()
@@ -114,7 +112,7 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
             }
         } else {
             let value = if mode == 1 {
-                *ASCII_TREE.lookup(&mut reader)?
+                *ASCII_TREE.lookup(reader)?
             } else {
                 reader.read_u8().ok_or(UnexpectedEndOfInput)?
             };
@@ -126,6 +124,15 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
             }
         }
     }
+    Ok(())
+}
 
+pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> {
+    // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
+    let input_size = input.size();
+    let input_data = input.read_all();
+    let mut reader = LittleEndianReader::new(&input_data);
+    let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
+    decompress_to(&mut reader, &mut output)?;
     Ok(MemBlock::from_vec(output))
 }
