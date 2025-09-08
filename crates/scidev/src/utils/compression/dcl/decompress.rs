@@ -69,18 +69,16 @@ impl CompressionHeader {
 }
 
 fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionError> {
-    let length_code = *LENGTH_TREE.lookup(reader)?;
+    let length_code = u32::from(*LENGTH_TREE.lookup(reader)?);
     let token_length = if length_code < 8 {
-        u32::from(length_code + 2)
+        length_code + 2
     } else {
-        let num_bits = u32::from(length_code - 7);
-        let extra_bits: u32 = reader
-            .read_bits(num_bits)
-            .ok_or(UnexpectedEndOfInput)?
-            .try_into()
-            .unwrap();
+        let num_extra_bits = length_code - 7;
+        let extra_bits = reader
+            .read_bits(num_extra_bits)
+            .ok_or(UnexpectedEndOfInput)?;
 
-        8 + (1 << num_bits) + extra_bits
+        u32::try_from(8 + ((1 << num_extra_bits) | extra_bits)).unwrap()
     };
     Ok(token_length)
 }
@@ -90,21 +88,18 @@ fn read_token_offset<R: BitReader>(
     token_length: u32,
     reader: &mut R,
 ) -> Result<usize, DecompressionError> {
-    let distance_code = usize::from(*DISTANCE_TREE.lookup(reader)?);
-    let token_offset: usize = 1 + if token_length == 2 {
-        (distance_code << 2)
-            | usize::try_from(reader.read_bits(2).ok_or(UnexpectedEndOfInput)?).unwrap()
+    let distance_code = u64::from(*DISTANCE_TREE.lookup(reader)?);
+    let num_extra_bits = if token_length == 2 {
+        2
     } else {
-        (distance_code << header.dict_type())
-            | usize::try_from(
-                reader
-                    .read_bits(u32::from(header.dict_type()))
-                    .ok_or(UnexpectedEndOfInput)?,
-            )
-            .unwrap()
+        u32::from(header.dict_type())
     };
+    let extra_bits = reader
+        .read_bits(num_extra_bits)
+        .ok_or(UnexpectedEndOfInput)?;
+    let token_offset = 1 + ((distance_code << num_extra_bits) | extra_bits);
 
-    Ok(token_offset)
+    Ok(usize::try_from(token_offset).unwrap())
 }
 
 fn write_dict_entry(
