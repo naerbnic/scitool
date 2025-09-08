@@ -69,6 +69,7 @@ struct Dictionary {
     data: Vec<u8>,
     pos: usize,
     mask: usize,
+    max_offset: usize,
 }
 
 impl Dictionary {
@@ -78,6 +79,7 @@ impl Dictionary {
             data: vec![0u8; dict_type.dict_size()],
             pos: 0,
             mask,
+            max_offset: 0,
         }
     }
 
@@ -91,7 +93,7 @@ impl Dictionary {
     fn find_best_match(&self, data: &[u8]) -> Option<BackrefMatch> {
         let mut curr_match: Option<BackrefMatch> = None;
 
-        for back_offset in 1..=self.data.len() {
+        for back_offset in 1..=self.max_offset {
             let length = self.match_len(back_offset, data);
             if length > curr_match.map_or(0, |m| m.length) {
                 curr_match = Some(BackrefMatch {
@@ -108,6 +110,7 @@ impl Dictionary {
             let copy_len = std::cmp::min(self.data.len() - self.pos, data.len());
             self.data[self.pos..][..copy_len].copy_from_slice(data);
             self.pos = (self.pos + data.len()) & self.mask;
+            self.max_offset = (self.max_offset + copy_len).min(self.data.len());
             data = &data[copy_len..];
         }
     }
@@ -185,6 +188,10 @@ pub fn compress_dcl(
             input = &input[1..];
         }
     }
+
+    // Write the terminator, which is a back-reference of length 519
+    writer.write_bit(true);
+    write_token_length(&mut writer, 519);
 
     writer.write_bits(writer.bits_until_byte_aligned(), 0u64);
 }

@@ -42,6 +42,7 @@ impl DictType {
 }
 
 impl DictType {
+    #[must_use]
     pub fn dict_size(self) -> usize {
         match self {
             DictType::Size1024 => 1024,
@@ -50,6 +51,7 @@ impl DictType {
         }
     }
 
+    #[must_use]
     pub fn num_extra_bits(self) -> u8 {
         match self {
             DictType::Size1024 => 4,

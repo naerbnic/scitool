@@ -5,3 +5,7 @@ mod trees;
 
 pub use compress::compress_dcl;
 pub use decompress::{DecompressionError, decompress_dcl};
+pub use header::{CompressionMode, DictType};
+
+#[cfg(test)]
+mod tests;
