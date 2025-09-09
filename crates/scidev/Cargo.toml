@@ -9,13 +9,13 @@ bytes = "1.10.1"
 log = "0.4.27"
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.12"
-tokio = {version = "1.0", features = ["full"]}
+tokio = { version = "1.0", features = ["full"] }
 bitter = "0.7.0"
 num = "0.4.3"
 tempfile = "3.19.1"
 
 [dev-dependencies]
-datalit = { path = "../datalit" }
+datalit = { workspace = true }
 proptest = "1.7.0"
 
 [lints]

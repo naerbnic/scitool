@@ -2,6 +2,10 @@
 resolver = "2"
 members = ["crates/*", "fuzz"]
 
+[workspace.dependencies]
+datalit = { git = "https://github.com/naerbnic/datalit.git", branch = "main" }
+
+
 [workspace.lints.rust]
 single-use-lifetimes = "warn"
 unreachable-pub = "warn"

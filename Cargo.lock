@@ -224,6 +224,7 @@ dependencies = [
 [[package]]
 name = "datalit"
 version = "0.1.0"
+source = "git+https://github.com/naerbnic/datalit.git?branch=main#f28ebb90c957e4998d7935edb2848690b0942d41"
 dependencies = [
  "datalit-macros",
 ]
@@ -231,6 +232,7 @@ dependencies = [
 [[package]]
 name = "datalit-macros"
 version = "0.1.0"
+source = "git+https://github.com/naerbnic/datalit.git?branch=main#f28ebb90c957e4998d7935edb2848690b0942d41"
 dependencies = [
  "derive-syn-parse",
  "proc-macro-crate",
