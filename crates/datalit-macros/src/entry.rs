@@ -32,6 +32,10 @@ impl syn::parse::Parse for PrimitiveSpec {
             suffix = suffix.trim_end_matches("be");
             suffix = suffix.trim_end_matches('_');
             Some(Endianness::Big)
+        } else if suffix.ends_with("ne") {
+            suffix = suffix.trim_end_matches("ne");
+            suffix = suffix.trim_end_matches('_');
+            Some(Endianness::Native)
         } else {
             None
         };
@@ -54,6 +58,45 @@ impl syn::parse::Parse for PrimitiveSpec {
 impl quote::ToTokens for PrimitiveSpec {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.append(self.ident.clone());
+    }
+}
+
+#[derive(derive_syn_parse::Parse)]
+pub struct ModeChange {
+    #[prefix(syn::Token![@])]
+    mode: Ident,
+    #[prefix(syn::Token![=])]
+    new_mode: Ident,
+}
+
+impl ModeChange {
+    pub fn peek(input: ParseStream) -> bool {
+        input.peek(syn::Token![@]) && input.peek2(Ident) && input.peek3(syn::Token![=])
+    }
+
+    pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
+        let mode_str = self.mode.to_string();
+        if mode_str != "endian_mode" {
+            return Err(Error::new_spanned(
+                &self.mode,
+                format!("Unknown mode: '{}'", mode_str),
+            ));
+        }
+
+        let new_mode_str = self.new_mode.to_string();
+        let new_mode = match new_mode_str.as_str() {
+            "le" => Endianness::Little,
+            "be" => Endianness::Big,
+            "ne" => Endianness::Native,
+            _ => {
+                return Err(Error::new_spanned(
+                    &self.new_mode,
+                    format!("Invalid endian mode: '{}'", new_mode_str),
+                ));
+            }
+        };
+        state.set_endian_mode(new_mode);
+        Ok(quote! {})
     }
 }
 
@@ -160,7 +203,7 @@ where
         })
 }
 
-fn parse_int_literal(lit: LitInt) -> Result<Vec<u8>> {
+fn parse_int_literal(default_endianness: Endianness, lit: LitInt) -> Result<Vec<u8>> {
     let mut suffix = lit.suffix();
 
     if suffix.is_empty() {
@@ -191,8 +234,12 @@ fn parse_int_literal(lit: LitInt) -> Result<Vec<u8>> {
         suffix = suffix.trim_end_matches("be");
         suffix = suffix.trim_end_matches('_');
         Endianness::Big
-    } else {
+    } else if suffix.ends_with("ne") {
+        suffix = suffix.trim_end_matches("ne");
+        suffix = suffix.trim_end_matches('_');
         Endianness::Native
+    } else {
+        default_endianness
     };
 
     let int_type = IntType::from_suffix(suffix).ok_or_else(|| {
@@ -246,6 +293,7 @@ pub struct StartCall {
     lifetime: Lifetime,
     _trailing: Option<syn::Token![,]>,
 }
+
 impl StartCall {
     pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
         state.report_label_use(&self.lifetime);
@@ -255,12 +303,11 @@ impl StartCall {
         let lifetime_str = syn::LitStr::new(&self.lifetime.ident.to_string(), Span::call_site());
         let data_size = self.spec.int_type.to_byte_size();
         let target_type = self.spec.int_type.to_type();
-        let bytes_func = match self.spec.endianness {
-            Some(Endianness::Little) => quote! { to_le_bytes },
-            Some(Endianness::Big) => quote! { to_be_bytes },
-            Some(Endianness::Native) => quote! { to_ne_bytes },
-            None => quote! { to_ne_bytes },
-        };
+        let bytes_func = self
+            .spec
+            .endianness
+            .unwrap_or(state.endian_mode())
+            .to_func_name();
         Ok(quote! {{
             let curr_offset = #data_var.len();
             #data_var.extend_from_slice(&[0u8; #data_size]);
@@ -309,13 +356,15 @@ pub enum DataLitEntry {
     Labelled(LabelledEntry),
     #[peek_with(CallEntry::peek, name = "call entry")]
     Call(CallEntry),
+    #[peek_with(ModeChange::peek, name = "mode change")]
+    ModeChange(ModeChange),
 }
 
 impl DataLitEntry {
     pub fn into_tokens(self, state: &mut EntryState) -> Result<TokenStream> {
         Ok(match self {
             DataLitEntry::Int(lit) => {
-                let bytes: Vec<_> = parse_int_literal(lit)?;
+                let bytes: Vec<_> = parse_int_literal(state.endian_mode(), lit)?;
                 new_literal_bytes_stmt(state, &bytes)
             }
             DataLitEntry::ByteStr(lit) => {
@@ -337,6 +386,7 @@ impl DataLitEntry {
             DataLitEntry::Call(call_entry) => match call_entry.call {
                 Call::Start(start_call) => start_call.into_tokens(state)?,
             },
+            DataLitEntry::ModeChange(mode_change) => mode_change.into_tokens(state)?,
         })
     }
 }

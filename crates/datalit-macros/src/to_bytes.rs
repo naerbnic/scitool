@@ -1,3 +1,5 @@
+use syn::Ident;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Endianness {
     Little,
@@ -9,6 +11,14 @@ impl Endianness {
     pub fn is_be(self) -> bool {
         matches!(self, Endianness::Big)
             || (matches!(self, Endianness::Native) && cfg!(target_endian = "big"))
+    }
+
+    pub fn to_func_name(self) -> Ident {
+        match self {
+            Endianness::Little => Ident::new("to_le_bytes", proc_macro2::Span::call_site()),
+            Endianness::Big => Ident::new("to_be_bytes", proc_macro2::Span::call_site()),
+            Endianness::Native => Ident::new("to_ne_bytes", proc_macro2::Span::call_site()),
+        }
     }
 }
 
@@ -94,7 +104,7 @@ impl IntType {
         }
     }
 
-    pub fn to_type(self) -> syn::Ident {
+    pub fn to_type(self) -> Ident {
         let ident = match self {
             IntType::U8 => "u8",
             IntType::U16 => "u16",

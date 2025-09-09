@@ -30,4 +30,19 @@ mod tests {
         let bytes = datalit!(0x123456u24_le, 0x789ABCu24_be);
         assert_eq!(bytes, vec![0x56u8, 0x34, 0x12, 0x78, 0x9A, 0xBC]);
     }
+
+    #[test]
+    fn supports_mode_change() {
+        let bytes = datalit!(
+            @endian_mode = le,
+            // Unspecified endianness uses current mode (little-endian)
+            1u16,
+            @endian_mode = be,
+            // Unspecified endianness uses current mode (little-endian)
+            1u16,
+            // Specified endianness overrides current mode
+            1u16_le,
+        );
+        assert_eq!(bytes, vec![1u8, 0u8, 0u8, 1u8, 1u8, 0u8]);
+    }
 }

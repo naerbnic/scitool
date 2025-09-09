@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, btree_map::Entry};
 
 use proc_macro_crate::FoundCrate;
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Ident, Lifetime};
+
+use crate::to_bytes::Endianness;
 
 struct LabelInfo {
     source_token: Lifetime,
@@ -16,10 +18,14 @@ pub struct EntryState {
     used_labels: BTreeMap<String, LabelInfo>,
     loc_map_var: Ident,
     patch_ops_var: Ident,
+    endian_mode: Endianness,
 }
 
 impl EntryState {
-    pub fn new(data_var: Ident, loc_map_var: Ident, patch_ops_var: Ident) -> Self {
+    pub fn new() -> Self {
+        let data_var = syn::Ident::new("data", Span::call_site());
+        let loc_map_var = syn::Ident::new("loc_map", Span::call_site());
+        let patch_ops_var = syn::Ident::new("patch_ops", Span::call_site());
         Self {
             crate_name: match proc_macro_crate::crate_name(crate::BASE_CRATE)
                 .expect("crate name lookup failed")
@@ -35,6 +41,7 @@ impl EntryState {
             used_labels: BTreeMap::new(),
             loc_map_var,
             patch_ops_var,
+            endian_mode: Endianness::Native,
         }
     }
 
@@ -77,6 +84,14 @@ impl EntryState {
         &self.patch_ops_var
     }
 
+    pub fn endian_mode(&self) -> Endianness {
+        self.endian_mode
+    }
+
+    pub fn set_endian_mode(&mut self, mode: Endianness) {
+        self.endian_mode = mode;
+    }
+
     pub fn check(&self) -> syn::Result<()> {
         let mut errors = Vec::new();
 
@@ -92,10 +107,13 @@ impl EntryState {
         if errors.is_empty() {
             Ok(())
         } else {
-            let combined_err = errors.into_iter().reduce(|mut acc, err| {
-                acc.combine(err);
-                acc
-            }).unwrap();
+            let combined_err = errors
+                .into_iter()
+                .reduce(|mut acc, err| {
+                    acc.combine(err);
+                    acc
+                })
+                .unwrap();
             Err(combined_err)
         }
     }

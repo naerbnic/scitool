@@ -82,28 +82,29 @@ mod tests {
     #[test]
     fn test_parse() {
         let map_data = datalit!(
+            @endian_mode = le,
             // Index
             0x80,   // Resource View Type
-            start(u16_le, 'res1), // Offset 0x0005
+            start(u16, 'res1),
             0x81,   // Resource Picture Type
-            start(u16_le, 'res2), // Offset 0x000A
+            start(u16, 'res2),
             0xFF,   // End Marker
-            start(u16_le, 'end), // End Offset
+            start(u16, 'end), // End Offset
 
             'res1: {
                 // View Locations (5 bytes each)
-                1u16_le,       // Resource Number 1
-                1u24_le, // Offset 0x000002
-                2u16_le,       // Resource Number 2
-                3u24_le, // Offset 0x000006
+                1u16,       // Resource Number 1
+                1u24, // Offset 0x000002
+                2u16,       // Resource Number 2
+                3u24, // Offset 0x000006
             },
 
             'res2: {
                 // Picture Locations (5 bytes each)
-                1u16_le,       // Resource Number 1
-                4u24_le, // Offset 0x000008
-                2u16_le,       // Resource Number 2
-                5u24_le, // Offset 0x00000A
+                1u16,       // Resource Number 1
+                4u24, // Offset 0x000008
+                2u16,       // Resource Number 2
+                5u24, // Offset 0x00000A
             },
 
             'end: {},
