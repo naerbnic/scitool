@@ -1,4 +1,4 @@
-use super::DictType;
+use super::{DictType, index_cache::IndexCache};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct BackrefMatch {
@@ -18,6 +18,7 @@ pub(super) struct Dictionary {
     pos: usize,
     mask: usize,
     max_offset: usize,
+    cache: IndexCache,
 }
 
 impl Dictionary {
@@ -28,6 +29,7 @@ impl Dictionary {
             pos: 0,
             mask,
             max_offset: 0,
+            cache: IndexCache::new(),
         }
     }
 
@@ -46,9 +48,22 @@ impl Dictionary {
         params: &MatchLengthParams,
         data: &[u8],
     ) -> Option<BackrefMatch> {
+        if data.is_empty() {
+            return None;
+        }
         let mut curr_match: Option<BackrefMatch> = None;
 
-        for back_offset in 1..=self.max_offset {
+        // dbg!(data[0], self.cache.get_entries(data[0]).collect::<Vec<_>>());
+
+        for index in self.cache.get_entries(data[0]) {
+            if self.data[index] != data[0] {
+                break;
+            }
+            let back_offset = if self.pos == index {
+                self.data.len()
+            } else {
+                self.pos.wrapping_sub(index) & self.mask
+            };
             let length = self.match_len(params.max, back_offset, data);
             if length < params.min {
                 continue;
@@ -77,6 +92,9 @@ impl Dictionary {
             let copy_len = std::cmp::min(self.data.len() - self.pos, data.len());
             let (curr_data, next_data) = data.split_at(copy_len);
             self.data[self.pos..][..copy_len].copy_from_slice(curr_data);
+            for (i, &b) in curr_data.iter().enumerate() {
+                self.cache.insert(b, (self.pos + i) & self.mask);
+            }
             self.pos = (self.pos + copy_len) & self.mask;
             self.max_offset = (self.max_offset + copy_len).min(self.data.len());
             data = next_data;

@@ -1,4 +1,5 @@
 mod dictionary;
+mod index_cache;
 
 use crate::utils::compression::{
     bits::Bits,
