@@ -25,6 +25,7 @@ fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionE
         length_code + 2
     } else {
         let num_extra_bits = length_code - 7;
+
         let extra_bits = reader
             .read_bits(num_extra_bits)
             .ok_or(UnexpectedEndOfInput)?;
@@ -142,7 +143,6 @@ fn decode_entry<R: BitReader>(
         ));
     }
 
-    eprintln!("token_size_shape: {token_length}, {token_offset}");
     write_dict_entry(dict, token_offset, token_length, output);
     Ok(LoopAction::Continue)
 }

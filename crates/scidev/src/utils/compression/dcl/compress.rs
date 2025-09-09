@@ -2,6 +2,7 @@ mod dictionary;
 
 use crate::utils::compression::{
     bits::Bits,
+    dcl::compress::dictionary::MatchLengthParams,
     writer::{BitWriter, LittleEndianWriter},
 };
 
@@ -10,7 +11,9 @@ use super::{
     trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE},
 };
 
-use self::dictionary::{Dictionary, BackrefMatch};
+use self::dictionary::{BackrefMatch, Dictionary};
+
+const MAX_BACKREF_LENGTH: usize = 518;
 
 fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
     let (length_code, extra_bits) = if length < 10 {
@@ -63,6 +66,12 @@ fn write_token_offset<W: BitWriter>(
     extra_bits.write_to(writer);
 }
 
+const DEFAULT_PARAMS: MatchLengthParams = MatchLengthParams {
+    max: MAX_BACKREF_LENGTH,
+    min: 2,
+    sufficient: Some(18),
+};
+
 pub fn compress_dcl(
     mode: CompressionMode,
     dict_type: DictType,
@@ -74,15 +83,16 @@ pub fn compress_dcl(
     mode.write_to(&mut writer);
     dict_type.write_to(&mut writer);
     while !input.is_empty() {
-        if let Some(BackrefMatch { offset, length }) = dict.find_best_match(input)
+        let num_bytes_consumed = if let Some(BackrefMatch { offset, length }) =
+            dict.find_best_match(&DEFAULT_PARAMS, input)
             && length >= 2
         {
+            let length = length.min(MAX_BACKREF_LENGTH);
             // Write a back-reference token
             writer.write_bit(true);
             write_token_length(&mut writer, u32::try_from(length).unwrap());
             write_token_offset(dict_type, &mut writer, length, offset);
-            dict.append_data(&input[..length]);
-            input = &input[length..];
+            length
         } else {
             // Write a literal token
             writer.write_bit(false);
@@ -100,8 +110,11 @@ pub fn compress_dcl(
                     writer.write_u8(byte);
                 }
             }
-            input = &input[1..];
-        }
+            1
+        };
+
+        dict.append_data(&input[..num_bytes_consumed]);
+        input = &input[num_bytes_consumed..];
     }
 
     // Write the terminator, which is a back-reference of length 519
