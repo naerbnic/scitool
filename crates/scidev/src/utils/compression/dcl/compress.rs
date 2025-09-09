@@ -1,3 +1,5 @@
+mod dictionary;
+
 use crate::utils::compression::{
     bits::Bits,
     writer::{BitWriter, LittleEndianWriter},
@@ -7,6 +9,8 @@ use super::{
     header::{CompressionMode, DictType},
     trees::{ASCII_TREE, DISTANCE_TREE, LENGTH_TREE},
 };
+
+use self::dictionary::{Dictionary, BackrefMatch};
 
 fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
     let (length_code, extra_bits) = if length < 10 {
@@ -57,95 +61,6 @@ fn write_token_offset<W: BitWriter>(
         .expect("Distance code should be in the tree");
     distance_code_bits.write_to(writer);
     extra_bits.write_to(writer);
-}
-
-#[derive(Debug, Clone, Copy)]
-struct BackrefMatch {
-    offset: usize,
-    length: usize,
-}
-
-struct Dictionary {
-    data: Vec<u8>,
-    pos: usize,
-    mask: usize,
-    max_offset: usize,
-}
-
-impl Dictionary {
-    pub(crate) fn new(dict_type: DictType) -> Self {
-        let mask = dict_type.dict_size() - 1;
-        Self {
-            data: vec![0u8; dict_type.dict_size()],
-            pos: 0,
-            mask,
-            max_offset: 0,
-        }
-    }
-
-    fn match_len(&self, back_offset: usize, data: &[u8]) -> usize {
-        assert!(back_offset > 0);
-        assert!(back_offset <= self.data.len());
-        let mut byte_pairs = self.self_overlap_cursor(back_offset).zip(data);
-        byte_pairs.position(|(a, b)| a != *b).unwrap_or(data.len())
-    }
-
-    fn find_best_match(&self, data: &[u8]) -> Option<BackrefMatch> {
-        let mut curr_match: Option<BackrefMatch> = None;
-
-        for back_offset in 1..=self.max_offset {
-            let length = self.match_len(back_offset, data);
-            if length > curr_match.map_or(0, |m| m.length) {
-                curr_match = Some(BackrefMatch {
-                    offset: back_offset,
-                    length,
-                });
-            }
-        }
-        curr_match
-    }
-
-    fn append_data(&mut self, mut data: &[u8]) {
-        while !data.is_empty() {
-            let copy_len = std::cmp::min(self.data.len() - self.pos, data.len());
-            self.data[self.pos..][..copy_len].copy_from_slice(data);
-            self.pos = (self.pos + data.len()) & self.mask;
-            self.max_offset = (self.max_offset + copy_len).min(self.data.len());
-            data = &data[copy_len..];
-        }
-    }
-
-    fn self_overlap_cursor(&self, back_offset: usize) -> DictionaryCursor<'_> {
-        assert!(back_offset > 0);
-        let cursor_pos = self.pos.wrapping_sub(back_offset) & self.mask;
-        DictionaryCursor {
-            dict: self,
-            start: cursor_pos,
-            pos: cursor_pos,
-        }
-    }
-}
-
-struct DictionaryCursor<'a> {
-    dict: &'a Dictionary,
-    start: usize,
-    pos: usize,
-}
-
-impl Iterator for DictionaryCursor<'_> {
-    type Item = u8;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let value = self.dict.data[self.pos];
-        self.pos = (self.pos + 1) & self.dict.mask;
-        if self.pos == self.dict.pos {
-            // We implement this to allow for overlapping copies. When we reach the
-            // end of the dictionary, we wrap around back to where the cursor started.
-            // This should emulate the cursor's data being copied into the output buffer.
-            self.pos = self.start;
-        }
-        Some(value)
-    }
 }
 
 pub fn compress_dcl(
