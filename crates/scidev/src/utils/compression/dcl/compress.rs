@@ -14,6 +14,7 @@ use super::{
 
 use self::dictionary::{BackrefMatch, Dictionary};
 
+const MAX_SHORT_BACKREF_OFFSET: usize = 255;
 const MAX_BACKREF_LENGTH: usize = 518;
 
 fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
@@ -32,7 +33,7 @@ fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
     };
     let length_code_bits = LENGTH_TREE
         .encoding_of(&u8::try_from(length_code).unwrap())
-        .expect("Length code should be in the tree");
+        .unwrap_or_else(|| panic!("Length code should be in the tree: {length_code}"));
     length_code_bits.write_to(writer);
     if let Some(extra_bits) = extra_bits {
         extra_bits.write_to(writer);
@@ -62,12 +63,13 @@ fn write_token_offset<W: BitWriter>(
     let distance_code = encoding >> num_extra_bits;
     let distance_code_bits = DISTANCE_TREE
         .encoding_of(&u8::try_from(distance_code).unwrap())
-        .expect("Distance code should be in the tree");
+        .unwrap_or_else(|| panic!("Distance code should be in the tree: {distance_code}"));
     distance_code_bits.write_to(writer);
     extra_bits.write_to(writer);
 }
 
 const DEFAULT_PARAMS: MatchLengthParams = MatchLengthParams {
+    short_max_offset: MAX_SHORT_BACKREF_OFFSET,
     max: MAX_BACKREF_LENGTH,
     min: 2,
     sufficient: Some(18),
@@ -88,7 +90,6 @@ pub fn compress_dcl(
             dict.find_best_match(&DEFAULT_PARAMS, input)
             && length >= 2
         {
-            let length = length.min(MAX_BACKREF_LENGTH);
             // Write a back-reference token
             writer.write_bit(true);
             write_token_length(&mut writer, u32::try_from(length).unwrap());

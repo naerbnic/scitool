@@ -6,8 +6,7 @@ use proptest::prelude::*;
 
 proptest! {
     #[test]
-    #[ignore = "takes a while"]
-    fn compress_decompress_roundtrip(data in prop::collection::vec(prop::sample::select(&[0u8, 1u8]), 0..1_000_000)) {
+    fn compress_decompress_roundtrip(data in prop::collection::vec(prop::sample::select(&[0u8, 1u8]), 0..10_000)) {
         let mut compressed = Vec::new();
         compress_dcl(CompressionMode::Binary, DictType::Size1024, &data, &mut compressed);
 

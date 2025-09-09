@@ -8,6 +8,7 @@ pub(super) struct BackrefMatch {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MatchLengthParams {
+    pub short_max_offset: usize,
     pub max: usize,
     pub min: usize,
     pub sufficient: Option<usize>,
@@ -40,7 +41,9 @@ impl Dictionary {
             .self_overlap_cursor(back_offset)
             .zip(data)
             .take(max_length);
-        byte_pairs.position(|(a, b)| a != *b).unwrap_or(data.len())
+        byte_pairs
+            .position(|(a, b)| a != *b)
+            .unwrap_or(std::cmp::min(data.len(), max_length))
     }
 
     pub(super) fn find_best_match(
@@ -51,9 +54,8 @@ impl Dictionary {
         if data.is_empty() {
             return None;
         }
-        let mut curr_match: Option<BackrefMatch> = None;
 
-        // dbg!(data[0], self.cache.get_entries(data[0]).collect::<Vec<_>>());
+        let mut curr_match: Option<BackrefMatch> = None;
 
         for index in self.cache.get_entries(data[0]) {
             if self.data[index] != data[0] {
@@ -65,7 +67,13 @@ impl Dictionary {
                 self.pos.wrapping_sub(index) & self.mask
             };
             let length = self.match_len(params.max, back_offset, data);
+            assert!(length <= params.max);
             if length < params.min {
+                continue;
+            }
+            if length == params.min && back_offset > params.short_max_offset {
+                // If we have a minimum-length match but the offset is too large
+                // for a short match, then we can skip the rest of the search.
                 continue;
             }
             if let Some(sufficient) = params.sufficient
@@ -136,11 +144,12 @@ impl Iterator for DictionaryCursor<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::compression::dcl::compress::MAX_BACKREF_LENGTH;
+    use crate::utils::compression::dcl::compress::{MAX_BACKREF_LENGTH, MAX_SHORT_BACKREF_OFFSET};
 
     use super::*;
 
     const TEST_PARAMS: MatchLengthParams = MatchLengthParams {
+        short_max_offset: MAX_SHORT_BACKREF_OFFSET,
         max: MAX_BACKREF_LENGTH,
         min: 2,
         sufficient: None,
