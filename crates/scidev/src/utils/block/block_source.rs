@@ -169,7 +169,8 @@ impl BlockSource {
         assert!(start <= end);
         assert!(
             end <= self.start + self.size,
-            "End: {} Size: {}",
+            "Start: {} End: {} Size: {}",
+            start,
             end,
             self.start + self.size
         );
@@ -236,6 +237,17 @@ pub trait FromBlockSource: mem_reader::Parse {
     fn from_block_source(
         source: &BlockSource,
     ) -> Result<(Self, BlockSource), FromBlockSourceError> {
+        if Self::read_size() as u64 > source.size() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "Tried to read {} bytes from block source of size {}",
+                    Self::read_size(),
+                    source.size()
+                ),
+            )
+            .into());
+        }
         let block = source.subblock(..Self::read_size() as u64).open()?;
         let mut reader = BufferMemReader::from_ref(&block);
         let parse_result = Self::parse(&mut reader);

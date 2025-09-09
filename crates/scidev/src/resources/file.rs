@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, btree_map},
+    error::Error as StdError,
     fs::File,
     io,
     path::Path,
@@ -38,6 +39,8 @@ pub enum Error {
         expected: ResourceId,
         got: ResourceId,
     },
+    #[error(transparent)]
+    Other(Box<dyn StdError + Send + Sync>),
 }
 
 impl From<data::Error> for Error {
@@ -46,6 +49,7 @@ impl From<data::Error> for Error {
             data::Error::Io(io_err) => Self::Io(io_err),
             data::Error::MemReader(mem_err) => Self::MalformedData(mem_err),
             data::Error::Conversion(err) => Self::Conversion(err),
+            e @ data::Error::InvalidResourceLocation { .. } => Self::Other(Box::new(e)),
         }
     }
 }

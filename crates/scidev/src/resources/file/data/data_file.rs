@@ -15,10 +15,27 @@ impl DataFile {
     }
 
     pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, Error> {
+        if self.data.size() < u64::from(location.file_offset()) {
+            return Err(Error::InvalidResourceLocation {
+                location: location.file_offset() as usize,
+                reason: "file offset is beyond end of file".into(),
+            });
+        }
+
         let (header, rest) = RawEntryHeader::from_block_source(
             &self.data.subblock(u64::from(location.file_offset())..),
         )?;
-        let resource_block = rest.subblock(..u64::from(header.packed_size()));
+
+        let packed_size = u64::from(header.packed_size());
+
+        if rest.size() < packed_size {
+            return Err(Error::InvalidResourceLocation {
+                location: location.file_offset() as usize,
+                reason: format!("resource data ({packed_size} bytes) extends beyond end of file"),
+            });
+        }
+
+        let resource_block = rest.subblock(..packed_size);
         Ok(Contents::from_parts(header, resource_block)?)
     }
 }

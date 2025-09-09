@@ -60,7 +60,10 @@ impl Parse for ResourceLocationSet {
         for (entry, end_offset) in index.entries().iter().zip(end_offsets) {
             let locations = ResourceTypeLocations::read_from(
                 reader,
-                entry.type_id().try_into().unwrap(),
+                entry
+                    .type_id()
+                    .try_into()
+                    .map_err(|e| reader.create_invalid_data_error(e))?,
                 entry.file_offset(),
                 end_offset,
             )?;

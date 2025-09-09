@@ -229,14 +229,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "datalit-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "scidev",
-]
-
-[[package]]
 name = "datalit-macros"
 version = "0.1.0"
 dependencies = [
@@ -912,6 +904,16 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.16",
  "tokio",
+]
+
+[[package]]
+name = "scidev-fuzz"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "libfuzzer-sys",
+ "scidev",
+ "tempfile",
 ]
 
 [[package]]

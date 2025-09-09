@@ -121,6 +121,14 @@ pub trait MemReader {
     where
         Err: StdError + Send + Sync + 'static;
 
+    fn create_invalid_data_error_msg<'a, Msg>(&self, message: Msg) -> AnyInvalidDataError
+    where
+        Msg: Into<Cow<'a, str>>,
+    {
+        self.create_invalid_data_error(OtherError::from_msg(message.into().into_owned()))
+            .into()
+    }
+
     #[must_use]
     fn is_empty(&self) -> bool {
         self.remaining() == 0
@@ -544,7 +552,7 @@ impl<T> NoErrorResultExt<T> for std::result::Result<T, NoError> {
 /// A trait for types that can be parsed from a `MemReader`.
 pub trait Parse: Sized {
     /// Parses a value from the given `MemReader`.
-    /// 
+    ///
     /// This function should leave the reader at the position immediately after
     /// the parsed value.
     fn parse<M: MemReader>(reader: &mut M) -> Result<Self, M::Error>;

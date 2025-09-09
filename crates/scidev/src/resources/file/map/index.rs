@@ -20,9 +20,18 @@ impl ResourceIndex {
 
 impl Parse for ResourceIndex {
     fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
-        let mut entries = Vec::new();
+        let mut entries: Vec<ResourceIndexEntry> = Vec::new();
         loop {
             let entry = ResourceIndexEntry::parse(reader)?;
+            if let Some(last) = entries.last()
+                && entry.file_offset() <= last.file_offset()
+            {
+                return Err(reader
+                    .create_invalid_data_error_msg(
+                        "Resource index entries are not in ascending order",
+                    )
+                    .into());
+            }
             if entry.type_id() == 0xFF {
                 return Ok(ResourceIndex {
                     entries,
@@ -43,13 +52,12 @@ mod tests {
     #[test]
     fn test_parse() {
         let index_data = datalit!(
-            0x80,   // Resource View Type
+            0x80,         // Resource View Type
             0x1234u16_le, // Offset 0x1234
-            0x81,   // Resource Picture Type
+            0x81,         // Resource Picture Type
             0x2345u16_le, // Offset 0x2345
-            0xFF,   // End Marker
+            0xFF,         // End Marker
             0x3456u16_le, // End Offset
-
             // Should ignore further data.
             0xDEADBEEF
         );

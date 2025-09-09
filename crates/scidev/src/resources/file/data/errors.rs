@@ -13,6 +13,8 @@ pub enum Error {
     MemReader(#[from] AnyInvalidDataError),
     #[error(transparent)]
     Conversion(#[from] ConversionError),
+    #[error("Invalid resource location {location:x}: {reason}")]
+    InvalidResourceLocation { location: usize, reason: String },
 }
 
 impl From<FromBlockSourceError> for Error {
