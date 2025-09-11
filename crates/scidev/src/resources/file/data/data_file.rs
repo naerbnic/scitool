@@ -50,12 +50,13 @@ mod tests {
     #[test]
     fn test_read_data_file() {
         let data = datalit! {
-            0x81,                  // res_type
-            100u16_le,             // res_number
-            4u16_le,               // packed_size
-            4u16_le,               // unpacked_size
-            0u16_le,               // compression_type (none)
-            0xFADEDFAE,            // data
+            @endian = le,
+            0x81,               // res_type
+            100u16,             // res_number
+            len('data): u16,    // packed_size
+            len('data): u16,    // unpacked_size
+            0u16,               // compression_type (none)
+            'data: { 0xFADEDFAE },  // data
             // Should not include further bytes.
             0xDEADBEEF,
         };
@@ -63,7 +64,7 @@ mod tests {
         let id = ResourceId::new(ResourceType::Pic, 100);
         let location = ResourceLocation::new(id, 0);
 
-        let data_file = DataFile::new(BlockSource::from_vec(data));
+        let data_file = DataFile::new(BlockSource::from_vec(data.to_vec()));
         let contents = data_file.read_contents(location).unwrap();
         assert_eq!(contents.id(), &id);
         let block = contents.data().open().unwrap();

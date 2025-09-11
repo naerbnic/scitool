@@ -93,16 +93,17 @@ mod tests {
     #[test]
     fn test_basic_contents() {
         let header_data = datalit! {
+            @endian = le,
             0x80u8,
-            100u16_le,
-            4u16_le,
-            4u16_le,
-            0u16_le,
+            100u16,
+            4u16,
+            4u16,
+            0u16,
         };
-        let header = RawEntryHeader::parse(&mut mem_reader_from_bytes(&header_data)).unwrap();
+        let header = RawEntryHeader::parse(&mut mem_reader_from_bytes(header_data)).unwrap();
         let content_source = BlockSource::from_vec(datalit! {
             0x00010203
-        });
+        }.to_vec());
         let contents = Contents::from_parts(header, content_source).unwrap();
 
         let content_data = contents.data().open().unwrap();

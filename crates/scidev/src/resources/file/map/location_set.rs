@@ -82,14 +82,14 @@ mod tests {
     #[test]
     fn test_parse() {
         let map_data = datalit!(
-            @endian_mode = le,
+            @endian = le,
             // Index
             0x80,   // Resource View Type
-            start(u16, 'res1),
+            start('res1): u16,
             0x81,   // Resource Picture Type
-            start(u16, 'res2),
+            start('res2): u16,
             0xFF,   // End Marker
-            start(u16, 'end), // End Offset
+            end('res2): u16, // End Offset
 
             'res1: {
                 // View Locations (5 bytes each)
@@ -107,13 +107,11 @@ mod tests {
                 5u24, // Offset 0x00000A
             },
 
-            'end: {},
-
             // Should ignore further data.
             0xDEADBEEF
         );
 
-        let mut reader = mem_reader_from_bytes(&map_data);
+        let mut reader = mem_reader_from_bytes(map_data);
         let locations = ResourceLocationSet::parse(&mut reader).unwrap();
         let locations: Vec<_> = locations.locations().collect();
         assert_eq!(locations.len(), 4);

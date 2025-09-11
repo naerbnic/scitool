@@ -36,8 +36,11 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let data = datalit!(0x013412);
-        let mut reader = mem_reader_from_bytes(&data);
+        let data = datalit!(
+            0x01,         // Resource View Type
+            0x1234u16_le, // Offset 0x1234
+        );
+        let mut reader = mem_reader_from_bytes(data);
         let entry = ResourceIndexEntry::parse(&mut reader).unwrap();
         assert_eq!(entry.type_id(), 1);
         assert_eq!(entry.file_offset(), 0x1234);

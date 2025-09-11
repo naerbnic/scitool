@@ -62,7 +62,7 @@ mod tests {
             0xDEADBEEF
         );
 
-        let mut reader = mem_reader_from_bytes(&index_data);
+        let mut reader = mem_reader_from_bytes(index_data);
         let index = ResourceIndex::parse(&mut reader).unwrap();
         assert_eq!(index.end(), 0x3456u16);
         let entries = index.entries();

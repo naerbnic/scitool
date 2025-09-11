@@ -70,14 +70,15 @@ mod tests {
     #[test]
     fn test_read_raw_entry_header() {
         let data = datalit! {
-            1u8,                   // res_type
-            42u16_le,              // res_number
-            10u16_le,              // packed_size
-            20u16_le,              // unpacked_size
-            0u16_le,               // compression_type
+            @endian = le,
+            1u8,                // res_type
+            42u16,              // res_number
+            10u16,              // packed_size
+            20u16,              // unpacked_size
+            0u16,               // compression_type
         };
 
-        let mut reader = mem_reader_from_bytes(&data);
+        let mut reader = mem_reader_from_bytes(data);
         let header: RawEntryHeader = mem_reader::Parse::parse(&mut reader).unwrap();
         assert_eq!(reader.tell(), 9);
         assert_eq!(header.res_type, 1);
