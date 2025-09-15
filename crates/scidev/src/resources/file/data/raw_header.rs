@@ -17,7 +17,7 @@ pub(crate) struct RawEntryHeader {
 
 impl RawEntryHeader {
     pub(crate) fn res_type(&self) -> u8 {
-        self.res_type
+        self.res_type & 0x7F
     }
 
     pub(crate) fn res_number(&self) -> u16 {

@@ -8,7 +8,7 @@ pub use file::{ExtraData, ResourceSet};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum ResourceType {
-    View = 0x80,
+    View = 0x00,
     Pic,
     Script,
     Text,
@@ -100,29 +100,30 @@ impl TryFrom<u8> for ResourceType {
     type Error = ConversionError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
+        assert!(value < 0x80);
         match value {
-            0x80 => Ok(ResourceType::View),
-            0x81 => Ok(ResourceType::Pic),
-            0x82 => Ok(ResourceType::Script),
-            0x83 => Ok(ResourceType::Text),
-            0x84 => Ok(ResourceType::Sound),
-            0x85 => Ok(ResourceType::Memory),
-            0x86 => Ok(ResourceType::Vocab),
-            0x87 => Ok(ResourceType::Font),
-            0x88 => Ok(ResourceType::Cursor),
-            0x89 => Ok(ResourceType::Patch),
-            0x8A => Ok(ResourceType::Bitmap),
-            0x8B => Ok(ResourceType::Palette),
-            0x8C => Ok(ResourceType::CdAudio),
-            0x8D => Ok(ResourceType::Audio),
-            0x8E => Ok(ResourceType::Sync),
-            0x8F => Ok(ResourceType::Message),
-            0x90 => Ok(ResourceType::Map),
-            0x91 => Ok(ResourceType::Heap),
-            0x92 => Ok(ResourceType::Audio36),
-            0x93 => Ok(ResourceType::Sync36),
-            0x94 => Ok(ResourceType::Translation),
-            0x95 => Ok(ResourceType::Rave),
+            0x00 => Ok(ResourceType::View),
+            0x01 => Ok(ResourceType::Pic),
+            0x02 => Ok(ResourceType::Script),
+            0x03 => Ok(ResourceType::Text),
+            0x04 => Ok(ResourceType::Sound),
+            0x05 => Ok(ResourceType::Memory),
+            0x06 => Ok(ResourceType::Vocab),
+            0x07 => Ok(ResourceType::Font),
+            0x08 => Ok(ResourceType::Cursor),
+            0x09 => Ok(ResourceType::Patch),
+            0x0A => Ok(ResourceType::Bitmap),
+            0x0B => Ok(ResourceType::Palette),
+            0x0C => Ok(ResourceType::CdAudio),
+            0x0D => Ok(ResourceType::Audio),
+            0x0E => Ok(ResourceType::Sync),
+            0x0F => Ok(ResourceType::Message),
+            0x10 => Ok(ResourceType::Map),
+            0x11 => Ok(ResourceType::Heap),
+            0x12 => Ok(ResourceType::Audio36),
+            0x13 => Ok(ResourceType::Sync36),
+            0x14 => Ok(ResourceType::Translation),
+            0x15 => Ok(ResourceType::Rave),
             _ => Err(ConversionError(format!(
                 "Invalid resource type: 0x{value:02X}"
             ))),

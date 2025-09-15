@@ -51,7 +51,7 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
     let base_header = base_header_block.open().with_other_err()?;
     let id = base_header[0];
     let header_size = base_header[1];
-    let content_res_type: ResourceType = id.try_into().with_other_err()?;
+    let content_res_type: ResourceType = (id & 0x7f).try_into().with_other_err()?;
     ensure_other!(
         content_res_type == res_type,
         "Resource type mismatch: expected {:?}, got {:?}",
