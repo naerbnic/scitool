@@ -223,16 +223,18 @@ dependencies = [
 
 [[package]]
 name = "datalit"
-version = "0.1.0-alpha.1"
-source = "git+https://github.com/naerbnic/datalit.git?branch=main#aec477471824ee3578d59181232bdc765b39057f"
+version = "0.1.0-alpha.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6e3a61ffbb91b5c49d8712d7b967d860005a0f119977ad6c302e905f0f3bc86"
 dependencies = [
  "datalit-macros",
 ]
 
 [[package]]
 name = "datalit-macros"
-version = "0.1.0-alpha.1"
-source = "git+https://github.com/naerbnic/datalit.git?branch=main#aec477471824ee3578d59181232bdc765b39057f"
+version = "0.1.0-alpha.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b80298d5fc26df9f5cc0beefba7b1c7b7938da0d310dd6c83994083984dcd3ab"
 dependencies = [
  "datalit-macros-internals",
  "proc-macro2",
@@ -240,8 +242,9 @@ dependencies = [
 
 [[package]]
 name = "datalit-macros-internals"
-version = "0.1.0-alpha.1"
-source = "git+https://github.com/naerbnic/datalit.git?branch=main#aec477471824ee3578d59181232bdc765b39057f"
+version = "0.1.0-alpha.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa50cc97d49f3ed9c33613515168f7114e49fd1b88eb6c6a9fdca0e37a65ba77"
 dependencies = [
  "derive-syn-parse",
  "num",

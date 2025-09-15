@@ -3,8 +3,7 @@ resolver = "2"
 members = ["crates/*", "fuzz"]
 
 [workspace.dependencies]
-datalit = { git = "https://github.com/naerbnic/datalit.git", branch = "main" }
-
+datalit = "0.1.0-alpha.4"
 
 [workspace.lints.rust]
 single-use-lifetimes = "warn"
