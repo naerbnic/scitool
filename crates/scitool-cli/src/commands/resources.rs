@@ -1,5 +1,8 @@
 use scidev::{
-    resources::{ResourceId, ResourceType, file::open_game_resources},
+    resources::{
+        ResourceId, ResourceType,
+        file::{ExtraData, open_game_resources},
+    },
     utils::{
         data_writer::{DataWriter as _, IoDataWriter},
         debug::hex_dump_to,
@@ -87,9 +90,30 @@ pub fn list_resources(
         .resources()
         .inspect(|r| {
             if let Some(extra_data) = r.extra_data() {
-                let data = extra_data.open().unwrap();
-                if !data.is_empty() {
-                    eprintln!("Found resource with extra data: {:?}", r.id());
+                match extra_data {
+                    ExtraData::Simple(data) => {
+                        let data = data.open().unwrap();
+                        if !data.is_empty() {
+                            eprintln!("Found resource with extra data: {:?}, {:?}", r.id(), data);
+                        }
+                    }
+                    ExtraData::Composite {
+                        ext_header,
+                        extra_data,
+                    } => {
+                        let ext_data = ext_header.open().unwrap();
+                        if !ext_data.is_empty() {
+                            eprintln!(
+                                "Found resource with extended header: {:?}, {:?}",
+                                r.id(),
+                                ext_data
+                            );
+                        }
+                        let data = extra_data.open().unwrap();
+                        if !data.is_empty() {
+                            eprintln!("Found resource with extra data: {:?}, {:?}", r.id(), data);
+                        }
+                    }
                 }
             }
         })

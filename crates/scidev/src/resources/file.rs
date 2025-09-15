@@ -10,7 +10,7 @@ use data::DataFile;
 
 use self::patch::try_patch_from_file;
 use crate::{
-    resources::ConversionError,
+    resources::{ConversionError, file::patch::write_resource_to_patch_file},
     utils::{
         block::{BlockSource, BlockSourceError, LazyBlock, MemBlock, MemBlockFromReaderError},
         errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
@@ -20,7 +20,7 @@ use crate::{
 
 use super::{ResourceId, ResourceType};
 
-use tokio::io::AsyncWriteExt;
+pub use self::patch::ResourcePatchError;
 
 mod data;
 mod map;
@@ -261,9 +261,14 @@ pub fn open_game_resources(root_dir: &Path) -> Result<ResourceSet, OpenGameResou
 #[error(transparent)]
 pub struct ResourceLoadError(#[from] OtherError);
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct ResourcePatchError(#[from] OtherError);
+#[derive(Clone)]
+pub enum ExtraData {
+    Simple(LazyBlock),
+    Composite {
+        ext_header: LazyBlock,
+        extra_data: LazyBlock,
+    },
+}
 
 #[derive(Clone)]
 struct ResourceContents {
@@ -271,7 +276,7 @@ struct ResourceContents {
     ///
     /// This is typically only present if the resource was loaded from a
     /// patch file.
-    extra_data: Option<LazyBlock>,
+    extra_data: Option<ExtraData>,
 
     /// The main data source for the resource.
     source: LazyBlock,
@@ -317,7 +322,7 @@ impl Resource {
     }
 
     #[must_use]
-    pub fn extra_data(&self) -> &Option<LazyBlock> {
+    pub fn extra_data(&self) -> &Option<ExtraData> {
         &self.contents.extra_data
     }
 
@@ -334,12 +339,6 @@ impl Resource {
         &self,
         mut writer: W,
     ) -> Result<(), ResourcePatchError> {
-        writer
-            .write_all(&[self.id.type_id().into(), 0])
-            .await
-            .with_other_err()?;
-        let data = self.contents.source.open().with_other_err()?;
-        writer.write_all(&data).await.with_other_err()?;
-        Ok(())
+        write_resource_to_patch_file(self, &mut writer).await
     }
 }
