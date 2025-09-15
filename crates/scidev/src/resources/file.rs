@@ -109,7 +109,7 @@ pub fn read_resources(
         }
         entries.insert(
             location.id(),
-            ResourceBlocks::new_of_data(block.data().clone()),
+            ResourceBlocks::new_of_data(ResourceContents::from_source(block.data().clone())),
         );
     }
 
@@ -117,9 +117,9 @@ pub fn read_resources(
         let id = patch.id();
         match entries.entry(*id) {
             btree_map::Entry::Vacant(vac) => {
-                vac.insert(ResourceBlocks::new_of_patch(patch.source.clone()));
+                vac.insert(ResourceBlocks::new_of_patch(patch.contents().clone()));
             }
-            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.source.clone()),
+            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.contents().clone()),
         }
     }
 
@@ -128,35 +128,35 @@ pub fn read_resources(
 
 #[derive(Clone)]
 struct ResourceBlocks {
-    data_block: Option<LazyBlock>,
-    patch_block: Option<LazyBlock>,
+    data_contents: Option<ResourceContents>,
+    patch_contents: Option<ResourceContents>,
 }
 
 impl ResourceBlocks {
-    pub(crate) fn default_block(&self) -> &LazyBlock {
-        self.patch_block
+    pub(crate) fn default_contents(&self) -> &ResourceContents {
+        self.data_contents
             .as_ref()
-            .or(self.data_block.as_ref())
+            .or(self.patch_contents.as_ref())
             .expect("Resource block not found")
     }
 
-    pub(crate) fn new_of_patch(patch_block: LazyBlock) -> ResourceBlocks {
+    pub(crate) fn new_of_patch(patch_contents: ResourceContents) -> ResourceBlocks {
         ResourceBlocks {
-            data_block: None,
-            patch_block: Some(patch_block),
+            data_contents: None,
+            patch_contents: Some(patch_contents),
         }
     }
 
-    pub(crate) fn new_of_data(data_block: LazyBlock) -> ResourceBlocks {
+    pub(crate) fn new_of_data(data_contents: ResourceContents) -> ResourceBlocks {
         ResourceBlocks {
-            data_block: Some(data_block),
-            patch_block: None,
+            data_contents: Some(data_contents),
+            patch_contents: None,
         }
     }
 
-    pub(crate) fn add_patch(&mut self, patch_block: LazyBlock) {
-        if self.patch_block.is_none() {
-            self.patch_block = Some(patch_block);
+    pub(crate) fn add_patch(&mut self, patch_contents: ResourceContents) {
+        if self.patch_contents.is_none() {
+            self.patch_contents = Some(patch_contents);
         } else {
             panic!("Resource already has a patch block");
         }
@@ -177,10 +177,9 @@ pub struct ResourceSet {
 impl ResourceSet {
     #[must_use]
     pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
-        self.entries.get(id).map(|b| Resource {
-            id: *id,
-            source: b.default_block().clone(),
-        })
+        self.entries
+            .get(id)
+            .map(|b| Resource::from_contents(*id, b.default_contents().clone()))
     }
 
     pub fn resource_ids(&self) -> impl Iterator<Item = ResourceId> + '_ {
@@ -188,10 +187,9 @@ impl ResourceSet {
     }
 
     pub fn resources(&self) -> impl Iterator<Item = Resource> + '_ {
-        self.entries.iter().map(|(id, block)| Resource {
-            id: *id,
-            source: block.default_block().clone(),
-        })
+        self.entries
+            .iter()
+            .map(|(id, block)| Resource::from_contents(*id, block.default_contents().clone()))
     }
 
     pub fn resources_of_type(&self, type_id: ResourceType) -> impl Iterator<Item = Resource> + '_ {
@@ -199,10 +197,10 @@ impl ResourceSet {
             if id.type_id != type_id {
                 return None;
             }
-            Some(Resource {
-                id: *id,
-                source: block.default_block().clone(),
-            })
+            Some(Resource::from_contents(
+                *id,
+                block.default_contents().clone(),
+            ))
         })
     }
 
@@ -267,26 +265,69 @@ pub struct ResourceLoadError(#[from] OtherError);
 #[error(transparent)]
 pub struct ResourcePatchError(#[from] OtherError);
 
-pub struct Resource {
-    id: ResourceId,
+#[derive(Clone)]
+struct ResourceContents {
+    /// Any extra data associated with the resource.
+    ///
+    /// This is typically only present if the resource was loaded from a
+    /// patch file.
+    extra_data: Option<LazyBlock>,
+
+    /// The main data source for the resource.
     source: LazyBlock,
+}
+
+impl ResourceContents {
+    #[must_use]
+    pub(crate) fn from_source(source: LazyBlock) -> ResourceContents {
+        ResourceContents {
+            extra_data: None,
+            source,
+        }
+    }
+}
+
+pub struct Resource {
+    /// The ID of the resource.
+    id: ResourceId,
+
+    contents: ResourceContents,
 }
 
 impl Resource {
     #[must_use]
     pub fn new(id: ResourceId, source: LazyBlock) -> Resource {
-        Resource { id, source }
+        Resource {
+            id,
+            contents: ResourceContents {
+                extra_data: None,
+                source,
+            },
+        }
     }
-}
 
-impl Resource {
+    #[must_use]
+    fn from_contents(id: ResourceId, contents: ResourceContents) -> Resource {
+        Resource { id, contents }
+    }
+
     #[must_use]
     pub fn id(&self) -> &ResourceId {
         &self.id
     }
 
+    #[must_use]
+    pub fn extra_data(&self) -> &Option<LazyBlock> {
+        &self.contents.extra_data
+    }
+
+    #[must_use]
+    fn contents(&self) -> &ResourceContents {
+        &self.contents
+    }
+
     pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
-        Ok(self.source.open().with_other_err()?)
+        Ok(self.contents.source.open().with_other_err()?)
     }
 
     pub async fn write_patch<W: tokio::io::AsyncWrite + Unpin>(
@@ -297,7 +338,7 @@ impl Resource {
             .write_all(&[self.id.type_id().into(), 0])
             .await
             .with_other_err()?;
-        let data = self.source.open().with_other_err()?;
+        let data = self.contents.source.open().with_other_err()?;
         writer.write_all(&data).await.with_other_err()?;
         Ok(())
     }

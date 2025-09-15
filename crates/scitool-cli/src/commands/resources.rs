@@ -84,7 +84,16 @@ pub fn list_resources(
 ) -> anyhow::Result<Vec<ResourceId>> {
     let resource_dir_files = open_game_resources(root_dir)?;
     Ok(resource_dir_files
-        .resource_ids()
+        .resources()
+        .inspect(|r| {
+            if let Some(extra_data) = r.extra_data() {
+                let data = extra_data.open().unwrap();
+                if !data.is_empty() {
+                    eprintln!("Found resource with extra data: {:?}", r.id());
+                }
+            }
+        })
+        .map(|r| *r.id())
         .filter(|id| res_type.is_none_or(|res_type| id.type_id() == res_type))
         .collect())
 }

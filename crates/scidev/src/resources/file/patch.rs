@@ -1,5 +1,6 @@
 use std::{ffi::OsStr, path::Path};
 
+use crate::resources::file::ResourceContents;
 use crate::utils::block::BlockSource;
 
 use crate::resources::{ResourceId, ResourceType};
@@ -57,23 +58,26 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
     // It looks like there's a fairly simple scheme. If the byte after the type is
     // 128, then we use an extended header, including a two-byte length field,
     // and another 22 byte header data that we can skip.
-    let data = if header_size == 128 {
-        let (header_data, rest) = rest.split_at(24);
-        let header_data = header_data.open().with_other_err()?;
-        let real_header_size = header_data[1];
+    let (header_data, data) = if header_size == 128 {
+        let (extra_size_block, rest) = rest.split_at(2);
+        let extra_size_data = extra_size_block.open().with_other_err()?;
+        let real_header_size = extra_size_data[1];
         if real_header_size != 0 {
             log::warn!(
-                "Patch file header size is not 0, got (size {real_header_size}) {header_data:?} ({}, {res_type:?})",
+                "Patch file header size is not 0, got (size {real_header_size}) {extra_size_data:?} ({}, {res_type:?})",
                 patch_file.display()
             );
         }
-        rest.subblock(u64::from(real_header_size)..).to_lazy_block()
+        rest.split_at(22 + u64::from(real_header_size))
     } else {
-        rest.subblock(u64::from(header_size)..).to_lazy_block()
+        rest.split_at(u64::from(header_size))
     };
 
     Ok(Some(Resource {
         id: ResourceId::new(res_type, res_num),
-        source: data,
+        contents: ResourceContents {
+            extra_data: Some(header_data.to_lazy_block()),
+            source: data.to_lazy_block(),
+        },
     }))
 }
