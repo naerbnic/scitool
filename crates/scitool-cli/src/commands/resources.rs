@@ -1,7 +1,7 @@
 use scidev::{
     resources::{
         ResourceId, ResourceType,
-        file::{ExtraData, open_game_resources},
+        file::{ExtraData, ResourceSet},
     },
     utils::debug::hex_dump_to,
 };
@@ -12,7 +12,7 @@ pub fn dump_resource(
     resource_id: ResourceId,
     output: impl std::io::Write,
 ) -> anyhow::Result<()> {
-    let resource_set = open_game_resources(root_dir)?;
+    let resource_set = ResourceSet::from_root_dir(root_dir)?;
     let res = resource_set
         .get_resource(&resource_id)
         .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
@@ -33,7 +33,7 @@ pub async fn extract_resource_as_patch<'a>(
     resource_num: u16,
     output_dir: &'a Path,
 ) -> anyhow::Result<WriteOperation<'a>> {
-    let resource_set = open_game_resources(root_dir)?;
+    let resource_set = ResourceSet::from_root_dir(root_dir)?;
     let resource_id = ResourceId::new(resource_type, resource_num);
     let contents = resource_set
         .get_resource(&resource_id)
@@ -79,7 +79,7 @@ pub fn list_resources(
     root_dir: &Path,
     res_type: Option<ResourceType>,
 ) -> anyhow::Result<Vec<ResourceId>> {
-    let resource_dir_files = open_game_resources(root_dir)?;
+    let resource_dir_files = ResourceSet::from_root_dir(root_dir)?;
     Ok(resource_dir_files
         .resources()
         .inspect(|r| {

@@ -35,6 +35,7 @@ impl ResourceTypeSerde {
 pub struct Sha256Hash([u8; 32]);
 
 impl Sha256Hash {
+    #[expect(dead_code, reason = "Will use to export data")]
     fn from_data_hash<B: Buf>(mut data: B) -> Self {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();

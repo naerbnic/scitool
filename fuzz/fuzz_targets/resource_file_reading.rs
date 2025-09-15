@@ -1,9 +1,10 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use scidev::resources::file::ResourceSet;
 
 fn body(root_dir: &std::path::Path) -> anyhow::Result<()> {
-    let _resources = scidev::resources::file::open_game_resources(root_dir)?;
+    let _resources = ResourceSet::from_root_dir(root_dir)?;
     Ok(())
 }
 

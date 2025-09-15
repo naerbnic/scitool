@@ -5,7 +5,7 @@ use std::{
 
 use itertools::Itertools;
 use scidev::{
-    resources::file::{self, ResourceSet},
+    resources::file::ResourceSet,
     script_loader::{Class, ClassDeclSet, ScriptLoader, Species},
 };
 
@@ -203,7 +203,7 @@ pub(super) struct SciScriptExports {
 
 impl SciScriptExports {
     pub(super) fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
-        let resource_set = file::open_game_resources(root_dir)?;
+        let resource_set = ResourceSet::from_root_dir(root_dir)?;
 
         let selectors = dump_selectors(&resource_set)?;
 

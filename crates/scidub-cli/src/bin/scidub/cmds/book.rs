@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::Subcommand;
+use scidev::resources::file::ResourceSet;
 use scidub_cli::book::Line;
 
 use std::path::Path;
 
 use scidev::resources::{
-    ResourceType, file::open_game_resources, types::msg::parse_message_resource,
+    ResourceType, types::msg::parse_message_resource,
 };
 use scidub_cli::book::{Book, builder::BookBuilder, config::BookConfig, file_format};
 
@@ -22,7 +23,7 @@ fn export_book(
     } else {
         BookConfig::default()
     };
-    let resource_set = open_game_resources(game_path)?;
+    let resource_set = ResourceSet::from_root_dir(game_path)?;
     let mut builder = BookBuilder::new(config)?;
 
     // Extra testing for building a conversation.
