@@ -20,14 +20,14 @@ use crate::{
 
 use super::{ResourceId, ResourceType};
 
-pub use self::patch::ResourcePatchError;
+pub(super) use self::patch::ResourcePatchError;
 
 mod data;
 mod map;
 mod patch;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub(super) enum Error {
     #[error("I/O error during operation: {0}")]
     Io(#[from] io::Error),
     #[error("Malformed data: {0}")]
@@ -87,7 +87,7 @@ impl From<MemBlockFromReaderError> for Error {
     }
 }
 
-pub fn read_resources(
+pub(super) fn read_resources(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource],
@@ -321,8 +321,8 @@ impl Resource {
     }
 
     #[must_use]
-    pub fn extra_data(&self) -> &Option<ExtraData> {
-        &self.contents.extra_data
+    pub fn extra_data(&self) -> Option<&ExtraData> {
+        self.contents.extra_data.as_ref()
     }
 
     #[must_use]

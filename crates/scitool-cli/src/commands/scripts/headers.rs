@@ -5,7 +5,7 @@ use std::{
 
 use itertools::Itertools;
 use scidev::{
-    resources::file::ResourceSet,
+    resources::ResourceSet,
     script_loader::{Class, ClassDeclSet, ScriptLoader, Species},
 };
 

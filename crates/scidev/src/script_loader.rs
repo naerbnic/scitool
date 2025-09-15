@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    resources::{ResourceId, ResourceType, file::ResourceSet},
+    resources::{ResourceId, ResourceSet, ResourceType},
     utils::{
         errors::{AnyInvalidDataError, OtherError, prelude::*},
         mem_reader::BufferMemReader,

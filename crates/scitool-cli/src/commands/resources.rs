@@ -1,8 +1,5 @@
 use scidev::{
-    resources::{
-        ResourceId, ResourceType,
-        file::{ExtraData, ResourceSet},
-    },
+    resources::{ExtraData, ResourceId, ResourceSet, ResourceType},
     utils::debug::hex_dump_to,
 };
 use std::path::Path;

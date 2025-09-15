@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, path::Path};
 
-use scidev::resources::{ResourceType, file::ResourceSet, types::msg::parse_message_resource};
+use scidev::resources::{ResourceSet, ResourceType, types::msg::parse_message_resource};
 
 pub fn print_talkers(game_dir: &Path, mut output: impl std::io::Write) -> anyhow::Result<()> {
     let resource_set = ResourceSet::from_root_dir(game_dir)?;

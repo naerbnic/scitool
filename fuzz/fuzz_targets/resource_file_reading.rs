@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use scidev::resources::file::ResourceSet;
+use scidev::resources::ResourceSet;
 
 fn body(root_dir: &std::path::Path) -> anyhow::Result<()> {
     let _resources = ResourceSet::from_root_dir(root_dir)?;
