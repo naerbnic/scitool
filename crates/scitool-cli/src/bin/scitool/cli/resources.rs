@@ -13,8 +13,8 @@ pub(crate) struct Resource {
 }
 
 impl Resource {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
-        self.res_cmd.run()
+    pub(crate) async fn run(&self) -> anyhow::Result<()> {
+        self.res_cmd.run().await
     }
 }
 
@@ -32,10 +32,10 @@ enum ResourceCommand {
 }
 
 impl ResourceCommand {
-    fn run(&self) -> anyhow::Result<()> {
+    async fn run(&self) -> anyhow::Result<()> {
         match self {
             ResourceCommand::List(list) => list.run()?,
-            ResourceCommand::Extract(extract) => extract.run()?,
+            ResourceCommand::Extract(extract) => extract.run().await?,
             ResourceCommand::Dump(dump) => dump.run()?,
         }
         Ok(())
@@ -127,13 +127,14 @@ struct ExtractResourceAsPatch {
 }
 
 impl ExtractResourceAsPatch {
-    fn run(&self) -> anyhow::Result<()> {
+    async fn run(&self) -> anyhow::Result<()> {
         let write_op = extract_resource_as_patch(
             &self.root_dir,
             self.resource_type,
             self.resource_id,
             self.output_dir.as_ref().unwrap_or(&self.root_dir),
-        )?;
+        )
+        .await?;
         if self.dry_run {
             eprintln!(
                 "DRY_RUN: Writing resource {restype:?}:{resid} to {filename}",
@@ -148,7 +149,7 @@ impl ExtractResourceAsPatch {
                 resid = write_op.resource_id.resource_num(),
                 filename = write_op.filename,
             );
-            (write_op.operation)()?;
+            Box::into_pin(write_op.operation).await?;
         }
 
         Ok(())

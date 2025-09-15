@@ -3,10 +3,7 @@ use scidev::{
         ResourceId, ResourceType,
         file::{ExtraData, open_game_resources},
     },
-    utils::{
-        data_writer::{DataWriter as _, IoDataWriter},
-        debug::hex_dump_to,
-    },
+    utils::debug::hex_dump_to,
 };
 use std::path::Path;
 
@@ -27,10 +24,10 @@ pub fn dump_resource(
 pub struct WriteOperation<'a> {
     pub resource_id: ResourceId,
     pub filename: String,
-    pub operation: Box<dyn FnOnce() -> anyhow::Result<()> + 'a>,
+    pub operation: Box<dyn Future<Output = anyhow::Result<()>> + 'a>,
 }
 
-pub fn extract_resource_as_patch<'a>(
+pub async fn extract_resource_as_patch<'a>(
     root_dir: &'a Path,
     resource_type: ResourceType,
     resource_num: u16,
@@ -59,17 +56,14 @@ pub fn extract_resource_as_patch<'a>(
     );
     let operation = Box::new({
         let filename = filename.clone();
-        move || {
-            let mut patch_file = IoDataWriter::new(
-                std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(root_dir.join(filename))?,
-            );
+        async move {
+            let mut patch_file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(root_dir.join(filename))
+                .await?;
+            contents.write_patch(&mut patch_file).await?;
 
-            patch_file.write_u8(resource_type.into())?;
-            patch_file.write_u8(0)?; // Header Size
-            patch_file.write_block(&contents.load_data()?)?;
             Ok(())
         }
     });

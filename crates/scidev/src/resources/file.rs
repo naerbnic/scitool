@@ -337,8 +337,8 @@ impl Resource {
 
     pub async fn write_patch<W: tokio::io::AsyncWrite + Unpin>(
         &self,
-        mut writer: W,
+        writer: W,
     ) -> Result<(), ResourcePatchError> {
-        write_resource_to_patch_file(self, &mut writer).await
+        write_resource_to_patch_file(self, writer).await
     }
 }

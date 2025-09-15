@@ -2,8 +2,9 @@ use clap::Parser;
 
 mod cli;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = cli::Cli::parse();
-    args.run()?;
+    args.run().await?;
     Ok(())
 }
