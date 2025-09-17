@@ -256,6 +256,12 @@ pub trait MemReader {
         Ok(u16::from_le_bytes(buf))
     }
 
+    fn read_i16_le(&mut self) -> Result<i16, Self::Error> {
+        let mut buf = [0u8; 2];
+        self.read_exact(&mut buf)?;
+        Ok(i16::from_le_bytes(buf))
+    }
+
     fn read_u24_le(&mut self) -> Result<u32, Self::Error> {
         let mut buf = [0u8; 3];
         self.read_exact(&mut buf)?;

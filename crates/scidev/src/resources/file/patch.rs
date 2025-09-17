@@ -76,7 +76,7 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
                 patch_file.display()
             );
         }
-        let (extra_data, data) = rest.split_at(22 + u64::from(real_header_size));
+        let (extra_data, data) = rest.split_at(u64::from(real_header_size));
         (
             Some(ExtraData::Composite {
                 ext_header: ext_header.to_lazy_block(),
