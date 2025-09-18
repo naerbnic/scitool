@@ -15,6 +15,15 @@ pub enum Error {
     Other(#[from] OtherError),
 }
 
+impl Error {
+    pub fn from_other<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Other(OtherError::new(err))
+    }
+}
+
 impl From<block_source::Error> for Error {
     fn from(value: block_source::Error) -> Self {
         match value {
