@@ -1,7 +1,6 @@
 //! Atomic directory operations.
 
 use std::{
-    borrow::Cow,
     ffi::OsStr,
     io,
     path::{Component, Path, PathBuf},
@@ -186,89 +185,6 @@ impl FileSystemOperations for TokioFileSystemOperations {
     }
 }
 
-#[derive(Debug)]
-struct SharedPathItem<'a, T>(Cow<'a, T>)
-where
-    T: ToOwned + ?Sized,
-    T::Owned: std::fmt::Debug;
-
-impl<T> Clone for SharedPathItem<'_, T>
-where
-    T: ToOwned + ?Sized,
-    T::Owned: std::fmt::Debug,
-{
-    fn clone(&self) -> Self {
-        SharedPathItem(self.0.clone())
-    }
-}
-
-impl<'a, T> SharedPathItem<'a, T>
-where
-    T: ToOwned + ?Sized,
-    T::Owned: std::fmt::Debug,
-{
-    fn new<P>(path: P) -> Self
-    where
-        P: Into<Cow<'a, T>>,
-    {
-        SharedPathItem(path.into())
-    }
-
-    fn into_owned(self) -> SharedPathItem<'static, T> {
-        SharedPathItem(Cow::Owned(self.0.into_owned()))
-    }
-}
-
-impl<T> std::fmt::Display for SharedPathItem<'_, T>
-where
-    T: ToOwned + std::fmt::Display + ?Sized,
-    T::Owned: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.as_ref().fmt(f)
-    }
-}
-
-impl<T> Serialize for SharedPathItem<'_, T>
-where
-    T: ToOwned + Serialize + ?Sized,
-    T::Owned: std::fmt::Debug,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        Serialize::serialize(&self.0, serializer)
-    }
-}
-
-impl<'de: 'a, 'a, T> Deserialize<'de> for SharedPathItem<'a, T>
-where
-    T: ToOwned + ?Sized + 'de,
-    T::Owned: std::fmt::Debug,
-    &'de T: Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value: &'de T = Deserialize::deserialize(deserializer)?;
-        Ok(SharedPathItem(Cow::Borrowed(value)))
-    }
-}
-
-impl<T> std::ops::Deref for SharedPathItem<'_, T>
-where
-    T: ToOwned + ?Sized,
-    T::Owned: std::fmt::Debug,
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 async fn write_file_atomic<F, Fut, FS>(
     fs: &FS,
     base_dir: &AbsPath,
@@ -313,79 +229,51 @@ where
 /// This implies that if `temp_path` exists, it should be moved to `dest_path`
 /// during a commit operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct OverwriteEntry<'a> {
+struct OverwriteEntry {
     /// The temporary path where the file is currently located. If this file
     /// exists, it is the authoritative source for the file's contents.
-    #[serde(borrow)]
-    temp_path: SharedPathItem<'a, RelPath>,
+    temp_path: RelPathBuf,
 
     /// The final destination path where the file should be moved to during
     /// a commit operation.
     ///
     /// If the file at `temp_path` does not exist, it must exist here, and it
     /// is the authoritative source for the file's contents.
-    #[serde(borrow)]
-    dest_path: SharedPathItem<'a, RelPath>,
+    dest_path: RelPathBuf,
 }
 
-impl OverwriteEntry<'_> {
-    fn new_owned(temp_path: RelPathBuf, dest_path: RelPathBuf) -> OverwriteEntry<'static> {
+impl OverwriteEntry {
+    fn new_owned(temp_path: RelPathBuf, dest_path: RelPathBuf) -> OverwriteEntry {
         OverwriteEntry {
-            temp_path: SharedPathItem(Cow::Owned(temp_path)),
-            dest_path: SharedPathItem(Cow::Owned(dest_path)),
-        }
-    }
-
-    fn into_owned(self) -> OverwriteEntry<'static> {
-        OverwriteEntry {
-            temp_path: self.temp_path.into_owned(),
-            dest_path: self.dest_path.into_owned(),
+            temp_path,
+            dest_path,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DeleteEntry<'a> {
+struct DeleteEntry {
     /// The path to delete.
-    #[serde(borrow)]
-    path: SharedPathItem<'a, RelPath>,
-}
-
-impl DeleteEntry<'_> {
-    fn into_owned(self) -> DeleteEntry<'static> {
-        DeleteEntry {
-            path: self.path.into_owned(),
-        }
-    }
+    path: RelPathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
-enum CommitEntry<'a> {
-    Overwrite(#[serde(borrow)] OverwriteEntry<'a>),
-    Delete(#[serde(borrow)] DeleteEntry<'a>),
-}
-
-impl CommitEntry<'_> {
-    fn into_owned(self) -> CommitEntry<'static> {
-        match self {
-            CommitEntry::Overwrite(entry) => CommitEntry::Overwrite(entry.into_owned()),
-            CommitEntry::Delete(entry) => CommitEntry::Delete(entry.into_owned()),
-        }
-    }
+enum CommitEntry {
+    Overwrite(OverwriteEntry),
+    Delete(DeleteEntry),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CommitSchema<'a> {
-    temp_dir: SharedPathItem<'a, RelPath>,
+struct CommitSchema {
+    temp_dir: RelPathBuf,
     /// The list of entries to commit.
-    #[serde(borrow)]
-    entries: Vec<CommitEntry<'a>>,
+    entries: Vec<CommitEntry>,
 }
 
 #[derive(Debug)]
 pub struct FileRecoveryFailure {
-    entry: CommitEntry<'static>,
+    entry: CommitEntry,
     err: io::Error,
 }
 
@@ -430,7 +318,7 @@ impl std::fmt::Display for RecoveryError {
 async fn apply_entry<FS: FileSystemOperations>(
     fs: &FS,
     dir_root: &Path,
-    entry: CommitEntry<'_>,
+    entry: CommitEntry,
     failed_entries: &mut Vec<FileRecoveryFailure>,
 ) -> io::Result<()> {
     match &entry {
@@ -443,10 +331,7 @@ async fn apply_entry<FS: FileSystemOperations>(
                     // Permitted: the temp file is missing, we assume the dest file is authoritative.
                 }
                 Err(err) => {
-                    failed_entries.push(FileRecoveryFailure {
-                        entry: entry.into_owned(),
-                        err,
-                    });
+                    failed_entries.push(FileRecoveryFailure { entry, err });
                 }
             }
         }
@@ -458,10 +343,7 @@ async fn apply_entry<FS: FileSystemOperations>(
                 }
                 Ok(()) => { /* Successfully deleted */ }
                 Err(err) => {
-                    failed_entries.push(FileRecoveryFailure {
-                        entry: entry.into_owned(),
-                        err,
-                    });
+                    failed_entries.push(FileRecoveryFailure { entry, err });
                 }
             }
         }
@@ -700,7 +582,7 @@ pub struct AtomicDirInner<FS: FileSystemOperations> {
     fs: FS,
     dir_root: AbsPathBuf,
     temp_dir: RelPathBuf,
-    pending_commits: Vec<CommitEntry<'static>>,
+    pending_commits: Vec<CommitEntry>,
 }
 
 impl<FS> AtomicDirInner<FS>
@@ -741,7 +623,7 @@ where
         let relative_path = normalize_dest_path(relative_path)?;
 
         self.pending_commits.push(CommitEntry::Delete(DeleteEntry {
-            path: SharedPathItem(relative_path.into()),
+            path: relative_path,
         }));
 
         Ok(())
@@ -779,7 +661,7 @@ where
         }
 
         let commit_schema = CommitSchema {
-            temp_dir: SharedPathItem::<RelPath>::new(self.temp_dir.clone()).into_owned(),
+            temp_dir: self.temp_dir.clone(),
             entries: self.pending_commits.drain(..).collect(),
         };
         let commit_data = serde_json::to_vec(&commit_schema)
