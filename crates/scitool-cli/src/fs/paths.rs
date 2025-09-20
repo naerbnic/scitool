@@ -1,6 +1,7 @@
 #![allow(unsafe_code, reason = "Needed for unsized wrappers")]
 
 use std::{
+    borrow::{Borrow, Cow},
     collections::TryReserveError,
     ops::Deref,
     path::{Path, PathBuf},
@@ -23,6 +24,7 @@ macro_rules! define_path_wrapper {
         pub struct $error_type;
 
         $(#[$path_meta])*
+        #[derive(Debug)]
         #[repr(transparent)]
         pub struct $path_wrapper(Path);
 
@@ -71,7 +73,35 @@ macro_rules! define_path_wrapper {
             }
         }
 
+        impl ToOwned for $path_wrapper {
+            type Owned = $path_buf_wrapper;
+
+            fn to_owned(&self) -> Self::Owned {
+                self.to_path_buf_wrapper()
+            }
+        }
+
+        impl serde::Serialize for $path_wrapper {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.0.serialize(serializer)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for &'de $path_wrapper {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let path: &Path = serde::Deserialize::deserialize(deserializer)?;
+                <$path_wrapper>::new_checked(path).map_err(serde::de::Error::custom)
+            }
+        }
+
         $(#[$path_buf_meta])*
+        #[derive(Debug, Clone)]
         pub struct $path_buf_wrapper(PathBuf);
 
         impl $path_buf_wrapper {
@@ -159,6 +189,18 @@ macro_rules! define_path_wrapper {
         impl AsRef<Path> for $path_buf_wrapper {
             fn as_ref(&self) -> &Path {
                 &self.0
+            }
+        }
+
+        impl Borrow<$path_wrapper> for $path_buf_wrapper {
+            fn borrow(&self) -> &$path_wrapper {
+                self.as_path_wrapper()
+            }
+        }
+
+        impl From<$path_buf_wrapper> for Cow<'_, $path_wrapper> {
+            fn from(value: $path_buf_wrapper) -> Self {
+                Cow::Owned(value)
             }
         }
     }
@@ -302,6 +344,7 @@ pub enum PathKind<'a> {
 }
 
 impl<'a> PathKind<'a> {
+    #[must_use]
     pub fn as_abs(&self) -> Option<&'a AbsPath> {
         match self {
             PathKind::Abs(abs) => Some(abs),
@@ -309,6 +352,7 @@ impl<'a> PathKind<'a> {
         }
     }
 
+    #[must_use]
     pub fn as_rel(&self) -> Option<&'a RelPath> {
         match self {
             PathKind::Abs(_) => None,
@@ -333,6 +377,7 @@ pub enum PathBufKind {
 }
 
 impl PathBufKind {
+    #[must_use]
     pub fn as_abs(self) -> Option<AbsPathBuf> {
         match self {
             PathBufKind::Abs(abs) => Some(abs),
@@ -340,6 +385,7 @@ impl PathBufKind {
         }
     }
 
+    #[must_use]
     pub fn as_rel(self) -> Option<RelPathBuf> {
         match self {
             PathBufKind::Abs(_) => None,

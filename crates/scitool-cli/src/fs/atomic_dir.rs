@@ -317,7 +317,7 @@ struct OverwriteEntry<'a> {
     /// The temporary path where the file is currently located. If this file
     /// exists, it is the authoritative source for the file's contents.
     #[serde(borrow)]
-    temp_path: SharedPathItem<'a, Path>,
+    temp_path: SharedPathItem<'a, RelPath>,
 
     /// The final destination path where the file should be moved to during
     /// a commit operation.
@@ -325,11 +325,11 @@ struct OverwriteEntry<'a> {
     /// If the file at `temp_path` does not exist, it must exist here, and it
     /// is the authoritative source for the file's contents.
     #[serde(borrow)]
-    dest_path: SharedPathItem<'a, Path>,
+    dest_path: SharedPathItem<'a, RelPath>,
 }
 
 impl OverwriteEntry<'_> {
-    fn new_owned(temp_path: PathBuf, dest_path: PathBuf) -> OverwriteEntry<'static> {
+    fn new_owned(temp_path: RelPathBuf, dest_path: RelPathBuf) -> OverwriteEntry<'static> {
         OverwriteEntry {
             temp_path: SharedPathItem(Cow::Owned(temp_path)),
             dest_path: SharedPathItem(Cow::Owned(dest_path)),
@@ -348,7 +348,7 @@ impl OverwriteEntry<'_> {
 struct DeleteEntry<'a> {
     /// The path to delete.
     #[serde(borrow)]
-    path: SharedPathItem<'a, Path>,
+    path: SharedPathItem<'a, RelPath>,
 }
 
 impl DeleteEntry<'_> {
@@ -377,7 +377,7 @@ impl CommitEntry<'_> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CommitSchema<'a> {
-    temp_dir: SharedPathItem<'a, Path>,
+    temp_dir: SharedPathItem<'a, RelPath>,
     /// The list of entries to commit.
     #[serde(borrow)]
     entries: Vec<CommitEntry<'a>>,
@@ -612,16 +612,14 @@ where
     io_bail!(Other, "Failed to create a unique temporary directory");
 }
 
-fn is_valid_general_path(path: &Path) -> io::Result<()> {
+fn is_valid_general_path(path: &Path) -> io::Result<&RelPath> {
     // The path must not have any components that are `..`, as this would allow
     // for directory traversal attacks.
-    if path.is_absolute() {
-        io_bail!(
-            Other,
-            "Package file path must not be absolute: {}",
-            path.display()
-        );
-    }
+    let path = RelPath::new_checked(path).map_err(io_err_map!(
+        Other,
+        "Path is not a valid relative path: {}",
+        path.display()
+    ))?;
 
     for component in path.components() {
         match component {
@@ -662,19 +660,19 @@ fn is_valid_general_path(path: &Path) -> io::Result<()> {
     }
     // The path cannot start with the commit file as a prefix, as this would
     // allow for accidental overwrites of in-progress commits.
-    Ok(())
+    Ok(path)
 }
 
-fn is_valid_dest_path(path: &Path) -> io::Result<()> {
+fn is_valid_dest_path(path: &Path) -> io::Result<&RelPath> {
     is_valid_general_path(path)
 }
 
-fn is_valid_temp_path(path: &Path) -> io::Result<()> {
+fn is_valid_temp_path(path: &Path) -> io::Result<&RelPath> {
     is_valid_general_path(path)
 }
 
-fn normalize_dest_path(path: &Path) -> io::Result<PathBuf> {
-    is_valid_dest_path(path)?;
+fn normalize_dest_path(path: &Path) -> io::Result<RelPathBuf> {
+    let path = is_valid_dest_path(path)?;
     let path: PathBuf = path
         .components()
         .filter_map(|c| match c {
@@ -690,6 +688,11 @@ fn normalize_dest_path(path: &Path) -> io::Result<PathBuf> {
         io_bail!(Other, "Destination path cannot be empty");
     }
 
+    let path: RelPathBuf = path.try_into().map_err(io_err_map!(
+        Other,
+        "Normalized destination path is not a valid relative path"
+    ))?;
+
     Ok(path)
 }
 
@@ -704,9 +707,9 @@ impl<FS> AtomicDirInner<FS>
 where
     FS: FileSystemOperations,
 {
-    fn relative_temp_file_path(&self, relative_path: &Path) -> io::Result<PathBuf> {
-        is_valid_dest_path(relative_path)?;
-        Ok(self.temp_dir.join(relative_path))
+    fn relative_temp_file_path(&self, relative_path: &Path) -> io::Result<RelPathBuf> {
+        let relative_path = is_valid_dest_path(relative_path)?;
+        Ok(self.temp_dir.join_rel(relative_path))
     }
 
     pub async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
@@ -776,7 +779,7 @@ where
         }
 
         let commit_schema = CommitSchema {
-            temp_dir: SharedPathItem::<Path>::new(self.temp_dir.as_path()).into_owned(),
+            temp_dir: SharedPathItem::<RelPath>::new(self.temp_dir.clone()).into_owned(),
             entries: self.pending_commits.drain(..).collect(),
         };
         let commit_data = serde_json::to_vec(&commit_schema)
