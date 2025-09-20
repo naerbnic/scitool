@@ -6,51 +6,153 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, thiserror::Error)]
-#[error("Path is not absolute")]
-pub struct AbsPathConvertError;
+macro_rules! define_path_wrapper {
+    (
+        $(#[$path_meta:meta])*
+        $path_wrapper:ident,
+        $(#[$path_buf_meta:meta])*
+        $path_buf_wrapper:ident,
+        $(#[$error_meta:meta])*
+        $error_type:ident,
+        $convert_error_message:literal,
+        $invariant_check:expr
+    ) => {
+        $(#[$error_meta])*
+        #[derive(Debug, thiserror::Error)]
+        #[error($convert_error_message)]
+        pub struct $error_type;
 
-#[repr(transparent)]
-pub struct AbsPath(Path);
+        $(#[$path_meta])*
+        #[repr(transparent)]
+        pub struct $path_wrapper(Path);
 
-impl AbsPath {
-    unsafe fn cast_from_path(path: &Path) -> &Self {
-        // SAFETY: Caller must ensure that path is absolute.
-        unsafe { &*(std::ptr::from_ref(path) as *const AbsPath) }
-    }
-}
+        impl $path_wrapper {
+            /// # Safety
+            ///
+            /// Caller must ensure that `path` satisfies the invariant.
+            unsafe fn cast_from_path(path: &Path) -> &Self {
+                // SAFETY: The wrapper is #[repr(transparent)] over Path.
+                unsafe { &*(std::ptr::from_ref(path) as *const $path_wrapper) }
+            }
+        }
 
-impl<'a> TryFrom<&'a Path> for &'a AbsPath {
-    type Error = AbsPathConvertError;
+        impl<'a> TryFrom<&'a Path> for &'a $path_wrapper {
+            type Error = $error_type;
 
-    fn try_from(value: &'a Path) -> Result<Self, Self::Error> {
-        if value.is_absolute() {
-            Ok(unsafe { AbsPath::cast_from_path(value) })
-        } else {
-            Err(AbsPathConvertError)
+            fn try_from(value: &'a Path) -> Result<Self, Self::Error> {
+                if $invariant_check(value) {
+                    Ok(unsafe { $path_wrapper::cast_from_path(value) })
+                } else {
+                    Err($error_type)
+                }
+            }
+        }
+
+        impl Deref for $path_wrapper {
+            type Target = Path;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl AsRef<Path> for $path_wrapper {
+            fn as_ref(&self) -> &Path {
+                &self.0
+            }
+        }
+
+        $(#[$path_buf_meta])*
+        pub struct $path_buf_wrapper(PathBuf);
+
+        impl $path_buf_wrapper {
+            // Not public to allow for named_accessors.
+            fn as_path_wrapper(&self) -> & $path_wrapper {
+                unsafe { $path_wrapper::cast_from_path(&self.0) }
+            }
+            // All methods are those that cannot violate invariants.
+            #[must_use]
+            pub fn as_path(&self) -> &Path {
+                unsafe { $path_wrapper::cast_from_path(&self.0) }
+            }
+
+            #[must_use]
+            pub fn leak<'a>(self) -> &'a $path_wrapper {
+                Box::leak(Box::new(self)).as_path_wrapper()
+            }
+
+            #[must_use]
+            pub fn into_path_buf(self) -> PathBuf {
+                self.0
+            }
+
+            #[must_use]
+            pub fn into_os_string(self) -> std::ffi::OsString {
+                self.0.into_os_string()
+            }
+
+            #[must_use]
+            pub fn into_boxed_path(self) -> Box<$path_wrapper> {
+                let raw = Box::into_raw(self.0.into_boxed_path()) as *mut $path_wrapper;
+                // SAFETY:
+                // - We ensured the invariant when creating self.
+                // - The path wrapper is #[repr(transparent)] over Path.
+                unsafe { Box::from_raw(raw) }
+            }
+
+            // Methods from PathBuf that are safe to expose
+            #[must_use]
+            pub fn capacity(&self) -> usize { self.0.capacity() }
+            pub fn reserve(&mut self, additional: usize) { self.0.reserve(additional); }
+            pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> { self.0.try_reserve(additional) }
+            pub fn reserve_exact(&mut self, additional: usize) { self.0.reserve_exact(additional); }
+            pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> { self.0.try_reserve_exact(additional) }
+            pub fn shrink_to_fit(&mut self) { self.0.shrink_to_fit(); }
+            pub fn shrink_to(&mut self, min_capacity: usize) { self.0.shrink_to(min_capacity); }
+        }
+
+        impl From<$path_buf_wrapper> for PathBuf {
+            fn from(value: $path_buf_wrapper) -> Self {
+                value.0
+            }
+        }
+
+        impl TryFrom<PathBuf> for $path_buf_wrapper {
+            type Error = $error_type;
+
+            fn try_from(value: PathBuf) -> Result<Self, Self::Error> {
+                if $invariant_check(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err($error_type)
+                }
+            }
+        }
+
+        impl Deref for $path_buf_wrapper {
+            type Target = $path_wrapper;
+            fn deref(&self) -> &Self::Target {
+                self.as_path_wrapper()
+            }
         }
     }
 }
 
-impl Deref for AbsPath {
-    type Target = Path;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+define_path_wrapper! {
+    /// A wrapper around `Path` that guarantees the path is absolute.
+    AbsPath,
+    /// A wrapper around `PathBuf` that guarantees the path is absolute.
+    AbsPathBuf,
+    /// Error returned when trying to convert a `Path` or `PathBuf` to an absolute path wrapper, but the path is not absolute.
+    AbsPathConvertError,
+    "Path is not absolute",
+    Path::is_absolute
 }
-
-impl AsRef<Path> for AbsPath {
-    fn as_ref(&self) -> &Path {
-        &self.0
-    }
-}
-
-pub struct AbsPathBuf(PathBuf);
 
 impl AbsPathBuf {
     // These are versions of PathBuf's methods that preserve the invariant
     // that the path is absolute.
+
     pub fn push<P: AsRef<Path>>(&mut self, path: P) {
         self.0.push(path);
     }
@@ -75,85 +177,6 @@ impl AbsPathBuf {
     #[must_use]
     pub fn as_abs_path(&self) -> &AbsPath {
         unsafe { AbsPath::cast_from_path(&self.0) }
-    }
-
-    #[must_use]
-    pub fn leak<'a>(self) -> &'a AbsPath {
-        Box::leak(Box::new(self)).as_abs_path()
-    }
-
-    #[must_use]
-    pub fn into_path_buf(self) -> PathBuf {
-        self.0
-    }
-
-    #[must_use]
-    pub fn into_os_string(self) -> std::ffi::OsString {
-        self.0.into_os_string()
-    }
-
-    #[must_use]
-    pub fn into_boxed_path(self) -> Box<AbsPath> {
-        let raw = Box::into_raw(self.0.into_boxed_path()) as *mut AbsPath;
-        // SAFETY:
-        // - We ensured the invariant when creating self.
-        // - AbsPath is #[repr(transparent)] over Path, so they can be directly cast.
-        unsafe { Box::from_raw(raw) }
-    }
-
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.0.capacity()
-    }
-
-    pub fn reserve(&mut self, additional: usize) {
-        self.0.reserve(additional);
-    }
-
-    pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        self.0.try_reserve(additional)
-    }
-
-    pub fn reserve_exact(&mut self, additional: usize) {
-        self.0.reserve_exact(additional);
-    }
-
-    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        self.0.try_reserve_exact(additional)
-    }
-
-    pub fn shrink_to_fit(&mut self) {
-        self.0.shrink_to_fit();
-    }
-
-    pub fn shrink_to(&mut self, min_capacity: usize) {
-        self.0.shrink_to(min_capacity);
-    }
-}
-
-// This is fine, because it loosens the invariant.
-impl From<AbsPathBuf> for PathBuf {
-    fn from(value: AbsPathBuf) -> Self {
-        value.0
-    }
-}
-
-impl TryFrom<PathBuf> for AbsPathBuf {
-    type Error = AbsPathConvertError;
-
-    fn try_from(value: PathBuf) -> Result<Self, Self::Error> {
-        if value.is_absolute() {
-            Ok(Self(value))
-        } else {
-            Err(AbsPathConvertError)
-        }
-    }
-}
-
-impl Deref for AbsPathBuf {
-    type Target = AbsPath;
-    fn deref(&self) -> &Self::Target {
-        self.as_abs_path()
     }
 }
 
