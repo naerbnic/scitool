@@ -34,17 +34,21 @@ macro_rules! define_path_wrapper {
                 // SAFETY: The wrapper is #[repr(transparent)] over Path.
                 unsafe { &*(std::ptr::from_ref(path) as *const $path_wrapper) }
             }
+
+            pub fn new_checked(path: &Path) -> Result<&Self, $error_type> {
+                if $invariant_check(path) {
+                    Ok(unsafe { Self::cast_from_path(path) })
+                } else {
+                    Err($error_type)
+                }
+            }
         }
 
         impl<'a> TryFrom<&'a Path> for &'a $path_wrapper {
             type Error = $error_type;
 
             fn try_from(value: &'a Path) -> Result<Self, Self::Error> {
-                if $invariant_check(value) {
-                    Ok(unsafe { $path_wrapper::cast_from_path(value) })
-                } else {
-                    Err($error_type)
-                }
+                $path_wrapper::new_checked(value)
             }
         }
 
@@ -135,6 +139,18 @@ macro_rules! define_path_wrapper {
                 self.as_path_wrapper()
             }
         }
+
+        impl AsRef<$path_wrapper> for $path_buf_wrapper {
+            fn as_ref(&self) -> &$path_wrapper {
+                self.as_path_wrapper()
+            }
+        }
+
+        impl AsRef<Path> for $path_buf_wrapper {
+            fn as_ref(&self) -> &Path {
+                &self.0
+            }
+        }
     }
 }
 
@@ -147,6 +163,17 @@ define_path_wrapper! {
     AbsPathConvertError,
     "Path is not absolute",
     Path::is_absolute
+}
+
+impl AbsPath {
+    pub fn join_rel<P: AsRef<RelPath>>(&self, path: P) -> AbsPathBuf {
+        // It should be impossible to join an absolute path with a relative path and get a relative path.
+        // This is asserted by the invariant of AbsPathBuf.
+        self.0
+            .join(path.as_ref())
+            .try_into()
+            .expect("Joining absolute and relative paths should yield an absolute path")
+    }
 }
 
 impl AbsPathBuf {
@@ -176,7 +203,110 @@ impl AbsPathBuf {
 
     #[must_use]
     pub fn as_abs_path(&self) -> &AbsPath {
-        unsafe { AbsPath::cast_from_path(&self.0) }
+        self.as_path_wrapper()
+    }
+}
+
+fn is_relative_path(path: &Path) -> bool {
+    // This is a bit more complicated that simply `!path.is_absolute()` because
+    // we want to reject prefixes as well. All components must be normal, '..', or '.'.
+    //
+    // If we allow prefixes, then on Windows a path like `C:` would be considered relative,
+    // which refers to the current directory on the C drive, which is not what we want.
+    path.components().all(|c| {
+        matches!(
+            c,
+            std::path::Component::Normal(_)
+                | std::path::Component::CurDir
+                | std::path::Component::ParentDir
+        )
+    })
+}
+
+define_path_wrapper! {
+    /// A wrapper around `Path` that guarantees the path is relative.
+    RelPath,
+    /// A wrapper around `PathBuf` that guarantees the path is relative.
+    RelPathBuf,
+    /// Error returned when trying to convert a `Path` or `PathBuf` to a relative path wrapper, but the path is not relative.
+    RelPathConvertError,
+    "Path is not relative",
+    is_relative_path
+}
+
+impl RelPath {
+    pub fn join_rel<P: AsRef<RelPath>>(&self, path: P) -> RelPathBuf {
+        // It should be impossible to join two relative paths and get an absolute path.
+        // This is asserted by the invariant of RelPathBuf.
+        self.0
+            .join(path.as_ref())
+            .try_into()
+            .expect("Joining two relative paths should yield a relative path")
+    }
+}
+
+impl RelPathBuf {
+    // These are versions of PathBuf's methods that preserve the invariant
+    // that the path is relative.
+
+    pub fn push<P: AsRef<RelPath>>(&mut self, path: P) {
+        let path = path.as_ref();
+        self.0.push(path);
+        assert!(is_relative_path(self), "Pushing made path absolute");
+    }
+
+    pub fn set_file_name<S: AsRef<std::ffi::OsStr>>(&mut self, file_name: S) {
+        self.0.set_file_name(file_name);
+    }
+
+    pub fn set_extension<S: AsRef<std::ffi::OsStr>>(&mut self, extension: S) -> bool {
+        self.0.set_extension(extension)
+    }
+
+    pub fn pop(&mut self) -> bool {
+        // Even the empty relative path is valid, so popping is always allowed.
+        self.0.pop()
+    }
+
+    #[must_use]
+    pub fn as_rel_path(&self) -> &RelPath {
+        unsafe { RelPath::cast_from_path(&self.0) }
+    }
+}
+
+// Discriminatiors for arbitrary Path objects.
+
+#[derive(Debug, thiserror::Error)]
+#[error("Path is neither absolute nor relative.")]
+pub struct ClassifyError;
+
+pub enum PathKind<'a> {
+    Abs(&'a AbsPath),
+    Rel(&'a RelPath),
+}
+
+pub fn classify_path(path: &'_ Path) -> Result<PathKind<'_>, ClassifyError> {
+    if let Ok(abs) = AbsPath::new_checked(path) {
+        Ok(PathKind::Abs(abs))
+    } else if let Ok(rel) = RelPath::new_checked(path) {
+        Ok(PathKind::Rel(rel))
+    } else {
+        Err(ClassifyError)
+    }
+}
+
+pub enum PathBufKind {
+    Abs(AbsPathBuf),
+    Rel(RelPathBuf),
+}
+
+pub fn classify_path_buf(path: PathBuf) -> Result<PathBufKind, ClassifyError> {
+    if let Ok(abs) = AbsPathBuf::try_from(path.clone()) {
+        Ok(PathBufKind::Abs(abs))
+    } else if let Ok(rel) = RelPathBuf::try_from(path) {
+        Ok(PathBufKind::Rel(rel))
+    } else {
+        Err(ClassifyError)
     }
 }
 
@@ -217,21 +347,21 @@ mod tests {
     fn abs_path_buf_push_relative() {
         let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/start")).unwrap();
         abs_buf.push("segment");
-        assert_eq!(abs_buf.as_ref(), Path::new("/start/segment"));
+        assert_eq!(abs_buf.as_path(), Path::new("/start/segment"));
     }
 
     #[test]
     fn abs_path_buf_push_absolute_replaces_path() {
         let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/start")).unwrap();
         abs_buf.push("/new/root");
-        assert_eq!(abs_buf.as_ref(), Path::new("/new/root"));
+        assert_eq!(abs_buf.as_path(), Path::new("/new/root"));
     }
 
     #[test]
     fn abs_path_buf_pop_succeeds() {
         let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b")).unwrap();
         assert!(abs_buf.pop());
-        assert_eq!(abs_buf.as_ref(), Path::new("/a"));
+        assert_eq!(abs_buf.as_path(), Path::new("/a"));
     }
 
     #[test]
@@ -245,14 +375,14 @@ mod tests {
     fn abs_path_buf_set_file_name() {
         let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
         abs_buf.set_file_name("c.md");
-        assert_eq!(abs_buf.as_ref(), Path::new("/a/c.md"));
+        assert_eq!(abs_buf.as_path(), Path::new("/a/c.md"));
     }
 
     #[test]
     fn abs_path_buf_set_extension() {
         let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
         assert!(abs_buf.set_extension("rs"));
-        assert_eq!(abs_buf.as_ref(), Path::new("/a/b.rs"));
+        assert_eq!(abs_buf.as_path(), Path::new("/a/b.rs"));
     }
 
     #[test]
