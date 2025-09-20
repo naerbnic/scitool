@@ -21,7 +21,10 @@ use scidev::{
 
 use tokio::io::AsyncReadExt as _;
 
-use crate::package::schema::Sha256Hash;
+use crate::{
+    fs::err_helpers::{io_async_bail, io_bail, io_err_map},
+    package::schema::Sha256Hash,
+};
 
 use self::{dirty::Dirty, schema::Metadata};
 
@@ -36,54 +39,6 @@ fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, 
     let hash = Sha256Hash::from_data_hash(&*buffer);
 
     Ok(schema::BufferInfo::new(size, hash))
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("{context}: {error}")]
-struct ErrorWithContext<T, E> {
-    context: T,
-    #[source]
-    error: E,
-}
-
-impl<T, E> ErrorWithContext<T, E>
-where
-    T: std::fmt::Display,
-    E: std::error::Error,
-{
-    fn new(context: T, error: E) -> Self {
-        Self { context, error }
-    }
-}
-
-macro_rules! io_err {
-   ($kind:ident, $fmt:literal $($arg:tt)*) => {
-       std::io::Error::new(std::io::ErrorKind::$kind, format!($fmt $($arg)*))
-   };
-}
-
-macro_rules! io_err_map {
-    ($kind:ident, $fmt:literal $($arg:tt)+) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, ErrorWithContext::new(format!($fmt $($arg)+), e))
-    };
-    ($kind:ident, $fmt:literal) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, ErrorWithContext::new($fmt, e))
-    };
-    ($kind:ident) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, e)
-    };
-}
-
-macro_rules! io_bail {
-   ($kind:ident, $fmt:literal $($arg:tt)*) => {
-       return Err(io_err!($kind, $fmt $($arg)*));
-   };
-}
-
-macro_rules! io_async_bail {
-   ($kind:ident, $fmt:literal $($arg:tt)*) => {
-       return std::task::Poll::Ready(Err(io_err!($kind, $fmt $($arg)*)));
-   };
 }
 
 /// Provides an upper bound on the data that can be read from a reader. If the
