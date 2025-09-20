@@ -57,6 +57,7 @@ pub trait FileSystemOperations {
     fn link_file_atomic(&self, src: &Path, dst: &Path) -> impl Future<Output = io::Result<()>>;
     fn remove_file(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
     fn remove_dir(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
+    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
     fn list_dir(
         &self,
         path: &Path,
@@ -118,6 +119,10 @@ impl FileSystemOperations for TokioFileSystemOperations {
 
     async fn remove_dir(&self, path: &Path) -> io::Result<()> {
         tokio::fs::remove_dir(path).await
+    }
+
+    async fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        tokio::fs::remove_dir_all(path).await
     }
 
     async fn list_dir(
@@ -437,26 +442,19 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
     // We have completed recovery, so we can remove the other files. First
     // delete all temporary directories.
     let mut root_entries = fs.list_dir(dir_root).await?;
-    while root_entries
+    while let Some(entry_path) = root_entries
         .next()
         .await
         .transpose()
         .map_err(io_err_map!(Other, "Failed to read directory entry"))?
-        .is_some()
     {
-        let entry_path = root_entries
-            .next()
-            .await
-            .transpose()
-            .map_err(io_err_map!(Other, "Failed to read directory entry"))?;
-        if let Some(entry_path) = entry_path
-            && entry_path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .is_some_and(|name| name.starts_with("tmpdir-") || name.starts_with("tmpdir-"))
+        if entry_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|name| name.starts_with("tmpdir-"))
         {
             // This is a temporary directory, remove it.
-            fs.remove_dir(&entry_path).await.ok();
+            fs.remove_dir_all(&entry_path).await.ok();
         }
     }
 
@@ -686,6 +684,143 @@ where
         // Now that we have written the commit file, we can perform recovery
         // to finalize the changes.
         recover_path(&self.fs, &self.dir_root).await?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::io::AsyncReadExt;
+
+    async fn read_file_to_string<P: AsRef<Path>>(fs: &TokioFileSystemOperations, path: P) -> io::Result<String> {
+        fs.read_file(path.as_ref(), |mut file| async move {
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).await?;
+            Ok(contents)
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_write_and_commit() -> io::Result<()> {
+        let dir = tempdir()?;
+        let fs = TokioFileSystemOperations;
+
+        let mut atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        atomic_dir
+            .write_at_path(Path::new("foo.txt"), |mut file| async move {
+                file.write_all(b"hello").await?;
+                Ok(())
+            })
+            .await?;
+
+        atomic_dir.commit().await?;
+
+        let contents =
+            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("foo.txt")).await?;
+        assert_eq!(contents, "hello");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_delete_and_commit() -> io::Result<()> {
+        let dir = tempdir()?;
+        let fs = TokioFileSystemOperations;
+
+        // Create a file to be deleted.
+        tokio::fs::write(dir.path().join("foo.txt"), "hello").await?;
+
+        let mut atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        atomic_dir.delete_path(Path::new("foo.txt")).await?;
+        atomic_dir.commit().await?;
+
+        assert!(!dir.path().join("foo.txt").exists());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_write_delete_and_commit() -> io::Result<()> {
+        let dir = tempdir()?;
+        let fs = TokioFileSystemOperations;
+
+        // Create a file to be overwritten.
+        tokio::fs::write(dir.path().join("foo.txt"), "old content").await?;
+
+        let mut atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        atomic_dir
+            .write_at_path(Path::new("foo.txt"), |mut file| async move {
+                file.write_all(b"new content").await?;
+                Ok(())
+            })
+            .await?;
+        atomic_dir.delete_path(Path::new("bar.txt")).await?;
+        atomic_dir
+            .write_at_path(Path::new("bar.txt"), |mut file| async move {
+                file.write_all(b"new file").await?;
+                Ok(())
+            })
+            .await?;
+        atomic_dir.commit().await?;
+
+        let contents =
+            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("foo.txt")).await?;
+        assert_eq!(contents, "new content");
+        let contents_bar =
+            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("bar.txt")).await?;
+        assert_eq!(contents_bar, "new file");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_recovery() -> io::Result<()> {
+        let dir = tempdir()?;
+        let fs = TokioFileSystemOperations;
+
+        // Simulate a partial commit.
+        let commit_schema = CommitSchema {
+            temp_dir: RelPathBuf::new_checked("tmpdir-recovery-test").unwrap(),
+            entries: vec![
+                CommitEntry::Overwrite(OverwriteEntry::new_owned(
+                    RelPathBuf::new_checked("tmpdir-recovery-test/foo.txt").unwrap(),
+                    RelPathBuf::new_checked("foo.txt").unwrap(),
+                )),
+                CommitEntry::Delete(DeleteEntry {
+                    path: RelPathBuf::new_checked("bar.txt").unwrap(),
+                }),
+            ],
+        };
+
+        // Create the temporary directory and file.
+        tokio::fs::create_dir(dir.path().join("tmpdir-recovery-test")).await?;
+        tokio::fs::write(
+            dir.path().join("tmpdir-recovery-test/foo.txt"),
+            "recovered",
+        )
+        .await?;
+
+        // Create a file to be deleted.
+        tokio::fs::write(dir.path().join("bar.txt"), "to be deleted").await?;
+
+        // Write the commit file.
+        let commit_data = serde_json::to_vec(&commit_schema)?;
+        tokio::fs::write(dir.path().join(COMMIT_PATH), commit_data).await?;
+
+        // Now, run recovery.
+        let _atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+
+        // Check that recovery happened.
+        let contents =
+            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("foo.txt")).await?;
+        assert_eq!(contents, "recovered");
+        assert!(!dir.path().join("bar.txt").exists());
+        assert!(!dir.path().join(COMMIT_PATH).exists());
+        assert!(!dir.path().join("tmpdir-recovery-test").exists());
 
         Ok(())
     }
