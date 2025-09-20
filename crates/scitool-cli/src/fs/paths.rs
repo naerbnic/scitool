@@ -203,6 +203,25 @@ macro_rules! define_path_wrapper {
                 Cow::Owned(value)
             }
         }
+
+        impl serde::Serialize for $path_buf_wrapper {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.0.serialize(serializer)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $path_buf_wrapper {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let path: PathBuf = serde::Deserialize::deserialize(deserializer)?;
+                <$path_buf_wrapper>::try_from(path).map_err(serde::de::Error::custom)
+            }
+        }
     }
 }
 
