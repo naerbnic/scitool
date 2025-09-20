@@ -166,11 +166,12 @@ define_path_wrapper! {
 }
 
 impl AbsPath {
-    pub fn join_rel<P: AsRef<RelPath>>(&self, path: P) -> AbsPathBuf {
+    #[must_use]
+    pub fn join_rel(&self, path: &RelPath) -> AbsPathBuf {
         // It should be impossible to join an absolute path with a relative path and get a relative path.
         // This is asserted by the invariant of AbsPathBuf.
         self.0
-            .join(path.as_ref())
+            .join(path)
             .try_into()
             .expect("Joining absolute and relative paths should yield an absolute path")
     }
@@ -235,11 +236,12 @@ define_path_wrapper! {
 }
 
 impl RelPath {
-    pub fn join_rel<P: AsRef<RelPath>>(&self, path: P) -> RelPathBuf {
+    #[must_use]
+    pub fn join_rel(&self, path: &RelPath) -> RelPathBuf {
         // It should be impossible to join two relative paths and get an absolute path.
         // This is asserted by the invariant of RelPathBuf.
         self.0
-            .join(path.as_ref())
+            .join(path)
             .try_into()
             .expect("Joining two relative paths should yield a relative path")
     }
@@ -249,8 +251,7 @@ impl RelPathBuf {
     // These are versions of PathBuf's methods that preserve the invariant
     // that the path is relative.
 
-    pub fn push<P: AsRef<RelPath>>(&mut self, path: P) {
-        let path = path.as_ref();
+    pub fn push(&mut self, path: &RelPath) {
         self.0.push(path);
         assert!(is_relative_path(self), "Pushing made path absolute");
     }
@@ -397,5 +398,112 @@ mod tests {
         let abs_buf = AbsPathBuf::try_from(path_buf.clone()).unwrap();
         let new_path_buf: PathBuf = abs_buf.into();
         assert_eq!(new_path_buf, path_buf);
+    }
+
+    // --- RelPath and RelPathBuf Tests ---
+
+    #[test]
+    fn rel_path_try_from_path_succeeds_for_relative() {
+        let path = Path::new("relative/path");
+        let rel_path = <&RelPath>::try_from(path);
+        assert!(rel_path.is_ok());
+        assert_eq!(rel_path.unwrap().as_ref(), path);
+    }
+
+    #[test]
+    fn rel_path_try_from_path_fails_for_absolute() {
+        let path = Path::new("/absolute/path");
+        let rel_path = <&RelPath>::try_from(path);
+        assert!(rel_path.is_err());
+    }
+
+    #[test]
+    fn rel_path_buf_try_from_path_buf_succeeds_for_relative() {
+        let path_buf = PathBuf::from("relative/path");
+        let rel_path_buf = RelPathBuf::try_from(path_buf);
+        assert!(rel_path_buf.is_ok());
+    }
+
+    #[test]
+    fn rel_path_buf_try_from_path_buf_fails_for_absolute() {
+        let path_buf = PathBuf::from("/absolute/path");
+        let rel_path_buf = RelPathBuf::try_from(path_buf);
+        assert!(rel_path_buf.is_err());
+    }
+
+    #[test]
+    fn rel_path_buf_push_relative() {
+        let mut rel_buf = RelPathBuf::try_from(PathBuf::from("start")).unwrap();
+        let segment = RelPath::new_checked(Path::new("segment")).unwrap();
+        rel_buf.push(segment);
+        assert_eq!(rel_buf.as_path(), Path::new("start/segment"));
+    }
+
+    #[test]
+    fn rel_path_buf_pop_succeeds() {
+        let mut rel_buf = RelPathBuf::try_from(PathBuf::from("a/b")).unwrap();
+        assert!(rel_buf.pop());
+        assert_eq!(rel_buf.as_path(), Path::new("a"));
+        assert!(rel_buf.pop());
+        assert_eq!(rel_buf.as_path(), Path::new(""));
+        assert!(!rel_buf.pop());
+    }
+
+    #[test]
+    fn rel_path_join_rel() {
+        let rel_path = RelPath::new_checked(Path::new("a/b")).unwrap();
+        let other_rel = RelPath::new_checked(Path::new("c/d")).unwrap();
+        let joined = rel_path.join_rel(other_rel);
+        assert_eq!(joined.as_path(), Path::new("a/b/c/d"));
+    }
+
+    #[test]
+    fn abs_path_join_rel() {
+        let abs_path = AbsPath::new_checked(Path::new("/a/b")).unwrap();
+        let rel_path = RelPath::new_checked(Path::new("c/d")).unwrap();
+        let joined = abs_path.join_rel(rel_path);
+        assert_eq!(joined.as_path(), Path::new("/a/b/c/d"));
+    }
+
+    // --- Classification Tests ---
+
+    #[test]
+    fn classify_path_abs() {
+        let path = Path::new("/a/b");
+        let classified = classify_path(path).unwrap();
+        match classified {
+            PathKind::Abs(abs) => assert_eq!(abs.as_ref(), path),
+            PathKind::Rel(_) => panic!("Classified absolute path as relative"),
+        }
+    }
+
+    #[test]
+    fn classify_path_rel() {
+        let path = Path::new("a/b");
+        let classified = classify_path(path).unwrap();
+        match classified {
+            PathKind::Abs(_) => panic!("Classified relative path as absolute"),
+            PathKind::Rel(rel) => assert_eq!(rel.as_ref(), path),
+        }
+    }
+
+    #[test]
+    fn classify_path_buf_abs() {
+        let path_buf = PathBuf::from("/a/b");
+        let classified = classify_path_buf(path_buf.clone()).unwrap();
+        match classified {
+            PathBufKind::Abs(abs) => assert_eq!(abs.as_path(), path_buf.as_path()),
+            PathBufKind::Rel(_) => panic!("Classified absolute path as relative"),
+        }
+    }
+
+    #[test]
+    fn classify_path_buf_rel() {
+        let path_buf = PathBuf::from("a/b");
+        let classified = classify_path_buf(path_buf.clone()).unwrap();
+        match classified {
+            PathBufKind::Abs(_) => panic!("Classified relative path as absolute"),
+            PathBufKind::Rel(rel) => assert_eq!(rel.as_path(), path_buf.as_path()),
+        }
     }
 }
