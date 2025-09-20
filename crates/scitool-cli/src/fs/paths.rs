@@ -35,7 +35,12 @@ macro_rules! define_path_wrapper {
                 unsafe { &*(std::ptr::from_ref(path) as *const $path_wrapper) }
             }
 
-            pub fn new_checked(path: &Path) -> Result<&Self, $error_type> {
+            fn to_path_buf_wrapper(&self) -> $path_buf_wrapper {
+                $path_buf_wrapper(self.0.to_path_buf())
+            }
+
+            pub fn new_checked<P>(path: &P) -> Result<&Self, $error_type> where P: AsRef<Path> + ?Sized {
+                let path = path.as_ref();
                 if $invariant_check(path) {
                     Ok(unsafe { Self::cast_from_path(path) })
                 } else {
@@ -74,6 +79,11 @@ macro_rules! define_path_wrapper {
             fn as_path_wrapper(&self) -> & $path_wrapper {
                 unsafe { $path_wrapper::cast_from_path(&self.0) }
             }
+
+            pub fn new_checked<P>(path: &P) -> Result<Self, $error_type> where P: AsRef<Path> + ?Sized{
+                Ok(<$path_wrapper>::new_checked(path)?.to_path_buf_wrapper())
+            }
+            
             // All methods are those that cannot violate invariants.
             #[must_use]
             pub fn as_path(&self) -> &Path {
@@ -346,21 +356,21 @@ mod tests {
 
     #[test]
     fn abs_path_buf_push_relative() {
-        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/start")).unwrap();
+        let mut abs_buf = AbsPathBuf::new_checked("/start").unwrap();
         abs_buf.push("segment");
         assert_eq!(abs_buf.as_path(), Path::new("/start/segment"));
     }
 
     #[test]
     fn abs_path_buf_push_absolute_replaces_path() {
-        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/start")).unwrap();
+        let mut abs_buf = AbsPathBuf::new_checked("/start").unwrap();
         abs_buf.push("/new/root");
         assert_eq!(abs_buf.as_path(), Path::new("/new/root"));
     }
 
     #[test]
     fn abs_path_buf_pop_succeeds() {
-        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b")).unwrap();
+        let mut abs_buf = AbsPathBuf::new_checked("/a/b").unwrap();
         assert!(abs_buf.pop());
         assert_eq!(abs_buf.as_path(), Path::new("/a"));
     }
@@ -368,27 +378,27 @@ mod tests {
     #[test]
     #[should_panic(expected = "Popping would make path relative")]
     fn abs_path_buf_pop_panics_when_root_is_popped() {
-        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/")).unwrap();
+        let mut abs_buf = AbsPathBuf::new_checked("/").unwrap();
         abs_buf.pop(); // This should panic.
     }
 
     #[test]
     fn abs_path_buf_set_file_name() {
-        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
+        let mut abs_buf = AbsPathBuf::new_checked("/a/b.txt").unwrap();
         abs_buf.set_file_name("c.md");
         assert_eq!(abs_buf.as_path(), Path::new("/a/c.md"));
     }
 
     #[test]
     fn abs_path_buf_set_extension() {
-        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
+        let mut abs_buf = AbsPathBuf::new_checked("/a/b.txt").unwrap();
         assert!(abs_buf.set_extension("rs"));
         assert_eq!(abs_buf.as_path(), Path::new("/a/b.rs"));
     }
 
     #[test]
     fn deref_allows_path_methods() {
-        let abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
+        let abs_buf = AbsPathBuf::new_checked("/a/b.txt").unwrap();
         assert_eq!(abs_buf.file_name().unwrap(), "b.txt");
     }
 
@@ -433,15 +443,15 @@ mod tests {
 
     #[test]
     fn rel_path_buf_push_relative() {
-        let mut rel_buf = RelPathBuf::try_from(PathBuf::from("start")).unwrap();
-        let segment = RelPath::new_checked(Path::new("segment")).unwrap();
+        let mut rel_buf = RelPathBuf::new_checked("start").unwrap();
+        let segment = RelPath::new_checked("segment").unwrap();
         rel_buf.push(segment);
         assert_eq!(rel_buf.as_path(), Path::new("start/segment"));
     }
 
     #[test]
     fn rel_path_buf_pop_succeeds() {
-        let mut rel_buf = RelPathBuf::try_from(PathBuf::from("a/b")).unwrap();
+        let mut rel_buf = RelPathBuf::new_checked("a/b").unwrap();
         assert!(rel_buf.pop());
         assert_eq!(rel_buf.as_path(), Path::new("a"));
         assert!(rel_buf.pop());
@@ -451,16 +461,16 @@ mod tests {
 
     #[test]
     fn rel_path_join_rel() {
-        let rel_path = RelPath::new_checked(Path::new("a/b")).unwrap();
-        let other_rel = RelPath::new_checked(Path::new("c/d")).unwrap();
+        let rel_path = RelPath::new_checked("a/b").unwrap();
+        let other_rel = RelPath::new_checked("c/d").unwrap();
         let joined = rel_path.join_rel(other_rel);
         assert_eq!(joined.as_path(), Path::new("a/b/c/d"));
     }
 
     #[test]
     fn abs_path_join_rel() {
-        let abs_path = AbsPath::new_checked(Path::new("/a/b")).unwrap();
-        let rel_path = RelPath::new_checked(Path::new("c/d")).unwrap();
+        let abs_path = AbsPath::new_checked("/a/b").unwrap();
+        let rel_path = RelPath::new_checked("c/d").unwrap();
         let joined = abs_path.join_rel(rel_path);
         assert_eq!(joined.as_path(), Path::new("/a/b/c/d"));
     }
