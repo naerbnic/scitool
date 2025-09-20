@@ -156,3 +156,93 @@ impl Deref for AbsPathBuf {
         self.as_abs_path()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abs_path_try_from_path_succeeds_for_absolute() {
+        let path = Path::new("/absolute/path");
+        let abs_path = <&AbsPath>::try_from(path);
+        assert!(abs_path.is_ok());
+        assert_eq!(abs_path.unwrap().as_ref(), path);
+    }
+
+    #[test]
+    fn abs_path_try_from_path_fails_for_relative() {
+        let path = Path::new("relative/path");
+        let abs_path = <&AbsPath>::try_from(path);
+        assert!(abs_path.is_err());
+    }
+
+    #[test]
+    fn abs_path_buf_try_from_path_buf_succeeds_for_absolute() {
+        let path_buf = PathBuf::from("/absolute/path");
+        let abs_path_buf = AbsPathBuf::try_from(path_buf);
+        assert!(abs_path_buf.is_ok());
+    }
+
+    #[test]
+    fn abs_path_buf_try_from_path_buf_fails_for_relative() {
+        let path_buf = PathBuf::from("relative/path");
+        let abs_path_buf = AbsPathBuf::try_from(path_buf);
+        assert!(abs_path_buf.is_err());
+    }
+
+    #[test]
+    fn abs_path_buf_push_relative() {
+        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/start")).unwrap();
+        abs_buf.push("segment");
+        assert_eq!(abs_buf.as_ref(), Path::new("/start/segment"));
+    }
+
+    #[test]
+    fn abs_path_buf_push_absolute_replaces_path() {
+        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/start")).unwrap();
+        abs_buf.push("/new/root");
+        assert_eq!(abs_buf.as_ref(), Path::new("/new/root"));
+    }
+
+    #[test]
+    fn abs_path_buf_pop_succeeds() {
+        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b")).unwrap();
+        assert!(abs_buf.pop());
+        assert_eq!(abs_buf.as_ref(), Path::new("/a"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Popping would make path relative")]
+    fn abs_path_buf_pop_panics_when_root_is_popped() {
+        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/")).unwrap();
+        abs_buf.pop(); // This should panic.
+    }
+
+    #[test]
+    fn abs_path_buf_set_file_name() {
+        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
+        abs_buf.set_file_name("c.md");
+        assert_eq!(abs_buf.as_ref(), Path::new("/a/c.md"));
+    }
+
+    #[test]
+    fn abs_path_buf_set_extension() {
+        let mut abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
+        assert!(abs_buf.set_extension("rs"));
+        assert_eq!(abs_buf.as_ref(), Path::new("/a/b.rs"));
+    }
+
+    #[test]
+    fn deref_allows_path_methods() {
+        let abs_buf = AbsPathBuf::try_from(PathBuf::from("/a/b.txt")).unwrap();
+        assert_eq!(abs_buf.file_name().unwrap(), "b.txt");
+    }
+
+    #[test]
+    fn into_path_buf_works() {
+        let path_buf = PathBuf::from("/a/b");
+        let abs_buf = AbsPathBuf::try_from(path_buf.clone()).unwrap();
+        let new_path_buf: PathBuf = abs_buf.into();
+        assert_eq!(new_path_buf, path_buf);
+    }
+}
