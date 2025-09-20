@@ -16,8 +16,9 @@ use tokio::{
 };
 
 use crate::fs::{
-    err_helpers::{io_bail, io_err_map},
+    err_helpers::{io_bail, io_err, io_err_map},
     owned_arc::{MutBorrowedArc, loan_arc},
+    paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf, classify_path},
 };
 
 const COMMIT_PATH: &str = ".DIR_COMMIT";
@@ -185,52 +186,83 @@ impl FileSystemOperations for TokioFileSystemOperations {
     }
 }
 
-#[derive(Debug, Clone)]
-struct SharedPathItem<'a>(Cow<'a, Path>);
+#[derive(Debug)]
+struct SharedPathItem<'a, T>(Cow<'a, T>)
+where
+    T: ToOwned + ?Sized,
+    T::Owned: std::fmt::Debug;
 
-impl<'a> SharedPathItem<'a> {
+impl<T> Clone for SharedPathItem<'_, T>
+where
+    T: ToOwned + ?Sized,
+    T::Owned: std::fmt::Debug,
+{
+    fn clone(&self) -> Self {
+        SharedPathItem(self.0.clone())
+    }
+}
+
+impl<'a, T> SharedPathItem<'a, T>
+where
+    T: ToOwned + ?Sized,
+    T::Owned: std::fmt::Debug,
+{
     fn new<P>(path: P) -> Self
     where
-        P: Into<Cow<'a, Path>>,
+        P: Into<Cow<'a, T>>,
     {
         SharedPathItem(path.into())
     }
 
-    fn into_owned(self) -> SharedPathItem<'static> {
+    fn into_owned(self) -> SharedPathItem<'static, T> {
         SharedPathItem(Cow::Owned(self.0.into_owned()))
     }
 }
 
-impl std::fmt::Display for SharedPathItem<'_> {
+impl<T> std::fmt::Display for SharedPathItem<'_, T>
+where
+    T: ToOwned + std::fmt::Display + ?Sized,
+    T::Owned: std::fmt::Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.display().fmt(f)
+        self.0.as_ref().fmt(f)
     }
 }
 
-impl Serialize for SharedPathItem<'_> {
+impl<T> Serialize for SharedPathItem<'_, T>
+where
+    T: ToOwned + Serialize + ?Sized,
+    T::Owned: std::fmt::Debug,
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        self.0
-            .to_str()
-            .ok_or_else(|| serde::ser::Error::custom("Path is not valid UTF-8"))?
-            .serialize(serializer)
+        Serialize::serialize(&self.0, serializer)
     }
 }
 
-impl<'de: 'a, 'a> Deserialize<'de> for SharedPathItem<'a> {
+impl<'de: 'a, 'a, T> Deserialize<'de> for SharedPathItem<'a, T>
+where
+    T: ToOwned + ?Sized + 'de,
+    T::Owned: std::fmt::Debug,
+    &'de T: Deserialize<'de>,
+{
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let path: Cow<'a, Path> = Deserialize::deserialize(deserializer)?;
-        Ok(SharedPathItem(path))
+        let value: &'de T = Deserialize::deserialize(deserializer)?;
+        Ok(SharedPathItem(Cow::Borrowed(value)))
     }
 }
 
-impl std::ops::Deref for SharedPathItem<'_> {
-    type Target = Path;
+impl<T> std::ops::Deref for SharedPathItem<'_, T>
+where
+    T: ToOwned + ?Sized,
+    T::Owned: std::fmt::Debug,
+{
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -239,10 +271,10 @@ impl std::ops::Deref for SharedPathItem<'_> {
 
 async fn write_file_atomic<F, Fut, FS>(
     fs: &FS,
-    base_dir: &Path,
-    tmp_dir: &Path,
+    base_dir: &AbsPath,
+    tmp_dir: &AbsPath,
     write_mode: WriteMode,
-    path: &Path,
+    path: &RelPath,
     body: F,
 ) -> io::Result<()>
 where
@@ -250,8 +282,8 @@ where
     Fut: Future<Output = io::Result<()>>,
     FS: FileSystemOperations,
 {
-    let temp_path = tmp_dir.join(path);
-    let dest_path = base_dir.join(path);
+    let temp_path = tmp_dir.join_rel(path);
+    let dest_path = base_dir.join_rel(path);
     // Create the parent directories for the given path.
     if let Some(parent) = temp_path.parent() {
         fs.create_dir_all(parent).await?;
@@ -285,7 +317,7 @@ struct OverwriteEntry<'a> {
     /// The temporary path where the file is currently located. If this file
     /// exists, it is the authoritative source for the file's contents.
     #[serde(borrow)]
-    temp_path: SharedPathItem<'a>,
+    temp_path: SharedPathItem<'a, Path>,
 
     /// The final destination path where the file should be moved to during
     /// a commit operation.
@@ -293,7 +325,7 @@ struct OverwriteEntry<'a> {
     /// If the file at `temp_path` does not exist, it must exist here, and it
     /// is the authoritative source for the file's contents.
     #[serde(borrow)]
-    dest_path: SharedPathItem<'a>,
+    dest_path: SharedPathItem<'a, Path>,
 }
 
 impl OverwriteEntry<'_> {
@@ -316,7 +348,7 @@ impl OverwriteEntry<'_> {
 struct DeleteEntry<'a> {
     /// The path to delete.
     #[serde(borrow)]
-    path: SharedPathItem<'a>,
+    path: SharedPathItem<'a, Path>,
 }
 
 impl DeleteEntry<'_> {
@@ -345,7 +377,7 @@ impl CommitEntry<'_> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CommitSchema<'a> {
-    temp_dir: SharedPathItem<'a>,
+    temp_dir: SharedPathItem<'a, Path>,
     /// The list of entries to commit.
     #[serde(borrow)]
     entries: Vec<CommitEntry<'a>>,
@@ -438,7 +470,7 @@ async fn apply_entry<FS: FileSystemOperations>(
     Ok(())
 }
 
-async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &Path) -> io::Result<()> {
+async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> io::Result<()> {
     match fs.get_path_kind(dir_root).await? {
         PathKind::Directory => {
             // Normal case, nothing to do.
@@ -460,7 +492,7 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &Path) -> io:
         ),
     }
 
-    let commit_path = dir_root.join(COMMIT_PATH);
+    let commit_path = dir_root.join_rel(RelPath::new_checked(COMMIT_PATH).unwrap());
 
     match fs.get_path_kind(&commit_path).await? {
         PathKind::File => {
@@ -551,7 +583,7 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &Path) -> io:
     Ok(())
 }
 
-async fn create_temp_dir<FS, R>(fs: &FS, rng: &mut R, base_dir: &Path) -> io::Result<PathBuf>
+async fn create_temp_dir<FS, R>(fs: &FS, rng: &mut R, base_dir: &Path) -> io::Result<RelPathBuf>
 where
     FS: FileSystemOperations,
     R: Rng,
@@ -564,6 +596,10 @@ where
             .collect::<String>();
 
         let dir_name: PathBuf = format!("tmpdir-{rand_str}").into();
+        let dir_name: RelPathBuf = dir_name.try_into().map_err(io_err_map!(
+            Other,
+            "Generated temporary directory name is not a valid relative path"
+        ))?;
         let possible_temp_dir = base_dir.join(&dir_name);
         match fs.create_dir(&possible_temp_dir).await {
             Ok(()) => return Ok(dir_name),
@@ -659,8 +695,8 @@ fn normalize_dest_path(path: &Path) -> io::Result<PathBuf> {
 
 pub struct AtomicDirInner<FS: FileSystemOperations> {
     fs: FS,
-    dir_root: PathBuf,
-    temp_dir: PathBuf,
+    dir_root: AbsPathBuf,
+    temp_dir: RelPathBuf,
     pending_commits: Vec<CommitEntry<'static>>,
 }
 
@@ -674,6 +710,16 @@ where
     }
 
     pub async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
+        let dir_root = classify_path(dir_root)
+            .map_err(io_err_map!(Other, "Failed to classify directory root path"))?
+            .as_abs()
+            .ok_or_else(|| {
+                io_err!(
+                    Other,
+                    "Directory root path must be absolute: {}",
+                    dir_root.display()
+                )
+            })?;
         // It's possible that the previous operation was interrupted, so we
         // should try to recover the directory first.
         recover_path(&fs, dir_root).await?;
@@ -682,7 +728,7 @@ where
 
         Ok(AtomicDirInner {
             fs,
-            dir_root: dir_root.to_owned(),
+            dir_root: dir_root.to_abs_path_buf(),
             temp_dir,
             pending_commits: Vec::new(),
         })
@@ -730,7 +776,7 @@ where
         }
 
         let commit_schema = CommitSchema {
-            temp_dir: SharedPathItem::new(&self.temp_dir).into_owned(),
+            temp_dir: SharedPathItem::<Path>::new(self.temp_dir.as_path()).into_owned(),
             entries: self.pending_commits.drain(..).collect(),
         };
         let commit_data = serde_json::to_vec(&commit_schema)
@@ -739,9 +785,12 @@ where
         write_file_atomic(
             &self.fs,
             &self.dir_root,
-            &self.dir_root.join(&self.temp_dir),
+            &self.dir_root.join_rel(&self.temp_dir),
             WriteMode::CreateNew,
-            COMMIT_PATH.as_ref(),
+            RelPath::new_checked(COMMIT_PATH).map_err(io_err_map!(
+                Other,
+                "Failed to create relative path for commit file"
+            ))?,
             async |mut file| {
                 file.write_all(&commit_data).await?;
                 Ok(())

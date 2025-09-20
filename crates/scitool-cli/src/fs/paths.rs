@@ -83,7 +83,7 @@ macro_rules! define_path_wrapper {
             pub fn new_checked<P>(path: &P) -> Result<Self, $error_type> where P: AsRef<Path> + ?Sized{
                 Ok(<$path_wrapper>::new_checked(path)?.to_path_buf_wrapper())
             }
-            
+
             // All methods are those that cannot violate invariants.
             #[must_use]
             pub fn as_path(&self) -> &Path {
@@ -184,6 +184,11 @@ impl AbsPath {
             .join(path)
             .try_into()
             .expect("Joining absolute and relative paths should yield an absolute path")
+    }
+
+    #[must_use]
+    pub fn to_abs_path_buf(&self) -> AbsPathBuf {
+        self.to_path_buf_wrapper()
     }
 }
 
@@ -296,6 +301,22 @@ pub enum PathKind<'a> {
     Rel(&'a RelPath),
 }
 
+impl<'a> PathKind<'a> {
+    pub fn as_abs(&self) -> Option<&'a AbsPath> {
+        match self {
+            PathKind::Abs(abs) => Some(abs),
+            PathKind::Rel(_) => None,
+        }
+    }
+
+    pub fn as_rel(&self) -> Option<&'a RelPath> {
+        match self {
+            PathKind::Abs(_) => None,
+            PathKind::Rel(rel) => Some(rel),
+        }
+    }
+}
+
 pub fn classify_path(path: &'_ Path) -> Result<PathKind<'_>, ClassifyError> {
     if let Ok(abs) = AbsPath::new_checked(path) {
         Ok(PathKind::Abs(abs))
@@ -309,6 +330,22 @@ pub fn classify_path(path: &'_ Path) -> Result<PathKind<'_>, ClassifyError> {
 pub enum PathBufKind {
     Abs(AbsPathBuf),
     Rel(RelPathBuf),
+}
+
+impl PathBufKind {
+    pub fn as_abs(self) -> Option<AbsPathBuf> {
+        match self {
+            PathBufKind::Abs(abs) => Some(abs),
+            PathBufKind::Rel(_) => None,
+        }
+    }
+
+    pub fn as_rel(self) -> Option<RelPathBuf> {
+        match self {
+            PathBufKind::Abs(_) => None,
+            PathBufKind::Rel(rel) => Some(rel),
+        }
+    }
 }
 
 pub fn classify_path_buf(path: PathBuf) -> Result<PathBufKind, ClassifyError> {
