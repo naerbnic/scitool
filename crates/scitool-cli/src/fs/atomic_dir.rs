@@ -6,189 +6,19 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use futures::{Stream, StreamExt as _};
+use futures::StreamExt as _;
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
-};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::fs::{
-    err_helpers::{io_bail, io_err, io_err_map},
-    owned_arc::{MutBorrowedArc, loan_arc},
-    paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf, classify_path},
+    err_helpers::{io_bail, io_err_map},
+    ops::{FileSystemOperations, LockFile, PathKind, WriteMode},
+    paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf},
 };
 
 const COMMIT_PATH: &str = ".DIR_COMMIT";
-
-pub enum PathKind {
-    File,
-    Directory,
-    Other,
-    Missing,
-}
-
-#[derive(Debug)]
-pub enum WriteMode {
-    /// Overwrite the file if it exists, or create it if it does not.
-    Overwrite,
-    /// Create the file, but fail if it already exists.
-    CreateNew,
-}
-
-/// A trait for the file system operations needed by `AtomicDir`.
-pub trait FileSystemOperations {
-    type FileReader: AsyncRead + Unpin + Send;
-    type FileWriter: AsyncWrite + Unpin + Send;
-
-    /// Checks to see the kind of the path, or if the path does not exist.
-    fn get_path_kind(&self, path: &Path) -> impl Future<Output = io::Result<PathKind>>;
-
-    /// Attempts a rename of the file at `src` to `dst` atomically, overwriting it if it exists.
-    /// If the source file does not exist, it returns `RenameFileResult::SourceMissing`
-    fn rename_file_atomic(&self, src: &Path, dst: &Path) -> impl Future<Output = io::Result<()>>;
-
-    /// Attempts to create a hard link of the file at `src` to `dst` atomically. If the destination
-    /// file already exists, it is not modified and an `AlreadyExists` error is returned.
-    ///
-    /// Once a hard link is created, the file can be accessed from either path. Deleting one path does not
-    /// delete the other path, and the file's data is only removed from disk when all hard links to it are deleted.
-    fn link_file_atomic(&self, src: &Path, dst: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_file(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_dir(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn list_dir(
-        &self,
-        path: &Path,
-    ) -> impl Future<Output = io::Result<impl Stream<Item = io::Result<PathBuf>> + Unpin>>;
-    /// Creates a directory at a location. The parent directories must already exist, and the
-    /// directory must not already exist.
-    ///
-    /// Returns an `AlreadyExists` error if the directory already exists.
-    fn create_dir(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn create_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn read_file<F, Fut, R>(&self, path: &Path, body: F) -> impl Future<Output = io::Result<R>>
-    where
-        F: FnOnce(Self::FileReader) -> Fut + Send,
-        Fut: Future<Output = io::Result<R>>;
-    fn write_to_file<F, Fut, R>(
-        &self,
-        write_mode: WriteMode,
-        path: &Path,
-        body: F,
-    ) -> impl Future<Output = io::Result<R>>
-    where
-        F: FnOnce(Self::FileWriter) -> Fut,
-        Fut: Future<Output = io::Result<R>>;
-}
-
-pub struct TokioFileSystemOperations;
-
-impl FileSystemOperations for TokioFileSystemOperations {
-    type FileReader = MutBorrowedArc<File>;
-    type FileWriter = File;
-
-    async fn get_path_kind(&self, path: &Path) -> io::Result<PathKind> {
-        match tokio::fs::metadata(&path).await {
-            Ok(metadata) => {
-                if metadata.is_file() {
-                    Ok(PathKind::File)
-                } else if metadata.is_dir() {
-                    Ok(PathKind::Directory)
-                } else {
-                    Ok(PathKind::Other)
-                }
-            }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(PathKind::Missing),
-            Err(err) => Err(err),
-        }
-    }
-
-    async fn rename_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()> {
-        tokio::fs::rename(src, dst).await
-    }
-
-    async fn link_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()> {
-        tokio::fs::hard_link(src, dst).await
-    }
-
-    async fn remove_file(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_file(path).await
-    }
-
-    async fn remove_dir(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_dir(path).await
-    }
-
-    async fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_dir_all(path).await
-    }
-
-    async fn list_dir(
-        &self,
-        path: &Path,
-    ) -> io::Result<impl Stream<Item = io::Result<PathBuf>> + Unpin> {
-        let mut entries = tokio::fs::read_dir(path).await?;
-        Ok(futures::stream::poll_fn(move |cx| {
-            let poll_result = futures::ready!(entries.poll_next_entry(cx));
-            let entry = match poll_result {
-                Ok(entry) => entry,
-                Err(err) => return std::task::Poll::Ready(Some(Err(err))),
-            };
-            if let Some(entry) = entry {
-                std::task::Poll::Ready(Some(Ok(entry.path())))
-            } else {
-                std::task::Poll::Ready(None)
-            }
-        }))
-    }
-
-    async fn create_dir(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::create_dir(path).await
-    }
-
-    async fn create_dir_all(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::create_dir_all(path).await
-    }
-
-    async fn read_file<F, Fut, R>(&self, path: &Path, body: F) -> io::Result<R>
-    where
-        F: FnOnce(Self::FileReader) -> Fut + Send,
-        Fut: Future<Output = io::Result<R>>,
-    {
-        let path = path.to_owned();
-        let (borrowed_file, lent_file) = loan_arc(File::open(&path).await?);
-        let res = body(borrowed_file).await;
-        let file = lent_file.take_back();
-        file.sync_all().await?;
-        res
-    }
-
-    async fn write_to_file<F, Fut, R>(
-        &self,
-        write_mode: WriteMode,
-        path: &Path,
-        body: F,
-    ) -> io::Result<R>
-    where
-        F: FnOnce(Self::FileWriter) -> Fut,
-        Fut: Future<Output = io::Result<R>>,
-    {
-        let path = path.to_owned();
-        let mut options = File::options();
-        match write_mode {
-            WriteMode::Overwrite => {
-                options.create(true).truncate(true);
-            }
-            WriteMode::CreateNew => {
-                options.create_new(true);
-            }
-        }
-        let file = options.write(true).open(&path).await?;
-        body(file).await
-    }
-}
+const LOCK_PATH: &str = ".DIR_LOCK";
 
 async fn write_file_atomic<F, Fut, FS>(
     fs: &FS,
@@ -576,8 +406,42 @@ fn normalize_dest_path(path: &Path) -> io::Result<RelPathBuf> {
     Ok(path)
 }
 
+struct DirLock<LF>
+where
+    LF: LockFile + Send,
+{
+    _lock: LF,
+}
+
+impl<LF> DirLock<LF>
+where
+    LF: LockFile + Send,
+{
+    pub(crate) async fn acquire<FS>(fs: &FS, dir_root: &AbsPath) -> io::Result<Self>
+    where
+        FS: FileSystemOperations<FileLock = LF>,
+    {
+        let lock_path = dir_root.join_rel(RelPath::new_checked(LOCK_PATH).unwrap());
+        let lock = fs.open_lock_file(&lock_path).await?;
+        lock.lock_exclusive().await?;
+        Ok(DirLock { _lock: lock })
+    }
+    pub(crate) async fn try_acquire<FS>(fs: &FS, dir_root: &AbsPath) -> io::Result<Option<Self>>
+    where
+        FS: FileSystemOperations<FileLock = LF>,
+    {
+        let lock_path = dir_root.join_rel(RelPath::new_checked(LOCK_PATH).unwrap());
+        let lock = fs.open_lock_file(&lock_path).await?;
+        if !lock.try_lock_exclusive().await? {
+            return Ok(None);
+        }
+        Ok(Some(DirLock { _lock: lock }))
+    }
+}
+
 pub struct AtomicDirInner<FS: FileSystemOperations> {
     fs: FS,
+    _dir_lock: DirLock<FS::FileLock>,
     dir_root: AbsPathBuf,
     temp_dir: RelPathBuf,
     pending_commits: Vec<CommitEntry>,
@@ -592,29 +456,48 @@ where
         Ok(self.temp_dir.join_rel(relative_path))
     }
 
-    pub async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
-        let dir_root = classify_path(dir_root)
-            .map_err(io_err_map!(Other, "Failed to classify directory root path"))?
-            .as_abs()
-            .ok_or_else(|| {
-                io_err!(
-                    Other,
-                    "Directory root path must be absolute: {}",
-                    dir_root.display()
-                )
-            })?;
+    async fn create_at_dir_with_lock(
+        fs: FS,
+        dir_root: AbsPathBuf,
+        dir_lock: DirLock<FS::FileLock>,
+    ) -> io::Result<Self> {
         // It's possible that the previous operation was interrupted, so we
         // should try to recover the directory first.
-        recover_path(&fs, dir_root).await?;
+        recover_path(&fs, &dir_root).await?;
 
-        let temp_dir = create_temp_dir(&fs, &mut rand::rng(), dir_root).await?;
+        let temp_dir = create_temp_dir(&fs, &mut rand::rng(), &dir_root).await?;
 
         Ok(AtomicDirInner {
             fs,
-            dir_root: dir_root.to_abs_path_buf(),
+            _dir_lock: dir_lock,
+            dir_root,
             temp_dir,
             pending_commits: Vec::new(),
         })
+    }
+
+    pub async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
+        let mut curr_dir = AbsPathBuf::new_checked(&std::env::current_dir()?)
+            .map_err(io_err_map!(Other, "Failed to get current directory"))?;
+
+        curr_dir.push(dir_root);
+        let dir_root = curr_dir;
+        let dir_lock = DirLock::acquire(&fs, &dir_root).await?;
+        Self::create_at_dir_with_lock(fs, dir_root, dir_lock).await
+    }
+
+    pub async fn try_create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Option<Self>> {
+        let mut curr_dir = AbsPathBuf::new_checked(&std::env::current_dir()?)
+            .map_err(io_err_map!(Other, "Failed to get current directory"))?;
+
+        curr_dir.push(dir_root);
+        let dir_root = curr_dir;
+        let Some(dir_lock) = DirLock::try_acquire(&fs, &dir_root).await? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            Self::create_at_dir_with_lock(fs, dir_root, dir_lock).await?,
+        ))
     }
 
     pub async fn delete_path(&mut self, relative_path: &Path) -> io::Result<()> {
@@ -691,11 +574,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::fs::ops::TokioFileSystemOperations;
+
     use super::*;
     use tempfile::tempdir;
     use tokio::io::AsyncReadExt;
 
-    async fn read_file_to_string<P: AsRef<Path>>(fs: &TokioFileSystemOperations, path: P) -> io::Result<String> {
+    async fn read_file_to_string<P: AsRef<Path>>(
+        fs: &TokioFileSystemOperations,
+        path: P,
+    ) -> io::Result<String> {
         fs.read_file(path.as_ref(), |mut file| async move {
             let mut contents = String::new();
             file.read_to_string(&mut contents).await?;
@@ -798,11 +686,7 @@ mod tests {
 
         // Create the temporary directory and file.
         tokio::fs::create_dir(dir.path().join("tmpdir-recovery-test")).await?;
-        tokio::fs::write(
-            dir.path().join("tmpdir-recovery-test/foo.txt"),
-            "recovered",
-        )
-        .await?;
+        tokio::fs::write(dir.path().join("tmpdir-recovery-test/foo.txt"), "recovered").await?;
 
         // Create a file to be deleted.
         tokio::fs::write(dir.path().join("bar.txt"), "to be deleted").await?;
