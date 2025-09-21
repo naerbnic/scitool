@@ -708,4 +708,34 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_dir_locking() -> io::Result<()> {
+        let dir = tempdir()?;
+
+        {
+            // Acquire a lock by creating an AtomicDirInner.
+            let _atomic_dir1 =
+                AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir.path()).await?;
+
+            // Try to acquire another lock on the same directory.
+            // This should fail with `Ok(None)` because the first one is still held.
+            let atomic_dir2 =
+                AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir.path()).await?;
+            assert!(
+                atomic_dir2.is_none(),
+                "Should not be able to acquire lock while it's held"
+            );
+        } // _atomic_dir1 is dropped here, releasing the lock.
+
+        // Now that the first lock is released, we should be able to acquire a new one.
+        let atomic_dir3 =
+            AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir.path()).await?;
+        assert!(
+            atomic_dir3.is_some(),
+            "Should be able to acquire lock after it's released"
+        );
+
+        Ok(())
+    }
 }
