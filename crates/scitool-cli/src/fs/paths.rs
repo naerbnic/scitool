@@ -313,6 +313,10 @@ define_path_wrapper! {
 
 impl RelPath {
     #[must_use]
+    pub fn new<'a>() -> &'a Self {
+        RelPath::new_checked(".").unwrap()
+    }
+    #[must_use]
     pub fn join_rel(&self, path: &RelPath) -> RelPathBuf {
         // It should be impossible to join two relative paths and get an absolute path.
         // This is asserted by the invariant of RelPathBuf.
@@ -325,6 +329,12 @@ impl RelPath {
     #[must_use]
     pub fn parent_rel(&self) -> Option<&RelPath> {
         self.parent().map(|p| RelPath::new_checked(p).unwrap())
+    }
+}
+
+impl Default for &RelPath {
+    fn default() -> Self {
+        RelPath::new()
     }
 }
 

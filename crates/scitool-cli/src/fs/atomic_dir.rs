@@ -597,6 +597,7 @@ where
         Fut: Future<Output = io::Result<R>>,
     {
         let mut flags = OpenOptionsFlags::default();
+        flags.set_create(true);
         flags.set_write(true);
         flags.set_truncate(true);
         let file = self.open_file(dest_path, &flags).await?;
@@ -605,9 +606,11 @@ where
 
     pub async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<FS::File> {
         let rel_target_path = normalize_path(path)?;
-        let rel_temp_path = self.relative_temp_file_path(&rel_target_path)?;
+        let rel_target_parent = rel_target_path.parent_rel().unwrap_or_default();
+        let abs_temp_root = self.dir_root.join_rel(&self.temp_dir);
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
-        let abs_temp_path = self.dir_root.join_rel(&rel_temp_path);
+        let abs_temp_path = abs_temp_root.join_rel(&rel_target_path);
+        let abs_temp_parent = abs_temp_root.join_rel(rel_target_parent);
 
         let mut file_status_guard = self.state.lock().await;
         let file_status_guard = &mut *file_status_guard;
@@ -633,24 +636,11 @@ where
                         rel_target_path.display()
                     );
                 }
+                self.fs.create_dir_all(&abs_temp_parent).await?;
 
+                let file = self.fs.open_file(&abs_temp_path, options).await?;
                 *file_state_entry = TempFileStatus::Written;
-                {
-                    let mut target_flags = OpenOptionsFlags::default();
-                    target_flags.set_write(true);
-                    target_flags.set_create_new(true);
-                    self.fs
-                        .create_dir_all(
-                            &self.dir_root.join_rel(
-                                rel_temp_path
-                                    .parent_rel()
-                                    .unwrap_or(RelPath::new_checked(".").unwrap()),
-                            ),
-                        )
-                        .await?;
-                    self.fs.open_file(&rel_temp_path, &target_flags).await?;
-                }
-                self.fs.open_file(&rel_temp_path, options).await
+                Ok(file)
             }
 
             TempFileStatus::Unchanged => {
@@ -663,45 +653,40 @@ where
                     return self.fs.open_file(&abs_target_path, options).await;
                 }
 
+                self.fs.create_dir_all(&abs_temp_parent).await?;
+
                 {
-                    let mut target_flags = OpenOptionsFlags::default();
-                    target_flags.set_write(true);
-                    target_flags.set_create_new(true);
-                    self.fs
-                        .create_dir_all(
-                            abs_target_path
-                                .parent()
-                                .unwrap_or(RelPath::new_checked(".").unwrap()),
-                        )
-                        .await?;
-                    let mut target_file = self.fs.open_file(&abs_temp_path, &target_flags).await?;
+                    let (should_create, should_copy) =
+                        match self.fs.get_path_kind(&rel_target_path).await? {
+                            PathKind::Directory => io_bail!(IsADirectory, "Path is a directory"),
+                            PathKind::Other => io_bail!(Other, "Path is not a regular file"),
+                            PathKind::File => (true, options.uses_original_data()),
+                            PathKind::Missing => (false, false),
+                        };
 
-                    match self.fs.get_path_kind(&rel_target_path).await? {
-                        PathKind::Directory => io_bail!(IsADirectory, "Path is a directory"),
-                        PathKind::Other => io_bail!(Other, "Path is not a regular file"),
-                        PathKind::File => {
-                            {
-                                // Create an empty file in the temporary directory.
-                                if options.uses_original_data() {
-                                    // Copy the file to the temporary directory if we are going
-                                    // to change it.
-                                    let mut source_flags = OpenOptionsFlags::default();
-                                    source_flags.set_read(true);
-                                    let mut source_file =
-                                        self.fs.open_file(&abs_target_path, &source_flags).await?;
+                    if should_create {
+                        // Create an empty file in the temporary directory.
+                        let mut target_flags = OpenOptionsFlags::default();
+                        target_flags.set_write(true);
+                        target_flags.set_create_new(true);
+                        let mut target_file =
+                            self.fs.open_file(&abs_temp_path, &target_flags).await?;
+                        if should_copy {
+                            // Copy the file to the temporary directory if we are going
+                            // to change it.
+                            let mut source_flags = OpenOptionsFlags::default();
+                            source_flags.set_read(true);
+                            let mut source_file =
+                                self.fs.open_file(&abs_target_path, &source_flags).await?;
 
-                                    tokio::io::copy(&mut source_file, &mut target_file).await?;
-                                }
-                            }
-                        }
-                        PathKind::Missing => {
-                            // The file does not exist, so we are creating a new one.
+                            tokio::io::copy(&mut source_file, &mut target_file).await?;
                         }
                     }
                 }
 
+                let file = self.fs.open_file(&abs_temp_path, options).await?;
                 *file_state_entry = TempFileStatus::Written;
-                self.fs.open_file(&abs_temp_path, options).await
+                Ok(file)
             }
         }
     }
@@ -805,7 +790,7 @@ impl OpenOptions<'_> {
     pub fn open<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl Future<Output = io::Result<impl AtomicDirFile>> + 'a {
+    ) -> impl Future<Output = io::Result<impl AtomicDirFile + 'a>> + 'a {
         self.parent.open_file_impl(path, &self.flags)
     }
 }
@@ -828,12 +813,12 @@ impl AtomicDir {
         self.inner.open_file(path, options).await
     }
 
-    pub async fn open_dir(dir_root: &Path) -> io::Result<Self> {
+    pub async fn new_at_dir(dir_root: &Path) -> io::Result<Self> {
         let inner = AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir_root).await?;
         Ok(AtomicDir { inner })
     }
 
-    pub async fn try_open_dir(dir_root: &Path) -> io::Result<Option<Self>> {
+    pub async fn try_new_at_dir(dir_root: &Path) -> io::Result<Option<Self>> {
         let Some(inner) =
             AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir_root).await?
         else {
@@ -848,43 +833,49 @@ impl AtomicDir {
             flags: OpenOptionsFlags::default(),
         }
     }
+
+    pub fn delete<'a>(&'a self, path: &'a Path) -> impl Future<Output = io::Result<()>> + 'a {
+        self.inner.delete_path(path)
+    }
+
+    pub fn commit(self) -> impl Future<Output = io::Result<()>> {
+        self.inner.commit()
+    }
+
+    // Helper functions
+    pub async fn write(&self, path: &Path, write_mode: WriteMode, data: &[u8]) -> io::Result<()> {
+        let mut options = self.open_options();
+        match write_mode {
+            WriteMode::CreateNew => {
+                options.create_new(true);
+            }
+            WriteMode::Overwrite => {
+                options.create(true).truncate(true);
+            }
+        }
+        let mut file = options.write(true).open(path).await?;
+        file.write_all(data).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use tokio::io::AsyncReadExt;
-
-    async fn read_file_to_string<P: AsRef<Path>>(
-        fs: &TokioFileSystemOperations,
-        path: P,
-    ) -> io::Result<String> {
-        fs.read_file(path.as_ref(), |mut file| async move {
-            let mut contents = String::new();
-            file.read_to_string(&mut contents).await?;
-            Ok(contents)
-        })
-        .await
-    }
 
     #[tokio::test]
     async fn test_write_and_commit() -> io::Result<()> {
         let dir = tempdir()?;
-        let fs = TokioFileSystemOperations;
 
-        let atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
         atomic_dir
-            .write_at_path(Path::new("foo.txt"), |mut file| async move {
-                file.write_all(b"hello").await?;
-                Ok(())
-            })
+            .write(Path::new("foo.txt"), WriteMode::CreateNew, b"hello")
             .await?;
 
         atomic_dir.commit().await?;
 
-        let contents =
-            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("foo.txt")).await?;
+        let contents = tokio::fs::read_to_string(&dir.path().join("foo.txt")).await?;
         assert_eq!(contents, "hello");
 
         Ok(())
@@ -893,13 +884,12 @@ mod tests {
     #[tokio::test]
     async fn test_delete_and_commit() -> io::Result<()> {
         let dir = tempdir()?;
-        let fs = TokioFileSystemOperations;
 
         // Create a file to be deleted.
         tokio::fs::write(dir.path().join("foo.txt"), "hello").await?;
 
-        let atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
-        atomic_dir.delete_path(Path::new("foo.txt")).await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
+        atomic_dir.delete(Path::new("foo.txt")).await?;
         atomic_dir.commit().await?;
 
         assert!(!dir.path().join("foo.txt").exists());
@@ -910,32 +900,23 @@ mod tests {
     #[tokio::test]
     async fn test_write_delete_and_commit() -> io::Result<()> {
         let dir = tempdir()?;
-        let fs = TokioFileSystemOperations;
 
         // Create a file to be overwritten.
         tokio::fs::write(dir.path().join("foo.txt"), "old content").await?;
 
-        let atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
         atomic_dir
-            .write_at_path(Path::new("foo.txt"), |mut file| async move {
-                file.write_all(b"new content").await?;
-                Ok(())
-            })
+            .write(Path::new("foo.txt"), WriteMode::Overwrite, b"new content")
             .await?;
-        atomic_dir.delete_path(Path::new("bar.txt")).await?;
+        atomic_dir.delete(Path::new("bar.txt")).await?;
         atomic_dir
-            .write_at_path(Path::new("bar.txt"), |mut file| async move {
-                file.write_all(b"new file").await?;
-                Ok(())
-            })
+            .write(Path::new("bar.txt"), WriteMode::CreateNew, b"new file")
             .await?;
         atomic_dir.commit().await?;
 
-        let contents =
-            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("foo.txt")).await?;
+        let contents = tokio::fs::read_to_string(&dir.path().join("foo.txt")).await?;
         assert_eq!(contents, "new content");
-        let contents_bar =
-            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("bar.txt")).await?;
+        let contents_bar = tokio::fs::read_to_string(&dir.path().join("bar.txt")).await?;
         assert_eq!(contents_bar, "new file");
 
         Ok(())
@@ -944,7 +925,6 @@ mod tests {
     #[tokio::test]
     async fn test_recovery() -> io::Result<()> {
         let dir = tempdir()?;
-        let fs = TokioFileSystemOperations;
 
         // Simulate a partial commit.
         let commit_schema = CommitSchema {
@@ -972,11 +952,10 @@ mod tests {
         tokio::fs::write(dir.path().join(COMMIT_PATH), commit_data).await?;
 
         // Now, run recovery.
-        let _atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        let _atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
 
         // Check that recovery happened.
-        let contents =
-            read_file_to_string(&TokioFileSystemOperations, &dir.path().join("foo.txt")).await?;
+        let contents = tokio::fs::read_to_string(&dir.path().join("foo.txt")).await?;
         assert_eq!(contents, "recovered");
         assert!(!dir.path().join("bar.txt").exists());
         assert!(!dir.path().join(COMMIT_PATH).exists());
@@ -991,13 +970,11 @@ mod tests {
 
         {
             // Acquire a lock by creating an AtomicDirInner.
-            let _atomic_dir1 =
-                AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir.path()).await?;
+            let _atomic_dir1 = AtomicDir::new_at_dir(dir.path()).await?;
 
             // Try to acquire another lock on the same directory.
             // This should fail with `Ok(None)` because the first one is still held.
-            let atomic_dir2 =
-                AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir.path()).await?;
+            let atomic_dir2 = AtomicDir::try_new_at_dir(dir.path()).await?;
             assert!(
                 atomic_dir2.is_none(),
                 "Should not be able to acquire lock while it's held"
@@ -1005,8 +982,7 @@ mod tests {
         } // _atomic_dir1 is dropped here, releasing the lock.
 
         // Now that the first lock is released, we should be able to acquire a new one.
-        let atomic_dir3 =
-            AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir.path()).await?;
+        let atomic_dir3 = AtomicDir::try_new_at_dir(dir.path()).await?;
         assert!(
             atomic_dir3.is_some(),
             "Should be able to acquire lock after it's released"
