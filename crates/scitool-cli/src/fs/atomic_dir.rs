@@ -79,24 +79,17 @@ where
 /// during a commit operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OverwriteEntry {
-    /// The temporary path where the file is currently located. If this file
-    /// exists, it is the authoritative source for the file's contents.
-    temp_path: RelPathBuf,
-
-    /// The final destination path where the file should be moved to during
+    /// The destination path where the file should be moved to during
     /// a commit operation.
     ///
-    /// If the file at `temp_path` does not exist, it must exist here, and it
-    /// is the authoritative source for the file's contents.
+    /// The equivalent temp file will be at this same path under the temporary
+    /// directory. If it does not exist there, it must exist here.
     dest_path: RelPathBuf,
 }
 
 impl OverwriteEntry {
-    fn new_owned(temp_path: RelPathBuf, dest_path: RelPathBuf) -> OverwriteEntry {
-        OverwriteEntry {
-            temp_path,
-            dest_path,
-        }
+    fn new_owned(dest_path: RelPathBuf) -> OverwriteEntry {
+        OverwriteEntry { dest_path }
     }
 }
 
@@ -163,8 +156,7 @@ impl std::fmt::Display for RecoveryError {
                 CommitEntry::Overwrite(entry) => {
                     write!(
                         f,
-                        "\nFailed to rename {} to {}: {}",
-                        entry.temp_path.display(),
+                        "\nFailed to move temporary file to {}: {}",
                         entry.dest_path.display(),
                         failure.err
                     )?;
@@ -177,13 +169,14 @@ impl std::fmt::Display for RecoveryError {
 
 async fn apply_entry<FS: FileSystemOperations>(
     fs: &FS,
-    dir_root: &Path,
+    dir_root: &AbsPath,
+    temp_dir: &AbsPath,
     entry: CommitEntry,
     failed_entries: &mut Vec<FileRecoveryFailure>,
 ) -> io::Result<()> {
     match &entry {
         CommitEntry::Overwrite(overwrite_entry) => {
-            let temp_path = dir_root.join(&*overwrite_entry.temp_path);
+            let temp_path = temp_dir.join(&*overwrite_entry.dest_path);
             let dest_path = dir_root.join(&*overwrite_entry.dest_path);
             match fs.rename_file_atomic(&temp_path, &dest_path).await {
                 Ok(()) => { /* Successfully renamed */ }
@@ -263,23 +256,21 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
     let mut commit_schema: CommitSchema = serde_json::from_slice(&commit_data_bytes)
         .map_err(io_err_map!(Other, "Failed to parse commit schema"))?;
 
+    let abs_temp_dir = dir_root.join_rel(&commit_schema.temp_dir);
+
     // Validate the paths in the commit schema.
     for entry in &commit_schema.entries {
         match entry {
             CommitEntry::Overwrite(entry) => {
                 {
-                    let path: &Path = &entry.temp_path;
-                    is_valid_general_path(path)
-                }?;
-                {
                     let path: &Path = &entry.dest_path;
-                    is_valid_general_path(path)
+                    is_valid_path(path, &commit_schema.temp_dir)
                 }?;
             }
             CommitEntry::Delete(entry) => {
                 {
                     let path: &Path = &entry.path;
-                    is_valid_general_path(path)
+                    is_valid_path(path, &commit_schema.temp_dir)
                 }?;
             }
         }
@@ -289,7 +280,7 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
         let mut failed_entries = Vec::new();
 
         for entry in commit_schema.entries.drain(..) {
-            apply_entry(fs, dir_root, entry, &mut failed_entries).await?;
+            apply_entry(fs, dir_root, &abs_temp_dir, entry, &mut failed_entries).await?;
         }
 
         if !failed_entries.is_empty() {
@@ -356,7 +347,7 @@ where
     io_bail!(Other, "Failed to create a unique temporary directory");
 }
 
-fn is_valid_general_path(path: &Path) -> io::Result<&RelPath> {
+fn is_valid_path<'a>(path: &'a Path, temp_dir: &Path) -> io::Result<&'a RelPath> {
     // The path must not have any components that are `..`, as this would allow
     // for directory traversal attacks.
     let path = RelPath::new_checked(path).map_err(io_err_map!(
@@ -412,11 +403,18 @@ fn is_valid_general_path(path: &Path) -> io::Result<&RelPath> {
             path.display()
         );
     }
+
+    if path.starts_with(temp_dir) {
+        io_bail!(
+            Other,
+            "Path must not start with the temporary directory name: {}",
+            path.display()
+        );
+    }
     Ok(path)
 }
 
 fn normalize_path(path: &Path) -> io::Result<RelPathBuf> {
-    let path = is_valid_general_path(path)?;
     let mut rel_path = RelPathBuf::new();
 
     for component in path.components() {
@@ -519,7 +517,7 @@ where
     FS: FileSystemOperations,
 {
     fn relative_temp_file_path(&self, relative_path: &Path) -> io::Result<RelPathBuf> {
-        let relative_path = is_valid_general_path(relative_path)?;
+        let relative_path = is_valid_path(relative_path, &self.temp_dir)?;
         Ok(self.temp_dir.join_rel(relative_path))
     }
 
@@ -704,10 +702,9 @@ where
             .into_iter()
             .filter_map(|(path, status)| match status {
                 TempFileStatus::Unchanged => None,
-                TempFileStatus::Written => Some(CommitEntry::Overwrite(OverwriteEntry::new_owned(
-                    self.temp_dir.join_rel(&path),
-                    path,
-                ))),
+                TempFileStatus::Written => {
+                    Some(CommitEntry::Overwrite(OverwriteEntry::new_owned(path)))
+                }
                 TempFileStatus::Deleted => Some(CommitEntry::Delete(DeleteEntry { path })),
             })
             .collect::<Vec<_>>();
@@ -1016,7 +1013,6 @@ mod tests {
             temp_dir: RelPathBuf::new_checked("tmpdir-recovery-test").unwrap(),
             entries: vec![
                 CommitEntry::Overwrite(OverwriteEntry::new_owned(
-                    RelPathBuf::new_checked("tmpdir-recovery-test/foo.txt").unwrap(),
                     RelPathBuf::new_checked("foo.txt").unwrap(),
                 )),
                 CommitEntry::Delete(DeleteEntry {
