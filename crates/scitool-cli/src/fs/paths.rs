@@ -24,7 +24,7 @@ macro_rules! define_path_wrapper {
         pub struct $error_type;
 
         $(#[$path_meta])*
-        #[derive(Debug)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(transparent)]
         pub struct $path_wrapper(Path);
 
@@ -101,7 +101,7 @@ macro_rules! define_path_wrapper {
         }
 
         $(#[$path_buf_meta])*
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $path_buf_wrapper(PathBuf);
 
         impl $path_buf_wrapper {
@@ -321,9 +321,19 @@ impl RelPath {
             .try_into()
             .expect("Joining two relative paths should yield a relative path")
     }
+
+    #[must_use]
+    pub fn parent_rel(&self) -> Option<&RelPath> {
+        self.parent().map(|p| RelPath::new_checked(p).unwrap())
+    }
 }
 
 impl RelPathBuf {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::new_checked("").unwrap()
+    }
+
     // These are versions of PathBuf's methods that preserve the invariant
     // that the path is relative.
 
@@ -348,6 +358,12 @@ impl RelPathBuf {
     #[must_use]
     pub fn as_rel_path(&self) -> &RelPath {
         unsafe { RelPath::cast_from_path(&self.0) }
+    }
+}
+
+impl Default for RelPathBuf {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

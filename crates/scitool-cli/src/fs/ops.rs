@@ -7,11 +7,93 @@ use std::{
 
 use futures::Stream;
 use tokio::{
-    fs::File,
+    fs::File as TokioFile,
     io::{AsyncRead, AsyncWrite},
 };
 
 use crate::fs::owned_arc::{MutBorrowedArc, loan_arc};
+
+#[derive(Default, Clone)]
+pub struct OpenOptionsFlags {
+    read: bool,
+    write: bool,
+    append: bool,
+    truncate: bool,
+    create: bool,
+    create_new: bool,
+}
+
+impl OpenOptionsFlags {
+    pub fn read(&self) -> bool {
+        self.read
+    }
+    pub fn write(&self) -> bool {
+        self.write
+    }
+    pub fn append(&self) -> bool {
+        self.append
+    }
+    pub fn truncate(&self) -> bool {
+        self.truncate
+    }
+    pub fn create(&self) -> bool {
+        self.create
+    }
+    pub fn create_new(&self) -> bool {
+        self.create_new
+    }
+
+    pub fn can_change_file(&self) -> bool {
+        // We need a temporary file if we are going to modify the file.
+        //
+        // This is used to determine if we need to provide a temporary path for writing.
+        self.write || self.append || self.truncate || self.create_new
+    }
+
+    pub fn can_create_file(&self) -> bool {
+        // We can create the file if we are allowed to create it, or if we are truncating it.
+        self.create || self.create_new
+    }
+
+    pub fn uses_original_data(&self) -> bool {
+        // The options are read-only if an existing file is opened for reading only, or
+        // if there is no file, no file will be created.
+        //
+        // This is used to detect if we need to copy the file to a temporary location
+        // before writing to it.
+
+        // If we are truncating, the original data will be erased, so we do not use it.
+        !self.truncate || !self.create_new
+    }
+
+    pub fn set_read(&mut self, read: bool) {
+        self.read = read;
+    }
+
+    pub fn set_write(&mut self, write: bool) {
+        self.write = write;
+    }
+
+    pub fn set_append(&mut self, append: bool) {
+        self.append = append;
+    }
+
+    pub fn set_truncate(&mut self, truncate: bool) {
+        self.truncate = truncate;
+    }
+
+    pub fn set_create(&mut self, create: bool) {
+        self.create = create;
+    }
+
+    pub fn set_create_new(&mut self, create_new: bool) {
+        self.create_new = create_new;
+    }
+}
+
+pub trait File: AsyncRead + AsyncWrite + AsyncRead + Unpin + Send {}
+
+impl File for tokio::fs::File {}
 
 pub enum PathKind {
     File,
@@ -44,6 +126,7 @@ pub trait LockFile {
 
 /// A trait for the file system operations needed by `AtomicDir`.
 pub trait FileSystemOperations {
+    type File: File;
     type FileReader: AsyncRead + Unpin + Send;
     type FileWriter: AsyncWrite + Unpin + Send;
     type FileLock: LockFile + Send;
@@ -87,6 +170,12 @@ pub trait FileSystemOperations {
     where
         F: FnOnce(Self::FileWriter) -> Fut,
         Fut: Future<Output = io::Result<R>>;
+
+    fn open_file(
+        &self,
+        path: &Path,
+        options: &OpenOptionsFlags,
+    ) -> impl Future<Output = io::Result<Self::File>>;
 
     fn open_lock_file(&self, path: &Path) -> impl Future<Output = io::Result<Self::FileLock>>;
 }
@@ -150,8 +239,9 @@ impl LockFile for TokioFileLock {
 pub struct TokioFileSystemOperations;
 
 impl FileSystemOperations for TokioFileSystemOperations {
-    type FileReader = MutBorrowedArc<File>;
-    type FileWriter = File;
+    type File = tokio::fs::File;
+    type FileReader = MutBorrowedArc<TokioFile>;
+    type FileWriter = TokioFile;
     type FileLock = TokioFileLock;
 
     async fn get_path_kind(&self, path: &Path) -> io::Result<PathKind> {
@@ -223,7 +313,7 @@ impl FileSystemOperations for TokioFileSystemOperations {
         Fut: Future<Output = io::Result<R>>,
     {
         let path = path.to_owned();
-        let (borrowed_file, lent_file) = loan_arc(File::open(&path).await?);
+        let (borrowed_file, lent_file) = loan_arc(TokioFile::open(&path).await?);
         let res = body(borrowed_file).await;
         let file = lent_file.take_back();
         file.sync_all().await?;
@@ -241,7 +331,7 @@ impl FileSystemOperations for TokioFileSystemOperations {
         Fut: Future<Output = io::Result<R>>,
     {
         let path = path.to_owned();
-        let mut options = File::options();
+        let mut options = TokioFile::options();
         match write_mode {
             WriteMode::Overwrite => {
                 options.create(true).truncate(true);
@@ -252,6 +342,30 @@ impl FileSystemOperations for TokioFileSystemOperations {
         }
         let file = options.write(true).open(&path).await?;
         body(file).await
+    }
+
+    async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<Self::File> {
+        let mut open_options = tokio::fs::OpenOptions::new();
+        if options.read {
+            open_options.read(true);
+        }
+        if options.write {
+            open_options.write(true);
+        }
+        if options.append {
+            open_options.append(true);
+        }
+        if options.truncate {
+            open_options.truncate(true);
+        }
+        if options.create {
+            open_options.create(true);
+        }
+        if options.create_new {
+            open_options.create_new(true);
+        }
+        let file = open_options.open(path).await?;
+        Ok(file)
     }
 
     async fn open_lock_file(&self, path: &Path) -> io::Result<Self::FileLock> {

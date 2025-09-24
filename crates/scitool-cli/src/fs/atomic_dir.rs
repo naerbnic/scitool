@@ -1,6 +1,7 @@
 //! Atomic directory operations.
 
 use std::{
+    collections::BTreeMap,
     ffi::OsStr,
     io,
     path::{Component, Path, PathBuf},
@@ -9,11 +10,17 @@ use std::{
 use futures::StreamExt as _;
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncWrite, AsyncWriteExt as _},
+    sync::Mutex,
+};
 
 use crate::fs::{
     err_helpers::{io_bail, io_err_map},
-    ops::{FileSystemOperations, LockFile, PathKind, WriteMode},
+    ops::{
+        FileSystemOperations, LockFile, OpenOptionsFlags, PathKind, TokioFileSystemOperations,
+        WriteMode,
+    },
     paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf},
 };
 
@@ -242,11 +249,20 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
     for entry in &commit_schema.entries {
         match entry {
             CommitEntry::Overwrite(entry) => {
-                is_valid_temp_path(&entry.temp_path)?;
-                is_valid_dest_path(&entry.dest_path)?;
+                {
+                    let path: &Path = &entry.temp_path;
+                    is_valid_general_path(path)
+                }?;
+                {
+                    let path: &Path = &entry.dest_path;
+                    is_valid_general_path(path)
+                }?;
             }
             CommitEntry::Delete(entry) => {
-                is_valid_dest_path(&entry.path)?;
+                {
+                    let path: &Path = &entry.path;
+                    is_valid_general_path(path)
+                }?;
             }
         }
     }
@@ -373,37 +389,41 @@ fn is_valid_general_path(path: &Path) -> io::Result<&RelPath> {
     Ok(path)
 }
 
-fn is_valid_dest_path(path: &Path) -> io::Result<&RelPath> {
-    is_valid_general_path(path)
-}
+fn normalize_path(path: &Path) -> io::Result<RelPathBuf> {
+    let path = is_valid_general_path(path)?;
+    let mut rel_path = RelPathBuf::new();
 
-fn is_valid_temp_path(path: &Path) -> io::Result<&RelPath> {
-    is_valid_general_path(path)
-}
-
-fn normalize_dest_path(path: &Path) -> io::Result<RelPathBuf> {
-    let path = is_valid_dest_path(path)?;
-    let path: PathBuf = path
-        .components()
-        .filter_map(|c| match c {
-            Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
-                panic!("Invalid path component in destination path")
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                io_bail!(
+                    Other,
+                    "Package file path must be strictly relative: {}",
+                    path.display()
+                );
             }
-            Component::CurDir => None,
-            Component::Normal(os_str) => Some(os_str),
-        })
-        .collect();
+            Component::ParentDir => {
+                if !rel_path.pop() {
+                    io_bail!(
+                        Other,
+                        "Path must not contain a directory upreference before the start: {}",
+                        path.display()
+                    );
+                }
+            }
+            Component::CurDir => { /* Skip */ }
+            Component::Normal(os_str) => {
+                rel_path
+                    .push(RelPath::new_checked(os_str).expect("Normal component is always valid"));
+            }
+        }
+    }
 
-    if path.as_os_str().is_empty() {
+    if rel_path.as_os_str().is_empty() {
         io_bail!(Other, "Destination path cannot be empty");
     }
 
-    let path: RelPathBuf = path.try_into().map_err(io_err_map!(
-        Other,
-        "Normalized destination path is not a valid relative path"
-    ))?;
-
-    Ok(path)
+    Ok(rel_path)
 }
 
 struct DirLock<LF>
@@ -439,12 +459,33 @@ where
     }
 }
 
+enum TempFileStatus {
+    /// The path is unchanged from the original file state.
+    Unchanged,
+    /// The path has been written to the temporary directory.
+    Written,
+    /// The path has been deleted from the final directory.
+    Deleted,
+}
+
+struct AtomicDirState {
+    file_statuses: BTreeMap<RelPathBuf, TempFileStatus>,
+}
+
 pub struct AtomicDirInner<FS: FileSystemOperations> {
+    /// The file system operations implementation to use.
     fs: FS,
+
+    /// A lock that ensures exclusive access to the directory.
     _dir_lock: DirLock<FS::FileLock>,
+
+    /// The root directory being managed.
     dir_root: AbsPathBuf,
+
+    /// The temporary directory inside the root directory.
     temp_dir: RelPathBuf,
-    pending_commits: Vec<CommitEntry>,
+
+    state: Mutex<AtomicDirState>,
 }
 
 impl<FS> AtomicDirInner<FS>
@@ -452,7 +493,7 @@ where
     FS: FileSystemOperations,
 {
     fn relative_temp_file_path(&self, relative_path: &Path) -> io::Result<RelPathBuf> {
-        let relative_path = is_valid_dest_path(relative_path)?;
+        let relative_path = is_valid_general_path(relative_path)?;
         Ok(self.temp_dir.join_rel(relative_path))
     }
 
@@ -472,7 +513,9 @@ where
             _dir_lock: dir_lock,
             dir_root,
             temp_dir,
-            pending_commits: Vec::new(),
+            state: Mutex::new(AtomicDirState {
+                file_statuses: BTreeMap::new(),
+            }),
         })
     }
 
@@ -500,50 +543,184 @@ where
         ))
     }
 
-    pub async fn delete_path(&mut self, relative_path: &Path) -> io::Result<()> {
-        let relative_path = normalize_dest_path(relative_path)?;
+    pub async fn delete_path(&self, path: &Path) -> io::Result<()> {
+        let rel_target_path = normalize_path(path)?;
+        let rel_temp_path = self.relative_temp_file_path(&rel_target_path)?;
+        let abs_target_path = self.dir_root.join_rel(&rel_target_path);
+        let abs_temp_path = self.dir_root.join_rel(&rel_temp_path);
 
-        self.pending_commits.push(CommitEntry::Delete(DeleteEntry {
-            path: relative_path,
-        }));
+        let mut state_guard = self.state.lock().await;
+
+        let file_status = state_guard
+            .file_statuses
+            .entry(rel_target_path.clone())
+            .or_insert(TempFileStatus::Unchanged);
+
+        match *file_status {
+            TempFileStatus::Deleted => {
+                // The file has already been deleted, no changes needed.
+            }
+            TempFileStatus::Unchanged => {
+                match self.fs.get_path_kind(&abs_target_path).await? {
+                    PathKind::Directory => io_bail!(IsADirectory, "Path is a directory"),
+                    PathKind::Other => io_bail!(Other, "Path is not a regular file"),
+                    PathKind::File => {}
+                    PathKind::Missing => {
+                        // The file does not exist. Avoid adding a delete entry
+                        // to keep things clean.
+                        return Ok(());
+                    }
+                }
+            }
+            TempFileStatus::Written => {
+                // The file has been written to the temporary directory, so we
+                // can just remove it from there.
+                self.fs.remove_file(&abs_temp_path).await?;
+            }
+        }
+
+        *file_status = TempFileStatus::Deleted;
 
         Ok(())
     }
 
-    pub async fn write_at_path<F, Fut, R>(&mut self, dest_path: &Path, body: F) -> io::Result<R>
+    pub async fn write_at_path<F, Fut, R>(&self, dest_path: &Path, body: F) -> io::Result<R>
     where
-        F: FnOnce(FS::FileWriter) -> Fut,
+        F: FnOnce(FS::File) -> Fut,
         Fut: Future<Output = io::Result<R>>,
     {
-        let dest_path = normalize_dest_path(dest_path)?;
-        let rel_temp_path = self.relative_temp_file_path(&dest_path)?;
-        let result = self
-            .fs
-            .write_to_file(
-                WriteMode::Overwrite,
-                &self.dir_root.join(&rel_temp_path),
-                body,
-            )
-            .await?;
-
-        self.pending_commits
-            .push(CommitEntry::Overwrite(OverwriteEntry::new_owned(
-                rel_temp_path,
-                dest_path,
-            )));
-
-        Ok(result)
+        let mut flags = OpenOptionsFlags::default();
+        flags.set_write(true);
+        flags.set_truncate(true);
+        let file = self.open_file(dest_path, &flags).await?;
+        body(file).await
     }
 
-    pub async fn commit(mut self) -> io::Result<()> {
-        if self.pending_commits.is_empty() {
+    pub async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<FS::File> {
+        let rel_target_path = normalize_path(path)?;
+        let rel_temp_path = self.relative_temp_file_path(&rel_target_path)?;
+        let abs_target_path = self.dir_root.join_rel(&rel_target_path);
+        let abs_temp_path = self.dir_root.join_rel(&rel_temp_path);
+
+        let mut file_status_guard = self.state.lock().await;
+        let file_status_guard = &mut *file_status_guard;
+        let file_state_entry = file_status_guard
+            .file_statuses
+            .entry(rel_target_path.clone())
+            .or_insert(TempFileStatus::Unchanged);
+        match *file_state_entry {
+            TempFileStatus::Written => {
+                // The file has already been written to the temporary directory,
+                // so we can open it directly from there.
+                self.fs.open_file(&abs_temp_path, options).await
+            }
+
+            TempFileStatus::Deleted => {
+                // The file has been deleted, so if we're creating it, we can
+                // open it in the temporary directory. Otherwise, we should
+                // return an error.
+                if !options.can_create_file() {
+                    io_bail!(
+                        NotFound,
+                        "File has been deleted: {}",
+                        rel_target_path.display()
+                    );
+                }
+
+                *file_state_entry = TempFileStatus::Written;
+                {
+                    let mut target_flags = OpenOptionsFlags::default();
+                    target_flags.set_write(true);
+                    target_flags.set_create_new(true);
+                    self.fs
+                        .create_dir_all(
+                            &self.dir_root.join_rel(
+                                rel_temp_path
+                                    .parent_rel()
+                                    .unwrap_or(RelPath::new_checked(".").unwrap()),
+                            ),
+                        )
+                        .await?;
+                    self.fs.open_file(&rel_temp_path, &target_flags).await?;
+                }
+                self.fs.open_file(&rel_temp_path, options).await
+            }
+
+            TempFileStatus::Unchanged => {
+                // We have not touched this file yet, so we need to set up its state.
+                // We require that if there are any changes to a file, the data must be
+                // only changed in the temp directory. This should be as transparent as
+                // possible to the user.
+                if !options.can_change_file() {
+                    // We are not going to change the file, so we can open it directly.
+                    return self.fs.open_file(&abs_target_path, options).await;
+                }
+
+                {
+                    let mut target_flags = OpenOptionsFlags::default();
+                    target_flags.set_write(true);
+                    target_flags.set_create_new(true);
+                    self.fs
+                        .create_dir_all(
+                            abs_target_path
+                                .parent()
+                                .unwrap_or(RelPath::new_checked(".").unwrap()),
+                        )
+                        .await?;
+                    let mut target_file = self.fs.open_file(&abs_temp_path, &target_flags).await?;
+
+                    match self.fs.get_path_kind(&rel_target_path).await? {
+                        PathKind::Directory => io_bail!(IsADirectory, "Path is a directory"),
+                        PathKind::Other => io_bail!(Other, "Path is not a regular file"),
+                        PathKind::File => {
+                            {
+                                // Create an empty file in the temporary directory.
+                                if options.uses_original_data() {
+                                    // Copy the file to the temporary directory if we are going
+                                    // to change it.
+                                    let mut source_flags = OpenOptionsFlags::default();
+                                    source_flags.set_read(true);
+                                    let mut source_file =
+                                        self.fs.open_file(&abs_target_path, &source_flags).await?;
+
+                                    tokio::io::copy(&mut source_file, &mut target_file).await?;
+                                }
+                            }
+                        }
+                        PathKind::Missing => {
+                            // The file does not exist, so we are creating a new one.
+                        }
+                    }
+                }
+
+                *file_state_entry = TempFileStatus::Written;
+                self.fs.open_file(&abs_temp_path, options).await
+            }
+        }
+    }
+
+    pub async fn commit(self) -> io::Result<()> {
+        let state = self.state.into_inner();
+        let pending_commits = state
+            .file_statuses
+            .into_iter()
+            .filter_map(|(path, status)| match status {
+                TempFileStatus::Unchanged => None,
+                TempFileStatus::Written => Some(CommitEntry::Overwrite(OverwriteEntry::new_owned(
+                    self.temp_dir.join_rel(&path),
+                    path,
+                ))),
+                TempFileStatus::Deleted => Some(CommitEntry::Delete(DeleteEntry { path })),
+            })
+            .collect::<Vec<_>>();
+        if pending_commits.is_empty() {
             // Nothing to commit.
             return Ok(());
         }
 
         let commit_schema = CommitSchema {
             temp_dir: self.temp_dir.clone(),
-            entries: self.pending_commits.drain(..).collect(),
+            entries: pending_commits,
         };
         let commit_data = serde_json::to_vec(&commit_schema)
             .map_err(io_err_map!(Other, "Failed to serialize commit schema"))?;
@@ -572,10 +749,95 @@ where
     }
 }
 
+pub trait AtomicDirFile: AsyncRead + AsyncWrite + AsyncSeek + Send + Sync {
+    fn close(self) -> impl Future<Output = io::Result<()>>;
+}
+
+impl AtomicDirFile for tokio::fs::File {
+    async fn close(mut self) -> io::Result<()> {
+        self.shutdown().await
+    }
+}
+
+pub struct OpenOptions<'a> {
+    parent: &'a AtomicDir,
+    flags: OpenOptionsFlags,
+}
+
+impl OpenOptions<'_> {
+    pub fn read(&mut self, read: bool) -> &mut Self {
+        self.flags.set_read(read);
+        self
+    }
+
+    pub fn write(&mut self, write: bool) -> &mut Self {
+        self.flags.set_write(write);
+        self
+    }
+
+    pub fn append(&mut self, append: bool) -> &mut Self {
+        self.flags.set_append(append);
+        self
+    }
+
+    pub fn truncate(&mut self, truncate: bool) -> &mut Self {
+        self.flags.set_truncate(truncate);
+        self
+    }
+
+    pub fn create(&mut self, create: bool) -> &mut Self {
+        self.flags.set_create(create);
+        self
+    }
+
+    pub fn create_new(&mut self, create_new: bool) -> &mut Self {
+        self.flags.set_create_new(create_new);
+        self
+    }
+
+    pub fn open<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl Future<Output = io::Result<impl AtomicDirFile>> + 'a {
+        self.parent.open_file_impl(path, &self.flags)
+    }
+}
+
+/// A high-level atomic directory that allows for changing files within
+/// a directory atomically.
+///
+/// This guarantees that either all changes are applied to other `AtomicDir`
+/// instances, or none are, even in the case of crashes or interruptions.
+pub struct AtomicDir {
+    inner: AtomicDirInner<TokioFileSystemOperations>,
+}
+
+impl AtomicDir {
+    async fn open_file_impl(
+        &self,
+        path: &Path,
+        options: &OpenOptionsFlags,
+    ) -> io::Result<impl AtomicDirFile> {
+        self.inner.open_file(path, options).await
+    }
+
+    pub async fn open_dir(dir_root: &Path) -> io::Result<Self> {
+        let inner = AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir_root).await?;
+        Ok(AtomicDir { inner })
+    }
+
+    pub async fn try_open(dir_root: &Path) -> io::Result<Option<Self>> {
+        let Some(inner) =
+            AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir_root).await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(AtomicDir { inner }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::fs::ops::TokioFileSystemOperations;
-
     use super::*;
     use tempfile::tempdir;
     use tokio::io::AsyncReadExt;
@@ -597,7 +859,7 @@ mod tests {
         let dir = tempdir()?;
         let fs = TokioFileSystemOperations;
 
-        let mut atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        let atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
         atomic_dir
             .write_at_path(Path::new("foo.txt"), |mut file| async move {
                 file.write_all(b"hello").await?;
@@ -622,7 +884,7 @@ mod tests {
         // Create a file to be deleted.
         tokio::fs::write(dir.path().join("foo.txt"), "hello").await?;
 
-        let mut atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        let atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
         atomic_dir.delete_path(Path::new("foo.txt")).await?;
         atomic_dir.commit().await?;
 
@@ -639,7 +901,7 @@ mod tests {
         // Create a file to be overwritten.
         tokio::fs::write(dir.path().join("foo.txt"), "old content").await?;
 
-        let mut atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
+        let atomic_dir = AtomicDirInner::create_at_dir(fs, dir.path()).await?;
         atomic_dir
             .write_at_path(Path::new("foo.txt"), |mut file| async move {
                 file.write_all(b"new content").await?;
