@@ -120,14 +120,25 @@ struct CommitSchema {
     entries: Vec<CommitEntry>,
 }
 
+/// Records the failure to recover a single file during a commit recovery process.
+///
+/// This struct is created when a file operation (like renaming or deleting) fails
+/// as part of applying the changes from a commit log.
 #[derive(Debug)]
 pub struct FileRecoveryFailure {
+    /// The specific commit entry that could not be applied.
     entry: CommitEntry,
+    /// The underlying I/O error that caused the failure.
     err: io::Error,
 }
 
+/// An error that occurs during the recovery of a partially committed atomic directory.
+///
+/// This error aggregates all individual file recovery failures that occurred during
+/// an attempt to apply a commit log.
 #[derive(Debug, thiserror::Error)]
 pub struct RecoveryError {
+    /// A list of files that failed to be recovered.
     rename_failures: Vec<FileRecoveryFailure>,
 }
 
@@ -384,6 +395,8 @@ fn is_valid_general_path(path: &Path) -> io::Result<&RelPath> {
         );
     }
 
+    // The path cannot start with the commit file or lock file as a prefix, as
+    // this would allow for accidental overwrites of in-progress commits.
     if path.starts_with(COMMIT_PATH) {
         io_bail!(
             Other,
@@ -391,8 +404,14 @@ fn is_valid_general_path(path: &Path) -> io::Result<&RelPath> {
             path.display()
         );
     }
-    // The path cannot start with the commit file as a prefix, as this would
-    // allow for accidental overwrites of in-progress commits.
+
+    if path.starts_with(LOCK_PATH) {
+        io_bail!(
+            Other,
+            "Path must not start with the lock file name: {}",
+            path.display()
+        );
+    }
     Ok(path)
 }
 
@@ -728,52 +747,96 @@ where
     }
 }
 
+/// A trait for files that can be used within an `AtomicDir`.
+///
+/// This abstracts over the underlying file type, allowing for different
+/// file system implementations.
 pub trait AtomicDirFile: AsyncRead + AsyncWrite + AsyncSeek + Send + Sync {
+    /// Closes the file, ensuring that all buffered data is written to disk.
     fn close(self) -> impl Future<Output = io::Result<()>>;
 }
 
 impl AtomicDirFile for tokio::fs::File {
-    async fn close(mut self) -> io::Result<()> {
-        self.shutdown().await
+    /// Closes the file by flushing all data and metadata to the underlying
+    /// storage.
+    async fn close(self) -> io::Result<()> {
+        self.sync_all().await?;
+        // If it existed, this is where the call to close would occur, being
+        // able to pass on any errors. C'est la vie.
+        std::mem::drop(self);
+        Ok(())
     }
 }
 
+/// A builder for opening files within an `AtomicDir`.
+///
+/// This provides a fluent interface for specifying how a file should be opened,
+/// similar to `std::fs::OpenOptions`. An `OpenOptions` instance can be used to
+/// configure how a file is opened and what operations are permitted on the opened file.
 pub struct OpenOptions<'a> {
     parent: &'a AtomicDir,
     flags: OpenOptionsFlags,
 }
 
 impl OpenOptions<'_> {
+    /// Sets the option for read access.
+    ///
+    /// This option, when true, will allow the file to be read.
+    /// Defaults to `false`.
     pub fn read(&mut self, read: bool) -> &mut Self {
         self.flags.set_read(read);
         self
     }
 
+    /// Sets the option for write access.
+    ///
+    /// This option, when true, will allow the file to be written to.
+    /// Defaults to `false`.
     pub fn write(&mut self, write: bool) -> &mut Self {
         self.flags.set_write(write);
         self
     }
 
+    /// Sets the option for append mode.
+    ///
+    /// This option, when true, means that writes will append to the file instead
+    /// of overwriting previous content.
+    /// Defaults to `false`.
     pub fn append(&mut self, append: bool) -> &mut Self {
         self.flags.set_append(append);
         self
     }
 
+    /// Sets the option to truncate the file.
+    ///
+    /// When true, if the file exists and is opened for writing, it will be truncated
+    /// to 0 length.
+    /// Defaults to `false`.
     pub fn truncate(&mut self, truncate: bool) -> &mut Self {
         self.flags.set_truncate(truncate);
         self
     }
 
+    /// Sets the option to create a new file if it does not exist.
+    ///
+    /// When true, a new file will be created if `path` does not exist.
+    /// Defaults to `false`.
     pub fn create(&mut self, create: bool) -> &mut Self {
         self.flags.set_create(create);
         self
     }
 
+    /// Sets the option to create a new file, failing if it already exists.
+    ///
+    /// When true, a new file will be created, but the operation will fail if
+    /// a file at `path` already exists.
+    /// Defaults to `false`.
     pub fn create_new(&mut self, create_new: bool) -> &mut Self {
         self.flags.set_create_new(create_new);
         self
     }
 
+    /// Opens the file at `path` with the options specified for this builder.
     pub async fn open<'a>(&'a self, path: &'a Path) -> io::Result<impl AtomicDirFile + 'a> {
         self.parent.open_file_impl(path, &self.flags).await
     }
@@ -782,8 +845,11 @@ impl OpenOptions<'_> {
 /// A high-level atomic directory that allows for changing files within
 /// a directory atomically.
 ///
-/// This guarantees that either all changes are applied to other `AtomicDir`
-/// instances, or none are, even in the case of crashes or interruptions.
+/// This guarantees that either all changes are applied, or none are, even in
+/// the case of crashes or interruptions. Changes are staged in a temporary
+/// directory and then committed atomically. If the program crashes, a recovery
+/// process will attempt to complete the commit the next time an `AtomicDir`
+/// is created for the same directory.
 pub struct AtomicDir {
     inner: AtomicDirInner<TokioFileSystemOperations>,
 }
@@ -797,11 +863,20 @@ impl AtomicDir {
         self.inner.open_file(path, options).await
     }
 
+    /// Creates a new `AtomicDir` at the specified directory path.
+    ///
+    /// This will acquire an exclusive lock on the directory, preventing other
+    /// `AtomicDir` instances from operating on it. If a previous, incomplete
+    /// commit is detected, this will attempt to recover it.
     pub async fn new_at_dir(dir_root: &Path) -> io::Result<Self> {
         let inner = AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir_root).await?;
         Ok(AtomicDir { inner })
     }
 
+    /// Tries to create a new `AtomicDir` at the specified directory path.
+    ///
+    /// This is a non-blocking version of `new_at_dir`. If the directory is
+    /// already locked, it will return `Ok(None)` instead of waiting.
     pub async fn try_new_at_dir(dir_root: &Path) -> io::Result<Option<Self>> {
         let Some(inner) =
             AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir_root).await?
@@ -811,6 +886,7 @@ impl AtomicDir {
         Ok(Some(AtomicDir { inner }))
     }
 
+    /// Returns a new `OpenOptions` builder for opening files within this `AtomicDir`.
     pub fn open_options(&self) -> OpenOptions<'_> {
         OpenOptions {
             parent: self,
@@ -818,15 +894,28 @@ impl AtomicDir {
         }
     }
 
+    /// Deletes a file within the atomic directory transaction.
+    ///
+    /// The deletion is staged and will be finalized upon `commit`.
     pub async fn delete<'a>(&'a self, path: &'a Path) -> io::Result<()> {
         self.inner.delete_path(path).await
     }
 
+    /// Commits all staged changes to the directory.
+    ///
+    /// This makes all writes and deletes permanent and visible to other processes.
+    /// The commit itself is an atomic operation. If it is interrupted, it will
+    /// be completed the next time an `AtomicDir` is created for this directory.
     pub async fn commit(self) -> io::Result<()> {
         self.inner.commit().await
     }
 
     // Helper functions
+
+    /// A convenience method to write data to a file within the transaction.
+    ///
+    /// This is equivalent to using `open_options` to open a file for writing
+    /// and then writing the data.
     pub async fn write(&self, path: &Path, write_mode: WriteMode, data: &[u8]) -> io::Result<()> {
         let mut options = self.open_options();
         match write_mode {
@@ -840,6 +929,18 @@ impl AtomicDir {
         let mut file = options.write(true).open(path).await?;
         file.write_all(data).await?;
         Ok(())
+    }
+
+    /// A convenience method to read data from a file within the transaction.
+    ///
+    /// This reads the entire contents of the file into a `Vec<u8>`.
+    pub async fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let mut options = self.open_options();
+        options.read(true);
+        let mut file = options.open(path).await?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).await?;
+        Ok(data)
     }
 }
 
