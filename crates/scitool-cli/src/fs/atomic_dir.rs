@@ -479,7 +479,7 @@ struct AtomicDirState {
     file_statuses: BTreeMap<RelPathBuf, TempFileStatus>,
 }
 
-pub struct AtomicDirInner<FS: FileSystemOperations> {
+struct AtomicDirInner<FS: FileSystemOperations> {
     /// The file system operations implementation to use.
     fs: FS,
 
@@ -526,7 +526,7 @@ where
         })
     }
 
-    pub async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
+    async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
         let mut curr_dir = AbsPathBuf::new_checked(&std::env::current_dir()?)
             .map_err(io_err_map!(Other, "Failed to get current directory"))?;
 
@@ -536,7 +536,7 @@ where
         Self::create_at_dir_with_lock(fs, dir_root, dir_lock).await
     }
 
-    pub async fn try_create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Option<Self>> {
+    async fn try_create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Option<Self>> {
         let mut curr_dir = AbsPathBuf::new_checked(&std::env::current_dir()?)
             .map_err(io_err_map!(Other, "Failed to get current directory"))?;
 
@@ -550,7 +550,7 @@ where
         ))
     }
 
-    pub async fn delete_path(&self, path: &Path) -> io::Result<()> {
+    async fn delete_path(&self, path: &Path) -> io::Result<()> {
         let rel_target_path = normalize_path(path)?;
         let rel_temp_path = self.relative_temp_file_path(&rel_target_path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
@@ -591,20 +591,7 @@ where
         Ok(())
     }
 
-    pub async fn write_at_path<F, Fut, R>(&self, dest_path: &Path, body: F) -> io::Result<R>
-    where
-        F: FnOnce(FS::File) -> Fut,
-        Fut: Future<Output = io::Result<R>>,
-    {
-        let mut flags = OpenOptionsFlags::default();
-        flags.set_create(true);
-        flags.set_write(true);
-        flags.set_truncate(true);
-        let file = self.open_file(dest_path, &flags).await?;
-        body(file).await
-    }
-
-    pub async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<FS::File> {
+    async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<FS::File> {
         let rel_target_path = normalize_path(path)?;
         let rel_target_parent = rel_target_path.parent_rel().unwrap_or_default();
         let abs_temp_root = self.dir_root.join_rel(&self.temp_dir);
@@ -691,7 +678,7 @@ where
         }
     }
 
-    pub async fn commit(self) -> io::Result<()> {
+    async fn commit(self) -> io::Result<()> {
         let state = self.state.into_inner();
         let pending_commits = state
             .file_statuses
@@ -787,11 +774,8 @@ impl OpenOptions<'_> {
         self
     }
 
-    pub fn open<'a>(
-        &'a self,
-        path: &'a Path,
-    ) -> impl Future<Output = io::Result<impl AtomicDirFile + 'a>> + 'a {
-        self.parent.open_file_impl(path, &self.flags)
+    pub async fn open<'a>(&'a self, path: &'a Path) -> io::Result<impl AtomicDirFile + 'a> {
+        self.parent.open_file_impl(path, &self.flags).await
     }
 }
 
@@ -834,12 +818,12 @@ impl AtomicDir {
         }
     }
 
-    pub fn delete<'a>(&'a self, path: &'a Path) -> impl Future<Output = io::Result<()>> + 'a {
-        self.inner.delete_path(path)
+    pub async fn delete<'a>(&'a self, path: &'a Path) -> io::Result<()> {
+        self.inner.delete_path(path).await
     }
 
-    pub fn commit(self) -> impl Future<Output = io::Result<()>> {
-        self.inner.commit()
+    pub async fn commit(self) -> io::Result<()> {
+        self.inner.commit().await
     }
 
     // Helper functions
