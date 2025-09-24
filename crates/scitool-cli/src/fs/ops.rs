@@ -13,6 +13,10 @@ use tokio::{
 
 use crate::fs::owned_arc::{MutBorrowedArc, loan_arc};
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Flags struct to map to std::fs::OpenOptions"
+)]
 #[derive(Default, Clone)]
 pub struct OpenOptionsFlags {
     read: bool,
@@ -24,25 +28,32 @@ pub struct OpenOptionsFlags {
 }
 
 impl OpenOptionsFlags {
+    #[must_use]
     pub fn read(&self) -> bool {
         self.read
     }
+    #[must_use]
     pub fn write(&self) -> bool {
         self.write
     }
+    #[must_use]
     pub fn append(&self) -> bool {
         self.append
     }
+    #[must_use]
     pub fn truncate(&self) -> bool {
         self.truncate
     }
+    #[must_use]
     pub fn create(&self) -> bool {
         self.create
     }
+    #[must_use]
     pub fn create_new(&self) -> bool {
         self.create_new
     }
 
+    #[must_use]
     pub fn can_change_file(&self) -> bool {
         // We need a temporary file if we are going to modify the file.
         //
@@ -50,11 +61,13 @@ impl OpenOptionsFlags {
         self.write || self.append || self.truncate || self.create_new
     }
 
+    #[must_use]
     pub fn can_create_file(&self) -> bool {
         // We can create the file if we are allowed to create it, or if we are truncating it.
         self.create || self.create_new
     }
 
+    #[must_use]
     pub fn uses_original_data(&self) -> bool {
         // The options are read-only if an existing file is opened for reading only, or
         // if there is no file, no file will be created.

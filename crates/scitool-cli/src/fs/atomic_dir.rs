@@ -46,15 +46,22 @@ where
     if let Some(parent) = temp_path.parent() {
         fs.create_dir_all(parent).await?;
     }
-    if let Some(parent) = dest_path.parent() {
-        fs.create_dir_all(parent).await?;
-    }
 
     fs.write_to_file(WriteMode::CreateNew, &tmp_dir.join(path), body)
         .await?;
 
+    // Create the parent directories for the destination path, if needed.
+    if let Some(parent) = dest_path.parent() {
+        fs.create_dir_all(parent).await?;
+    }
+
     match write_mode {
+        // This will replace the destination file if it exists, but the change in the file data will
+        // be atomic.
         WriteMode::Overwrite => fs.rename_file_atomic(&temp_path, &dest_path).await?,
+
+        // This will do an atomic creation of the destination file, so only one attempt to
+        // create the file will succeed.
         WriteMode::CreateNew => {
             fs.link_file_atomic(&temp_path, &dest_path).await?;
             // If the link succeeded, we can remove the temporary file.
@@ -826,13 +833,20 @@ impl AtomicDir {
         Ok(AtomicDir { inner })
     }
 
-    pub async fn try_open(dir_root: &Path) -> io::Result<Option<Self>> {
+    pub async fn try_open_dir(dir_root: &Path) -> io::Result<Option<Self>> {
         let Some(inner) =
             AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir_root).await?
         else {
             return Ok(None);
         };
         Ok(Some(AtomicDir { inner }))
+    }
+
+    pub fn open_options(&self) -> OpenOptions<'_> {
+        OpenOptions {
+            parent: self,
+            flags: OpenOptionsFlags::default(),
+        }
     }
 }
 
