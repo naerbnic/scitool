@@ -501,7 +501,7 @@ struct AtomicDirInner<FS: FileSystemOperations> {
     fs: FS,
 
     /// A lock that ensures exclusive access to the directory.
-    _dir_lock: DirLock<FS::FileLock>,
+    dir_lock: DirLock<FS::FileLock>,
 
     /// The root directory being managed.
     dir_root: AbsPathBuf,
@@ -534,7 +534,7 @@ where
 
         Ok(AtomicDirInner {
             fs,
-            _dir_lock: dir_lock,
+            dir_lock,
             dir_root,
             temp_dir,
             state: Mutex::new(AtomicDirState {
@@ -695,6 +695,15 @@ where
         }
     }
 
+    async fn abort(self) -> io::Result<()> {
+        // We release the dir lock before we wait on an async operation to immediately
+        // allow other operations to proceed.
+        std::mem::drop(self.dir_lock);
+        // Remove the temporary directory.
+        let abs_temp_dir = self.dir_root.join_rel(&self.temp_dir);
+        self.fs.remove_dir_all(&abs_temp_dir).await
+    }
+
     async fn commit(self) -> io::Result<()> {
         let state = self.state.into_inner();
         let pending_commits = state
@@ -851,16 +860,26 @@ impl OpenOptions<'_> {
 /// process will attempt to complete the commit the next time an `AtomicDir`
 /// is created for the same directory.
 pub struct AtomicDir {
-    inner: AtomicDirInner<TokioFileSystemOperations>,
+    inner: Option<AtomicDirInner<TokioFileSystemOperations>>,
 }
 
 impl AtomicDir {
+    fn get_inner(&self) -> &AtomicDirInner<TokioFileSystemOperations> {
+        self.inner.as_ref().expect("AtomicDir has been consumed")
+    }
+
+    fn take_inner(&mut self) -> AtomicDirInner<TokioFileSystemOperations> {
+        self.inner
+            .take()
+            .expect("AtomicDir has already been consumed")
+    }
+
     async fn open_file_impl(
         &self,
         path: &Path,
         options: &OpenOptionsFlags,
     ) -> io::Result<impl AtomicDirFile> {
-        self.inner.open_file(path, options).await
+        self.get_inner().open_file(path, options).await
     }
 
     /// Creates a new `AtomicDir` at the specified directory path.
@@ -874,7 +893,7 @@ impl AtomicDir {
     {
         let inner =
             AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?;
-        Ok(AtomicDir { inner })
+        Ok(AtomicDir { inner: Some(inner) })
     }
 
     /// Tries to create a new `AtomicDir` at the specified directory path.
@@ -890,7 +909,7 @@ impl AtomicDir {
         else {
             return Ok(None);
         };
-        Ok(Some(AtomicDir { inner }))
+        Ok(Some(AtomicDir { inner: Some(inner) }))
     }
 
     /// Returns a new `OpenOptions` builder for opening files within this `AtomicDir`.
@@ -908,7 +927,7 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
-        self.inner.delete_path(path.as_ref()).await
+        self.get_inner().delete_path(path.as_ref()).await
     }
 
     /// Commits all staged changes to the directory.
@@ -916,8 +935,12 @@ impl AtomicDir {
     /// This makes all writes and deletes permanent and visible to other processes.
     /// The commit itself is an atomic operation. If it is interrupted, it will
     /// be completed the next time an `AtomicDir` is created for this directory.
-    pub async fn commit(self) -> io::Result<()> {
-        self.inner.commit().await
+    pub async fn commit(mut self) -> io::Result<()> {
+        self.take_inner().commit().await
+    }
+
+    pub async fn abort(mut self) -> io::Result<()> {
+        self.take_inner().abort().await
     }
 }
 
@@ -958,6 +981,16 @@ impl AtomicDir {
         let mut data = Vec::new();
         file.read_to_end(&mut data).await?;
         Ok(data)
+    }
+}
+
+impl Drop for AtomicDir {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            // We have not been committed, so we should abort the transaction.
+            // We do this in a background task to avoid blocking the drop.
+            tokio::spawn(inner.abort());
+        }
     }
 }
 
@@ -1080,7 +1113,7 @@ mod tests {
                 atomic_dir2.is_none(),
                 "Should not be able to acquire lock while it's held"
             );
-        } // _atomic_dir1 is dropped here, releasing the lock.
+        } // atomic_dir1 is dropped here, releasing the lock.
 
         // Now that the first lock is released, we should be able to acquire a new one.
         let atomic_dir3 = AtomicDir::try_new_at_dir(dir.path()).await?;
