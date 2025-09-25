@@ -834,8 +834,11 @@ impl OpenOptions<'_> {
     }
 
     /// Opens the file at `path` with the options specified for this builder.
-    pub async fn open<'a>(&'a self, path: &'a Path) -> io::Result<impl AtomicDirFile + 'a> {
-        self.parent.open_file_impl(path, &self.flags).await
+    pub async fn open<'a, P>(&'a self, path: &'a P) -> io::Result<impl AtomicDirFile + 'a>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        self.parent.open_file_impl(path.as_ref(), &self.flags).await
     }
 }
 
@@ -865,8 +868,12 @@ impl AtomicDir {
     /// This will acquire an exclusive lock on the directory, preventing other
     /// `AtomicDir` instances from operating on it. If a previous, incomplete
     /// commit is detected, this will attempt to recover it.
-    pub async fn new_at_dir(dir_root: &Path) -> io::Result<Self> {
-        let inner = AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir_root).await?;
+    pub async fn new_at_dir<P>(dir_root: &P) -> io::Result<Self>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let inner =
+            AtomicDirInner::create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?;
         Ok(AtomicDir { inner })
     }
 
@@ -874,9 +881,12 @@ impl AtomicDir {
     ///
     /// This is a non-blocking version of `new_at_dir`. If the directory is
     /// already locked, it will return `Ok(None)` instead of waiting.
-    pub async fn try_new_at_dir(dir_root: &Path) -> io::Result<Option<Self>> {
+    pub async fn try_new_at_dir<P>(dir_root: &P) -> io::Result<Option<Self>>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
         let Some(inner) =
-            AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir_root).await?
+            AtomicDirInner::try_create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?
         else {
             return Ok(None);
         };
@@ -894,8 +904,11 @@ impl AtomicDir {
     /// Deletes a file within the atomic directory transaction.
     ///
     /// The deletion is staged and will be finalized upon `commit`.
-    pub async fn delete<'a>(&'a self, path: &'a Path) -> io::Result<()> {
-        self.inner.delete_path(path).await
+    pub async fn delete<'a, P>(&'a self, path: &'a P) -> io::Result<()>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        self.inner.delete_path(path.as_ref()).await
     }
 
     /// Commits all staged changes to the directory.
@@ -906,14 +919,18 @@ impl AtomicDir {
     pub async fn commit(self) -> io::Result<()> {
         self.inner.commit().await
     }
+}
 
-    // Helper functions
-
+/// Helper functions
+impl AtomicDir {
     /// A convenience method to write data to a file within the transaction.
     ///
     /// This is equivalent to using `open_options` to open a file for writing
     /// and then writing the data.
-    pub async fn write(&self, path: &Path, write_mode: WriteMode, data: &[u8]) -> io::Result<()> {
+    pub async fn write<P>(&self, path: &P, write_mode: WriteMode, data: &[u8]) -> io::Result<()>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
         let mut options = self.open_options();
         match write_mode {
             WriteMode::CreateNew => {
@@ -923,7 +940,7 @@ impl AtomicDir {
                 options.create(true).truncate(true);
             }
         }
-        let mut file = options.write(true).open(path).await?;
+        let mut file = options.write(true).open(path.as_ref()).await?;
         file.write_all(data).await?;
         Ok(())
     }
@@ -931,7 +948,10 @@ impl AtomicDir {
     /// A convenience method to read data from a file within the transaction.
     ///
     /// This reads the entire contents of the file into a `Vec<u8>`.
-    pub async fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+    pub async fn read<P>(&self, path: &P) -> io::Result<Vec<u8>>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
         let mut options = self.open_options();
         options.read(true);
         let mut file = options.open(path).await?;
@@ -952,7 +972,7 @@ mod tests {
 
         let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
         atomic_dir
-            .write(Path::new("foo.txt"), WriteMode::CreateNew, b"hello")
+            .write("foo.txt", WriteMode::CreateNew, b"hello")
             .await?;
 
         atomic_dir.commit().await?;
