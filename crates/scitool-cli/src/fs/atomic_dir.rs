@@ -1,13 +1,13 @@
 //! Atomic directory operations.
 
 use std::{
-    collections::BTreeMap,
-    ffi::OsStr,
+    collections::{BTreeMap, BTreeSet},
+    ffi::{OsStr, OsString},
     io,
     path::{Component, Path, PathBuf},
 };
 
-use futures::StreamExt as _;
+use futures::{Stream, StreamExt as _};
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -111,6 +111,83 @@ struct CommitSchema {
     temp_dir: RelPathBuf,
     /// The list of entries to commit.
     entries: Vec<CommitEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FileType {
+    is_dir: bool,
+}
+
+impl FileType {
+    fn new_of_dir() -> Self {
+        FileType { is_dir: true }
+    }
+
+    fn new_of_file() -> Self {
+        FileType { is_dir: false }
+    }
+
+    #[must_use]
+    pub fn is_dir(&self) -> bool {
+        self.is_dir
+    }
+
+    #[must_use]
+    pub fn is_file(&self) -> bool {
+        !self.is_dir
+    }
+}
+
+pub struct Metadata {
+    file_type: FileType,
+    file_len: u64,
+}
+
+impl Metadata {
+    #[must_use]
+    pub fn file_type(&self) -> FileType {
+        self.file_type
+    }
+
+    #[must_use]
+    pub fn is_dir(&self) -> bool {
+        self.file_type.is_dir()
+    }
+
+    #[must_use]
+    pub fn is_file(&self) -> bool {
+        self.file_type.is_file()
+    }
+
+    #[expect(clippy::len_without_is_empty, reason = "Following std::fs::Metadata")]
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.file_len
+    }
+}
+pub struct DirEntry {
+    /// The path of the entry, relative to the root of the atomic directory.
+    root_path: RelPathBuf,
+    file_name: OsString,
+    file_type: FileType,
+}
+
+impl DirEntry {
+    #[must_use]
+    pub fn path(&self) -> RelPathBuf {
+        self.root_path
+            .join_rel(RelPath::new_checked(&self.file_name).unwrap())
+    }
+
+    #[must_use]
+    pub fn file_name(&self) -> &OsStr {
+        &self.file_name
+    }
+
+    #[must_use]
+    pub fn file_type(&self) -> FileType {
+        self.file_type
+    }
 }
 
 /// Records the failure to recover a single file during a commit recovery process.
@@ -297,12 +374,13 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
     // We have completed recovery, so we can remove the other files. First
     // delete all temporary directories.
     let mut root_entries = fs.list_dir(dir_root).await?;
-    while let Some(entry_path) = root_entries
+    while let Some(entry) = root_entries
         .next()
         .await
         .transpose()
         .map_err(io_err_map!(Other, "Failed to read directory entry"))?
     {
+        let entry_path = entry.path();
         if entry_path
             .file_name()
             .and_then(OsStr::to_str)
@@ -414,7 +492,7 @@ fn is_valid_path<'a>(path: &'a Path, temp_dir: &Path) -> io::Result<&'a RelPath>
     Ok(path)
 }
 
-fn normalize_path(path: &Path) -> io::Result<RelPathBuf> {
+fn normalize_path(path: &Path, temp_dir: &Path) -> io::Result<RelPathBuf> {
     let mut rel_path = RelPathBuf::new();
 
     for component in path.components() {
@@ -446,6 +524,8 @@ fn normalize_path(path: &Path) -> io::Result<RelPathBuf> {
     if rel_path.as_os_str().is_empty() {
         io_bail!(Other, "Destination path cannot be empty");
     }
+
+    is_valid_path(&rel_path, temp_dir)?;
 
     Ok(rel_path)
 }
@@ -521,6 +601,10 @@ where
         Ok(self.temp_dir.join_rel(relative_path))
     }
 
+    fn normalize_path(&self, path: &Path) -> io::Result<RelPathBuf> {
+        normalize_path(path, &self.temp_dir)
+    }
+
     async fn create_at_dir_with_lock(
         fs: FS,
         dir_root: AbsPathBuf,
@@ -568,7 +652,7 @@ where
     }
 
     async fn delete_path(&self, path: &Path) -> io::Result<()> {
-        let rel_target_path = normalize_path(path)?;
+        let rel_target_path = self.normalize_path(path)?;
         let rel_temp_path = self.relative_temp_file_path(&rel_target_path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
         let abs_temp_path = self.dir_root.join_rel(&rel_temp_path);
@@ -609,7 +693,7 @@ where
     }
 
     async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<FS::File> {
-        let rel_target_path = normalize_path(path)?;
+        let rel_target_path = self.normalize_path(path)?;
         let rel_target_parent = rel_target_path.parent_rel().unwrap_or_default();
         let abs_temp_root = self.dir_root.join_rel(&self.temp_dir);
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
@@ -693,6 +777,118 @@ where
                 Ok(file)
             }
         }
+    }
+
+    async fn list_dir<'a>(
+        &'a self,
+        path: &Path,
+    ) -> io::Result<impl Stream<Item = io::Result<DirEntry>> + Unpin + 'a> {
+        let rel_target_path = self.normalize_path(path)?;
+        let abs_target_path = self.dir_root.join_rel(&rel_target_path);
+        Ok(Box::pin(async_stream::stream! {
+            let target_path_entry_stream =
+                self.fs
+                    .list_dir(&abs_target_path)
+                    .await
+                    .map(Some)
+                    .or_else(|e| {
+                        if e.kind() == io::ErrorKind::NotFound {
+                            Ok(None)
+                        } else {
+                            Err(e)
+                        }
+                    })?;
+            // First loop through the temporary directory, yielding all entries.
+            //
+            // Keep track of all the entries we have seen so far, so we can avoid
+            // yielding duplicates from the main directory.
+            let mut seen_entries = BTreeSet::new();
+
+            for (entry, state) in &self.state.lock().await.file_statuses {
+                let parent_rel = entry.parent_rel().unwrap_or_default();
+                let is_deleted = match state {
+                    TempFileStatus::Deleted => true,
+                    TempFileStatus::Unchanged => continue,
+                    TempFileStatus::Written => false,
+                };
+                if parent_rel == rel_target_path {
+                    seen_entries.insert(entry.clone());
+                    // If the file has been deleted, skip it.
+                    if is_deleted {
+                        continue;
+                    }
+                    yield Ok(DirEntry {
+                        root_path: rel_target_path.clone(),
+                        file_name: entry.file_name().unwrap().into(),
+                        file_type: FileType::new_of_file(),
+                    });
+                } else if parent_rel.starts_with(&rel_target_path) {
+                    let rel_path = entry
+                        .strip_prefix(&rel_target_path)
+                        .map_err(io_err_map!(Other, "Failed to get relative path"))?;
+                    match rel_path.components().next() {
+                        None => {
+                            // This is the target directory itself, skip it.
+                        }
+                        Some(Component::Normal(name)) => {
+                            // This is a direct child of the target directory. Construct its path
+                            // and yield it as a directory entry.
+                            let mut directory_path: RelPathBuf = rel_target_path.clone();
+                            directory_path.push(RelPath::new_checked(name).unwrap());
+                            if !seen_entries.insert(directory_path.clone()) {
+                                // We have already yielded this entry.
+                                continue;
+                            }
+                            if is_deleted {
+                                // The directory has been deleted, skip it.
+                                continue;
+                            }
+                            yield Ok(DirEntry {
+                                root_path: rel_target_path.clone(),
+                                file_name: name.to_os_string(),
+                                file_type: FileType::new_of_dir(),
+                            });
+                        }
+                        Some(_) => {
+                            unreachable!("We have already normalized the path");
+                        }
+                    }
+                }
+            }
+            if let Some(mut target_stream) = target_path_entry_stream {
+                while let Some(entry) = target_stream.next().await {
+                    let entry = entry.map_err(io_err_map!(Other, "Failed to read directory entry"))?;
+                    let rel_path: PathBuf = entry
+                        .path()
+                        .strip_prefix(&self.dir_root)
+                        .map_err(io_err_map!(Other, "Failed to get relative path"))?.into();
+                    let rel_path: RelPathBuf = rel_path
+                        .try_into()
+                        .map_err(io_err_map!(Other, "Failed to convert path to relative path"))?;
+                    if seen_entries.contains(&rel_path) {
+                        // We have already yielded this entry from the temporary directory.
+                        continue;
+                    }
+                    let file_type = match entry.file_type() {
+                        PathKind::Directory => FileType { is_dir: true },
+                        PathKind::File => FileType { is_dir: false },
+                        PathKind::Other => {
+                            // We skip non-regular files.
+                            continue;
+                        }
+                        PathKind::Missing => {
+                            unreachable!("Directory entry cannot be missing");
+                        }
+                    };
+                    seen_entries.insert(rel_path.clone());
+                    yield Ok(DirEntry {
+                        root_path: rel_target_path.clone(),
+                        file_name: entry.file_name().into(),
+                        file_type,
+                    });
+                }
+            }
+        }))
     }
 
     async fn abort(self) -> io::Result<()> {
@@ -930,6 +1126,16 @@ impl AtomicDir {
         self.get_inner().delete_path(path.as_ref()).await
     }
 
+    pub async fn list_dir<'a, P>(
+        &'a self,
+        path: &'a P,
+    ) -> io::Result<impl Stream<Item = io::Result<DirEntry>>>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        self.get_inner().list_dir(path.as_ref()).await
+    }
+
     /// Commits all staged changes to the directory.
     ///
     /// This makes all writes and deletes permanent and visible to other processes.
@@ -997,6 +1203,7 @@ impl Drop for AtomicDir {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -1053,6 +1260,51 @@ mod tests {
         assert_eq!(contents, "new content");
         let contents_bar = tokio::fs::read_to_string(&dir.path().join("bar.txt")).await?;
         assert_eq!(contents_bar, "new file");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_reflects_staged_state() -> io::Result<()> {
+        let dir = tempdir()?;
+        let assets_dir = dir.path().join("assets");
+        tokio::fs::create_dir(&assets_dir).await?;
+
+        tokio::fs::write(assets_dir.join("existing.txt"), b"old").await?;
+        tokio::fs::write(assets_dir.join("deleted.txt"), b"remove me").await?;
+        tokio::fs::write(assets_dir.join("untouched.txt"), b"keep").await?;
+
+        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
+
+        atomic_dir
+            .write(Path::new("assets/new.txt"), WriteMode::CreateNew, b"new")
+            .await?;
+        atomic_dir
+            .write(
+                Path::new("assets/existing.txt"),
+                WriteMode::Overwrite,
+                b"updated",
+            )
+            .await?;
+        atomic_dir.delete(Path::new("assets/deleted.txt")).await?;
+
+        let mut entries = atomic_dir.list_dir(Path::new("assets")).await?;
+        let mut observed = std::collections::BTreeSet::new();
+
+        while let Some(entry) = entries.next().await {
+            let entry = entry?;
+            assert!(entry.file_type().is_file());
+            let rel = entry.file_name().to_string_lossy().into_owned();
+            observed.insert(rel);
+        }
+
+        let expected: std::collections::BTreeSet<String> =
+            ["existing.txt", "new.txt", "untouched.txt"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+
+        assert_eq!(observed, expected);
 
         Ok(())
     }

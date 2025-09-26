@@ -49,6 +49,12 @@ macro_rules! define_path_wrapper {
                     Err($error_type)
                 }
             }
+
+            // All methods are those that cannot violate invariants.
+            #[must_use]
+            pub fn as_path(&self) -> &Path {
+                unsafe { $path_wrapper::cast_from_path(&self.0) }
+            }
         }
 
         impl<'a> TryFrom<&'a Path> for &'a $path_wrapper {
@@ -114,12 +120,6 @@ macro_rules! define_path_wrapper {
                 Ok(<$path_wrapper>::new_checked(path)?.to_path_buf_wrapper())
             }
 
-            // All methods are those that cannot violate invariants.
-            #[must_use]
-            pub fn as_path(&self) -> &Path {
-                unsafe { $path_wrapper::cast_from_path(&self.0) }
-            }
-
             #[must_use]
             pub fn leak<'a>(self) -> &'a $path_wrapper {
                 Box::leak(Box::new(self)).as_path_wrapper()
@@ -173,6 +173,14 @@ macro_rules! define_path_wrapper {
             }
         }
 
+        impl TryFrom<&Path> for $path_buf_wrapper {
+            type Error = $error_type;
+
+            fn try_from(value: &Path) -> Result<Self, Self::Error> {
+                <$path_wrapper>::new_checked(value).map(|p| p.to_path_buf_wrapper())
+            }
+        }
+
         impl Deref for $path_buf_wrapper {
             type Target = $path_wrapper;
             fn deref(&self) -> &Self::Target {
@@ -198,6 +206,12 @@ macro_rules! define_path_wrapper {
             }
         }
 
+        impl From<&$path_wrapper> for $path_buf_wrapper {
+            fn from(value: &$path_wrapper) -> Self {
+                value.to_path_buf_wrapper()
+            }
+        }
+
         impl From<$path_buf_wrapper> for Cow<'_, $path_wrapper> {
             fn from(value: $path_buf_wrapper) -> Self {
                 Cow::Owned(value)
@@ -220,6 +234,30 @@ macro_rules! define_path_wrapper {
             {
                 let path: PathBuf = serde::Deserialize::deserialize(deserializer)?;
                 <$path_buf_wrapper>::try_from(path).map_err(serde::de::Error::custom)
+            }
+        }
+
+        impl PartialEq<&$path_wrapper> for $path_buf_wrapper {
+            fn eq(&self, other: &&$path_wrapper) -> bool {
+                self.as_path() == other.as_ref()
+            }
+        }
+
+        impl PartialEq<$path_buf_wrapper> for &$path_wrapper {
+            fn eq(&self, other: &$path_buf_wrapper) -> bool {
+                self.as_ref() == other.as_path()
+            }
+        }
+
+        impl PartialEq<&Path> for $path_buf_wrapper {
+            fn eq(&self, other: &&Path) -> bool {
+                self.as_path() == *other
+            }
+        }
+
+        impl PartialEq<$path_buf_wrapper> for &Path {
+            fn eq(&self, other: &$path_buf_wrapper) -> bool {
+                *self == other.as_path()
             }
         }
     }

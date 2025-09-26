@@ -1,4 +1,5 @@
 use std::{
+    ffi::{OsStr, OsString},
     fs::TryLockError,
     io,
     path::{Path, PathBuf},
@@ -108,6 +109,7 @@ pub trait File: AsyncRead + AsyncWrite + AsyncRead + Unpin + Send {}
 
 impl File for tokio::fs::File {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathKind {
     File,
     Directory,
@@ -127,6 +129,38 @@ pub enum LockStatus {
     None,
     Shared,
     Exclusive,
+}
+
+pub struct DirEntry {
+    root_path: PathBuf,
+    file_name: OsString,
+    file_type: PathKind,
+}
+
+impl DirEntry {
+    #[must_use]
+    pub fn new(root_path: PathBuf, file_name: OsString, file_type: PathKind) -> Self {
+        Self {
+            root_path,
+            file_name,
+            file_type,
+        }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> PathBuf {
+        self.root_path.join(&self.file_name)
+    }
+
+    #[must_use]
+    pub fn file_name(&self) -> &OsStr {
+        &self.file_name
+    }
+
+    #[must_use]
+    pub fn file_type(&self) -> PathKind {
+        self.file_type
+    }
 }
 
 pub trait LockFile {
@@ -163,7 +197,7 @@ pub trait FileSystemOperations {
     fn list_dir(
         &self,
         path: &Path,
-    ) -> impl Future<Output = io::Result<impl Stream<Item = io::Result<PathBuf>> + Unpin>>;
+    ) -> impl Future<Output = io::Result<impl Stream<Item = io::Result<DirEntry>> + Unpin>>;
     /// Creates a directory at a location. The parent directories must already exist, and the
     /// directory must not already exist.
     ///
@@ -296,18 +330,19 @@ impl FileSystemOperations for TokioFileSystemOperations {
     async fn list_dir(
         &self,
         path: &Path,
-    ) -> io::Result<impl Stream<Item = io::Result<PathBuf>> + Unpin> {
+    ) -> io::Result<impl Stream<Item = io::Result<DirEntry>> + Unpin> {
         let mut entries = tokio::fs::read_dir(path).await?;
-        Ok(futures::stream::poll_fn(move |cx| {
-            let poll_result = futures::ready!(entries.poll_next_entry(cx));
-            let entry = match poll_result {
-                Ok(entry) => entry,
-                Err(err) => return std::task::Poll::Ready(Some(Err(err))),
-            };
-            if let Some(entry) = entry {
-                std::task::Poll::Ready(Some(Ok(entry.path())))
-            } else {
-                std::task::Poll::Ready(None)
+        Ok(Box::pin(async_stream::try_stream! {
+            while let Some(entry) = entries.next_entry().await? {
+                let file_type = entry.file_type().await?;
+                let path_kind = if file_type.is_file() {
+                    PathKind::File
+                } else if file_type.is_dir() {
+                    PathKind::Directory
+                } else {
+                    PathKind::Other
+                };
+                yield DirEntry::new(path.to_owned(), entry.file_name(), path_kind);
             }
         }))
     }
