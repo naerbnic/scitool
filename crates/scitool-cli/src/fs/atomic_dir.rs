@@ -7,7 +7,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use futures::{Stream, StreamExt as _};
+use futures::{StreamExt as _, TryStream, TryStreamExt as _};
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -284,20 +284,20 @@ async fn apply_entry<FS: FileSystemOperations>(
 
 async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> io::Result<()> {
     match fs.get_path_kind(dir_root).await? {
-        PathKind::Directory => {
+        Some(PathKind::Directory) => {
             // Normal case, nothing to do.
         }
-        PathKind::File => io_bail!(
+        Some(PathKind::File) => io_bail!(
             NotADirectory,
             "Package root is a file: {}",
             dir_root.display()
         ),
-        PathKind::Other => io_bail!(
+        Some(PathKind::Other) => io_bail!(
             NotADirectory,
             "Package root is not a directory: {}",
             dir_root.display()
         ),
-        PathKind::Missing => io_bail!(
+        None => io_bail!(
             NotFound,
             "Package root does not exist: {}",
             dir_root.display()
@@ -307,16 +307,16 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
     let commit_path = dir_root.join_rel(RelPath::new_checked(COMMIT_PATH).unwrap());
 
     match fs.get_path_kind(&commit_path).await? {
-        PathKind::File => {
+        Some(PathKind::File) => {
             // We have some recovery to do. Continue.
         }
-        PathKind::Directory => {
+        Some(PathKind::Directory) => {
             io_bail!(InvalidData, "Commit file is a directory");
         }
-        PathKind::Other => {
+        Some(PathKind::Other) => {
             io_bail!(InvalidData, "Commit file is not a regular file");
         }
-        PathKind::Missing => {
+        None => {
             // No commit file, so no recovery needed.
             return Ok(());
         }
@@ -530,6 +530,31 @@ fn normalize_path(path: &Path, temp_dir: &Path) -> io::Result<RelPathBuf> {
     Ok(rel_path)
 }
 
+struct ChildEntry {
+    name: RelPathBuf,
+    file_type: FileType,
+}
+
+fn get_child_of_descendant(base: &RelPath, descendant: &RelPath) -> Option<ChildEntry> {
+    let stripped_path = descendant.strip_prefix(base).ok()?;
+    let mut components = stripped_path.components();
+    match components.next() {
+        Some(Component::Normal(os_str)) => {
+            let name = RelPath::new_checked(os_str).expect("Normal component is always valid");
+            let file_type = if components.next().is_some() {
+                FileType::new_of_dir()
+            } else {
+                FileType::new_of_file()
+            };
+            Some(ChildEntry {
+                name: name.into(),
+                file_type,
+            })
+        }
+        _ => None, // The stripped path is empty or starts with something unexpected.
+    }
+}
+
 struct DirLock<LF>
 where
     LF: LockFile + Send,
@@ -563,6 +588,7 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum TempFileStatus {
     /// The path is unchanged from the original file state.
     Unchanged,
@@ -670,10 +696,10 @@ where
             }
             TempFileStatus::Unchanged => {
                 match self.fs.get_path_kind(&abs_target_path).await? {
-                    PathKind::Directory => io_bail!(IsADirectory, "Path is a directory"),
-                    PathKind::Other => io_bail!(Other, "Path is not a regular file"),
-                    PathKind::File => {}
-                    PathKind::Missing => {
+                    Some(PathKind::Directory) => io_bail!(IsADirectory, "Path is a directory"),
+                    Some(PathKind::Other) => io_bail!(Other, "Path is not a regular file"),
+                    Some(PathKind::File) => {}
+                    None => {
                         // The file does not exist. Avoid adding a delete entry
                         // to keep things clean.
                         return Ok(());
@@ -745,11 +771,13 @@ where
 
                 {
                     let (should_create, should_copy) =
-                        match self.fs.get_path_kind(&rel_target_path).await? {
-                            PathKind::Directory => io_bail!(IsADirectory, "Path is a directory"),
-                            PathKind::Other => io_bail!(Other, "Path is not a regular file"),
-                            PathKind::File => (true, options.uses_original_data()),
-                            PathKind::Missing => (false, false),
+                        match self.fs.get_path_kind(&abs_target_path).await? {
+                            Some(PathKind::Directory) => {
+                                io_bail!(IsADirectory, "Path is a directory")
+                            }
+                            Some(PathKind::Other) => io_bail!(Other, "Path is not a regular file"),
+                            Some(PathKind::File) => (true, options.uses_original_data()),
+                            None => (false, false),
                         };
 
                     if should_create {
@@ -782,113 +810,102 @@ where
     async fn list_dir<'a>(
         &'a self,
         path: &Path,
-    ) -> io::Result<impl Stream<Item = io::Result<DirEntry>> + Unpin + 'a> {
+    ) -> io::Result<impl TryStream<Ok = DirEntry, Error = io::Error> + Unpin + 'a> {
         let rel_target_path = self.normalize_path(path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
-        Ok(Box::pin(async_stream::stream! {
-            let target_path_entry_stream =
-                self.fs
-                    .list_dir(&abs_target_path)
-                    .await
-                    .map(Some)
-                    .or_else(|e| {
-                        if e.kind() == io::ErrorKind::NotFound {
-                            Ok(None)
-                        } else {
-                            Err(e)
-                        }
-                    })?;
-            // First loop through the temporary directory, yielding all entries.
-            //
-            // Keep track of all the entries we have seen so far, so we can avoid
-            // yielding duplicates from the main directory.
-            let mut seen_entries = BTreeSet::new();
 
-            for (entry, state) in &self.state.lock().await.file_statuses {
-                let parent_rel = entry.parent_rel().unwrap_or_default();
-                let is_deleted = match state {
-                    TempFileStatus::Deleted => true,
-                    TempFileStatus::Unchanged => continue,
-                    TempFileStatus::Written => false,
+        // First loop through the temporary directory, yielding all entries.
+        //
+        // Keep track of all the entries we have seen so far, so we can avoid
+        // yielding duplicates from the main directory.
+        let mut seen_entries = BTreeSet::new();
+
+        let mut temp_path_entries = Vec::new();
+        {
+            let locked_state = self.state.lock().await;
+            for (path, status) in &locked_state.file_statuses {
+                let Some(child) = get_child_of_descendant(&rel_target_path, path) else {
+                    continue;
                 };
-                if parent_rel == rel_target_path {
-                    seen_entries.insert(entry.clone());
-                    // If the file has been deleted, skip it.
-                    if is_deleted {
-                        continue;
-                    }
-                    yield Ok(DirEntry {
-                        root_path: rel_target_path.clone(),
-                        file_name: entry.file_name().unwrap().into(),
-                        file_type: FileType::new_of_file(),
-                    });
-                } else if parent_rel.starts_with(&rel_target_path) {
-                    let rel_path = entry
-                        .strip_prefix(&rel_target_path)
-                        .map_err(io_err_map!(Other, "Failed to get relative path"))?;
-                    match rel_path.components().next() {
-                        None => {
-                            // This is the target directory itself, skip it.
-                        }
-                        Some(Component::Normal(name)) => {
-                            // This is a direct child of the target directory. Construct its path
-                            // and yield it as a directory entry.
-                            let mut directory_path: RelPathBuf = rel_target_path.clone();
-                            directory_path.push(RelPath::new_checked(name).unwrap());
-                            if !seen_entries.insert(directory_path.clone()) {
-                                // We have already yielded this entry.
-                                continue;
-                            }
-                            if is_deleted {
-                                // The directory has been deleted, skip it.
-                                continue;
-                            }
-                            yield Ok(DirEntry {
-                                root_path: rel_target_path.clone(),
-                                file_name: name.to_os_string(),
-                                file_type: FileType::new_of_dir(),
-                            });
-                        }
-                        Some(_) => {
-                            unreachable!("We have already normalized the path");
+                match status {
+                    TempFileStatus::Deleted => {
+                        // We have deleted this entry, so we should not yield it.
+                        //
+                        // Note that we only want to do this with files, as the
+                        // target directory may still have other entries in it.
+                        if child.file_type.is_file() {
+                            seen_entries.insert(child.name.clone());
                         }
                     }
-                }
-            }
-            if let Some(mut target_stream) = target_path_entry_stream {
-                while let Some(entry) = target_stream.next().await {
-                    let entry = entry.map_err(io_err_map!(Other, "Failed to read directory entry"))?;
-                    let rel_path: PathBuf = entry
-                        .path()
-                        .strip_prefix(&self.dir_root)
-                        .map_err(io_err_map!(Other, "Failed to get relative path"))?.into();
-                    let rel_path: RelPathBuf = rel_path
-                        .try_into()
-                        .map_err(io_err_map!(Other, "Failed to convert path to relative path"))?;
-                    if seen_entries.contains(&rel_path) {
-                        // We have already yielded this entry from the temporary directory.
-                        continue;
+                    TempFileStatus::Unchanged => {
+                        // We have not changed this entry, so we will yield it
+                        // from the main directory listing.
                     }
-                    let file_type = match entry.file_type() {
-                        PathKind::Directory => FileType { is_dir: true },
-                        PathKind::File => FileType { is_dir: false },
-                        PathKind::Other => {
-                            // We skip non-regular files.
+                    TempFileStatus::Written => {
+                        if !seen_entries.insert(child.name.clone()) {
+                            // We have already yielded this entry.
                             continue;
                         }
-                        PathKind::Missing => {
-                            unreachable!("Directory entry cannot be missing");
-                        }
-                    };
-                    seen_entries.insert(rel_path.clone());
-                    yield Ok(DirEntry {
-                        root_path: rel_target_path.clone(),
-                        file_name: entry.file_name().into(),
-                        file_type,
-                    });
+                        temp_path_entries.push(child);
+                    }
                 }
             }
-        }))
+        };
+        let target_path_entry_stream = self
+            .fs
+            .list_dir(&abs_target_path)
+            .await
+            .map(Some)
+            .or_else(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            })
+            .map_err(io_err_map!(
+                Other,
+                "Failed to read existing directory entries"
+            ))?;
+        let target_path_entries = if let Some(stream) = target_path_entry_stream {
+            stream
+                .try_filter_map(async |entry| {
+                    if seen_entries.contains(entry.file_name()) {
+                        return Ok(None);
+                    }
+                    Ok(Some(ChildEntry {
+                        name: RelPathBuf::new_checked(entry.file_name()).map_err(io_err_map!(
+                            Other,
+                            "Entry name is not a valid relative path"
+                        ))?,
+                        file_type: match entry.file_type() {
+                            PathKind::Directory => FileType::new_of_dir(),
+                            PathKind::File => FileType::new_of_file(),
+                            PathKind::Other => {
+                                // We skip non-regular files.
+                                return Ok(None);
+                            }
+                        },
+                    }))
+                })
+                .try_collect()
+                .await?
+        } else {
+            // The target directory does not exist. We will only yield entries
+            // from the temporary directory.
+            Vec::new()
+        };
+        // Combine the two lists, sort them, and yield them.
+        let mut path_entries = temp_path_entries;
+        path_entries.extend(target_path_entries);
+        path_entries.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(futures::stream::iter(path_entries)
+            .map(move |entry| DirEntry {
+                root_path: rel_target_path.clone(),
+                file_name: entry.name.into_os_string(),
+                file_type: entry.file_type,
+            })
+            .map(Ok))
     }
 
     async fn abort(self) -> io::Result<()> {
@@ -1129,7 +1146,7 @@ impl AtomicDir {
     pub async fn list_dir<'a, P>(
         &'a self,
         path: &'a P,
-    ) -> io::Result<impl Stream<Item = io::Result<DirEntry>>>
+    ) -> io::Result<impl TryStream<Ok = DirEntry, Error = io::Error> + Unpin + 'a>
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -1203,7 +1220,6 @@ impl Drop for AtomicDir {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::StreamExt;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -1291,8 +1307,7 @@ mod tests {
         let mut entries = atomic_dir.list_dir(Path::new("assets")).await?;
         let mut observed = std::collections::BTreeSet::new();
 
-        while let Some(entry) = entries.next().await {
-            let entry = entry?;
+        while let Some(entry) = entries.try_next().await? {
             assert!(entry.file_type().is_file());
             let rel = entry.file_name().to_string_lossy().into_owned();
             observed.insert(rel);

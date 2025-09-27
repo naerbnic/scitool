@@ -114,7 +114,6 @@ pub enum PathKind {
     File,
     Directory,
     Other,
-    Missing,
 }
 
 #[derive(Debug)]
@@ -179,7 +178,7 @@ pub trait FileSystemOperations {
     type FileLock: LockFile + Send;
 
     /// Checks to see the kind of the path, or if the path does not exist.
-    fn get_path_kind(&self, path: &Path) -> impl Future<Output = io::Result<PathKind>>;
+    fn get_path_kind(&self, path: &Path) -> impl Future<Output = io::Result<Option<PathKind>>>;
 
     /// Attempts a rename of the file at `src` to `dst` atomically, overwriting it if it exists.
     /// If the source file does not exist, it returns `RenameFileResult::SourceMissing`
@@ -291,18 +290,18 @@ impl FileSystemOperations for TokioFileSystemOperations {
     type FileWriter = TokioFile;
     type FileLock = TokioFileLock;
 
-    async fn get_path_kind(&self, path: &Path) -> io::Result<PathKind> {
+    async fn get_path_kind(&self, path: &Path) -> io::Result<Option<PathKind>> {
         match tokio::fs::metadata(&path).await {
             Ok(metadata) => {
                 if metadata.is_file() {
-                    Ok(PathKind::File)
+                    Ok(Some(PathKind::File))
                 } else if metadata.is_dir() {
-                    Ok(PathKind::Directory)
+                    Ok(Some(PathKind::Directory))
                 } else {
-                    Ok(PathKind::Other)
+                    Ok(Some(PathKind::Other))
                 }
             }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(PathKind::Missing),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err),
         }
     }

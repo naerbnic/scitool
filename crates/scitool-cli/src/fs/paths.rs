@@ -3,6 +3,7 @@
 use std::{
     borrow::{Borrow, Cow},
     collections::TryReserveError,
+    ffi::OsStr,
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -76,6 +77,12 @@ macro_rules! define_path_wrapper {
         impl AsRef<Path> for $path_wrapper {
             fn as_ref(&self) -> &Path {
                 &self.0
+            }
+        }
+
+        impl Borrow<OsStr> for &$path_wrapper {
+            fn borrow(&self) -> &OsStr {
+                self.0.as_os_str()
             }
         }
 
@@ -203,6 +210,12 @@ macro_rules! define_path_wrapper {
         impl Borrow<$path_wrapper> for $path_buf_wrapper {
             fn borrow(&self) -> &$path_wrapper {
                 self.as_path_wrapper()
+            }
+        }
+
+        impl Borrow<OsStr> for $path_buf_wrapper {
+            fn borrow(&self) -> &OsStr {
+                self.0.as_os_str()
             }
         }
 
