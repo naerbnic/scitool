@@ -51,26 +51,6 @@ impl<T> Dirty<T> {
     pub(super) fn is_dirty(&self) -> bool {
         self.dirty.is_some()
     }
-
-    /// Run a function to persist the dirty value. On success, the value is
-    /// marked as clean. On failure, the dirty value is restored.
-    pub(super) fn try_persist<F, E>(&mut self, body: F) -> Result<(), E>
-    where
-        F: FnOnce(&T) -> Result<(), E>,
-    {
-        if let Some(dirty) = self.dirty.take() {
-            match body(&dirty) {
-                Ok(()) => {
-                    self.current = Some(dirty);
-                }
-                Err(err) => {
-                    self.dirty = Some(dirty);
-                    return Err(err);
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 impl<T> Dirty<T>

@@ -24,7 +24,9 @@ pub enum ResourcePatchError {
     Other(#[from] OtherError),
 }
 
-pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>, TryPatchError> {
+pub(crate) async fn try_patch_from_file(
+    patch_file: &Path,
+) -> Result<Option<Resource>, TryPatchError> {
     // Parse the filename to get the resource ID.
 
     // The stem of the file is the resource ID as an integer.
@@ -48,7 +50,7 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
 
     let source = BlockSource::from_path(patch_file.to_path_buf()).with_other_err()?;
     let (base_header_block, rest) = source.split_at(2);
-    let base_header = base_header_block.open().with_other_err()?;
+    let base_header = base_header_block.open().await.with_other_err()?;
     let id = base_header[0];
     let header_size = base_header[1];
     let content_res_type: ResourceType = (id & 0x7f).try_into().with_other_err()?;
@@ -68,7 +70,7 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
     // and another 22 byte header data that we can skip.
     let (extra_data, data) = if header_size == 128 {
         let (ext_header, rest) = rest.split_at(24);
-        let ext_header_data = ext_header.open().with_other_err()?;
+        let ext_header_data = ext_header.open().await.with_other_err()?;
         let real_header_size = ext_header_data[1];
         if real_header_size != 0 {
             log::warn!(
@@ -108,7 +110,7 @@ pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpi
         .with_other_err()?;
     match &resource.contents.extra_data {
         Some(ExtraData::Simple(data)) => {
-            let data = data.open().with_other_err()?;
+            let data = data.open().await.with_other_err()?;
             ensure_other!(
                 data.len() <= 127,
                 "Simple extra data too large: {} bytes",
@@ -124,7 +126,7 @@ pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpi
             ext_header,
             extra_data,
         }) => {
-            let ext_header = ext_header.open().with_other_err()?;
+            let ext_header = ext_header.open().await.with_other_err()?;
             ensure_other!(
                 ext_header.len() == 24,
                 "Extended header size incorrect: {} bytes",
@@ -136,7 +138,7 @@ pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpi
                 .with_other_err()?;
             writer.write_all(&ext_header).await.with_other_err()?;
 
-            let extra_data = extra_data.open().with_other_err()?;
+            let extra_data = extra_data.open().await.with_other_err()?;
             writer.write_all(&extra_data).await.with_other_err()?;
         }
         None => {
@@ -144,7 +146,7 @@ pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpi
         }
     }
 
-    let data = resource.contents.source.open().with_other_err()?;
+    let data = resource.contents.source.open().await.with_other_err()?;
     writer.write_all(&data).await.with_other_err()?;
 
     Ok(())

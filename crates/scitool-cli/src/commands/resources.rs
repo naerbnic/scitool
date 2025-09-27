@@ -1,19 +1,20 @@
+use futures::StreamExt as _;
 use scidev::{
-    resources::{ExtraData, ResourceId, ResourceSet, ResourceType},
+    resources::{ResourceId, ResourceSet, ResourceType},
     utils::debug::hex_dump_to,
 };
 use std::path::Path;
 
-pub fn dump_resource(
+pub async fn dump_resource(
     root_dir: &Path,
     resource_id: ResourceId,
     output: impl std::io::Write,
 ) -> anyhow::Result<()> {
-    let resource_set = ResourceSet::from_root_dir(root_dir)?;
+    let resource_set = ResourceSet::from_root_dir(root_dir).await?;
     let res = resource_set
         .get_resource(&resource_id)
         .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
-    let data = res.load_data()?;
+    let data = res.load_data().await?;
     hex_dump_to(output, &data, 0)?;
     Ok(())
 }
@@ -30,7 +31,7 @@ pub async fn extract_resource_as_patch<'a>(
     resource_num: u16,
     output_dir: &'a Path,
 ) -> anyhow::Result<WriteOperation<'a>> {
-    let resource_set = ResourceSet::from_root_dir(root_dir)?;
+    let resource_set = ResourceSet::from_root_dir(root_dir).await?;
     let resource_id = ResourceId::new(resource_type, resource_num);
     let contents = resource_set
         .get_resource(&resource_id)
@@ -72,43 +73,18 @@ pub async fn extract_resource_as_patch<'a>(
     })
 }
 
-pub fn list_resources(
+pub async fn list_resources(
     root_dir: &Path,
     res_type: Option<ResourceType>,
 ) -> anyhow::Result<Vec<ResourceId>> {
-    let resource_dir_files = ResourceSet::from_root_dir(root_dir)?;
-    Ok(resource_dir_files
-        .resources()
-        .inspect(|r| {
-            if let Some(extra_data) = r.extra_data() {
-                match extra_data {
-                    ExtraData::Simple(data) => {
-                        let data = data.open().unwrap();
-                        if !data.is_empty() {
-                            eprintln!("Found resource with extra data: {:?}, {:?}", r.id(), data);
-                        }
-                    }
-                    ExtraData::Composite {
-                        ext_header,
-                        extra_data,
-                    } => {
-                        let ext_data = ext_header.open().unwrap();
-                        if !ext_data.is_empty() {
-                            eprintln!(
-                                "Found resource with extended header: {:?}, {:?}",
-                                r.id(),
-                                ext_data
-                            );
-                        }
-                        let data = extra_data.open().unwrap();
-                        if !data.is_empty() {
-                            eprintln!("Found resource with extra data: {:?}, {:?}", r.id(), data);
-                        }
-                    }
-                }
-            }
-        })
-        .map(|r| *r.id())
-        .filter(|id| res_type.is_none_or(|res_type| id.type_id() == res_type))
-        .collect())
+    let resource_dir_files = ResourceSet::from_root_dir(root_dir).await?;
+    let resources: Vec<ResourceId> = futures::stream::iter(
+        resource_dir_files
+            .resources()
+            .map(|r| *r.id())
+            .filter(|id| res_type.is_none_or(|res_type| id.type_id() == res_type)),
+    )
+    .collect()
+    .await;
+    Ok(resources)
 }

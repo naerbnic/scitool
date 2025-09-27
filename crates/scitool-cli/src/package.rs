@@ -2,6 +2,7 @@
 //!
 //! A *.scires package is a folder that has a `meta.json` file and multiple files in it, to
 //! be able to create a common workable format for importing and exporting SCI resources.
+#![expect(clippy::todo)]
 
 mod dirty;
 pub mod schema;
@@ -35,8 +36,10 @@ const META_PATH: &str = "meta.json";
 const COMPRESSED_BIN_PATH: &str = "compressed.bin";
 const RAW_BIN_PATH: &str = "raw.bin";
 
-fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, LazyBlockError> {
-    let buffer = block.open()?;
+async fn buffer_info_from_lazy_block(
+    block: &LazyBlock,
+) -> Result<schema::BufferInfo, LazyBlockError> {
+    let buffer = block.open().await?;
 
     let size = u64::try_from(buffer.len()).unwrap();
     let hash = Sha256Hash::from_data_hash(&*buffer);
@@ -144,9 +147,10 @@ impl Package {
         self.metadata.is_dirty() || self.raw_data.is_dirty() || self.compressed_data.is_dirty()
     }
 
-    pub fn set_raw_data(&mut self, data: LazyBlock) -> std::io::Result<()> {
+    pub async fn set_raw_data(&mut self, data: LazyBlock) -> std::io::Result<()> {
         // Update the metadata about the raw data.
         let raw_buffer_info = buffer_info_from_lazy_block(&data)
+            .await
             .map_err(io_err_map!(Other, "Failed to compute buffer info"))?;
         {
             let metadata = self.metadata_mut();
@@ -156,7 +160,7 @@ impl Package {
         Ok(())
     }
 
-    pub fn save(&mut self) -> std::io::Result<()> {
+    pub async fn save(&mut self) -> std::io::Result<()> {
         // To be maximally safe, the ideal way to save would be to use a multiphase
         // save process, where we write to temporary files, use the meta.json
         // file as an atomic reference, and then push the files into place.
@@ -166,54 +170,14 @@ impl Package {
         //
         // For the time being, we will just overwrite the files directly.
 
-        let Some(path) = &self.target_path else {
+        let Some(_path) = &self.target_path else {
             io_bail!(
                 InvalidInput,
                 "Cannot save a package that was not loaded from a path or saved to a path."
             );
         };
 
-        self.metadata.try_persist(|metadata| {
-            let meta_path = path.join(META_PATH);
-            let meta_data = serde_json::to_vec(metadata)
-                .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
-            std::fs::write(meta_path, meta_data)
-                .map_err(io_err_map!(Other, "Failed to write metadata file"))
-        })?;
-
-        self.compressed_data.try_persist(|compressed_data| {
-            let compressed_path = path.join(COMPRESSED_BIN_PATH);
-            if let Some(compressed_data) = compressed_data {
-                let compressed_block = compressed_data
-                    .open()
-                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
-                std::fs::write(&compressed_path, compressed_block)
-                    .map_err(io_err_map!(Other, "Failed to write compressed data file"))
-            } else if compressed_path.exists() {
-                std::fs::remove_file(compressed_path)
-                    .map_err(io_err_map!(Other, "Failed to remove compressed data file"))
-            } else {
-                Ok(())
-            }
-        })?;
-
-        self.raw_data.try_persist(|raw_data| {
-            let raw_path = path.join(RAW_BIN_PATH);
-            if let Some(raw_data) = raw_data {
-                let raw_block = raw_data
-                    .open()
-                    .map_err(io_err_map!(Other, "Failed to open raw data"))?;
-                std::fs::write(&raw_path, raw_block)
-                    .map_err(io_err_map!(Other, "Failed to write raw data file"))
-            } else if raw_path.exists() {
-                std::fs::remove_file(raw_path)
-                    .map_err(io_err_map!(Other, "Failed to remove raw data file"))
-            } else {
-                Ok(())
-            }
-        })?;
-
-        Ok(())
+        todo!()
     }
 
     /// Saves the package to a new path.
@@ -221,11 +185,11 @@ impl Package {
     /// This will update the stored path of the package to the new path, ensuring
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
-    pub fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
+    pub async fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
         std::fs::create_dir_all(&path)
             .map_err(io_err_map!(Other, "Failed to create package directory"))?;
         let old_target_path = self.target_path.replace(path);
-        match self.save() {
+        match self.save().await {
             Ok(()) => Ok(()),
             Err(e) => {
                 self.target_path = old_target_path;

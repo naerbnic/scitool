@@ -77,10 +77,7 @@ impl CompileAudio {
             async {
                 let resource_aud_file =
                     tokio::fs::File::create(output_dir.join("resource.aud")).await?;
-                resources
-                    .audio_volume()
-                    .write_to_async(resource_aud_file)
-                    .await?;
+                resources.audio_volume().write_to(resource_aud_file).await?;
                 Ok::<_, anyhow::Error>(())
             },
             execute_all(resources.map_resources().iter().map(|res| {

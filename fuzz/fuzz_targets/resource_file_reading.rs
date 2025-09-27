@@ -3,8 +3,8 @@
 use libfuzzer_sys::fuzz_target;
 use scidev::resources::ResourceSet;
 
-fn body(root_dir: &std::path::Path) -> anyhow::Result<()> {
-    let _resources = ResourceSet::from_root_dir(root_dir)?;
+async fn body(root_dir: &std::path::Path) -> anyhow::Result<()> {
+    let _resources = ResourceSet::from_root_dir(root_dir).await?;
     Ok(())
 }
 
@@ -24,5 +24,11 @@ fuzz_target!(|data: &[u8]| {
     std::fs::write(tempdir.path().join("RESOURCE.MAP"), map_file_data).unwrap();
     std::fs::write(tempdir.path().join("RESOURCE.000"), resource_file_data).unwrap();
 
-    let _ = body(tempdir.path());
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let _ = body(tempdir.path()).await;
+        });
 });

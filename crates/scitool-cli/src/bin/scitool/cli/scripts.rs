@@ -28,15 +28,16 @@ struct GenerateHeaders {
 }
 
 impl GenerateHeaders {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    pub(crate) async fn run(&self) -> anyhow::Result<()> {
         if self.dry_run {
-            dump_headers(&self.game_dir, std::io::stdout())?;
+            dump_headers(&self.game_dir, std::io::stdout()).await?;
         } else {
             generate_headers(
                 &self.game_dir,
                 &self.out_dir.join(&self.selectors_path),
                 &self.out_dir.join(&self.classdef_path),
-            )?;
+            )
+            .await?;
         }
         Ok(())
     }
@@ -53,9 +54,9 @@ enum ScriptCommand {
 }
 
 impl ScriptCommand {
-    fn run(&self) -> anyhow::Result<()> {
+    async fn run(&self) -> anyhow::Result<()> {
         match self {
-            ScriptCommand::GenerateHeaders(gen_headers) => gen_headers.run()?,
+            ScriptCommand::GenerateHeaders(gen_headers) => gen_headers.run().await?,
         }
         Ok(())
     }
@@ -70,7 +71,7 @@ pub(super) struct Script {
 }
 
 impl Script {
-    pub(super) fn run(&self) -> anyhow::Result<()> {
-        self.command.run()
+    pub(super) async fn run(&self) -> anyhow::Result<()> {
+        self.command.run().await
     }
 }

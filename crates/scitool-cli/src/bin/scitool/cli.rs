@@ -40,8 +40,8 @@ impl Category {
     async fn run(&self) -> anyhow::Result<()> {
         match self {
             Category::Resource(res) => res.run().await,
-            Category::Message(msg) => msg.run(),
-            Category::Script(script) => script.run(),
+            Category::Message(msg) => msg.run().await,
+            Category::Script(script) => script.run().await,
         }
     }
 }

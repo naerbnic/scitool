@@ -121,7 +121,7 @@ mod tests {
         let block_source = store.store(buffer).await?;
         assert_eq!(block_source.size(), 4);
         let mut read_data = Vec::new();
-        read_data.put(BufferCursor::new(block_source.to_buffer()?));
+        read_data.put(BufferCursor::new(block_source.to_buffer().await?));
         assert_eq!(read_data, vec![1, 2, 3, 4]);
         Ok(())
     }

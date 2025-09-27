@@ -19,7 +19,7 @@ impl Cli {
             Cmd::ExportScannable(export_scannable) => export_scannable.run().await?,
             Cmd::TryScan(try_scan) => try_scan.run().await?,
             Cmd::GenerateCsv(generate_csv) => generate_csv.run()?,
-            Cmd::Book(book) => book.run()?,
+            Cmd::Book(book) => book.run().await?,
         }
         Ok(())
     }

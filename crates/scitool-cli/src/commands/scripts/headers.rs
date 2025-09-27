@@ -27,8 +27,8 @@ impl Selector {
     }
 }
 
-fn dump_selectors(resource_set: &ResourceSet) -> anyhow::Result<Vec<Selector>> {
-    let script_loader = ScriptLoader::load_from(resource_set)?;
+async fn dump_selectors(resource_set: &ResourceSet) -> anyhow::Result<Vec<Selector>> {
+    let script_loader = ScriptLoader::load_from(resource_set).await?;
     let mut ordered_selectors = script_loader.selectors().collect::<Vec<_>>();
     ordered_selectors.sort_by_key(|sel| sel.id());
 
@@ -153,8 +153,8 @@ impl ClassDef {
     }
 }
 
-fn dump_class_defs(resource_set: &ResourceSet) -> anyhow::Result<Vec<ClassDef>> {
-    let class_decl_set = ClassDeclSet::new(resource_set)?;
+async fn dump_class_defs(resource_set: &ResourceSet) -> anyhow::Result<Vec<ClassDef>> {
+    let class_decl_set = ClassDeclSet::new(resource_set).await?;
 
     let classes = topo_sort(class_decl_set.classes());
 
@@ -202,12 +202,12 @@ pub(super) struct SciScriptExports {
 }
 
 impl SciScriptExports {
-    pub(super) fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
-        let resource_set = ResourceSet::from_root_dir(root_dir)?;
+    pub(super) async fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
+        let resource_set = ResourceSet::from_root_dir(root_dir).await?;
 
-        let selectors = dump_selectors(&resource_set)?;
+        let selectors = dump_selectors(&resource_set).await?;
 
-        let class_defs = dump_class_defs(&resource_set)?;
+        let class_defs = dump_class_defs(&resource_set).await?;
 
         Ok(SciScriptExports {
             selectors,

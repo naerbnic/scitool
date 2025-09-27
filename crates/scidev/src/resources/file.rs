@@ -87,7 +87,7 @@ impl From<MemBlockFromReaderError> for Error {
     }
 }
 
-pub(super) fn read_resources(
+pub(super) async fn read_resources(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource],
@@ -100,7 +100,7 @@ pub(super) fn read_resources(
     let mut entries = BTreeMap::new();
 
     for location in resource_locations.locations() {
-        let block = data_file.read_contents(location)?;
+        let block = data_file.read_contents(location).await?;
         if block.id() != &location.id() {
             return Err(Error::ResourceIdMismatch {
                 expected: location.id(),
@@ -175,12 +175,13 @@ pub struct ResourceSet {
 }
 
 impl ResourceSet {
-    pub fn from_root_dir(root_dir: &Path) -> Result<Self, OpenGameResourcesError> {
+    pub async fn from_root_dir(root_dir: &Path) -> Result<Self, OpenGameResourcesError> {
         let mut patches = Vec::new();
         for entry in root_dir.read_dir().with_other_err()? {
             let entry = entry.with_other_err()?;
             if entry.file_type().with_other_err()?.is_file()
-                && let Some(patch_res) = try_patch_from_file(&entry.path()).with_other_err()?
+                && let Some(patch_res) =
+                    try_patch_from_file(&entry.path()).await.with_other_err()?
             {
                 patches.push(patch_res);
             }
@@ -189,13 +190,17 @@ impl ResourceSet {
         let main_set = {
             let map_file = root_dir.join("RESOURCE.MAP");
             let data_file = root_dir.join("RESOURCE.000");
-            read_resources(&map_file, &data_file, &patches).with_other_err()?
+            read_resources(&map_file, &data_file, &patches)
+                .await
+                .with_other_err()?
         };
 
         let message_set = {
             let map_file = root_dir.join("MESSAGE.MAP");
             let data_file = root_dir.join("RESOURCE.MSG");
-            read_resources(&map_file, &data_file, &[]).with_other_err()?
+            read_resources(&map_file, &data_file, &[])
+                .await
+                .with_other_err()?
         };
         Ok(main_set.merge(&message_set).with_other_err()?)
     }
@@ -330,8 +335,8 @@ impl Resource {
         &self.contents
     }
 
-    pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
-        Ok(self.contents.source.open().with_other_err()?)
+    pub async fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
+        Ok(self.contents.source.open().await.with_other_err()?)
     }
 
     pub async fn write_patch<W: tokio::io::AsyncWrite + Unpin>(

@@ -1,9 +1,12 @@
 use std::{
-    io::{self, Read, Seek},
+    io::{self},
     ops::RangeBounds,
     path::Path,
-    sync::{Arc, Mutex},
+    pin::Pin,
+    sync::Arc,
 };
+
+use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
 use crate::utils::{
     buffer::Buffer,
@@ -23,23 +26,27 @@ pub enum Error {
     Conversion(#[from] std::num::TryFromIntError),
 }
 
+type ReadFuture<'a> = Pin<Box<dyn Future<Output = Result<MemBlock, Error>> + Send + 'a>>;
+
 trait BlockSourceImpl: Send + Sync {
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error>;
+    fn read_block(&self, start: u64, size: u64) -> ReadFuture<'_>;
 }
 
-struct ReaderBlockSourceImpl<R>(Mutex<R>);
+struct ReaderBlockSourceImpl<R>(tokio::sync::Mutex<R>);
 
 impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
 where
-    R: io::Read + io::Seek + Send,
+    R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Unpin + Send,
 {
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let mut reader = self.0.lock().unwrap();
-        reader.seek(io::SeekFrom::Start(start))?;
-        let mut data = vec![0; size.try_into()?];
-        reader.read_exact(&mut data)?;
+    fn read_block(&self, start: u64, size: u64) -> ReadFuture<'_> {
+        Box::pin(async move {
+            let mut reader = self.0.lock().await;
+            reader.seek(io::SeekFrom::Start(start)).await?;
+            let mut data = vec![0; size.try_into()?];
+            reader.read_exact(&mut data).await?;
 
-        Ok(MemBlock::from_vec(data))
+            Ok(MemBlock::from_vec(data))
+        })
     }
 }
 
@@ -49,13 +56,15 @@ impl<P> BlockSourceImpl for PathBlockSourceImpl<P>
 where
     P: AsRef<Path> + Sync + Send,
 {
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let mut file = std::fs::File::open(self.0.as_ref())?;
-        file.seek(io::SeekFrom::Start(start))?;
-        let mut data = vec![0; size.try_into()?];
-        file.read_exact(&mut data)?;
+    fn read_block(&self, start: u64, size: u64) -> ReadFuture<'_> {
+        Box::pin(async move {
+            let mut file = tokio::fs::File::open(self.0.as_ref()).await?;
+            file.seek(io::SeekFrom::Start(start)).await?;
+            let mut data = vec![0; size.try_into()?];
+            file.read_exact(&mut data).await?;
 
-        Ok(MemBlock::from_vec(data))
+            Ok(MemBlock::from_vec(data))
+        })
     }
 }
 
@@ -64,23 +73,25 @@ struct VecBlockSourceImpl {
 }
 
 impl BlockSourceImpl for VecBlockSourceImpl {
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let start: usize = start.try_into()?;
-        let size: usize = size.try_into()?;
-        let end = start + size;
-        if end > self.data.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Tried to read block from {} to {}, but data is only {} bytes long",
-                    start,
-                    end,
-                    self.data.len()
-                ),
-            )
-            .into());
-        }
-        Ok(MemBlock::from_vec(self.data[start..end].to_vec()))
+    fn read_block(&self, start: u64, size: u64) -> ReadFuture<'_> {
+        Box::pin(async move {
+            let start: usize = start.try_into()?;
+            let size: usize = size.try_into()?;
+            let end = start + size;
+            if end > self.data.len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "Tried to read block from {} to {}, but data is only {} bytes long",
+                        start,
+                        end,
+                        self.data.len()
+                    ),
+                )
+                .into());
+            }
+            Ok(MemBlock::from_vec(self.data[start..end].to_vec()))
+        })
     }
 }
 
@@ -108,16 +119,16 @@ impl BlockSource {
         })
     }
 
-    pub fn from_reader<R>(reader: R) -> Result<Self, Error>
+    pub async fn from_reader<R>(reader: R) -> Result<Self, Error>
     where
-        R: io::Read + io::Seek + Send + 'static,
+        R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + Unpin + 'static,
     {
-        let mut reader = io::BufReader::new(reader);
-        let size = reader.seek(io::SeekFrom::End(0))?;
+        let mut reader = tokio::io::BufReader::new(reader);
+        let size = reader.seek(io::SeekFrom::End(0)).await?;
         Ok(Self {
             start: 0,
             size,
-            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(reader))),
+            source_impl: Arc::new(ReaderBlockSourceImpl(tokio::sync::Mutex::new(reader))),
         })
     }
 
@@ -139,8 +150,8 @@ impl BlockSource {
 
     /// Opens the block source, returning the block of data. Returns an error
     /// if the data cannot be read and/or loaded.
-    pub fn open(&self) -> Result<MemBlock, Error> {
-        self.source_impl.read_block(self.start, self.size)
+    pub async fn open(&self) -> Result<MemBlock, Error> {
+        self.source_impl.read_block(self.start, self.size).await
     }
 
     /// Returns a sub-block source that represents a subrange of the current
@@ -193,8 +204,8 @@ impl BlockSource {
         (self.clone().subblock(..at), self.subblock(at..))
     }
 
-    pub fn to_buffer(&self) -> Result<impl Buffer, Error> {
-        self.open()
+    pub async fn to_buffer(&self) -> Result<impl Buffer, Error> {
+        self.open().await
     }
 
     /// Returns a lazy block that represents the current block source that can
@@ -234,26 +245,29 @@ impl From<Error> for FromBlockSourceError {
 }
 
 pub trait FromBlockSource: mem_reader::Parse {
+    #[must_use]
     fn from_block_source(
         source: &BlockSource,
-    ) -> Result<(Self, BlockSource), FromBlockSourceError> {
-        if Self::read_size() as u64 > source.size() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Tried to read {} bytes from block source of size {}",
-                    Self::read_size(),
-                    source.size()
-                ),
-            )
-            .into());
+    ) -> impl Future<Output = Result<(Self, BlockSource), FromBlockSourceError>> {
+        async move {
+            if Self::read_size() as u64 > source.size() {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "Tried to read {} bytes from block source of size {}",
+                        Self::read_size(),
+                        source.size()
+                    ),
+                )
+                .into());
+            }
+            let block = source.subblock(..Self::read_size() as u64).open().await?;
+            let mut reader = BufferMemReader::from_ref(&block);
+            let parse_result = Self::parse(&mut reader);
+            let value = parse_result.remove_no_error()?;
+            let rest = source.subblock(reader.tell() as u64..);
+            Ok((value, rest))
         }
-        let block = source.subblock(..Self::read_size() as u64).open()?;
-        let mut reader = BufferMemReader::from_ref(&block);
-        let parse_result = Self::parse(&mut reader);
-        let value = parse_result.remove_no_error()?;
-        let rest = source.subblock(reader.tell() as u64..);
-        Ok((value, rest))
     }
 
     fn read_size() -> usize;

@@ -76,7 +76,7 @@ pub struct ScriptLoader {
 }
 
 impl ScriptLoader {
-    pub fn load_from(resources: &ResourceSet) -> Result<Self, ScriptLoadError> {
+    pub async fn load_from(resources: &ResourceSet) -> Result<Self, ScriptLoadError> {
         let selector_table_data = resources
             .get_resource(&ResourceId::new(
                 ResourceType::Vocab,
@@ -84,17 +84,19 @@ impl ScriptLoader {
             ))
             .ok_or_else_other(|| "Selector table not found")?
             .load_data()
+            .await
             .with_other_err()?;
         let reader = BufferMemReader::new(selector_table_data);
         let selectors = selectors::SelectorTable::load_from(&reader)?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
-            let script_data = script.load_data().with_other_err()?;
+            let script_data = script.load_data().await.with_other_err()?;
             let heap = resources
                 .get_resource(&ResourceId::new(ResourceType::Heap, script_num))
                 .ok_or_else_other(|| "Selector heap not found")?
                 .load_data()
+                .await
                 .with_other_err()?;
 
             let loaded_script =
@@ -134,8 +136,8 @@ pub struct ClassDeclSet {
 }
 
 impl ClassDeclSet {
-    pub fn new(resources: &ResourceSet) -> Result<Self, ClassDeclSetError> {
-        let loader = ScriptLoader::load_from(resources).with_other_err()?;
+    pub async fn new(resources: &ResourceSet) -> Result<Self, ClassDeclSetError> {
+        let loader = ScriptLoader::load_from(resources).await.with_other_err()?;
         let mut classes = HashMap::new();
         for (script_id, loaded_script) in loader.loaded_scripts() {
             for object in loaded_script.objects() {

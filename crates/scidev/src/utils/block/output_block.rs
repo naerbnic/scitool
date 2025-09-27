@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use bytes::Buf;
+use futures::{Stream, StreamExt as _, TryStreamExt as _};
 
 use crate::utils::{
     block::BlockSource,
@@ -49,7 +50,7 @@ pub enum OutputBlockError {
     ReadError(#[from] OtherError),
 }
 
-type BufIter<'a> = Box<dyn Iterator<Item = Result<BlockData<'a>, OutputBlockError>> + 'a>;
+type BufIter<'a> = Pin<Box<dyn Stream<Item = Result<BlockData<'a>, OutputBlockError>> + 'a>>;
 
 trait OutputBlockImpl: Send + Sync {
     fn size(&self) -> u64;
@@ -79,7 +80,7 @@ impl OutputBlockImpl for CompositeOutputBlock {
     }
 
     fn blocks(&self) -> BufIter<'_> {
-        Box::new(self.blocks.iter().flat_map(OutputBlock::blocks))
+        Box::pin(futures::stream::iter(self.blocks.iter()).flat_map(OutputBlock::blocks))
     }
 }
 
@@ -98,7 +99,7 @@ where
 
     fn blocks(&self) -> BufIter<'_> {
         let num_blocks = self.buffer.size().div_ceil(self.max_block_size);
-        Box::new((0..num_blocks).map(move |i| {
+        Box::pin(futures::stream::iter(0..num_blocks).map(move |i| {
             let start = i * self.max_block_size;
             let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
             ensure_other!(end <= self.buffer.size(), "Block range out of bounds");
@@ -118,7 +119,7 @@ impl OutputBlockImpl for BytesOutputBlock {
 
     fn blocks(&self) -> BufIter<'_> {
         let block = BlockData::new(self.0.clone());
-        Box::new(std::iter::once(Ok(block)))
+        Box::pin(futures::stream::once(async move { Ok(block) }))
     }
 }
 
@@ -134,7 +135,7 @@ impl OutputBlockImpl for BlockSourceOutputBlock {
 
     fn blocks(&self) -> BufIter<'_> {
         let num_blocks = self.source.size().div_ceil(self.max_block_size as u64);
-        Box::new((0..num_blocks).map(move |i| {
+        Box::pin(futures::stream::iter(0..num_blocks).then(async move |i| {
             let start = i * self.max_block_size as u64;
             let end = std::cmp::min(start + self.max_block_size as u64, self.source.size());
             Ok(BlockData::from_buffer(
@@ -142,6 +143,7 @@ impl OutputBlockImpl for BlockSourceOutputBlock {
                     .clone()
                     .subblock(start..end)
                     .open()
+                    .await
                     .with_other_err()?,
             ))
         }))
@@ -182,27 +184,16 @@ impl OutputBlock {
         self.0.size()
     }
 
-    pub fn blocks(&self) -> impl Iterator<Item = Result<BlockData<'_>, OutputBlockError>> + '_ {
+    pub fn blocks(
+        &self,
+    ) -> impl Stream<Item = Result<BlockData<'_>, OutputBlockError>> + Unpin + '_ {
         self.0.blocks()
     }
-
-    pub fn write_to<W: std::io::Write>(&self, mut writer: W) -> Result<(), WriteError> {
-        for block in self.blocks() {
-            let mut block = block.with_other_err()?;
-            while block.has_remaining() {
-                let bytes_written = writer.write(block.chunk()).with_other_err()?;
-                block.advance(bytes_written);
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn write_to_async<W: tokio::io::AsyncWrite + Unpin>(
+    pub async fn write_to<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         mut writer: W,
     ) -> Result<(), WriteError> {
-        for block in self.blocks() {
-            let mut block = block.with_other_err()?;
+        while let Some(mut block) = self.blocks().try_next().await.with_other_err()? {
             while block.has_remaining() {
                 let bytes_written = writer.write(block.chunk()).await.with_other_err()?;
                 block.advance(bytes_written);

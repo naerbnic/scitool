@@ -39,10 +39,10 @@ enum ResourceCommand {
 impl ResourceCommand {
     async fn run(&self) -> anyhow::Result<()> {
         match self {
-            ResourceCommand::List(list) => list.run()?,
+            ResourceCommand::List(list) => list.run().await?,
             ResourceCommand::Extract(extract) => extract.run().await?,
-            ResourceCommand::Dump(dump) => dump.run()?,
-            ResourceCommand::View(view) => view.run()?,
+            ResourceCommand::Dump(dump) => dump.run().await?,
+            ResourceCommand::View(view) => view.run().await?,
         }
         Ok(())
     }
@@ -100,8 +100,8 @@ struct ListResources {
 }
 
 impl ListResources {
-    fn run(&self) -> anyhow::Result<()> {
-        let ids = list_resources(&self.root_dir, self.res_type)?;
+    async fn run(&self) -> anyhow::Result<()> {
+        let ids = list_resources(&self.root_dir, self.res_type).await?;
         for id in ids {
             println!("{id:?}");
         }
@@ -177,9 +177,9 @@ struct DumpResource {
 }
 
 impl DumpResource {
-    fn run(&self) -> anyhow::Result<()> {
+    async fn run(&self) -> anyhow::Result<()> {
         let resource_id = ResourceId::new(self.resource_type, self.resource_id);
-        dump_resource(&self.root_dir, resource_id, std::io::stdout().lock())?;
+        dump_resource(&self.root_dir, resource_id, std::io::stdout().lock()).await?;
         Ok(())
     }
 }
@@ -191,8 +191,8 @@ struct ProcessViewResources {
 }
 
 impl ProcessViewResources {
-    fn run(&self) -> anyhow::Result<()> {
-        let resource_set = ResourceSet::from_root_dir(&self.root_dir)?;
+    async fn run(&self) -> anyhow::Result<()> {
+        let resource_set = ResourceSet::from_root_dir(&self.root_dir).await?;
         for resource in resource_set.resources_of_type(ResourceType::View) {
             if let Some(extra_data) = resource.extra_data() {
                 let ExtraData::Composite {
@@ -206,9 +206,9 @@ impl ProcessViewResources {
                     );
                 };
 
-                let ext_data = ext_header.open()?;
-                let extra_data = extra_data.open()?;
-                let file_data = resource.load_data()?;
+                let ext_data = ext_header.open().await?;
+                let extra_data = extra_data.open().await?;
+                let file_data = resource.load_data().await?;
 
                 eprintln!(
                     "Resource {:?} has extended header ({} bytes) and extra data ({} bytes)",

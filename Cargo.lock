@@ -1165,6 +1165,7 @@ dependencies = [
  "bitter",
  "bytes",
  "datalit",
+ "futures",
  "log",
  "num",
  "proptest",
@@ -1182,6 +1183,7 @@ dependencies = [
  "libfuzzer-sys",
  "scidev",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
