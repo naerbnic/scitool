@@ -17,6 +17,7 @@ use tokio::{
 
 use crate::fs::{
     err_helpers::{io_bail, io_err_map},
+    io_wrappers::LengthLimitedAsyncReader,
     ops::{
         FileSystemOperations, LockFile, OpenOptionsFlags, PathKind, TokioFileSystemOperations,
         WriteMode,
@@ -24,6 +25,7 @@ use crate::fs::{
     paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf},
 };
 
+const CURR_COMMIT_VERSION: u32 = 1;
 const COMMIT_PATH: &str = ".DIR_COMMIT";
 const LOCK_PATH: &str = ".DIR_LOCK";
 
@@ -108,6 +110,9 @@ enum CommitEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CommitSchema {
+    version: u32,
+    /// The temporary directory used for this commit. It should be immediately
+    /// under the dir root directory.
     temp_dir: RelPathBuf,
     /// The list of entries to commit.
     entries: Vec<CommitEntry>,
@@ -282,10 +287,11 @@ async fn apply_entry<FS: FileSystemOperations>(
     Ok(())
 }
 
-async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> io::Result<()> {
+async fn check_root_path(fs: &impl FileSystemOperations, dir_root: &AbsPath) -> io::Result<()> {
     match fs.get_path_kind(dir_root).await? {
         Some(PathKind::Directory) => {
             // Normal case, nothing to do.
+            Ok(())
         }
         Some(PathKind::File) => io_bail!(
             NotADirectory,
@@ -303,27 +309,34 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
             dir_root.display()
         ),
     }
+}
+
+async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> io::Result<()> {
+    check_root_path(fs, dir_root).await?;
 
     let commit_path = dir_root.join_rel(RelPath::new_checked(COMMIT_PATH).unwrap());
 
-    match fs.get_path_kind(&commit_path).await? {
-        Some(PathKind::File) => {
+    let Some(commit_file_kind) = fs.get_path_kind(&commit_path).await? else {
+        // No commit file, so no recovery needed.
+        return Ok(());
+    };
+
+    match commit_file_kind {
+        PathKind::File => {
             // We have some recovery to do. Continue.
         }
-        Some(PathKind::Directory) => {
+        PathKind::Directory => {
             io_bail!(InvalidData, "Commit file is a directory");
         }
-        Some(PathKind::Other) => {
+        PathKind::Other => {
             io_bail!(InvalidData, "Commit file is not a regular file");
-        }
-        None => {
-            // No commit file, so no recovery needed.
-            return Ok(());
         }
     }
 
     let commit_data_bytes = fs
-        .read_file(&commit_path, |mut data| async move {
+        .read_file(&commit_path, |data| async move {
+            let limit = 128 * 1024 * 1024; // 128 MiB
+            let mut data = LengthLimitedAsyncReader::new(data, limit);
             let mut buf = Vec::new();
             data.read_to_end(&mut buf).await?;
             Ok(buf)
@@ -332,6 +345,16 @@ async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> 
 
     let mut commit_schema: CommitSchema = serde_json::from_slice(&commit_data_bytes)
         .map_err(io_err_map!(Other, "Failed to parse commit schema"))?;
+
+    // We can support multiple versions in the future potentially, but for now
+    // assume only the current version is valid.
+    if commit_schema.version != CURR_COMMIT_VERSION {
+        io_bail!(
+            InvalidData,
+            "Unsupported commit schema version: {}",
+            commit_schema.version
+        );
+    }
 
     let abs_temp_dir = dir_root.join_rel(&commit_schema.temp_dir);
 
@@ -936,6 +959,7 @@ where
         }
 
         let commit_schema = CommitSchema {
+            version: CURR_COMMIT_VERSION,
             temp_dir: self.temp_dir.clone(),
             entries: pending_commits,
         };
@@ -1330,6 +1354,7 @@ mod tests {
 
         // Simulate a partial commit.
         let commit_schema = CommitSchema {
+            version: CURR_COMMIT_VERSION,
             temp_dir: RelPathBuf::new_checked("tmpdir-recovery-test").unwrap(),
             entries: vec![
                 CommitEntry::Overwrite(OverwriteEntry::new_owned(

@@ -22,7 +22,10 @@ use scidev::{
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
-    fs::err_helpers::{io_async_bail, io_bail, io_err_map},
+    fs::{
+        err_helpers::{io_bail, io_err_map},
+        io_wrappers::LengthLimitedAsyncReader,
+    },
     package::schema::Sha256Hash,
 };
 
@@ -39,39 +42,6 @@ fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, 
     let hash = Sha256Hash::from_data_hash(&*buffer);
 
     Ok(schema::BufferInfo::new(size, hash))
-}
-
-/// Provides an upper bound on the data that can be read from a reader. If the
-/// data available from the reader exceeds the limit, it will return an
-/// [`std::io::ErrorKind::UnexpectedEof`] error.
-#[pin_project::pin_project]
-struct LengthLimitedAsyncReader<R> {
-    #[pin]
-    inner: R,
-    remaining: u64,
-}
-
-impl<R> tokio::io::AsyncRead for LengthLimitedAsyncReader<R>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let initial_remaining = buf.remaining() as u64;
-        let proj_self = self.project();
-        futures::ready!(proj_self.inner.poll_read(cx, buf))?;
-        let read_bytes = initial_remaining - buf.remaining() as u64;
-        *proj_self.remaining = proj_self.remaining.saturating_sub(read_bytes);
-        if *proj_self.remaining == 0 {
-            // The underlying reader has provided more data than we expected.
-            io_async_bail!(UnexpectedEof, "Input longer than expected.");
-        }
-
-        std::task::Poll::Ready(Ok(()))
-    }
 }
 
 pub struct Package {
@@ -107,13 +77,13 @@ impl Package {
             );
         }
 
-        let mut meta_file = LengthLimitedAsyncReader {
-            inner: tokio::fs::File::options()
+        let mut meta_file = LengthLimitedAsyncReader::new(
+            tokio::fs::File::options()
                 .read(true)
                 .open(path.join(META_PATH))
                 .await?,
-            remaining: 128 * 1024, // 128 KiB
-        };
+            128 * 1024, // 128 KiB
+        );
 
         let mut data = Vec::new();
         meta_file.read_buf(&mut data).await?;
