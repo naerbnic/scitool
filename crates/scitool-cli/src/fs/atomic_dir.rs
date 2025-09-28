@@ -32,9 +32,11 @@ const COMMIT_PATH: &str = ".DIR_COMMIT";
 ///
 /// This abstracts over the underlying file type, allowing for different
 /// file system implementations.
-pub trait AtomicDirFile: AsyncRead + AsyncWrite + AsyncSeek + Send + Sync {
+pub trait AtomicDirFile: AsyncRead + AsyncWrite + AsyncSeek + Send + Sync + Unpin {
     /// Closes the file, ensuring that all buffered data is written to disk.
-    fn close(self) -> impl Future<Output = io::Result<()>>;
+    fn close(self) -> impl Future<Output = io::Result<()>>
+    where
+        Self: Sized;
 }
 
 impl AtomicDirFile for tokio::fs::File {
@@ -226,13 +228,15 @@ impl OpenOptions<'_> {
     }
 
     /// Opens the file at `path` with the options specified for this builder.
-    pub async fn open<P>(&self, path: &P) -> io::Result<impl AtomicDirFile + 'static>
+    pub async fn open<P>(&self, path: &P) -> io::Result<Box<dyn AtomicDirFile + 'static>>
     where
         P: AsRef<Path> + ?Sized,
     {
-        self.parent
+        let file = self
+            .parent
             .open_file(path.as_ref(), self.flags.clone())
-            .await
+            .await?;
+        Ok(Box::new(file))
     }
 }
 
