@@ -1,4 +1,8 @@
-//! Atomic directory operations.
+//! Atomic directory implementation.
+
+mod recovery;
+mod schema;
+mod util;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -12,15 +16,18 @@ use std::{
 
 use futures::{StreamExt as _, TryStream, TryStreamExt as _};
 use rand::{Rng, distr::Alphanumeric};
-use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncWrite, AsyncWriteExt as _, ReadBuf},
     sync::Mutex,
 };
 
 use crate::fs::{
+    atomic_dir::{
+        recovery::recover_path,
+        schema::{CommitEntry, CommitSchema, DeleteEntry, OverwriteEntry},
+        util::is_valid_path,
+    },
     err_helpers::{io_bail, io_err_map},
-    io_wrappers::LengthLimitedAsyncReader,
     open_tracker::{OpenMarker, OpenTracker},
     ops::{
         FileSystemOperations, LockFile, OpenOptionsFlags, PathKind, TokioFileSystemOperations,
@@ -29,9 +36,8 @@ use crate::fs::{
     paths::{AbsPath, AbsPathBuf, RelPath, RelPathBuf},
 };
 
-const CURR_COMMIT_VERSION: u32 = 1;
-const COMMIT_PATH: &str = ".DIR_COMMIT";
 const LOCK_PATH: &str = ".DIR_LOCK";
+const COMMIT_PATH: &str = ".DIR_COMMIT";
 
 async fn write_file_atomic<F, Fut, FS>(
     fs: &FS,
@@ -76,50 +82,6 @@ where
     }
 
     Ok(())
-}
-
-/// An entry that indicates that a given file is located at either a temporary
-/// path or its final destination.
-///
-/// This implies that if `temp_path` exists, it should be moved to `dest_path`
-/// during a commit operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OverwriteEntry {
-    /// The destination path where the file should be moved to during
-    /// a commit operation.
-    ///
-    /// The equivalent temp file will be at this same path under the temporary
-    /// directory. If it does not exist there, it must exist here.
-    dest_path: RelPathBuf,
-}
-
-impl OverwriteEntry {
-    fn new_owned(dest_path: RelPathBuf) -> OverwriteEntry {
-        OverwriteEntry { dest_path }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DeleteEntry {
-    /// The path to delete.
-    path: RelPathBuf,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum CommitEntry {
-    Overwrite(OverwriteEntry),
-    Delete(DeleteEntry),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CommitSchema {
-    version: u32,
-    /// The temporary directory used for this commit. It should be immediately
-    /// under the dir root directory.
-    temp_dir: RelPathBuf,
-    /// The list of entries to commit.
-    entries: Vec<CommitEntry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -199,230 +161,6 @@ impl DirEntry {
     }
 }
 
-/// Records the failure to recover a single file during a commit recovery process.
-///
-/// This struct is created when a file operation (like renaming or deleting) fails
-/// as part of applying the changes from a commit log.
-#[derive(Debug)]
-pub struct FileRecoveryFailure {
-    /// The specific commit entry that could not be applied.
-    entry: CommitEntry,
-    /// The underlying I/O error that caused the failure.
-    err: io::Error,
-}
-
-/// An error that occurs during the recovery of a partially committed atomic directory.
-///
-/// This error aggregates all individual file recovery failures that occurred during
-/// an attempt to apply a commit log.
-#[derive(Debug, thiserror::Error)]
-pub struct RecoveryError {
-    /// A list of files that failed to be recovered.
-    rename_failures: Vec<FileRecoveryFailure>,
-}
-
-impl std::fmt::Display for RecoveryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} out of {} file(s) failed to rename during recovery",
-            self.rename_failures.len(),
-            self.rename_failures.len() + self.rename_failures.len()
-        )?;
-        for failure in &self.rename_failures {
-            match &failure.entry {
-                CommitEntry::Delete(entry) => {
-                    write!(
-                        f,
-                        "\nFailed to delete {}: {}",
-                        entry.path.display(),
-                        failure.err
-                    )?;
-                }
-                CommitEntry::Overwrite(entry) => {
-                    write!(
-                        f,
-                        "\nFailed to move temporary file to {}: {}",
-                        entry.dest_path.display(),
-                        failure.err
-                    )?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-async fn apply_entry<FS: FileSystemOperations>(
-    fs: &FS,
-    dir_root: &AbsPath,
-    temp_dir: &AbsPath,
-    entry: CommitEntry,
-    failed_entries: &mut Vec<FileRecoveryFailure>,
-) -> io::Result<()> {
-    match &entry {
-        CommitEntry::Overwrite(overwrite_entry) => {
-            let temp_path = temp_dir.join(&*overwrite_entry.dest_path);
-            let dest_path = dir_root.join(&*overwrite_entry.dest_path);
-            match fs.rename_file_atomic(&temp_path, &dest_path).await {
-                Ok(()) => { /* Successfully renamed */ }
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                    // Permitted: the temp file is missing, we assume the dest file is authoritative.
-                }
-                Err(err) => {
-                    failed_entries.push(FileRecoveryFailure { entry, err });
-                }
-            }
-        }
-        CommitEntry::Delete(delete_entry) => {
-            let path = dir_root.join(&*delete_entry.path);
-            match fs.remove_file(&path).await {
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                    // Already deleted, nothing to do.
-                }
-                Ok(()) => { /* Successfully deleted */ }
-                Err(err) => {
-                    failed_entries.push(FileRecoveryFailure { entry, err });
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-async fn check_root_path(fs: &impl FileSystemOperations, dir_root: &AbsPath) -> io::Result<()> {
-    match fs.get_path_kind(dir_root).await? {
-        Some(PathKind::Directory) => {
-            // Normal case, nothing to do.
-            Ok(())
-        }
-        Some(PathKind::File) => io_bail!(
-            NotADirectory,
-            "Package root is a file: {}",
-            dir_root.display()
-        ),
-        Some(PathKind::Other) => io_bail!(
-            NotADirectory,
-            "Package root is not a directory: {}",
-            dir_root.display()
-        ),
-        None => io_bail!(
-            NotFound,
-            "Package root does not exist: {}",
-            dir_root.display()
-        ),
-    }
-}
-
-async fn recover_path<FS: FileSystemOperations>(fs: &FS, dir_root: &AbsPath) -> io::Result<()> {
-    check_root_path(fs, dir_root).await?;
-
-    let commit_path = dir_root.join_rel(RelPath::new_checked(COMMIT_PATH).unwrap());
-
-    let Some(commit_file_kind) = fs.get_path_kind(&commit_path).await? else {
-        // No commit file, so no recovery needed.
-        return Ok(());
-    };
-
-    match commit_file_kind {
-        PathKind::File => {
-            // We have some recovery to do. Continue.
-        }
-        PathKind::Directory => {
-            io_bail!(InvalidData, "Commit file is a directory");
-        }
-        PathKind::Other => {
-            io_bail!(InvalidData, "Commit file is not a regular file");
-        }
-    }
-
-    let commit_data_bytes = fs
-        .read_file(&commit_path, |data| async move {
-            let limit = 128 * 1024 * 1024; // 128 MiB
-            let mut data = LengthLimitedAsyncReader::new(data, limit);
-            let mut buf = Vec::new();
-            data.read_to_end(&mut buf).await?;
-            Ok(buf)
-        })
-        .await?;
-
-    let mut commit_schema: CommitSchema = serde_json::from_slice(&commit_data_bytes)
-        .map_err(io_err_map!(Other, "Failed to parse commit schema"))?;
-
-    // We can support multiple versions in the future potentially, but for now
-    // assume only the current version is valid.
-    if commit_schema.version != CURR_COMMIT_VERSION {
-        io_bail!(
-            InvalidData,
-            "Unsupported commit schema version: {}",
-            commit_schema.version
-        );
-    }
-
-    let abs_temp_dir = dir_root.join_rel(&commit_schema.temp_dir);
-
-    // Validate the paths in the commit schema.
-    for entry in &commit_schema.entries {
-        match entry {
-            CommitEntry::Overwrite(entry) => {
-                {
-                    let path: &Path = &entry.dest_path;
-                    is_valid_path(path, &commit_schema.temp_dir)
-                }?;
-            }
-            CommitEntry::Delete(entry) => {
-                {
-                    let path: &Path = &entry.path;
-                    is_valid_path(path, &commit_schema.temp_dir)
-                }?;
-            }
-        }
-    }
-
-    {
-        let mut failed_entries = Vec::new();
-
-        for entry in commit_schema.entries.drain(..) {
-            apply_entry(fs, dir_root, &abs_temp_dir, entry, &mut failed_entries).await?;
-        }
-
-        if !failed_entries.is_empty() {
-            io_bail!(
-                Other,
-                "File rename failures during recovery: {}",
-                RecoveryError {
-                    rename_failures: failed_entries
-                }
-            );
-        }
-    }
-
-    // We have completed recovery, so we can remove the other files. First
-    // delete all temporary directories.
-    let mut root_entries = fs.list_dir(dir_root).await?;
-    while let Some(entry) = root_entries
-        .next()
-        .await
-        .transpose()
-        .map_err(io_err_map!(Other, "Failed to read directory entry"))?
-    {
-        let entry_path = entry.path();
-        if entry_path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .is_some_and(|name| name.starts_with("tmpdir-"))
-        {
-            // This is a temporary directory, remove it.
-            fs.remove_dir_all(&entry_path).await.ok();
-        }
-    }
-
-    fs.remove_file(&commit_path).await?;
-
-    Ok(())
-}
-
 async fn create_temp_dir<FS, R>(fs: &FS, rng: &mut R, base_dir: &Path) -> io::Result<RelPathBuf>
 where
     FS: FileSystemOperations,
@@ -450,73 +188,6 @@ where
         }
     }
     io_bail!(Other, "Failed to create a unique temporary directory");
-}
-
-fn is_valid_path<'a>(path: &'a Path, temp_dir: &Path) -> io::Result<&'a RelPath> {
-    // The path must not have any components that are `..`, as this would allow
-    // for directory traversal attacks.
-    let path = RelPath::new_checked(path).map_err(io_err_map!(
-        Other,
-        "Path is not a valid relative path: {}",
-        path.display()
-    ))?;
-
-    for component in path.components() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => {
-                io_bail!(
-                    Other,
-                    "Package file path must be strictly relative: {}",
-                    path.display()
-                );
-            }
-            Component::CurDir | Component::Normal(_) => {
-                // We allow `.` components, as they are harmless.
-            }
-            Component::ParentDir => {
-                io_bail!(
-                    Other,
-                    "Path must not contain a directory upreference: {}",
-                    path.display()
-                );
-            }
-        }
-    }
-
-    if path.components().any(|c| c == Component::ParentDir) {
-        io_bail!(
-            Other,
-            "Path must not contain a directory upreference: {}",
-            path.display()
-        );
-    }
-
-    // The path cannot start with the commit file or lock file as a prefix, as
-    // this would allow for accidental overwrites of in-progress commits.
-    if path.starts_with(COMMIT_PATH) {
-        io_bail!(
-            Other,
-            "Path must not start with the commit file name: {}",
-            path.display()
-        );
-    }
-
-    if path.starts_with(LOCK_PATH) {
-        io_bail!(
-            Other,
-            "Path must not start with the lock file name: {}",
-            path.display()
-        );
-    }
-
-    if path.starts_with(temp_dir) {
-        io_bail!(
-            Other,
-            "Path must not start with the temporary directory name: {}",
-            path.display()
-        );
-    }
-    Ok(path)
 }
 
 fn normalize_path(path: &Path, temp_dir: &Path) -> io::Result<RelPathBuf> {
@@ -972,10 +643,8 @@ where
             .into_iter()
             .filter_map(|(path, status)| match status {
                 TempFileStatus::Unchanged => None,
-                TempFileStatus::Written => {
-                    Some(CommitEntry::Overwrite(OverwriteEntry::new_owned(path)))
-                }
-                TempFileStatus::Deleted => Some(CommitEntry::Delete(DeleteEntry { path })),
+                TempFileStatus::Written => Some(CommitEntry::Overwrite(OverwriteEntry::new(path))),
+                TempFileStatus::Deleted => Some(CommitEntry::Delete(DeleteEntry::new(path))),
             })
             .collect::<Vec<_>>();
         if pending_commits.is_empty() {
@@ -983,11 +652,7 @@ where
             return Ok(());
         }
 
-        let commit_schema = CommitSchema {
-            version: CURR_COMMIT_VERSION,
-            temp_dir: self.temp_dir.clone(),
-            entries: pending_commits,
-        };
+        let commit_schema = CommitSchema::new(self.temp_dir.clone(), pending_commits);
         let commit_data = serde_json::to_vec(&commit_schema)
             .map_err(io_err_map!(Other, "Failed to serialize commit schema"))?;
 
@@ -1520,18 +1185,17 @@ mod tests {
         let dir = tempdir()?;
 
         // Simulate a partial commit.
-        let commit_schema = CommitSchema {
-            version: CURR_COMMIT_VERSION,
-            temp_dir: RelPathBuf::new_checked("tmpdir-recovery-test").unwrap(),
-            entries: vec![
-                CommitEntry::Overwrite(OverwriteEntry::new_owned(
+        let commit_schema = CommitSchema::new(
+            RelPathBuf::new_checked("tmpdir-recovery-test").unwrap(),
+            vec![
+                CommitEntry::Overwrite(OverwriteEntry::new(
                     RelPathBuf::new_checked("foo.txt").unwrap(),
                 )),
-                CommitEntry::Delete(DeleteEntry {
-                    path: RelPathBuf::new_checked("bar.txt").unwrap(),
-                }),
+                CommitEntry::Delete(DeleteEntry::new(
+                    RelPathBuf::new_checked("bar.txt").unwrap(),
+                )),
             ],
-        };
+        );
 
         // Create the temporary directory and file.
         tokio::fs::create_dir(dir.path().join("tmpdir-recovery-test")).await?;
