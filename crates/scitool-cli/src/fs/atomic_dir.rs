@@ -28,26 +28,76 @@ pub use self::types::{DirEntry, FileType};
 const LOCK_PATH: &str = ".DIR_LOCK";
 const COMMIT_PATH: &str = ".DIR_COMMIT";
 
-/// A trait for files that can be used within an `AtomicDir`.
-///
-/// This abstracts over the underlying file type, allowing for different
-/// file system implementations.
-pub trait AtomicDirFile: AsyncRead + AsyncWrite + AsyncSeek + Send + Sync + Unpin {
-    /// Closes the file, ensuring that all buffered data is written to disk.
-    fn close(self) -> impl Future<Output = io::Result<()>>
-    where
-        Self: Sized;
+#[pin_project::pin_project]
+pub struct AtomicDirFile {
+    #[pin]
+    file: tokio::fs::File,
+    tracker: WrapperTracker,
 }
 
-impl AtomicDirFile for tokio::fs::File {
-    /// Closes the file by flushing all data and metadata to the underlying
-    /// storage.
-    async fn close(self) -> io::Result<()> {
-        self.sync_all().await?;
-        // If it existed, this is where the call to close would occur, being
-        // able to pass on any errors. C'est la vie.
-        std::mem::drop(self);
+impl AtomicDirFile {
+    fn new(file: tokio::fs::File, tracker: WrapperTracker) -> Self {
+        Self { file, tracker }
+    }
+
+    pub async fn close(self) -> io::Result<()> {
+        // First close the file itself, capturing any errors.
+        let close_result = self.file.sync_all().await;
+        std::mem::drop(self.file);
+
+        // Try to abort the parent AtomicDir if this is the last reference.
+        //
+        // This will not happen if there is still a top-level AtomicDir object
+        // alive, or if there are other files still open.
+        //
+        // Doing this allows us to propagate any errors that occur during
+        // cleanup, which would otherwise be ignored.
+        if let Some(parent) = self.tracker.into_inner() {
+            parent.abort().await?;
+        }
+
+        // Now propagate any errors from closing the file itself.
+        close_result?;
+
         Ok(())
+    }
+}
+
+impl AsyncRead for AtomicDirFile {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        self.project().file.poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for AtomicDirFile {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.project().file.poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.project().file.poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.project().file.poll_shutdown(cx)
+    }
+}
+
+impl AsyncSeek for AtomicDirFile {
+    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> io::Result<()> {
+        self.project().file.start_seek(position)
+    }
+
+    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+        self.project().file.poll_complete(cx)
     }
 }
 
@@ -73,89 +123,6 @@ impl Drop for WrapperTracker {
     fn drop(&mut self) {
         std::mem::drop(self.parent.take());
         std::mem::drop(self.open_marker.take());
-    }
-}
-
-/// A wrapper for `AtomicDirFile` that ensures that the `AtomicDir` stays available
-/// while the file exists. With this, we can ensure that the temporary directory
-/// and lock file are not removed while files are still open.
-#[pin_project::pin_project]
-struct AtomicDirFileWrapper<F> {
-    parent: WrapperTracker,
-    #[pin]
-    file: F,
-}
-
-impl<F> AsyncRead for AtomicDirFileWrapper<F>
-where
-    F: AtomicDirFile,
-{
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        self.project().file.poll_read(cx, buf)
-    }
-}
-
-impl<F> AsyncWrite for AtomicDirFileWrapper<F>
-where
-    F: AtomicDirFile,
-{
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        self.project().file.poll_write(cx, buf)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.project().file.poll_flush(cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.project().file.poll_shutdown(cx)
-    }
-}
-
-impl<F> AsyncSeek for AtomicDirFileWrapper<F>
-where
-    F: AtomicDirFile,
-{
-    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> io::Result<()> {
-        self.project().file.start_seek(position)
-    }
-
-    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
-        self.project().file.poll_complete(cx)
-    }
-}
-
-impl<F> AtomicDirFile for AtomicDirFileWrapper<F>
-where
-    F: AtomicDirFile,
-{
-    async fn close(self) -> io::Result<()> {
-        // First close the file itself, capturing any errors.
-        let close_result = self.file.close().await;
-
-        // Try to abort the parent AtomicDir if this is the last reference.
-        //
-        // This will not happen if there is still a top-level AtomicDir object
-        // alive, or if there are other files still open.
-        //
-        // Doing this allows us to propagate any errors that occur during
-        // cleanup, which would otherwise be ignored.
-        if let Some(parent) = self.parent.into_inner() {
-            parent.abort().await?;
-        }
-
-        // Now propagate any errors from closing the file itself.
-        close_result?;
-
-        Ok(())
     }
 }
 
@@ -228,7 +195,7 @@ impl OpenOptions<'_> {
     }
 
     /// Opens the file at `path` with the options specified for this builder.
-    pub async fn open<P>(&self, path: &P) -> io::Result<Box<dyn AtomicDirFile + 'static>>
+    pub async fn open<P>(&self, path: &P) -> io::Result<AtomicDirFile>
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -236,7 +203,7 @@ impl OpenOptions<'_> {
             .parent
             .open_file(path.as_ref(), self.flags.clone())
             .await?;
-        Ok(Box::new(file))
+        Ok(file)
     }
 }
 
@@ -253,15 +220,11 @@ impl Inner {
             open_tracker: OpenTracker::new(),
         }
     }
-    async fn open_file(
-        &self,
-        path: &Path,
-        options: OpenOptionsFlags,
-    ) -> io::Result<impl AtomicDirFile + 'static> {
-        Ok(AtomicDirFileWrapper {
-            parent: WrapperTracker::new(self.engine.clone(), self.open_tracker.spawn_marker()),
-            file: self.engine.open_file(path, &options).await?,
-        })
+    async fn open_file(&self, path: &Path, options: OpenOptionsFlags) -> io::Result<AtomicDirFile> {
+        Ok(AtomicDirFile::new(
+            self.engine.open_file(path, &options).await?,
+            WrapperTracker::new(self.engine.clone(), self.open_tracker.spawn_marker()),
+        ))
     }
 
     fn into_engine(self) -> Option<Engine<TokioFileSystemOperations>> {
