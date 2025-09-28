@@ -5,19 +5,19 @@ use crate::{
 
 use super::{contents::Contents, errors::Error, raw_header::RawEntryHeader};
 
-pub(crate) struct DataFile {
-    data: BlockSource,
+pub(crate) struct DataFile<'a> {
+    data: BlockSource<'a>,
 }
 
-impl DataFile {
-    pub(crate) fn new(data: BlockSource) -> DataFile {
+impl<'a> DataFile<'a> {
+    pub(crate) fn new(data: BlockSource<'a>) -> Self {
         DataFile { data }
     }
 
     pub(crate) async fn read_contents(
         &self,
         location: ResourceLocation,
-    ) -> Result<Contents, Error> {
+    ) -> Result<Contents<'a>, Error> {
         if self.data.size() < u64::from(location.file_offset()) {
             return Err(Error::InvalidResourceLocation {
                 location: location.file_offset() as usize,

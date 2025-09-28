@@ -108,14 +108,14 @@ pub enum AudioFormat {
     Wav,
 }
 
-pub struct VoiceSample {
+pub struct VoiceSample<'a> {
     format: AudioFormat,
-    data: BlockSource,
+    data: BlockSource<'a>,
 }
 
-impl VoiceSample {
+impl<'a> VoiceSample<'a> {
     #[must_use]
-    pub fn new(format: AudioFormat, data: BlockSource) -> Self {
+    pub fn new(format: AudioFormat, data: BlockSource<'a>) -> Self {
         VoiceSample { format, data }
     }
 
@@ -125,19 +125,19 @@ impl VoiceSample {
     }
 
     #[must_use]
-    pub fn data(&self) -> &BlockSource {
+    pub fn data(&self) -> &BlockSource<'a> {
         &self.data
     }
 }
 
-struct AudioVolumeEntry {
+struct AudioVolumeEntry<'a> {
     logical_offset: u32,
-    data: BlockSource,
+    data: BlockSource<'a>,
 }
 
-struct AudioVolumeBuilder {
+struct AudioVolumeBuilder<'a> {
     format: Option<AudioFormat>,
-    entries: Vec<AudioVolumeEntry>,
+    entries: Vec<AudioVolumeEntry<'a>>,
     curr_offset: u32,
 }
 
@@ -148,7 +148,7 @@ pub enum AudioVolumeBuilderError {
     Other(#[from] OtherError),
 }
 
-impl AudioVolumeBuilder {
+impl<'a> AudioVolumeBuilder<'a> {
     pub(crate) fn new() -> Self {
         AudioVolumeBuilder {
             format: None,
@@ -159,7 +159,7 @@ impl AudioVolumeBuilder {
 
     pub(crate) fn add_entry(
         &mut self,
-        sample: &VoiceSample,
+        sample: &VoiceSample<'a>,
     ) -> Result<u32, AudioVolumeBuilderError> {
         // Check if the entry is vaild. Variable is copied in case we need to use it to
         // calculate the new file offset.
@@ -209,7 +209,7 @@ impl AudioVolumeBuilder {
         (8 * self.entries.len() as u32) // The size of all the entries
     }
 
-    fn to_raw_of_compressed_format(&self, archive_type: [u8; 4]) -> OutputBlock {
+    fn to_raw_of_compressed_format(&self, archive_type: [u8; 4]) -> OutputBlock<'a> {
         let mut header_bytes = bytes::BytesMut::new();
         header_bytes.extend_from_slice(&archive_type);
         #[expect(clippy::cast_possible_truncation)]
@@ -233,7 +233,7 @@ impl AudioVolumeBuilder {
         volume_blocks.into_iter().collect()
     }
 
-    pub(crate) fn to_raw(&self) -> OutputBlock {
+    pub(crate) fn to_raw(&self) -> OutputBlock<'a> {
         match self.format {
             Some(AudioFormat::Mp3) => self.to_raw_of_compressed_format(*b"MP3 "),
             Some(AudioFormat::Flac) => self.to_raw_of_compressed_format(*b"FLAC"),
@@ -252,18 +252,18 @@ impl AudioVolumeBuilder {
     }
 }
 
-impl Default for AudioVolumeBuilder {
+impl Default for AudioVolumeBuilder<'_> {
     fn default() -> Self {
         AudioVolumeBuilder::new()
     }
 }
 
-pub struct Audio36ResourceBuilder {
+pub struct Audio36ResourceBuilder<'a> {
     maps: BTreeMap<u16, RawMapResource>,
-    volume: AudioVolumeBuilder,
+    volume: AudioVolumeBuilder<'a>,
 }
 
-impl Audio36ResourceBuilder {
+impl<'a> Audio36ResourceBuilder<'a> {
     #[must_use]
     pub fn new() -> Self {
         Audio36ResourceBuilder {
@@ -276,7 +276,7 @@ impl Audio36ResourceBuilder {
         &mut self,
         room: u16,
         entry: MessageId,
-        sample: &VoiceSample,
+        sample: &VoiceSample<'a>,
     ) -> Result<(), AudioVolumeBuilderError> {
         let offset: u32 = self.volume.add_entry(sample)?;
 
@@ -287,7 +287,7 @@ impl Audio36ResourceBuilder {
         Ok(())
     }
 
-    pub fn build(self) -> Result<VoiceSampleResources, AudioVolumeBuilderError> {
+    pub fn build(self) -> Result<VoiceSampleResources<'a>, AudioVolumeBuilderError> {
         let mut map_resources = Vec::new();
         for (room, map) in self.maps {
             let mut map_data = Vec::new();
@@ -308,25 +308,25 @@ impl Audio36ResourceBuilder {
     }
 }
 
-impl Default for Audio36ResourceBuilder {
+impl Default for Audio36ResourceBuilder<'_> {
     fn default() -> Self {
         Audio36ResourceBuilder::new()
     }
 }
 
-pub struct VoiceSampleResources {
-    map_resources: Vec<Resource>,
-    audio_volume: OutputBlock,
+pub struct VoiceSampleResources<'a> {
+    map_resources: Vec<Resource<'a>>,
+    audio_volume: OutputBlock<'a>,
 }
 
-impl VoiceSampleResources {
+impl<'a> VoiceSampleResources<'a> {
     #[must_use]
-    pub fn map_resources(&self) -> &[Resource] {
+    pub fn map_resources(&self) -> &[Resource<'a>] {
         &self.map_resources
     }
 
     #[must_use]
-    pub fn audio_volume(&self) -> &OutputBlock {
+    pub fn audio_volume(&self) -> &OutputBlock<'a> {
         &self.audio_volume
     }
 }

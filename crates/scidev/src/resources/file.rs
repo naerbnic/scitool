@@ -87,11 +87,11 @@ impl From<MemBlockFromReaderError> for Error {
     }
 }
 
-pub(super) async fn read_resources(
+pub(super) async fn read_resources<'a>(
     map_file: &Path,
     data_file: &Path,
-    patches: &[Resource],
-) -> Result<ResourceSet, Error> {
+    patches: &[Resource<'a>],
+) -> Result<ResourceSet<'a>, Error> {
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
     let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
@@ -127,13 +127,13 @@ pub(super) async fn read_resources(
 }
 
 #[derive(Clone)]
-struct ResourceBlocks {
-    data_contents: Option<ResourceContents>,
-    patch_contents: Option<ResourceContents>,
+struct ResourceBlocks<'a> {
+    data_contents: Option<ResourceContents<'a>>,
+    patch_contents: Option<ResourceContents<'a>>,
 }
 
-impl ResourceBlocks {
-    pub(crate) fn default_contents(&self) -> &ResourceContents {
+impl<'a> ResourceBlocks<'a> {
+    pub(crate) fn default_contents(&self) -> &ResourceContents<'a> {
         self.data_contents
             .as_ref()
             .or(self.patch_contents.as_ref())
@@ -154,7 +154,7 @@ impl ResourceBlocks {
         }
     }
 
-    pub(crate) fn add_patch(&mut self, patch_contents: ResourceContents) {
+    pub(crate) fn add_patch(&mut self, patch_contents: ResourceContents<'a>) {
         if self.patch_contents.is_none() {
             self.patch_contents = Some(patch_contents);
         } else {
@@ -170,11 +170,11 @@ pub enum OpenGameResourcesError {
     Other(#[from] OtherError),
 }
 
-pub struct ResourceSet {
-    entries: BTreeMap<ResourceId, ResourceBlocks>,
+pub struct ResourceSet<'a> {
+    entries: BTreeMap<ResourceId, ResourceBlocks<'a>>,
 }
 
-impl ResourceSet {
+impl<'a> ResourceSet<'a> {
     pub async fn from_root_dir(root_dir: &Path) -> Result<Self, OpenGameResourcesError> {
         let mut patches = Vec::new();
         for entry in root_dir.read_dir().with_other_err()? {
@@ -205,7 +205,7 @@ impl ResourceSet {
         Ok(main_set.merge(&message_set).with_other_err()?)
     }
     #[must_use]
-    pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
+    pub fn get_resource(&self, id: &ResourceId) -> Option<Resource<'a>> {
         self.entries
             .get(id)
             .map(|b| Resource::from_contents(*id, b.default_contents().clone()))
@@ -215,13 +215,16 @@ impl ResourceSet {
         self.entries.keys().copied()
     }
 
-    pub fn resources(&self) -> impl Iterator<Item = Resource> + '_ {
+    pub fn resources(&self) -> impl Iterator<Item = Resource<'a>> + '_ {
         self.entries
             .iter()
             .map(|(id, block)| Resource::from_contents(*id, block.default_contents().clone()))
     }
 
-    pub fn resources_of_type(&self, type_id: ResourceType) -> impl Iterator<Item = Resource> + '_ {
+    pub fn resources_of_type(
+        &self,
+        type_id: ResourceType,
+    ) -> impl Iterator<Item = Resource<'a>> + '_ {
         self.entries.iter().filter_map(move |(id, block)| {
             if id.type_id != type_id {
                 return None;
@@ -234,7 +237,7 @@ impl ResourceSet {
     }
 
     #[must_use]
-    pub fn with_overlay(&self, overlay: &ResourceSet) -> ResourceSet {
+    pub fn with_overlay(&self, overlay: &ResourceSet<'a>) -> ResourceSet<'a> {
         let mut entries = self.entries.clone();
         for (id, block) in &overlay.entries {
             entries.insert(*id, block.clone());
@@ -242,7 +245,7 @@ impl ResourceSet {
         ResourceSet { entries }
     }
 
-    pub fn merge(&self, other: &ResourceSet) -> io::Result<ResourceSet> {
+    pub fn merge(&self, other: &ResourceSet<'a>) -> io::Result<ResourceSet<'a>> {
         let mut entries = self.entries.clone();
         for (id, block) in &other.entries {
             match entries.entry(*id) {
@@ -266,29 +269,29 @@ impl ResourceSet {
 pub struct ResourceLoadError(#[from] OtherError);
 
 #[derive(Clone)]
-pub enum ExtraData {
-    Simple(LazyBlock),
+pub enum ExtraData<'a> {
+    Simple(LazyBlock<'a>),
     Composite {
-        ext_header: LazyBlock,
-        extra_data: LazyBlock,
+        ext_header: LazyBlock<'a>,
+        extra_data: LazyBlock<'a>,
     },
 }
 
 #[derive(Clone)]
-struct ResourceContents {
+struct ResourceContents<'a> {
     /// Any extra data associated with the resource.
     ///
     /// This is typically only present if the resource was loaded from a
     /// patch file.
-    extra_data: Option<ExtraData>,
+    extra_data: Option<ExtraData<'a>>,
 
     /// The main data source for the resource.
-    source: LazyBlock,
+    source: LazyBlock<'a>,
 }
 
-impl ResourceContents {
+impl<'a> ResourceContents<'a> {
     #[must_use]
-    pub(crate) fn from_source(source: LazyBlock) -> ResourceContents {
+    pub(crate) fn from_source(source: LazyBlock<'a>) -> Self {
         ResourceContents {
             extra_data: None,
             source,
@@ -296,16 +299,16 @@ impl ResourceContents {
     }
 }
 
-pub struct Resource {
+pub struct Resource<'a> {
     /// The ID of the resource.
     id: ResourceId,
 
-    contents: ResourceContents,
+    contents: ResourceContents<'a>,
 }
 
-impl Resource {
+impl<'a> Resource<'a> {
     #[must_use]
-    pub fn new(id: ResourceId, source: LazyBlock) -> Resource {
+    pub fn new(id: ResourceId, source: LazyBlock<'a>) -> Self {
         Resource {
             id,
             contents: ResourceContents {
@@ -326,12 +329,12 @@ impl Resource {
     }
 
     #[must_use]
-    pub fn extra_data(&self) -> Option<&ExtraData> {
+    pub fn extra_data(&self) -> Option<&ExtraData<'a>> {
         self.contents.extra_data.as_ref()
     }
 
     #[must_use]
-    fn contents(&self) -> &ResourceContents {
+    fn contents(&self) -> &ResourceContents<'a> {
         &self.contents
     }
 

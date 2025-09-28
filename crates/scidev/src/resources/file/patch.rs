@@ -26,7 +26,7 @@ pub enum ResourcePatchError {
 
 pub(crate) async fn try_patch_from_file(
     patch_file: &Path,
-) -> Result<Option<Resource>, TryPatchError> {
+) -> Result<Option<Resource<'static>>, TryPatchError> {
     // Parse the filename to get the resource ID.
 
     // The stem of the file is the resource ID as an integer.
@@ -101,7 +101,7 @@ pub(crate) async fn try_patch_from_file(
 }
 
 pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpin>(
-    resource: &Resource,
+    resource: &Resource<'_>,
     mut writer: W,
 ) -> Result<(), ResourcePatchError> {
     writer

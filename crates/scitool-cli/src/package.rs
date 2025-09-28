@@ -24,6 +24,7 @@ use tokio::io::AsyncReadExt as _;
 
 use crate::{
     fs::{
+        atomic_dir::AtomicDir,
         err_helpers::{io_bail, io_err_map},
         io_wrappers::LengthLimitedAsyncReader,
     },
@@ -37,7 +38,7 @@ const COMPRESSED_BIN_PATH: &str = "compressed.bin";
 const RAW_BIN_PATH: &str = "raw.bin";
 
 async fn buffer_info_from_lazy_block(
-    block: &LazyBlock,
+    block: &LazyBlock<'_>,
 ) -> Result<schema::BufferInfo, LazyBlockError> {
     let buffer = block.open().await?;
 
@@ -47,14 +48,14 @@ async fn buffer_info_from_lazy_block(
     Ok(schema::BufferInfo::new(size, hash))
 }
 
-pub struct Package {
+pub struct Package<'a> {
     target_path: Option<PathBuf>,
     metadata: Dirty<Metadata>,
-    compressed_data: Dirty<Option<LazyBlock>>,
-    raw_data: Dirty<Option<LazyBlock>>,
+    compressed_data: Dirty<Option<LazyBlock<'a>>>,
+    raw_data: Dirty<Option<LazyBlock<'a>>>,
 }
 
-impl Package {
+impl<'a> Package<'a> {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
         Package {
@@ -65,26 +66,16 @@ impl Package {
         }
     }
 
-    pub async fn load_from_path<'a, P>(path: P) -> std::io::Result<Self>
+    pub async fn load_from_path<P>(path: P) -> std::io::Result<Self>
     where
         P: Into<Cow<'a, Path>>,
     {
         let path = path.into().into_owned();
-        // Some sanity checks. We assume that the files will not be modified
-        // concurrently while we are loading them.
-        if !path.exists() {
-            io_bail!(
-                NotFound,
-                "Resource package path does not exist: {}",
-                path.display()
-            );
-        }
+
+        let atomic_dir = AtomicDir::new_at_dir(&path).await?;
 
         let mut meta_file = LengthLimitedAsyncReader::new(
-            tokio::fs::File::options()
-                .read(true)
-                .open(path.join(META_PATH))
-                .await?,
+            atomic_dir.open_options().read(true).open(META_PATH).await?,
             128 * 1024, // 128 KiB
         );
 
@@ -93,35 +84,44 @@ impl Package {
         let metadata: Metadata = serde_json::from_slice(&data)
             .map_err(io_err_map!(InvalidData, "Failed to parse metadata JSON"))?;
 
-        let compressed_path = path.join(COMPRESSED_BIN_PATH);
+        todo!()
 
-        let compressed_data = if compressed_path.exists() {
-            let block_source = BlockSource::from_path(compressed_path)
-                .map_err(io_err_map!(Other, "Failed to create block source"))?;
-            Some(LazyBlock::from_block_source(block_source))
-        } else {
-            None
-        };
+        // let compressed_data = if atomic_dir.exists(COMPRESSED_BIN_PATH).await? {
+        //     let block_source = BlockSource::from_reader_thunk(
+        //         async || {
+        //             Ok(atomic_dir
+        //                 .open_options()
+        //                 .read(true)
+        //                 .open(COMPRESSED_BIN_PATH)
+        //                 .await?)
+        //         },
+        //         0,
+        //     )
+        //     .map_err(io_err_map!(Other, "Failed to create block source"))?;
+        //     Some(LazyBlock::from_block_source(block_source))
+        // } else {
+        //     None
+        // };
 
-        let raw_path = path.join(RAW_BIN_PATH);
-        let raw_data = if raw_path.exists() {
-            let block_source = BlockSource::from_path(raw_path)
-                .map_err(io_err_map!(Other, "Failed to create block source"))?;
-            Some(LazyBlock::from_block_source(block_source))
-        } else {
-            compressed_data.as_ref().map(|compressed_data| {
-                compressed_data
-                    .clone()
-                    .map(|block| decompress_dcl(&block).map_err(LazyBlockError::from_other))
-            })
-        };
+        // let raw_path = path.join(RAW_BIN_PATH);
+        // let raw_data = if raw_path.exists() {
+        //     let block_source = BlockSource::from_path(raw_path)
+        //         .map_err(io_err_map!(Other, "Failed to create block source"))?;
+        //     Some(LazyBlock::from_block_source(block_source))
+        // } else {
+        //     compressed_data.as_ref().map(|compressed_data| {
+        //         compressed_data
+        //             .clone()
+        //             .map(|block| decompress_dcl(&block).map_err(LazyBlockError::from_other))
+        //     })
+        // };
 
-        Ok(Self {
-            target_path: Some(path),
-            metadata: Dirty::new_stored(metadata),
-            compressed_data: Dirty::new_stored(compressed_data),
-            raw_data: Dirty::new_stored(raw_data),
-        })
+        // Ok(Self {
+        //     target_path: Some(path),
+        //     metadata: Dirty::new_stored(metadata),
+        //     compressed_data: Dirty::new_stored(compressed_data),
+        //     raw_data: Dirty::new_stored(raw_data),
+        // })
     }
 
     #[must_use]
@@ -147,7 +147,7 @@ impl Package {
         self.metadata.is_dirty() || self.raw_data.is_dirty() || self.compressed_data.is_dirty()
     }
 
-    pub async fn set_raw_data(&mut self, data: LazyBlock) -> std::io::Result<()> {
+    pub async fn set_raw_data(&mut self, data: LazyBlock<'a>) -> std::io::Result<()> {
         // Update the metadata about the raw data.
         let raw_buffer_info = buffer_info_from_lazy_block(&data)
             .await

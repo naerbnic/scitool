@@ -27,7 +27,7 @@ impl Selector {
     }
 }
 
-async fn dump_selectors(resource_set: &ResourceSet) -> anyhow::Result<Vec<Selector>> {
+async fn dump_selectors(resource_set: &ResourceSet<'_>) -> anyhow::Result<Vec<Selector>> {
     let script_loader = ScriptLoader::load_from(resource_set).await?;
     let mut ordered_selectors = script_loader.selectors().collect::<Vec<_>>();
     ordered_selectors.sort_by_key(|sel| sel.id());
@@ -153,7 +153,7 @@ impl ClassDef {
     }
 }
 
-async fn dump_class_defs(resource_set: &ResourceSet) -> anyhow::Result<Vec<ClassDef>> {
+async fn dump_class_defs(resource_set: &ResourceSet<'_>) -> anyhow::Result<Vec<ClassDef>> {
     let class_decl_set = ClassDeclSet::new(resource_set).await?;
 
     let classes = topo_sort(class_decl_set.classes());

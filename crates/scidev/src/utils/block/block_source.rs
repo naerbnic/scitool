@@ -50,6 +50,31 @@ where
     }
 }
 
+struct ReaderThunkBlockSourceImpl<F, Fut, R> {
+    reader_thunk: F,
+    _phantom: std::marker::PhantomData<fn() -> (Fut, R)>,
+}
+
+impl<F, Fut, R> BlockSourceImpl for ReaderThunkBlockSourceImpl<F, Fut, R>
+where
+    F: Fn() -> Fut + Send + Sync,
+    Fut: Future<Output = Result<R, Error>> + Send,
+    R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send,
+{
+    fn read_block(&self, start: u64, size: u64) -> ReadFuture<'_> {
+        Box::pin(async move {
+            let reader = (self.reader_thunk)();
+
+            let mut reader = std::pin::pin!(reader.await?);
+            reader.seek(io::SeekFrom::Start(start)).await?;
+            let mut data = vec![0; size.try_into()?];
+            reader.read_exact(&mut data).await?;
+
+            Ok(MemBlock::from_vec(data))
+        })
+    }
+}
+
 struct PathBlockSourceImpl<P>(P);
 
 impl<P> BlockSourceImpl for PathBlockSourceImpl<P>
@@ -98,13 +123,13 @@ impl BlockSourceImpl for VecBlockSourceImpl {
 /// A source of blocks. These can be loaded lazily, and still can be split
 /// into sub-block-sources.
 #[derive(Clone)]
-pub struct BlockSource {
+pub struct BlockSource<'a> {
     start: u64,
     size: u64,
-    source_impl: Arc<dyn BlockSourceImpl>,
+    source_impl: Arc<dyn BlockSourceImpl + 'a>,
 }
 
-impl BlockSource {
+impl<'a> BlockSource<'a> {
     /// Creates a block source that represents the contents of a path at the
     /// given path. Returns an error if the file cannot be opened.
     pub fn from_path<P>(path: P) -> Result<Self, Error>
@@ -116,6 +141,22 @@ impl BlockSource {
             start: 0,
             size,
             source_impl: Arc::new(PathBlockSourceImpl(path)),
+        })
+    }
+
+    pub fn from_reader_thunk<F, Fut, R>(reader_thunk: F, size: u64) -> Result<Self, Error>
+    where
+        F: Fn() -> Fut + Send + Sync + 'a,
+        Fut: Future<Output = Result<R, Error>> + Send + 'a,
+        R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + 'a,
+    {
+        Ok(Self {
+            start: 0,
+            size,
+            source_impl: Arc::new(ReaderThunkBlockSourceImpl {
+                reader_thunk,
+                _phantom: std::marker::PhantomData,
+            }),
         })
     }
 
@@ -211,7 +252,7 @@ impl BlockSource {
     /// Returns a lazy block that represents the current block source that can
     /// be opened on demand.
     #[must_use]
-    pub fn to_lazy_block(&self) -> LazyBlock {
+    pub fn to_lazy_block(&self) -> LazyBlock<'a> {
         LazyBlock::from_block_source(self.clone())
     }
 }
@@ -246,9 +287,9 @@ impl From<Error> for FromBlockSourceError {
 
 pub trait FromBlockSource: mem_reader::Parse {
     #[must_use]
-    fn from_block_source(
-        source: &BlockSource,
-    ) -> impl Future<Output = Result<(Self, BlockSource), FromBlockSourceError>> {
+    fn from_block_source<'a>(
+        source: &BlockSource<'a>,
+    ) -> impl Future<Output = Result<(Self, BlockSource<'a>), FromBlockSourceError>> {
         async move {
             if Self::read_size() as u64 > source.size() {
                 return Err(io::Error::new(

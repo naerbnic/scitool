@@ -77,21 +77,21 @@ impl TempStore {
         })
     }
 
-    pub async fn store_bytes<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
+    pub async fn store_bytes<B>(&mut self, buffer: B) -> Result<BlockSource<'static>, StoreError>
     where
         B: Buffer,
     {
         self.create_temp_block(buffer).await
     }
 
-    pub async fn store<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
+    pub async fn store<B>(&mut self, buffer: B) -> Result<BlockSource<'static>, StoreError>
     where
         B: Buffer,
     {
         self.create_temp_block(buffer).await
     }
 
-    async fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource, StoreError>
+    async fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource<'static>, StoreError>
     where
         B: Buffer,
     {

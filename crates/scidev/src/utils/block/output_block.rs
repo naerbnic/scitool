@@ -70,11 +70,11 @@ where
     }
 }
 
-struct CompositeOutputBlock {
-    blocks: Vec<OutputBlock>,
+struct CompositeOutputBlock<'a> {
+    blocks: Vec<OutputBlock<'a>>,
 }
 
-impl OutputBlockImpl for CompositeOutputBlock {
+impl OutputBlockImpl for CompositeOutputBlock<'_> {
     fn size(&self) -> u64 {
         self.blocks.iter().map(OutputBlock::size).sum()
     }
@@ -123,12 +123,12 @@ impl OutputBlockImpl for BytesOutputBlock {
     }
 }
 
-struct BlockSourceOutputBlock {
-    source: BlockSource,
+struct BlockSourceOutputBlock<'a> {
+    source: BlockSource<'a>,
     max_block_size: usize,
 }
 
-impl OutputBlockImpl for BlockSourceOutputBlock {
+impl OutputBlockImpl for BlockSourceOutputBlock<'_> {
     fn size(&self) -> u64 {
         self.source.size()
     }
@@ -158,9 +158,9 @@ pub enum WriteError {
     Other(#[from] OtherError),
 }
 
-pub struct OutputBlock(Arc<dyn OutputBlockImpl>);
+pub struct OutputBlock<'a>(Arc<dyn OutputBlockImpl + 'a>);
 
-impl OutputBlock {
+impl<'a> OutputBlock<'a> {
     pub fn from_buffer<T>(buffer: T) -> Self
     where
         T: SplittableBuffer + Send + Sync + 'static,
@@ -172,7 +172,7 @@ impl OutputBlock {
     }
 
     #[must_use]
-    pub fn from_block_source(source: BlockSource) -> Self {
+    pub fn from_block_source(source: BlockSource<'a>) -> Self {
         Self(Arc::new(BlockSourceOutputBlock {
             source,
             max_block_size: 4 * 1024 * 1024,
@@ -203,17 +203,17 @@ impl OutputBlock {
     }
 }
 
-impl FromIterator<OutputBlock> for OutputBlock {
+impl<'a> FromIterator<OutputBlock<'a>> for OutputBlock<'a> {
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = OutputBlock>,
+        I: IntoIterator<Item = OutputBlock<'a>>,
     {
         let blocks = iter.into_iter().collect::<Vec<_>>();
         Self(Arc::new(CompositeOutputBlock { blocks }))
     }
 }
 
-impl From<bytes::Bytes> for OutputBlock {
+impl From<bytes::Bytes> for OutputBlock<'_> {
     fn from(bytes: bytes::Bytes) -> Self {
         Self(Arc::new(BytesOutputBlock(bytes)))
     }

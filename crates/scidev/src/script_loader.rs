@@ -76,7 +76,7 @@ pub struct ScriptLoader {
 }
 
 impl ScriptLoader {
-    pub async fn load_from(resources: &ResourceSet) -> Result<Self, ScriptLoadError> {
+    pub async fn load_from(resources: &ResourceSet<'_>) -> Result<Self, ScriptLoadError> {
         let selector_table_data = resources
             .get_resource(&ResourceId::new(
                 ResourceType::Vocab,
@@ -136,7 +136,7 @@ pub struct ClassDeclSet {
 }
 
 impl ClassDeclSet {
-    pub async fn new(resources: &ResourceSet) -> Result<Self, ClassDeclSetError> {
+    pub async fn new(resources: &ResourceSet<'_>) -> Result<Self, ClassDeclSetError> {
         let loader = ScriptLoader::load_from(resources).await.with_other_err()?;
         let mut classes = HashMap::new();
         for (script_id, loaded_script) in loader.loaded_scripts() {
