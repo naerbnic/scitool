@@ -6,7 +6,8 @@ use std::{
 use crate::fs::{
     atomic_dir::{COMMIT_PATH, LOCK_PATH},
     err_helpers::{io_bail, io_err_map},
-    paths::RelPath,
+    ops::{FileSystemOperations, WriteMode},
+    paths::{AbsPath, RelPath},
 };
 
 pub(super) fn is_valid_path<'a>(path: &'a Path, temp_dir: &Path) -> io::Result<&'a RelPath> {
@@ -74,4 +75,49 @@ pub(super) fn is_valid_path<'a>(path: &'a Path, temp_dir: &Path) -> io::Result<&
         );
     }
     Ok(path)
+}
+
+pub(super) async fn write_file_atomic<F, Fut, FS>(
+    fs: &FS,
+    base_dir: &AbsPath,
+    tmp_dir: &AbsPath,
+    write_mode: WriteMode,
+    path: &RelPath,
+    body: F,
+) -> io::Result<()>
+where
+    F: FnOnce(FS::FileWriter) -> Fut,
+    Fut: Future<Output = io::Result<()>>,
+    FS: FileSystemOperations,
+{
+    let temp_path = tmp_dir.join_rel(path);
+    let dest_path = base_dir.join_rel(path);
+    // Create the parent directories for the given path.
+    if let Some(parent) = temp_path.parent() {
+        fs.create_dir_all(parent).await?;
+    }
+
+    fs.write_to_file(WriteMode::CreateNew, &tmp_dir.join(path), body)
+        .await?;
+
+    // Create the parent directories for the destination path, if needed.
+    if let Some(parent) = dest_path.parent() {
+        fs.create_dir_all(parent).await?;
+    }
+
+    match write_mode {
+        // This will replace the destination file if it exists, but the change in the file data will
+        // be atomic.
+        WriteMode::Overwrite => fs.rename_file_atomic(&temp_path, &dest_path).await?,
+
+        // This will do an atomic creation of the destination file, so only one attempt to
+        // create the file will succeed.
+        WriteMode::CreateNew => {
+            fs.link_file_atomic(&temp_path, &dest_path).await?;
+            // If the link succeeded, we can remove the temporary file.
+            fs.remove_file(&temp_path).await?;
+        }
+    }
+
+    Ok(())
 }
