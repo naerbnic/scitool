@@ -171,7 +171,7 @@ pub trait LockFile {
 }
 
 /// A trait for the file system operations needed by `AtomicDir`.
-pub trait FileSystemOperations {
+pub trait FileSystemOperations: Send {
     type File: File;
     type FileReader: AsyncRead + Unpin + Send;
     type FileWriter: AsyncWrite + Unpin + Send;
@@ -192,7 +192,7 @@ pub trait FileSystemOperations {
     fn link_file_atomic(&self, src: &Path, dst: &Path) -> impl Future<Output = io::Result<()>>;
     fn remove_file(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
     fn remove_dir(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
+    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>> + Send + 'static;
     fn list_dir(
         &self,
         path: &Path,
@@ -322,8 +322,8 @@ impl FileSystemOperations for TokioFileSystemOperations {
         tokio::fs::remove_dir(path).await
     }
 
-    async fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_dir_all(path).await
+    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>> + Send + 'static {
+        tokio::fs::remove_dir_all(path.to_path_buf())
     }
 
     async fn list_dir(

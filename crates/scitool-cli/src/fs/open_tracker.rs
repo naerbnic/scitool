@@ -11,6 +11,7 @@ struct Inner {
     waker: futures::task::AtomicWaker,
 }
 
+#[derive(Clone)]
 pub struct OpenTracker(Arc<Inner>);
 
 impl OpenTracker {

@@ -158,14 +158,17 @@ enum TempFileStatus {
 
 struct AtomicDirState {
     file_statuses: BTreeMap<RelPathBuf, TempFileStatus>,
+    /// True if the state of the atomic dir has been resolved, either by
+    /// committing or aborting.
+    completed: bool,
 }
 
-pub(super) struct Engine<FS: FileSystemOperations> {
+pub(super) struct Engine<FS: FileSystemOperations + 'static> {
     /// The file system operations implementation to use.
     fs: FS,
 
     /// A lock that ensures exclusive access to the directory.
-    dir_lock: DirLock<FS::FileLock>,
+    dir_lock: Option<DirLock<FS::FileLock>>,
 
     /// The root directory being managed.
     dir_root: AbsPathBuf,
@@ -202,11 +205,12 @@ where
 
         Ok(Engine {
             fs,
-            dir_lock,
+            dir_lock: Some(dir_lock),
             dir_root,
             temp_dir,
             state: Mutex::new(AtomicDirState {
                 file_statuses: BTreeMap::new(),
+                completed: false,
             }),
         })
     }
@@ -493,19 +497,18 @@ where
         }
     }
 
-    pub(super) async fn abort(self) -> io::Result<()> {
+    pub(super) async fn abort(mut self) -> io::Result<()> {
         // We release the dir lock before we wait on an async operation to immediately
         // allow other operations to proceed.
-        std::mem::drop(self.dir_lock);
+        std::mem::drop(self.dir_lock.take());
         // Remove the temporary directory.
         let abs_temp_dir = self.dir_root.join_rel(&self.temp_dir);
         self.fs.remove_dir_all(&abs_temp_dir).await
     }
 
-    pub(super) async fn commit(self) -> io::Result<()> {
-        let state = self.state.into_inner();
-        let pending_commits = state
-            .file_statuses
+    pub(super) async fn commit(mut self) -> io::Result<()> {
+        let state = self.state.get_mut();
+        let pending_commits = std::mem::take(&mut state.file_statuses)
             .into_iter()
             .filter_map(|(path, status)| match status {
                 TempFileStatus::Unchanged => None,
@@ -543,5 +546,22 @@ where
         recover_path(&self.fs, &self.dir_root).await?;
 
         Ok(())
+    }
+}
+
+impl<FS> Drop for Engine<FS>
+where
+    FS: FileSystemOperations,
+{
+    fn drop(&mut self) {
+        let state = self.state.get_mut();
+        if !state.completed {
+            // We have not been committed or aborted, so we should abort the transaction.
+            // We do this in a background task to avoid blocking the drop.
+            let dir_root = self.dir_root.clone();
+            let temp_dir = self.temp_dir.clone();
+            let abs_temp_dir = dir_root.join_rel(&temp_dir);
+            tokio::spawn(self.fs.remove_dir_all(&abs_temp_dir));
+        }
     }
 }

@@ -163,7 +163,7 @@ where
 /// similar to `std::fs::OpenOptions`. An `OpenOptions` instance can be used to
 /// configure how a file is opened and what operations are permitted on the opened file.
 pub struct OpenOptions<'a> {
-    parent: &'a AtomicDir,
+    parent: &'a Inner,
     flags: OpenOptionsFlags,
 }
 
@@ -231,8 +231,64 @@ impl OpenOptions<'_> {
         P: AsRef<Path> + ?Sized,
     {
         self.parent
-            .open_file_impl(path.as_ref(), self.flags.clone())
+            .open_file(path.as_ref(), self.flags.clone())
             .await
+    }
+}
+
+#[derive(Clone)]
+struct Inner {
+    engine: Arc<Engine<TokioFileSystemOperations>>,
+    open_tracker: OpenTracker,
+}
+
+impl Inner {
+    fn new(engine: Engine<TokioFileSystemOperations>) -> Self {
+        Self {
+            engine: Arc::new(engine),
+            open_tracker: OpenTracker::new(),
+        }
+    }
+    async fn open_file(
+        &self,
+        path: &Path,
+        options: OpenOptionsFlags,
+    ) -> io::Result<impl AtomicDirFile + 'static> {
+        Ok(AtomicDirFileWrapper {
+            parent: WrapperTracker::new(self.engine.clone(), self.open_tracker.spawn_marker()),
+            file: self.engine.open_file(path, &options).await?,
+        })
+    }
+
+    fn into_engine(self) -> Option<Engine<TokioFileSystemOperations>> {
+        Arc::into_inner(self.engine)
+    }
+
+    async fn commit(self) -> io::Result<()> {
+        self.open_tracker.wait_for_close().await;
+        self.into_engine().unwrap().commit().await
+    }
+}
+
+/// A handle to an atomic directory.
+///
+/// This provides a cloneable reference to an `AtomicDir`, allowing multiple
+/// parts of a program to share access to the same atomic directory instance.
+/// It provides a subset of the functionality of `AtomicDir`, primarily focused
+/// on operating on files within the directory.
+#[derive(Clone)]
+pub struct Handle {
+    inner: Inner,
+    _marker: OpenMarker,
+}
+
+impl Handle {
+    #[must_use]
+    pub fn open_options(&self) -> OpenOptions<'_> {
+        OpenOptions {
+            parent: &self.inner,
+            flags: OpenOptionsFlags::default(),
+        }
     }
 }
 
@@ -245,32 +301,19 @@ impl OpenOptions<'_> {
 /// process will attempt to complete the commit the next time an `AtomicDir`
 /// is created for the same directory.
 pub struct AtomicDir {
-    inner: Option<Arc<Engine<TokioFileSystemOperations>>>,
-    open_tracker: OpenTracker,
+    inner: Option<Inner>,
 }
 
 impl AtomicDir {
     fn get_inner(&self) -> &Arc<Engine<TokioFileSystemOperations>> {
-        self.inner.as_ref().expect("AtomicDir has been consumed")
+        &self.inner.as_ref().unwrap().engine
     }
 
     fn take_inner(&mut self) -> Option<Engine<TokioFileSystemOperations>> {
-        Arc::into_inner(
-            self.inner
-                .take()
-                .expect("AtomicDir has already been consumed"),
-        )
-    }
-
-    async fn open_file_impl(
-        &self,
-        path: &Path,
-        options: OpenOptionsFlags,
-    ) -> io::Result<impl AtomicDirFile + 'static> {
-        Ok(AtomicDirFileWrapper {
-            parent: WrapperTracker::new(self.get_inner().clone(), self.open_tracker.spawn_marker()),
-            file: self.get_inner().open_file(path, &options).await?,
-        })
+        self.inner
+            .take()
+            .expect("AtomicDir has already been consumed")
+            .into_engine()
     }
 
     /// Creates a new `AtomicDir` at the specified directory path.
@@ -282,10 +325,9 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
-        let inner = Engine::create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?;
+        let engine = Engine::create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?;
         Ok(AtomicDir {
-            inner: Some(Arc::new(inner)),
-            open_tracker: OpenTracker::new(),
+            inner: Some(Inner::new(engine)),
         })
     }
 
@@ -297,22 +339,30 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
-        let Some(inner) =
+        let Some(engine) =
             Engine::try_create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?
         else {
             return Ok(None);
         };
         Ok(Some(AtomicDir {
-            inner: Some(Arc::new(inner)),
-            open_tracker: OpenTracker::new(),
+            inner: Some(Inner::new(engine)),
         }))
+    }
+
+    #[must_use]
+    pub fn as_handle(&self) -> Handle {
+        let inner = self.inner.as_ref().unwrap();
+        Handle {
+            inner: inner.clone(),
+            _marker: inner.open_tracker.spawn_marker(),
+        }
     }
 
     /// Returns a new `OpenOptions` builder for opening files within this `AtomicDir`.
     #[must_use]
     pub fn open_options(&self) -> OpenOptions<'_> {
         OpenOptions {
-            parent: self,
+            parent: self.inner.as_ref().unwrap(),
             flags: OpenOptionsFlags::default(),
         }
     }
@@ -350,8 +400,7 @@ impl AtomicDir {
     /// The commit itself is an atomic operation. If it is interrupted, it will
     /// be completed the next time an `AtomicDir` is created for this directory.
     pub async fn commit(mut self) -> io::Result<()> {
-        self.open_tracker.wait_for_close().await;
-        self.take_inner().unwrap().commit().await
+        self.inner.take().unwrap().commit().await
     }
 
     pub async fn abort(mut self) -> io::Result<()> {
@@ -408,7 +457,7 @@ impl AtomicDir {
 impl Drop for AtomicDir {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.take()
-            && let Some(inner) = Arc::into_inner(inner)
+            && let Some(inner) = inner.into_engine()
         {
             // We have not been committed, so we should abort the transaction.
             // We do this in a background task to avoid blocking the drop.
