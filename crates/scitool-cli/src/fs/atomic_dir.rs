@@ -416,6 +416,7 @@ impl AtomicDir {
         }
         let mut file = options.write(true).open(path.as_ref()).await?;
         file.write_all(data).await?;
+        file.close().await?;
         Ok(())
     }
 
@@ -431,6 +432,7 @@ impl AtomicDir {
         let mut file = options.open(path).await?;
         let mut data = Vec::new();
         file.read_to_end(&mut data).await?;
+        file.close().await?;
         Ok(data)
     }
 }

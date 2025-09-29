@@ -72,12 +72,18 @@ impl<'a> Package<'a> {
         let base_path = path.into().into_owned();
 
         let mut meta_file = LengthLimitedAsyncReader::new(
-            tokio::fs::File::open(base_path.join(META_PATH)).await?,
+            tokio::fs::File::open(base_path.join(META_PATH))
+                .await
+                .map_err(io_err_map!(
+                    NotFound,
+                    "Failed to open metadata file at {}",
+                    base_path.join(META_PATH).display()
+                ))?,
             128 * 1024, // 128 KiB
         );
 
         let mut data = Vec::new();
-        meta_file.read_buf(&mut data).await?;
+        meta_file.read_to_end(&mut data).await?;
         let metadata: Metadata = serde_json::from_slice(&data)
             .map_err(io_err_map!(InvalidData, "Failed to parse metadata JSON"))?;
 
@@ -229,7 +235,6 @@ impl<'a> Package<'a> {
             .write(META_PATH, WriteMode::Overwrite, &meta_json)
             .await
             .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
-        self.metadata.mark_clean();
 
         if let Some(compressed_data) = self.compressed_data.get() {
             let data = compressed_data
@@ -254,7 +259,113 @@ impl<'a> Package<'a> {
                 .await
                 .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
         }
+
+        atomic_dir.commit().await?;
+        self.metadata.mark_clean();
         self.raw_data.mark_clean();
+        self.compressed_data.mark_clean();
+        self.base_path = Some(path);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{META_PATH, Package, RAW_BIN_PATH, schema::Sha256Hash};
+    use bytes::Bytes;
+    use scidev::{
+        resources::{ResourceId, ResourceType},
+        utils::block::{LazyBlock, MemBlock},
+    };
+    use serde_json::Value;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn set_raw_data_updates_metadata_snapshot() -> std::io::Result<()> {
+        let id = ResourceId::new(ResourceType::Script, 123);
+        let mut package = Package::new(id);
+
+        let raw_bytes = b"hello sci".to_vec();
+        let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
+        package.set_raw_data(block).await?;
+
+        let metadata_value =
+            serde_json::to_value(package.metadata()).expect("metadata should serialize to JSON");
+        let content = metadata_value
+            .get("content")
+            .and_then(Value::as_object)
+            .expect("content section missing after set_raw_data");
+        let raw_entry = content
+            .get("raw")
+            .and_then(Value::as_object)
+            .expect("raw buffer info missing");
+
+        assert_eq!(
+            raw_entry.get("size").and_then(Value::as_u64),
+            Some(raw_bytes.len() as u64),
+            "raw size should reflect input block",
+        );
+
+        let expected_hash = Sha256Hash::from_data_hash(Bytes::from(raw_bytes.clone()));
+        let expected_hash_value =
+            serde_json::to_value(&expected_hash).expect("hash should serialize to JSON value");
+        let expected_hash_str = expected_hash_value
+            .as_str()
+            .expect("serialized hash should be a string");
+
+        assert_eq!(
+            raw_entry.get("hash").and_then(Value::as_str),
+            Some(expected_hash_str),
+            "raw hash should match computed hash",
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_to_writes_files_and_allows_followup_save() -> std::io::Result<()> {
+        let temp_dir = tempdir()?;
+        let package_dir = temp_dir.path().join("pkg");
+        tokio::fs::create_dir(&package_dir).await?;
+
+        let mut package = Package::new(ResourceId::new(ResourceType::Script, 7));
+        let raw_bytes = b"resource data".to_vec();
+        let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
+        package.set_raw_data(block).await?;
+
+        package.save_to(package_dir.clone()).await?;
+
+        assert!(
+            tokio::fs::try_exists(package_dir.join(META_PATH)).await?,
+            "meta.json should exist after save_to"
+        );
+
+        assert!(
+            tokio::fs::try_exists(package_dir.join(RAW_BIN_PATH)).await?,
+            "raw.bin should exist after save_to"
+        );
+
+        let meta_bytes = tokio::fs::read(package_dir.join(META_PATH)).await?;
+        let meta_json: Value = serde_json::from_slice(&meta_bytes)
+            .expect("metadata should deserialize into JSON value");
+
+        let raw_entry = meta_json
+            .get("content")
+            .and_then(|c| c.get("raw"))
+            .and_then(Value::as_object)
+            .expect("raw content section missing after save_to");
+        assert_eq!(
+            raw_entry.get("size").and_then(Value::as_u64),
+            Some(raw_bytes.len() as u64)
+        );
+
+        // Save again to ensure the package path was remembered and the transaction is reusable.
+        package.save().await?;
+
+        Package::load_from_path(&package_dir)
+            .await
+            .expect("package should reload from saved directory");
 
         Ok(())
     }
