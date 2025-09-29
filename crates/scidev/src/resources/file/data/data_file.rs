@@ -5,16 +5,16 @@ use crate::{
 
 use super::{contents::Contents, errors::Error, raw_header::RawEntryHeader};
 
-pub(crate) struct DataFile<'a> {
-    data: BlockSource<'a>,
+pub(crate) struct DataFile {
+    data: BlockSource,
 }
 
-impl<'a> DataFile<'a> {
-    pub(crate) fn new(data: BlockSource<'a>) -> Self {
+impl DataFile {
+    pub(crate) fn new(data: BlockSource) -> Self {
         DataFile { data }
     }
 
-    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents<'a>, Error> {
+    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, Error> {
         if self.data.size() < u64::from(location.file_offset()) {
             return Err(Error::InvalidResourceLocation {
                 location: location.file_offset() as usize,

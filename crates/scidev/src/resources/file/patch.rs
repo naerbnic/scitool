@@ -24,9 +24,7 @@ pub enum ResourcePatchError {
     Other(#[from] OtherError),
 }
 
-pub(crate) fn try_patch_from_file(
-    patch_file: &Path,
-) -> Result<Option<Resource<'static>>, TryPatchError> {
+pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>, TryPatchError> {
     // Parse the filename to get the resource ID.
 
     // The stem of the file is the resource ID as an integer.
@@ -101,7 +99,7 @@ pub(crate) fn try_patch_from_file(
 }
 
 pub(crate) fn write_resource_to_patch_file<W: Write>(
-    resource: &Resource<'_>,
+    resource: &Resource,
     mut writer: W,
 ) -> Result<(), ResourcePatchError> {
     writer

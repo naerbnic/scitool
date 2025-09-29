@@ -86,13 +86,13 @@ impl BlockSourceImpl for VecBlockSourceImpl {
 /// A source of blocks. These can be loaded lazily, and still can be split
 /// into sub-block-sources.
 #[derive(Clone)]
-pub struct BlockSource<'a> {
+pub struct BlockSource {
     start: u64,
     size: u64,
-    source_impl: Arc<dyn BlockSourceImpl + 'a>,
+    source_impl: Arc<dyn BlockSourceImpl>,
 }
 
-impl<'a> BlockSource<'a> {
+impl BlockSource {
     /// Creates a block source that represents the contents of a path at the
     /// given path. Returns an error if the file cannot be opened.
     pub fn from_path<P>(path: P) -> Result<Self, Error>
@@ -199,7 +199,7 @@ impl<'a> BlockSource<'a> {
     /// Returns a lazy block that represents the current block source that can
     /// be opened on demand.
     #[must_use]
-    pub fn to_lazy_block(&self) -> LazyBlock<'a> {
+    pub fn to_lazy_block(&self) -> LazyBlock {
         LazyBlock::from_block_source(self.clone())
     }
 }
@@ -233,9 +233,9 @@ impl From<Error> for FromBlockSourceError {
 }
 
 pub trait FromBlockSource: mem_reader::Parse {
-    fn from_block_source<'a>(
-        source: &BlockSource<'a>,
-    ) -> Result<(Self, BlockSource<'a>), FromBlockSourceError> {
+    fn from_block_source(
+        source: &BlockSource,
+    ) -> Result<(Self, BlockSource), FromBlockSourceError> {
         if Self::read_size() as u64 > source.size() {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,

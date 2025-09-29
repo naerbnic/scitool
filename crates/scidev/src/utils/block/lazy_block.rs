@@ -38,11 +38,11 @@ trait LazyBlockImpl: Send + Sync {
     fn size(&self) -> Option<u64>;
 }
 
-struct RangeLazyBlockImpl<'a> {
-    source: BlockSource<'a>,
+struct RangeLazyBlockImpl {
+    source: BlockSource,
 }
 
-impl LazyBlockImpl for RangeLazyBlockImpl<'_> {
+impl LazyBlockImpl for RangeLazyBlockImpl {
     fn open(&self) -> Result<MemBlock, Error> {
         Ok(self.source.open()?)
     }
@@ -104,11 +104,11 @@ impl LazyBlockImpl for MemLazyBlockImpl {
 ///
 /// This can be cheaply cloned, but cannot be split into smaller ranges.
 #[derive(Clone)]
-pub struct LazyBlock<'a> {
-    source: Arc<dyn LazyBlockImpl + 'a>,
+pub struct LazyBlock {
+    source: Arc<dyn LazyBlockImpl>,
 }
 
-impl<'a> LazyBlock<'a> {
+impl LazyBlock {
     /// Creates a lazy block that is loaded from a factory on demand.
     pub fn from_factory<F>(factory: F) -> Self
     where
@@ -120,7 +120,7 @@ impl<'a> LazyBlock<'a> {
     }
 
     #[must_use]
-    pub fn from_block_source(source: BlockSource<'a>) -> Self {
+    pub fn from_block_source(source: BlockSource) -> Self {
         Self {
             source: Arc::new(RangeLazyBlockImpl { source }),
         }
@@ -173,7 +173,7 @@ impl<'a> LazyBlock<'a> {
     }
 }
 
-impl std::fmt::Debug for LazyBlock<'_> {
+impl std::fmt::Debug for LazyBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("LazyBlock")
             .field("size", &self.source.size())

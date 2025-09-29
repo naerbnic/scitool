@@ -11,12 +11,12 @@ use crate::{
     },
 };
 
-struct RawContents<'a> {
+struct RawContents {
     header: RawEntryHeader,
-    data: BlockSource<'a>,
+    data: BlockSource,
 }
 
-impl std::fmt::Debug for RawContents<'_> {
+impl std::fmt::Debug for RawContents {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawContents")
             .field("header", &self.header)
@@ -26,15 +26,15 @@ impl std::fmt::Debug for RawContents<'_> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Contents<'a> {
+pub(crate) struct Contents {
     id: ResourceId,
-    data: LazyBlock<'a>,
+    data: LazyBlock,
 }
 
-impl<'a> Contents<'a> {
+impl Contents {
     pub(super) fn from_parts(
         header: RawEntryHeader,
-        resource_block: BlockSource<'a>,
+        resource_block: BlockSource,
     ) -> Result<Self, ConversionError> {
         assert_eq!(resource_block.size(), u64::from(header.packed_size()));
         let raw_contents = RawContents {
@@ -78,7 +78,7 @@ impl<'a> Contents<'a> {
     pub(crate) fn id(&self) -> &ResourceId {
         &self.id
     }
-    pub(crate) fn data(&self) -> &LazyBlock<'a> {
+    pub(crate) fn data(&self) -> &LazyBlock {
         &self.data
     }
 }

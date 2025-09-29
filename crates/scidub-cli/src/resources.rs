@@ -79,7 +79,7 @@ impl SampleSet {
         base_path: &Path,
         ffmpeg: &FfmpegTool,
         num_concurrent: usize,
-    ) -> anyhow::Result<VoiceSampleResources<'_>> {
+    ) -> anyhow::Result<VoiceSampleResources> {
         struct ProcessedSample {
             room: u16,
             message_id: MessageId,
@@ -243,7 +243,7 @@ impl SampleDir {
         &self,
         ffmpeg: &FfmpegTool,
         num_concurrent: usize,
-    ) -> anyhow::Result<VoiceSampleResources<'_>> {
+    ) -> anyhow::Result<VoiceSampleResources> {
         self.samples
             .to_audio_resources(&self.base_path, ffmpeg, num_concurrent)
             .await

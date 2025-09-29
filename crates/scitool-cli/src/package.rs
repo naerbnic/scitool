@@ -35,9 +35,7 @@ const META_PATH: &str = "meta.json";
 const COMPRESSED_BIN_PATH: &str = "compressed.bin";
 const RAW_BIN_PATH: &str = "raw.bin";
 
-fn buffer_info_from_lazy_block(
-    block: &LazyBlock<'_>,
-) -> Result<schema::BufferInfo, LazyBlockError> {
+fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, LazyBlockError> {
     let buffer = block.open()?;
 
     let size = u64::try_from(buffer.len()).unwrap();
@@ -46,14 +44,14 @@ fn buffer_info_from_lazy_block(
     Ok(schema::BufferInfo::new(size, hash))
 }
 
-pub struct Package<'a> {
+pub struct Package {
     base_path: Option<PathBuf>,
     metadata: Dirty<Metadata>,
-    compressed_data: Dirty<Option<LazyBlock<'a>>>,
-    raw_data: Dirty<Option<LazyBlock<'a>>>,
+    compressed_data: Dirty<Option<LazyBlock>>,
+    raw_data: Dirty<Option<LazyBlock>>,
 }
 
-impl<'a> Package<'a> {
+impl Package {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
         Package {
@@ -64,7 +62,7 @@ impl<'a> Package<'a> {
         }
     }
 
-    pub fn load_from_path<P>(path: P) -> std::io::Result<Self>
+    pub fn load_from_path<'a, P>(path: P) -> std::io::Result<Self>
     where
         P: Into<Cow<'a, Path>>,
     {
@@ -137,7 +135,7 @@ impl<'a> Package<'a> {
         self.metadata.is_dirty() || self.raw_data.is_dirty() || self.compressed_data.is_dirty()
     }
 
-    pub fn set_raw_data(&mut self, data: LazyBlock<'a>) -> std::io::Result<()> {
+    pub fn set_raw_data(&mut self, data: LazyBlock) -> std::io::Result<()> {
         // Update the metadata about the raw data.
         let raw_buffer_info = buffer_info_from_lazy_block(&data)
             .map_err(io_err_map!(Other, "Failed to compute buffer info"))?;

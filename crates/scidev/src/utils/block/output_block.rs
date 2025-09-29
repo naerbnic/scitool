@@ -1,7 +1,6 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use bytes::Buf;
-use futures::{Stream, StreamExt as _, TryStreamExt as _};
 
 use crate::utils::{
     block::BlockSource,
@@ -50,7 +49,7 @@ pub enum OutputBlockError {
     ReadError(#[from] OtherError),
 }
 
-type BufIter<'a> = Pin<Box<dyn Stream<Item = Result<BlockData<'a>, OutputBlockError>> + 'a>>;
+type BufIter<'a> = Box<dyn Iterator<Item = Result<BlockData<'a>, OutputBlockError>> + 'a>;
 
 trait OutputBlockImpl: Send + Sync {
     fn size(&self) -> u64;
@@ -70,17 +69,17 @@ where
     }
 }
 
-struct CompositeOutputBlock<'a> {
-    blocks: Vec<OutputBlock<'a>>,
+struct CompositeOutputBlock {
+    blocks: Vec<OutputBlock>,
 }
 
-impl OutputBlockImpl for CompositeOutputBlock<'_> {
+impl OutputBlockImpl for CompositeOutputBlock {
     fn size(&self) -> u64 {
         self.blocks.iter().map(OutputBlock::size).sum()
     }
 
     fn blocks(&self) -> BufIter<'_> {
-        Box::pin(futures::stream::iter(self.blocks.iter()).flat_map(OutputBlock::blocks))
+        Box::new(self.blocks.iter().flat_map(OutputBlock::blocks))
     }
 }
 
@@ -99,7 +98,7 @@ where
 
     fn blocks(&self) -> BufIter<'_> {
         let num_blocks = self.buffer.size().div_ceil(self.max_block_size);
-        Box::pin(futures::stream::iter(0..num_blocks).map(move |i| {
+        Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size;
             let end = std::cmp::min(start + self.max_block_size, self.buffer.size());
             ensure_other!(end <= self.buffer.size(), "Block range out of bounds");
@@ -119,23 +118,23 @@ impl OutputBlockImpl for BytesOutputBlock {
 
     fn blocks(&self) -> BufIter<'_> {
         let block = BlockData::new(self.0.clone());
-        Box::pin(futures::stream::once(async move { Ok(block) }))
+        Box::new(std::iter::once(Ok(block)))
     }
 }
 
-struct BlockSourceOutputBlock<'a> {
-    source: BlockSource<'a>,
+struct BlockSourceOutputBlock {
+    source: BlockSource,
     max_block_size: usize,
 }
 
-impl OutputBlockImpl for BlockSourceOutputBlock<'_> {
+impl OutputBlockImpl for BlockSourceOutputBlock {
     fn size(&self) -> u64 {
         self.source.size()
     }
 
     fn blocks(&self) -> BufIter<'_> {
         let num_blocks = self.source.size().div_ceil(self.max_block_size as u64);
-        Box::pin(futures::stream::iter(0..num_blocks).then(async move |i| {
+        Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size as u64;
             let end = std::cmp::min(start + self.max_block_size as u64, self.source.size());
             Ok(BlockData::from_buffer(
@@ -157,9 +156,9 @@ pub enum WriteError {
     Other(#[from] OtherError),
 }
 
-pub struct OutputBlock<'a>(Arc<dyn OutputBlockImpl + 'a>);
+pub struct OutputBlock(Arc<dyn OutputBlockImpl>);
 
-impl<'a> OutputBlock<'a> {
+impl OutputBlock {
     pub fn from_buffer<T>(buffer: T) -> Self
     where
         T: SplittableBuffer + Send + Sync + 'static,
@@ -171,7 +170,7 @@ impl<'a> OutputBlock<'a> {
     }
 
     #[must_use]
-    pub fn from_block_source(source: BlockSource<'a>) -> Self {
+    pub fn from_block_source(source: BlockSource) -> Self {
         Self(Arc::new(BlockSourceOutputBlock {
             source,
             max_block_size: 4 * 1024 * 1024,
@@ -185,14 +184,15 @@ impl<'a> OutputBlock<'a> {
 
     pub fn blocks(
         &self,
-    ) -> impl Stream<Item = Result<BlockData<'_>, OutputBlockError>> + Unpin + '_ {
+    ) -> impl Iterator<Item = Result<BlockData<'_>, OutputBlockError>> + Unpin + '_ {
         self.0.blocks()
     }
     pub async fn write_to<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         mut writer: W,
     ) -> Result<(), WriteError> {
-        while let Some(mut block) = self.blocks().try_next().await.with_other_err()? {
+        for block in self.blocks() {
+            let mut block = block.with_other_err()?;
             while block.has_remaining() {
                 let bytes_written = writer.write(block.chunk()).await.with_other_err()?;
                 block.advance(bytes_written);
@@ -202,17 +202,17 @@ impl<'a> OutputBlock<'a> {
     }
 }
 
-impl<'a> FromIterator<OutputBlock<'a>> for OutputBlock<'a> {
+impl FromIterator<OutputBlock> for OutputBlock {
     fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = OutputBlock<'a>>,
+        I: IntoIterator<Item = OutputBlock>,
     {
         let blocks = iter.into_iter().collect::<Vec<_>>();
         Self(Arc::new(CompositeOutputBlock { blocks }))
     }
 }
 
-impl From<bytes::Bytes> for OutputBlock<'_> {
+impl From<bytes::Bytes> for OutputBlock {
     fn from(bytes: bytes::Bytes) -> Self {
         Self(Arc::new(BytesOutputBlock(bytes)))
     }
