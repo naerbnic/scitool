@@ -63,30 +63,32 @@ impl FfmpegTool {
         O: Output,
     {
         let duration = self.probe.read_duration(input.clone())?;
-        let rt = tokio::runtime::Builder::new_current_thread().build()?;
-        let mut command = tokio::process::Command::new(&self.ffmpeg_path);
-        let input_state = rt.block_on(input.create_state())?;
-        let output_state = rt.block_on(output.create_state())?;
-        let output_format = output_format.into();
-        let mut child = command
-            .arg("-nostdin")
-            .arg("-progress")
-            .arg("pipe:1")
-            .arg("-hide_banner")
-            .arg("-i")
-            .arg(input_state.url())
-            .arg("-f")
-            .arg(output_format.format_name())
-            .args(output_format.get_options().to_flags(Some("a:0")))
-            .arg(output_state.url())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        let stdout =
-            tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
-        let (status, output, _, ()) = rt.block_on(async move {
-            futures::join!(
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let (status, output) = rt.block_on(async move {
+            let mut command = tokio::process::Command::new(&self.ffmpeg_path);
+            let input_state = input.create_state().await?;
+            let output_state = output.create_state().await?;
+            let output_format = output_format.into();
+            let mut child = command
+                .arg("-nostdin")
+                .arg("-progress")
+                .arg("pipe:1")
+                .arg("-hide_banner")
+                .arg("-i")
+                .arg(input_state.url())
+                .arg("-f")
+                .arg(output_format.format_name())
+                .args(output_format.get_options().to_flags(Some("a:0")))
+                .arg(output_state.url())
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()?;
+            let stdout =
+                tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
+            let (status, output, _, ()) = futures::join!(
                 child.wait(),
                 output_state.wait(),
                 input_state.wait(),
@@ -118,9 +120,9 @@ impl FfmpegTool {
                         }
                     }
                 }
-            )
-        });
-        let status = status?;
+            );
+            Ok::<_, anyhow::Error>((status?, output))
+        })?;
 
         anyhow::ensure!(
             status.success(),

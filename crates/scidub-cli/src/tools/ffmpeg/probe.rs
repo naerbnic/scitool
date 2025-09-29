@@ -59,30 +59,32 @@ impl Probe {
     }
 
     pub(crate) fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
-        let rt = tokio::runtime::Builder::new_current_thread().build()?;
-        let in_state = rt.block_on(input.create_state())?;
-        let mut command = tokio::process::Command::new(&self.path);
-        command
-            .arg("-i")
-            .arg(in_state.url())
-            .args(["-v", "error"])
-            .args(["-show_entries", "format"])
-            .args(["-of", "json"]);
-        let (output, ()) = rt.block_on(async move {
-            futures::try_join!(
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        rt.block_on(async move {
+            let in_state = input.create_state().await?;
+            let mut command = tokio::process::Command::new(&self.path);
+            command
+                .arg("-i")
+                .arg(in_state.url())
+                .args(["-v", "error"])
+                .args(["-show_entries", "format"])
+                .args(["-of", "json"]);
+            let (output, ()) = futures::try_join!(
                 command.output().map_err(anyhow::Error::from),
                 in_state.wait()
-            )
-        })?;
-        anyhow::ensure!(
-            output.status.success(),
-            "ffprobe failed with code {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr),
-        );
-        let out: ProbeOutput = serde_json::from_slice(&output.stdout)?;
-        out.format
-            .map(|f| f.duration)
-            .ok_or_else(|| anyhow::anyhow!("ffprobe did not return format data: {}", output.status))
+            )?;
+            anyhow::ensure!(
+                output.status.success(),
+                "ffprobe failed with code {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr),
+            );
+            let out: ProbeOutput = serde_json::from_slice(&output.stdout)?;
+            out.format.map(|f| f.duration).ok_or_else(|| {
+                anyhow::anyhow!("ffprobe did not return format data: {}", output.status)
+            })
+        })
     }
 }
