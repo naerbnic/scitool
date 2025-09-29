@@ -246,8 +246,8 @@ pub struct TokioFileSystemOperations;
 
 impl FileSystemOperations for TokioFileSystemOperations {
     type File = std::fs::File;
-    type FileReader = MutBorrowedArc<std::fs::File>;
-    type FileWriter = std::fs::File;
+    type FileReader = std::fs::File;
+    type FileWriter = MutBorrowedArc<std::fs::File>;
     type FileLock = TokioFileLock;
 
     fn get_path_kind(&self, path: &Path) -> io::Result<Option<PathKind>> {
@@ -315,11 +315,7 @@ impl FileSystemOperations for TokioFileSystemOperations {
         F: FnOnce(Self::FileReader) -> io::Result<R>,
     {
         let path = path.to_owned();
-        let (borrowed_file, lent_file) = loan_arc(std::fs::File::open(&path)?);
-        let res = body(borrowed_file);
-        let file = lent_file.take_back();
-        file.sync_all()?;
-        res
+        body(std::fs::File::open(&path)?)
     }
 
     fn write_to_file<F, R>(&self, write_mode: WriteMode, path: &Path, body: F) -> io::Result<R>
@@ -337,7 +333,11 @@ impl FileSystemOperations for TokioFileSystemOperations {
             }
         }
         let file = options.write(true).open(&path)?;
-        body(file)
+        let (borrowed_file, lent_file) = loan_arc(file);
+        let result = body(borrowed_file)?;
+        let file = lent_file.take_back();
+        file.sync_all()?;
+        Ok(result)
     }
 
     fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<Self::File> {
