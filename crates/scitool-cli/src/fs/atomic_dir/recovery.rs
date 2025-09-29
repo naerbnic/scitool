@@ -1,11 +1,11 @@
-use std::{ffi::OsStr, io};
-
-use futures::StreamExt as _;
-use tokio::io::AsyncReadExt as _;
+use std::{
+    ffi::OsStr,
+    io::{self, Read as _},
+};
 
 use crate::fs::{
     err_helpers::{io_bail, io_err_map},
-    io_wrappers::LengthLimitedAsyncReader,
+    io_wrappers::LengthLimitedReader,
     ops::{FileSystemOperations, PathKind},
     paths::{AbsPath, RelPath},
 };
@@ -70,18 +70,18 @@ impl std::fmt::Display for RecoveryError {
     }
 }
 
-async fn apply_entry<FS: FileSystemOperations>(
+fn apply_entry<FS: FileSystemOperations>(
     fs: &FS,
     dir_root: &AbsPath,
     temp_dir: &AbsPath,
     entry: CommitEntry,
     failed_entries: &mut Vec<FileRecoveryFailure>,
-) -> io::Result<()> {
+) {
     match &entry {
         CommitEntry::Overwrite(overwrite_entry) => {
             let temp_path = temp_dir.join(overwrite_entry.dest_path());
             let dest_path = dir_root.join(overwrite_entry.dest_path());
-            match fs.rename_file_atomic(&temp_path, &dest_path).await {
+            match fs.rename_file_atomic(&temp_path, &dest_path) {
                 Ok(()) => { /* Successfully renamed */ }
                 Err(err) if err.kind() == io::ErrorKind::NotFound => {
                     // Permitted: the temp file is missing, we assume the dest file is authoritative.
@@ -93,7 +93,7 @@ async fn apply_entry<FS: FileSystemOperations>(
         }
         CommitEntry::Delete(delete_entry) => {
             let path = dir_root.join(delete_entry.path());
-            match fs.remove_file(&path).await {
+            match fs.remove_file(&path) {
                 Err(err) if err.kind() == io::ErrorKind::NotFound => {
                     // Already deleted, nothing to do.
                 }
@@ -104,12 +104,10 @@ async fn apply_entry<FS: FileSystemOperations>(
             }
         }
     }
-
-    Ok(())
 }
 
-async fn check_root_path(fs: &impl FileSystemOperations, dir_root: &AbsPath) -> io::Result<()> {
-    match fs.get_path_kind(dir_root).await? {
+fn check_root_path(fs: &impl FileSystemOperations, dir_root: &AbsPath) -> io::Result<()> {
+    match fs.get_path_kind(dir_root)? {
         Some(PathKind::Directory) => {
             // Normal case, nothing to do.
             Ok(())
@@ -132,15 +130,15 @@ async fn check_root_path(fs: &impl FileSystemOperations, dir_root: &AbsPath) -> 
     }
 }
 
-pub(super) async fn recover_path<FS: FileSystemOperations>(
+pub(super) fn recover_path<FS: FileSystemOperations>(
     fs: &FS,
     dir_root: &AbsPath,
 ) -> io::Result<()> {
-    check_root_path(fs, dir_root).await?;
+    check_root_path(fs, dir_root)?;
 
     let commit_path = dir_root.join_rel(RelPath::new_checked(COMMIT_PATH).unwrap());
 
-    let Some(commit_file_kind) = fs.get_path_kind(&commit_path).await? else {
+    let Some(commit_file_kind) = fs.get_path_kind(&commit_path)? else {
         // No commit file, so no recovery needed.
         return Ok(());
     };
@@ -157,15 +155,13 @@ pub(super) async fn recover_path<FS: FileSystemOperations>(
         }
     }
 
-    let commit_data_bytes = fs
-        .read_file(&commit_path, |data| async move {
-            let limit = 128 * 1024 * 1024; // 128 MiB
-            let mut data = LengthLimitedAsyncReader::new(data, limit);
-            let mut buf = Vec::new();
-            data.read_to_end(&mut buf).await?;
-            Ok(buf)
-        })
-        .await?;
+    let commit_data_bytes = fs.read_file(&commit_path, |data| {
+        let limit = 128 * 1024 * 1024; // 128 MiB
+        let mut data = LengthLimitedReader::new(data, limit);
+        let mut buf = Vec::new();
+        data.read_to_end(&mut buf)?;
+        Ok(buf)
+    })?;
 
     let mut commit_schema: CommitSchema = serde_json::from_slice(&commit_data_bytes)
         .map_err(io_err_map!(Other, "Failed to parse commit schema"))?;
@@ -198,7 +194,7 @@ pub(super) async fn recover_path<FS: FileSystemOperations>(
         let mut failed_entries = Vec::new();
 
         for entry in commit_schema.take_entries() {
-            apply_entry(fs, dir_root, &abs_temp_dir, entry, &mut failed_entries).await?;
+            apply_entry(fs, dir_root, &abs_temp_dir, entry, &mut failed_entries);
         }
 
         if !failed_entries.is_empty() {
@@ -214,10 +210,9 @@ pub(super) async fn recover_path<FS: FileSystemOperations>(
 
     // We have completed recovery, so we can remove the other files. First
     // delete all temporary directories.
-    let mut root_entries = fs.list_dir(dir_root).await?;
+    let mut root_entries = fs.list_dir(dir_root)?;
     while let Some(entry) = root_entries
         .next()
-        .await
         .transpose()
         .map_err(io_err_map!(Other, "Failed to read directory entry"))?
     {
@@ -228,11 +223,11 @@ pub(super) async fn recover_path<FS: FileSystemOperations>(
             .is_some_and(|name| name.starts_with("tmpdir-"))
         {
             // This is a temporary directory, remove it.
-            fs.remove_dir_all(&entry_path).await.ok();
+            fs.remove_dir_all(&entry_path).ok();
         }
     }
 
-    fs.remove_file(&commit_path).await?;
+    fs.remove_file(&commit_path)?;
 
     Ok(())
 }

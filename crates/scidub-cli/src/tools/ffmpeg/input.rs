@@ -55,9 +55,7 @@ impl InputState for TcpInputState {
 }
 
 pub trait Input: Clone {
-    fn create_state(
-        self,
-    ) -> impl std::future::Future<Output = anyhow::Result<impl InputState>> + Send;
+    fn create_state(self) -> impl Future<Output = anyhow::Result<impl InputState>>;
 }
 
 impl<T> Input for T

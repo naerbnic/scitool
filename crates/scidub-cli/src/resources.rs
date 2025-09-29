@@ -127,9 +127,9 @@ pub struct SampleDir {
 }
 
 impl SampleDir {
-    pub async fn load_dir(path: &Path) -> anyhow::Result<Self> {
+    pub fn load_dir(path: &Path) -> anyhow::Result<Self> {
         let samples_file = path.join("samples.json");
-        let samples_file_contents = tokio::fs::read(&samples_file).await?;
+        let samples_file_contents = std::fs::read(&samples_file)?;
         let sample_set: SampleSet =
             serde_json::from_reader(std::io::Cursor::new(samples_file_contents))?;
         Ok(Self {

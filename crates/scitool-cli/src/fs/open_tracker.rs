@@ -3,7 +3,6 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    task::Poll,
 };
 
 struct Inner {
@@ -31,17 +30,12 @@ impl OpenTracker {
         OpenMarker(self.0.clone())
     }
 
-    pub async fn wait_for_close(&self) {
-        futures::future::poll_fn(|cx| {
-            self.0.waker.register(cx.waker());
-            let curr_count = self.0.ref_count.load(Ordering::SeqCst);
-            if curr_count == 0 {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+    pub fn wait_for_close(&self) {
+        let curr_count = self.0.ref_count.load(Ordering::SeqCst);
+        if curr_count == 0 {
+            return;
+        }
+        panic!("You really should wait for all of the markers to be closed asynchronously");
     }
 }
 

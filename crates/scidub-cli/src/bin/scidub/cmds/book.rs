@@ -9,7 +9,7 @@ use std::path::Path;
 use scidev::resources::{ResourceSet, ResourceType, types::msg::parse_message_resource};
 use scidub_cli::book::{Book, builder::BookBuilder, config::BookConfig, file_format};
 
-async fn export_book(
+fn export_book(
     config_path: &Path,
     game_path: &Path,
     output: impl std::io::Write,
@@ -20,13 +20,13 @@ async fn export_book(
     } else {
         BookConfig::default()
     };
-    let resource_set = ResourceSet::from_root_dir(game_path).await?;
+    let resource_set = ResourceSet::from_root_dir(game_path)?;
     let mut builder = BookBuilder::new(config)?;
 
     // Extra testing for building a conversation.
 
     for res in resource_set.resources_of_type(ResourceType::Message) {
-        let msg_resources = parse_message_resource(&res.load_data().await?)?;
+        let msg_resources = parse_message_resource(&res.load_data()?)?;
         for (msg_id, record) in msg_resources.messages() {
             builder.add_message(res.id().resource_num(), msg_id, record)?;
         }
@@ -144,9 +144,9 @@ pub(super) struct BookCommand {
     book_cmd: SubCommand,
 }
 impl BookCommand {
-    pub(super) async fn run(&self) -> Result<(), anyhow::Error> {
+    pub(super) fn run(&self) -> Result<(), anyhow::Error> {
         match &self.book_cmd {
-            SubCommand::Export(export) => export.run().await?,
+            SubCommand::Export(export) => export.run()?,
             SubCommand::Validate(validate) => validate.run()?,
             SubCommand::Schema(schema) => schema.run(),
             SubCommand::PrintMessages(print_messages) => print_messages.run()?,
@@ -183,13 +183,13 @@ struct ExportCommand {
 }
 
 impl ExportCommand {
-    async fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         let output: Box<dyn std::io::Write> = if let Some(path) = &self.output {
             Box::new(std::fs::File::create_new(path)?)
         } else {
             Box::new(std::io::stdout().lock())
         };
-        export_book(&self.config, &self.game, output).await?;
+        export_book(&self.config, &self.game, output)?;
         Ok(())
     }
 }

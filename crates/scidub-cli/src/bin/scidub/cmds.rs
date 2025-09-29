@@ -17,9 +17,9 @@ impl Cli {
         match &self.command {
             Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
             Cmd::ExportScannable(export_scannable) => export_scannable.run().await?,
-            Cmd::TryScan(try_scan) => try_scan.run().await?,
+            Cmd::TryScan(try_scan) => try_scan.run()?,
             Cmd::GenerateCsv(generate_csv) => generate_csv.run()?,
-            Cmd::Book(book) => book.run().await?,
+            Cmd::Book(book) => book.run()?,
         }
         Ok(())
     }

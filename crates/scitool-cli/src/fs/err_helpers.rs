@@ -40,10 +40,4 @@ macro_rules! io_bail {
    };
 }
 
-macro_rules! io_async_bail {
-   ($kind:ident, $fmt:literal $($arg:tt)*) => {
-       return std::task::Poll::Ready(Err($crate::fs::err_helpers::io_err!($kind, $fmt $($arg)*)));
-   };
-}
-
-pub(crate) use {io_async_bail, io_bail, io_err, io_err_map};
+pub(crate) use {io_bail, io_err, io_err_map};

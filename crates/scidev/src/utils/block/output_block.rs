@@ -143,7 +143,6 @@ impl OutputBlockImpl for BlockSourceOutputBlock<'_> {
                     .clone()
                     .subblock(start..end)
                     .open()
-                    .await
                     .with_other_err()?,
             ))
         }))

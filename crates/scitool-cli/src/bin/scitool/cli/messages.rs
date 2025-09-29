@@ -13,8 +13,8 @@ struct PrintTalkers {
 }
 
 impl PrintTalkers {
-    async fn run(&self) -> anyhow::Result<()> {
-        print_talkers(&self.root_dir, std::io::stdout().lock()).await
+    fn run(&self) -> anyhow::Result<()> {
+        print_talkers(&self.root_dir, std::io::stdout().lock())
     }
 }
 
@@ -34,9 +34,9 @@ pub(super) struct Messages {
 }
 
 impl Messages {
-    pub(super) async fn run(&self) -> anyhow::Result<()> {
+    pub(super) fn run(&self) -> anyhow::Result<()> {
         match &self.msg_cmd {
-            MessageCommand::PrintTalkers(cmd) => cmd.run().await?,
+            MessageCommand::PrintTalkers(cmd) => cmd.run()?,
         }
         Ok(())
     }

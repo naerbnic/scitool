@@ -1,12 +1,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io,
+    io::{self, Write as _},
     path::{Component, Path, PathBuf},
+    sync::Mutex,
 };
 
-use futures::{StreamExt as _, TryStream, TryStreamExt as _};
 use rand::{Rng, distr::Alphanumeric};
-use tokio::{io::AsyncWriteExt as _, sync::Mutex};
 
 use crate::fs::{
     atomic_dir::{
@@ -84,7 +83,7 @@ fn normalize_path(path: &Path, temp_dir: &Path) -> io::Result<RelPathBuf> {
     Ok(rel_path)
 }
 
-async fn create_temp_dir<FS, R>(fs: &FS, rng: &mut R, base_dir: &Path) -> io::Result<RelPathBuf>
+fn create_temp_dir<FS, R>(fs: &FS, rng: &mut R, base_dir: &Path) -> io::Result<RelPathBuf>
 where
     FS: FileSystemOperations,
     R: Rng,
@@ -102,7 +101,7 @@ where
             "Generated temporary directory name is not a valid relative path"
         ))?;
         let possible_temp_dir = base_dir.join(&dir_name);
-        match fs.create_dir(&possible_temp_dir).await {
+        match fs.create_dir(&possible_temp_dir) {
             Ok(()) => return Ok(dir_name),
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
                 // Try again with a different name.
@@ -115,31 +114,31 @@ where
 
 struct DirLock<LF>
 where
-    LF: LockFile + Send,
+    LF: LockFile,
 {
     _lock: LF,
 }
 
 impl<LF> DirLock<LF>
 where
-    LF: LockFile + Send,
+    LF: LockFile,
 {
-    pub(crate) async fn acquire<FS>(fs: &FS, dir_root: &AbsPath) -> io::Result<Self>
+    pub(crate) fn acquire<FS>(fs: &FS, dir_root: &AbsPath) -> io::Result<Self>
     where
         FS: FileSystemOperations<FileLock = LF>,
     {
         let lock_path = dir_root.join_rel(RelPath::new_checked(LOCK_PATH).unwrap());
-        let lock = fs.open_lock_file(&lock_path).await?;
-        lock.lock_exclusive().await?;
+        let lock = fs.open_lock_file(&lock_path)?;
+        lock.lock_exclusive()?;
         Ok(DirLock { _lock: lock })
     }
-    pub(crate) async fn try_acquire<FS>(fs: &FS, dir_root: &AbsPath) -> io::Result<Option<Self>>
+    pub(crate) fn try_acquire<FS>(fs: &FS, dir_root: &AbsPath) -> io::Result<Option<Self>>
     where
         FS: FileSystemOperations<FileLock = LF>,
     {
         let lock_path = dir_root.join_rel(RelPath::new_checked(LOCK_PATH).unwrap());
-        let lock = fs.open_lock_file(&lock_path).await?;
-        if !lock.try_lock_exclusive().await? {
+        let lock = fs.open_lock_file(&lock_path)?;
+        if !lock.try_lock_exclusive()? {
             return Ok(None);
         }
         Ok(Some(DirLock { _lock: lock }))
@@ -192,16 +191,16 @@ where
         normalize_path(path, &self.temp_dir)
     }
 
-    async fn create_at_dir_with_lock(
+    fn create_at_dir_with_lock(
         fs: FS,
         dir_root: AbsPathBuf,
         dir_lock: DirLock<FS::FileLock>,
     ) -> io::Result<Self> {
         // It's possible that the previous operation was interrupted, so we
         // should try to recover the directory first.
-        recover_path(&fs, &dir_root).await?;
+        recover_path(&fs, &dir_root)?;
 
-        let temp_dir = create_temp_dir(&fs, &mut rand::rng(), &dir_root).await?;
+        let temp_dir = create_temp_dir(&fs, &mut rand::rng(), &dir_root)?;
 
         Ok(Engine {
             fs,
@@ -215,37 +214,35 @@ where
         })
     }
 
-    pub(super) async fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
+    pub(super) fn create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Self> {
         let mut curr_dir = AbsPathBuf::new_checked(&std::env::current_dir()?)
             .map_err(io_err_map!(Other, "Failed to get current directory"))?;
 
         curr_dir.push(dir_root);
         let dir_root = curr_dir;
-        let dir_lock = DirLock::acquire(&fs, &dir_root).await?;
-        Self::create_at_dir_with_lock(fs, dir_root, dir_lock).await
+        let dir_lock = DirLock::acquire(&fs, &dir_root)?;
+        Self::create_at_dir_with_lock(fs, dir_root, dir_lock)
     }
 
-    pub(super) async fn try_create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Option<Self>> {
+    pub(super) fn try_create_at_dir(fs: FS, dir_root: &Path) -> io::Result<Option<Self>> {
         let mut curr_dir = AbsPathBuf::new_checked(&std::env::current_dir()?)
             .map_err(io_err_map!(Other, "Failed to get current directory"))?;
 
         curr_dir.push(dir_root);
         let dir_root = curr_dir;
-        let Some(dir_lock) = DirLock::try_acquire(&fs, &dir_root).await? else {
+        let Some(dir_lock) = DirLock::try_acquire(&fs, &dir_root)? else {
             return Ok(None);
         };
-        Ok(Some(
-            Self::create_at_dir_with_lock(fs, dir_root, dir_lock).await?,
-        ))
+        Ok(Some(Self::create_at_dir_with_lock(fs, dir_root, dir_lock)?))
     }
 
-    pub(super) async fn delete_path(&self, path: &Path) -> io::Result<()> {
+    pub(super) fn delete_path(&self, path: &Path) -> io::Result<()> {
         let rel_target_path = self.normalize_path(path)?;
         let rel_temp_path = self.relative_temp_file_path(&rel_target_path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
         let abs_temp_path = self.dir_root.join_rel(&rel_temp_path);
 
-        let mut state_guard = self.state.lock().await;
+        let mut state_guard = self.state.lock().unwrap();
 
         let file_status = state_guard
             .file_statuses
@@ -257,7 +254,7 @@ where
                 // The file has already been deleted, no changes needed.
             }
             TempFileStatus::Unchanged => {
-                match self.fs.get_path_kind(&abs_target_path).await? {
+                match self.fs.get_path_kind(&abs_target_path)? {
                     Some(PathKind::Directory) => io_bail!(IsADirectory, "Path is a directory"),
                     Some(PathKind::Other) => io_bail!(Other, "Path is not a regular file"),
                     Some(PathKind::File) => {}
@@ -271,7 +268,7 @@ where
             TempFileStatus::Written => {
                 // The file has been written to the temporary directory, so we
                 // can just remove it from there.
-                self.fs.remove_file(&abs_temp_path).await?;
+                self.fs.remove_file(&abs_temp_path)?;
             }
         }
 
@@ -280,7 +277,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn open_file(
+    pub(super) fn open_file(
         &self,
         path: &Path,
         options: &OpenOptionsFlags,
@@ -292,7 +289,7 @@ where
         let abs_temp_path = abs_temp_root.join_rel(&rel_target_path);
         let abs_temp_parent = abs_temp_root.join_rel(rel_target_parent);
 
-        let mut file_status_guard = self.state.lock().await;
+        let mut file_status_guard = self.state.lock().unwrap();
         let file_status_guard = &mut *file_status_guard;
         let file_state_entry = file_status_guard
             .file_statuses
@@ -302,7 +299,7 @@ where
             TempFileStatus::Written => {
                 // The file has already been written to the temporary directory,
                 // so we can open it directly from there.
-                self.fs.open_file(&abs_temp_path, options).await
+                self.fs.open_file(&abs_temp_path, options)
             }
 
             TempFileStatus::Deleted => {
@@ -316,9 +313,9 @@ where
                         rel_target_path.display()
                     );
                 }
-                self.fs.create_dir_all(&abs_temp_parent).await?;
+                self.fs.create_dir_all(&abs_temp_parent)?;
 
-                let file = self.fs.open_file(&abs_temp_path, options).await?;
+                let file = self.fs.open_file(&abs_temp_path, options)?;
                 *file_state_entry = TempFileStatus::Written;
                 Ok(file)
             }
@@ -330,14 +327,14 @@ where
                 // possible to the user.
                 if !options.can_change_file() {
                     // We are not going to change the file, so we can open it directly.
-                    return self.fs.open_file(&abs_target_path, options).await;
+                    return self.fs.open_file(&abs_target_path, options);
                 }
 
-                self.fs.create_dir_all(&abs_temp_parent).await?;
+                self.fs.create_dir_all(&abs_temp_parent)?;
 
                 {
                     let (should_create, should_copy) =
-                        match self.fs.get_path_kind(&abs_target_path).await? {
+                        match self.fs.get_path_kind(&abs_target_path)? {
                             Some(PathKind::Directory) => {
                                 io_bail!(IsADirectory, "Path is a directory")
                             }
@@ -351,32 +348,31 @@ where
                         let mut target_flags = OpenOptionsFlags::default();
                         target_flags.set_write(true);
                         target_flags.set_create_new(true);
-                        let mut target_file =
-                            self.fs.open_file(&abs_temp_path, &target_flags).await?;
+                        let mut target_file = self.fs.open_file(&abs_temp_path, &target_flags)?;
                         if should_copy {
                             // Copy the file to the temporary directory if we are going
                             // to change it.
                             let mut source_flags = OpenOptionsFlags::default();
                             source_flags.set_read(true);
                             let mut source_file =
-                                self.fs.open_file(&abs_target_path, &source_flags).await?;
+                                self.fs.open_file(&abs_target_path, &source_flags)?;
 
-                            tokio::io::copy(&mut source_file, &mut target_file).await?;
+                            std::io::copy(&mut source_file, &mut target_file)?;
                         }
                     }
                 }
 
-                let file = self.fs.open_file(&abs_temp_path, options).await?;
+                let file = self.fs.open_file(&abs_temp_path, options)?;
                 *file_state_entry = TempFileStatus::Written;
                 Ok(file)
             }
         }
     }
 
-    pub(super) async fn list_dir<'a>(
+    pub(super) fn list_dir<'a>(
         &'a self,
         path: &Path,
-    ) -> io::Result<impl TryStream<Ok = DirEntry, Error = io::Error> + Unpin + 'a> {
+    ) -> io::Result<impl Iterator<Item = Result<DirEntry, io::Error>> + 'a> {
         let rel_target_path = self.normalize_path(path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
 
@@ -388,7 +384,7 @@ where
 
         let mut temp_path_entries = Vec::new();
         {
-            let locked_state = self.state.lock().await;
+            let locked_state = self.state.lock().unwrap();
             for (path, status) in &locked_state.file_statuses {
                 let Some(child) = get_child_of_descendant(&rel_target_path, path) else {
                     continue;
@@ -420,7 +416,6 @@ where
         let target_path_entry_stream = self
             .fs
             .list_dir(&abs_target_path)
-            .await
             .map(Some)
             .or_else(|e| {
                 if e.kind() == io::ErrorKind::NotFound {
@@ -433,29 +428,38 @@ where
                 Other,
                 "Failed to read existing directory entries"
             ))?;
-        let target_path_entries = if let Some(stream) = target_path_entry_stream {
-            stream
-                .try_filter_map(async |entry| {
-                    if seen_entries.contains(entry.file_name()) {
-                        return Ok(None);
-                    }
-                    Ok(Some(ChildEntry {
-                        name: RelPathBuf::new_checked(entry.file_name()).map_err(io_err_map!(
-                            Other,
-                            "Entry name is not a valid relative path"
-                        ))?,
-                        file_type: match entry.file_type() {
-                            PathKind::Directory => FileType::new_of_dir(),
-                            PathKind::File => FileType::new_of_file(),
-                            PathKind::Other => {
-                                // We skip non-regular files.
-                                return Ok(None);
+        let target_path_entries = if let Some(iter) = target_path_entry_stream {
+            iter.filter_map(|entry| {
+                match entry {
+                    Ok(entry) => {
+                        if seen_entries.contains(entry.file_name()) {
+                            return None;
+                        }
+                        let name = match RelPathBuf::new_checked(entry.file_name()) {
+                            Ok(rel_path) => rel_path,
+                            Err(e) => {
+                                return Some(Err(io_err_map!(
+                                    Other,
+                                    "Entry name is not a valid relative path",
+                                )(e)));
                             }
-                        },
-                    }))
-                })
-                .try_collect()
-                .await?
+                        };
+                        Some(Ok(ChildEntry {
+                            name,
+                            file_type: match entry.file_type() {
+                                PathKind::Directory => FileType::new_of_dir(),
+                                PathKind::File => FileType::new_of_file(),
+                                PathKind::Other => {
+                                    // We skip non-regular files.
+                                    return None;
+                                }
+                            },
+                        }))
+                    }
+                    Err(e) => Some(Err(e)),
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?
         } else {
             // The target directory does not exist. We will only yield entries
             // from the temporary directory.
@@ -465,7 +469,8 @@ where
         let mut path_entries = temp_path_entries;
         path_entries.extend(target_path_entries);
         path_entries.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(futures::stream::iter(path_entries)
+        Ok(path_entries
+            .into_iter()
             .map(move |entry| {
                 DirEntry::new(
                     rel_target_path.clone(),
@@ -476,7 +481,7 @@ where
             .map(Ok))
     }
 
-    pub(super) async fn exists(&self, path: &Path) -> io::Result<bool> {
+    pub(super) fn exists(&self, path: &Path) -> io::Result<bool> {
         let rel_target_path = self.normalize_path(path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
         let abs_temp_path = self
@@ -484,20 +489,18 @@ where
             .join_rel(&self.temp_dir)
             .join_rel(&rel_target_path);
 
-        let locked_state = self.state.lock().await;
+        let locked_state = self.state.lock().unwrap();
         match locked_state.file_statuses.get(&rel_target_path) {
             Some(TempFileStatus::Deleted) => Ok(false),
-            Some(TempFileStatus::Written) => {
-                Ok(self.fs.get_path_kind(&abs_temp_path).await?.is_some())
-            }
+            Some(TempFileStatus::Written) => Ok(self.fs.get_path_kind(&abs_temp_path)?.is_some()),
             Some(TempFileStatus::Unchanged) | None => {
                 // We have not changed this file, so check the main directory.
-                Ok(self.fs.get_path_kind(&abs_target_path).await?.is_some())
+                Ok(self.fs.get_path_kind(&abs_target_path)?.is_some())
             }
         }
     }
 
-    pub(super) async fn metadata(&self, path: &Path) -> io::Result<Metadata> {
+    pub(super) fn metadata(&self, path: &Path) -> io::Result<Metadata> {
         let rel_target_path = self.normalize_path(path)?;
         let abs_target_path = self.dir_root.join_rel(&rel_target_path);
         let abs_temp_path = self
@@ -505,19 +508,17 @@ where
             .join_rel(&self.temp_dir)
             .join_rel(&rel_target_path);
 
-        let locked_state = self.state.lock().await;
+        let locked_state = self.state.lock().unwrap();
         let meta = match locked_state.file_statuses.get(&rel_target_path) {
             Some(TempFileStatus::Deleted) => io_bail!(NotFound, "Path has been deleted"),
             Some(TempFileStatus::Written) => self
                 .fs
                 .metadata(&abs_temp_path)
-                .await
                 .map_err(io_err_map!(Other, "Failed to get file metadata"))?,
             Some(TempFileStatus::Unchanged) | None => {
                 // We have not changed this file, so check the main directory.
                 self.fs
                     .metadata(&abs_target_path)
-                    .await
                     .map_err(io_err_map!(Other, "Failed to get file metadata"))?
             }
         };
@@ -530,17 +531,15 @@ where
         Ok(Metadata::new(file_type, meta.len()))
     }
 
-    pub(super) async fn abort(mut self) -> io::Result<()> {
-        // We release the dir lock before we wait on an async operation to immediately
-        // allow other operations to proceed.
+    pub(super) fn abort(mut self) -> io::Result<()> {
         std::mem::drop(self.dir_lock.take());
         // Remove the temporary directory.
         let abs_temp_dir = self.dir_root.join_rel(&self.temp_dir);
-        self.fs.remove_dir_all(&abs_temp_dir).await
+        self.fs.remove_dir_all(&abs_temp_dir)
     }
 
-    pub(super) async fn commit(mut self) -> io::Result<()> {
-        let state = self.state.get_mut();
+    pub(super) fn commit(mut self) -> io::Result<()> {
+        let state = self.state.get_mut().unwrap();
         let pending_commits = std::mem::take(&mut state.file_statuses)
             .into_iter()
             .filter_map(|(path, status)| match status {
@@ -562,21 +561,20 @@ where
             &self.fs,
             &self.dir_root,
             &self.dir_root.join_rel(&self.temp_dir),
-            WriteMode::CreateNew,
+            &WriteMode::CreateNew,
             RelPath::new_checked(COMMIT_PATH).map_err(io_err_map!(
                 Other,
                 "Failed to create relative path for commit file"
             ))?,
-            async |mut file| {
-                file.write_all(&commit_data).await?;
+            |mut file| {
+                file.write_all(&commit_data)?;
                 Ok(())
             },
-        )
-        .await?;
+        )?;
 
         // Now that we have written the commit file, we can perform recovery
         // to finalize the changes.
-        recover_path(&self.fs, &self.dir_root).await?;
+        recover_path(&self.fs, &self.dir_root)?;
 
         Ok(())
     }
@@ -587,14 +585,14 @@ where
     FS: FileSystemOperations,
 {
     fn drop(&mut self) {
-        let state = self.state.get_mut();
+        let state = self.state.get_mut().unwrap();
         if !state.completed {
             // We have not been committed or aborted, so we should abort the transaction.
             // We do this in a background task to avoid blocking the drop.
             let dir_root = self.dir_root.clone();
             let temp_dir = self.temp_dir.clone();
             let abs_temp_dir = dir_root.join_rel(&temp_dir);
-            tokio::spawn(self.fs.remove_dir_all(&abs_temp_dir));
+            let _result = self.fs.remove_dir_all(&abs_temp_dir);
         }
     }
 }

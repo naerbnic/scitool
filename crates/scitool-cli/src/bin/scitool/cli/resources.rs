@@ -16,8 +16,8 @@ pub(crate) struct Resource {
 }
 
 impl Resource {
-    pub(crate) async fn run(&self) -> anyhow::Result<()> {
-        self.res_cmd.run().await
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
+        self.res_cmd.run()
     }
 }
 
@@ -37,12 +37,12 @@ enum ResourceCommand {
 }
 
 impl ResourceCommand {
-    async fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         match self {
-            ResourceCommand::List(list) => list.run().await?,
-            ResourceCommand::Extract(extract) => extract.run().await?,
-            ResourceCommand::Dump(dump) => dump.run().await?,
-            ResourceCommand::View(view) => view.run().await?,
+            ResourceCommand::List(list) => list.run()?,
+            ResourceCommand::Extract(extract) => extract.run()?,
+            ResourceCommand::Dump(dump) => dump.run()?,
+            ResourceCommand::View(view) => view.run()?,
         }
         Ok(())
     }
@@ -100,8 +100,8 @@ struct ListResources {
 }
 
 impl ListResources {
-    async fn run(&self) -> anyhow::Result<()> {
-        let ids = list_resources(&self.root_dir, self.res_type).await?;
+    fn run(&self) -> anyhow::Result<()> {
+        let ids = list_resources(&self.root_dir, self.res_type)?;
         for id in ids {
             println!("{id:?}");
         }
@@ -133,14 +133,13 @@ struct ExtractResourceAsPatch {
 }
 
 impl ExtractResourceAsPatch {
-    async fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         let write_op = extract_resource_as_patch(
             &self.root_dir,
             self.resource_type,
             self.resource_id,
             self.output_dir.as_ref().unwrap_or(&self.root_dir),
-        )
-        .await?;
+        )?;
         if self.dry_run {
             eprintln!(
                 "DRY_RUN: Writing resource {restype:?}:{resid} to {filename}",
@@ -155,7 +154,7 @@ impl ExtractResourceAsPatch {
                 resid = write_op.resource_id.resource_num(),
                 filename = write_op.filename,
             );
-            Box::into_pin(write_op.operation).await?;
+            (write_op.operation)()?;
         }
 
         Ok(())
@@ -177,9 +176,9 @@ struct DumpResource {
 }
 
 impl DumpResource {
-    async fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         let resource_id = ResourceId::new(self.resource_type, self.resource_id);
-        dump_resource(&self.root_dir, resource_id, std::io::stdout().lock()).await?;
+        dump_resource(&self.root_dir, resource_id, std::io::stdout().lock())?;
         Ok(())
     }
 }
@@ -191,8 +190,8 @@ struct ProcessViewResources {
 }
 
 impl ProcessViewResources {
-    async fn run(&self) -> anyhow::Result<()> {
-        let resource_set = ResourceSet::from_root_dir(&self.root_dir).await?;
+    fn run(&self) -> anyhow::Result<()> {
+        let resource_set = ResourceSet::from_root_dir(&self.root_dir)?;
         for resource in resource_set.resources_of_type(ResourceType::View) {
             if let Some(extra_data) = resource.extra_data() {
                 let ExtraData::Composite {
@@ -206,9 +205,9 @@ impl ProcessViewResources {
                     );
                 };
 
-                let ext_data = ext_header.open().await?;
-                let extra_data = extra_data.open().await?;
-                let file_data = resource.load_data().await?;
+                let ext_data = ext_header.open()?;
+                let extra_data = extra_data.open()?;
+                let file_data = resource.load_data()?;
 
                 eprintln!(
                     "Resource {:?} has extended header ({} bytes) and extra data ({} bytes)",

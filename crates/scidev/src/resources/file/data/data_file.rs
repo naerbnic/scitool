@@ -14,10 +14,7 @@ impl<'a> DataFile<'a> {
         DataFile { data }
     }
 
-    pub(crate) async fn read_contents(
-        &self,
-        location: ResourceLocation,
-    ) -> Result<Contents<'a>, Error> {
+    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents<'a>, Error> {
         if self.data.size() < u64::from(location.file_offset()) {
             return Err(Error::InvalidResourceLocation {
                 location: location.file_offset() as usize,
@@ -27,8 +24,7 @@ impl<'a> DataFile<'a> {
 
         let (header, rest) = RawEntryHeader::from_block_source(
             &self.data.subblock(u64::from(location.file_offset())..),
-        )
-        .await?;
+        )?;
 
         let packed_size = u64::from(header.packed_size());
 
@@ -51,8 +47,8 @@ mod tests {
     use super::*;
     use datalit::datalit;
 
-    #[tokio::test]
-    async fn test_read_data_file() {
+    #[test]
+    fn test_read_data_file() {
         let data = datalit! {
             @endian = le,
             0x81,               // res_type
@@ -69,9 +65,9 @@ mod tests {
         let location = ResourceLocation::new(id, 0);
 
         let data_file = DataFile::new(BlockSource::from_vec(data.to_vec()));
-        let contents = data_file.read_contents(location).await.unwrap();
+        let contents = data_file.read_contents(location).unwrap();
         assert_eq!(contents.id(), &id);
-        let block = contents.data().open().await.unwrap();
+        let block = contents.data().open().unwrap();
         assert_eq!(block.as_ref(), &[0xFA, 0xDE, 0xDF, 0xAE]);
     }
 }

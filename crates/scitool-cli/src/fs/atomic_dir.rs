@@ -7,15 +7,10 @@ mod types;
 mod util;
 
 use std::{
-    io::{self, SeekFrom},
+    io::{self, Read as _, SeekFrom, Write as _},
     path::Path,
-    pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
 };
-
-use futures::TryStream;
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncWrite, AsyncWriteExt as _, ReadBuf};
 
 use crate::fs::{
     atomic_dir::engine::Engine,
@@ -29,21 +24,19 @@ pub use crate::fs::ops::WriteMode;
 const LOCK_PATH: &str = ".DIR_LOCK";
 const COMMIT_PATH: &str = ".DIR_COMMIT";
 
-#[pin_project::pin_project]
 pub struct AtomicDirFile {
-    #[pin]
-    file: tokio::fs::File,
+    file: std::fs::File,
     tracker: WrapperTracker,
 }
 
 impl AtomicDirFile {
-    fn new(file: tokio::fs::File, tracker: WrapperTracker) -> Self {
+    fn new(file: std::fs::File, tracker: WrapperTracker) -> Self {
         Self { file, tracker }
     }
 
-    pub async fn close(self) -> io::Result<()> {
+    pub fn close(self) -> io::Result<()> {
         // First close the file itself, capturing any errors.
-        let close_result = self.file.sync_all().await;
+        let close_result = self.file.sync_all();
         std::mem::drop(self.file);
 
         // Try to abort the parent AtomicDir if this is the last reference.
@@ -54,7 +47,7 @@ impl AtomicDirFile {
         // Doing this allows us to propagate any errors that occur during
         // cleanup, which would otherwise be ignored.
         if let Some(parent) = self.tracker.into_inner() {
-            parent.abort().await?;
+            parent.abort()?;
         }
 
         // Now propagate any errors from closing the file itself.
@@ -64,41 +57,25 @@ impl AtomicDirFile {
     }
 }
 
-impl AsyncRead for AtomicDirFile {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        self.project().file.poll_read(cx, buf)
+impl io::Read for AtomicDirFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.file.read(buf)
     }
 }
 
-impl AsyncWrite for AtomicDirFile {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        self.project().file.poll_write(cx, buf)
+impl io::Write for AtomicDirFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write(buf)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.project().file.poll_flush(cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.project().file.poll_shutdown(cx)
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
     }
 }
 
-impl AsyncSeek for AtomicDirFile {
-    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> io::Result<()> {
-        self.project().file.start_seek(position)
-    }
-
-    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
-        self.project().file.poll_complete(cx)
+impl io::Seek for AtomicDirFile {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.file.seek(pos)
     }
 }
 
@@ -199,15 +176,11 @@ impl OpenOptions<'_> {
     }
 
     /// Opens the file at `path` with the options specified for this builder.
-    pub async fn open<P>(&self, path: &P) -> io::Result<AtomicDirFile>
+    pub fn open<P>(&self, path: &P) -> io::Result<AtomicDirFile>
     where
         P: AsRef<Path> + ?Sized,
     {
-        let file = self
-            .parent
-            .open_file(path.as_ref(), self.flags.clone())
-            .await?;
-        Ok(file)
+        self.parent.open_file(path.as_ref(), &self.flags)
     }
 }
 
@@ -224,7 +197,7 @@ impl Inner {
             open_tracker: OpenTracker::new(),
         }
     }
-    async fn open_file(&self, path: &Path, options: OpenOptionsFlags) -> io::Result<AtomicDirFile> {
+    fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<AtomicDirFile> {
         // Only prevent commit if the file can be changed.
         let marker = if options.can_change_file() {
             Some(self.open_tracker.spawn_marker())
@@ -233,7 +206,7 @@ impl Inner {
         };
 
         Ok(AtomicDirFile::new(
-            self.engine.open_file(path, &options).await?,
+            self.engine.open_file(path, options)?,
             WrapperTracker::new(self.engine.clone(), marker),
         ))
     }
@@ -242,9 +215,9 @@ impl Inner {
         Arc::into_inner(self.engine)
     }
 
-    async fn commit(self) -> io::Result<()> {
-        self.open_tracker.wait_for_close().await;
-        self.into_engine().unwrap().commit().await
+    fn commit(self) -> io::Result<()> {
+        self.open_tracker.wait_for_close();
+        self.into_engine().unwrap().commit()
     }
 }
 
@@ -260,10 +233,10 @@ pub struct ReadOnlyHandle {
 }
 
 impl ReadOnlyHandle {
-    pub async fn open(&self, path: &Path) -> io::Result<AtomicDirFile> {
+    pub fn open(&self, path: &Path) -> io::Result<AtomicDirFile> {
         let mut flags = OpenOptionsFlags::default();
         flags.set_read(true);
-        self.inner.open_file(path, flags).await
+        self.inner.open_file(path, &flags)
     }
 }
 
@@ -296,11 +269,11 @@ impl AtomicDir {
     /// This will acquire an exclusive lock on the directory, preventing other
     /// `AtomicDir` instances from operating on it. If a previous, incomplete
     /// commit is detected, this will attempt to recover it.
-    pub async fn new_at_dir<P>(dir_root: &P) -> io::Result<Self>
+    pub fn new_at_dir<P>(dir_root: &P) -> io::Result<Self>
     where
         P: AsRef<Path> + ?Sized,
     {
-        let engine = Engine::create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?;
+        let engine = Engine::create_at_dir(TokioFileSystemOperations, dir_root.as_ref())?;
         Ok(AtomicDir {
             inner: Some(Inner::new(engine)),
         })
@@ -310,12 +283,11 @@ impl AtomicDir {
     ///
     /// This is a non-blocking version of `new_at_dir`. If the directory is
     /// already locked, it will return `Ok(None)` instead of waiting.
-    pub async fn try_new_at_dir<P>(dir_root: &P) -> io::Result<Option<Self>>
+    pub fn try_new_at_dir<P>(dir_root: &P) -> io::Result<Option<Self>>
     where
         P: AsRef<Path> + ?Sized,
     {
-        let Some(engine) =
-            Engine::try_create_at_dir(TokioFileSystemOperations, dir_root.as_ref()).await?
+        let Some(engine) = Engine::try_create_at_dir(TokioFileSystemOperations, dir_root.as_ref())?
         else {
             return Ok(None);
         };
@@ -344,28 +316,28 @@ impl AtomicDir {
     /// Deletes a file within the atomic directory transaction.
     ///
     /// The deletion is staged and will be finalized upon `commit`.
-    pub async fn delete<'a, P>(&'a self, path: &'a P) -> io::Result<()>
+    pub fn delete<'a, P>(&'a self, path: &'a P) -> io::Result<()>
     where
         P: AsRef<Path> + ?Sized,
     {
-        self.get_inner().delete_path(path.as_ref()).await
+        self.get_inner().delete_path(path.as_ref())
     }
 
-    pub async fn list_dir<'a, P>(
+    pub fn list_dir<'a, P>(
         &'a self,
         path: &'a P,
-    ) -> io::Result<impl TryStream<Ok = DirEntry, Error = io::Error> + Unpin + 'a>
+    ) -> io::Result<impl Iterator<Item = io::Result<DirEntry>> + Unpin + 'a>
     where
         P: AsRef<Path> + ?Sized,
     {
-        self.get_inner().list_dir(path.as_ref()).await
+        self.get_inner().list_dir(path.as_ref())
     }
 
-    pub async fn exists<P>(&self, path: &P) -> io::Result<bool>
+    pub fn exists<P>(&self, path: &P) -> io::Result<bool>
     where
         P: AsRef<Path> + ?Sized,
     {
-        self.get_inner().exists(path.as_ref()).await
+        self.get_inner().exists(path.as_ref())
     }
 
     /// Commits all staged changes to the directory.
@@ -373,25 +345,25 @@ impl AtomicDir {
     /// This makes all writes and deletes permanent and visible to other processes.
     /// The commit itself is an atomic operation. If it is interrupted, it will
     /// be completed the next time an `AtomicDir` is created for this directory.
-    pub async fn commit(mut self) -> io::Result<()> {
-        self.inner.take().unwrap().commit().await
+    pub fn commit(mut self) -> io::Result<()> {
+        self.inner.take().unwrap().commit()
     }
 
-    pub async fn abort(mut self) -> io::Result<()> {
+    pub fn abort(mut self) -> io::Result<()> {
         // If we aren't the last reference, we will abort when the last
         // reference is dropped.
         if let Some(inner) = self.take_inner() {
-            inner.abort().await
+            inner.abort()
         } else {
             Ok(())
         }
     }
 
-    pub async fn metadata<P>(&self, path: &P) -> io::Result<Metadata>
+    pub fn metadata<P>(&self, path: &P) -> io::Result<Metadata>
     where
         P: AsRef<Path> + ?Sized,
     {
-        self.get_inner().metadata(path.as_ref()).await
+        self.get_inner().metadata(path.as_ref())
     }
 }
 
@@ -401,7 +373,7 @@ impl AtomicDir {
     ///
     /// This is equivalent to using `open_options` to open a file for writing
     /// and then writing the data.
-    pub async fn write<P>(&self, path: &P, write_mode: WriteMode, data: &[u8]) -> io::Result<()>
+    pub fn write<P>(&self, path: &P, write_mode: &WriteMode, data: &[u8]) -> io::Result<()>
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -414,9 +386,9 @@ impl AtomicDir {
                 options.create(true).truncate(true);
             }
         }
-        let mut file = options.write(true).open(path.as_ref()).await?;
-        file.write_all(data).await?;
-        file.close().await?;
+        let mut file = options.write(true).open(path.as_ref())?;
+        file.write_all(data)?;
+        file.close()?;
         Ok(())
     }
 
@@ -429,10 +401,10 @@ impl AtomicDir {
     {
         let mut options = self.open_options();
         options.read(true);
-        let mut file = options.open(path).await?;
+        let mut file = options.open(path)?;
         let mut data = Vec::new();
-        file.read_to_end(&mut data).await?;
-        file.close().await?;
+        file.read_to_end(&mut data)?;
+        file.close()?;
         Ok(data)
     }
 }
@@ -444,7 +416,7 @@ impl Drop for AtomicDir {
         {
             // We have not been committed, so we should abort the transaction.
             // We do this in a background task to avoid blocking the drop.
-            tokio::spawn(inner.abort());
+            let _result = inner.abort();
         }
     }
 }
@@ -457,95 +429,85 @@ mod tests {
     };
 
     use super::*;
-    use futures::TryStreamExt as _;
     use tempfile::tempdir;
 
-    #[tokio::test]
-    async fn test_write_and_commit() -> io::Result<()> {
+    #[test]
+    fn test_write_and_commit() -> io::Result<()> {
         let dir = tempdir()?;
 
-        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
-        atomic_dir
-            .write("foo.txt", WriteMode::CreateNew, b"hello")
-            .await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
+        atomic_dir.write("foo.txt", &WriteMode::CreateNew, b"hello")?;
 
-        atomic_dir.commit().await?;
+        atomic_dir.commit()?;
 
-        let contents = tokio::fs::read_to_string(&dir.path().join("foo.txt")).await?;
+        let contents = std::fs::read_to_string(dir.path().join("foo.txt"))?;
         assert_eq!(contents, "hello");
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_delete_and_commit() -> io::Result<()> {
+    #[test]
+    fn test_delete_and_commit() -> io::Result<()> {
         let dir = tempdir()?;
 
         // Create a file to be deleted.
-        tokio::fs::write(dir.path().join("foo.txt"), "hello").await?;
+        std::fs::write(dir.path().join("foo.txt"), "hello")?;
 
-        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
-        atomic_dir.delete(Path::new("foo.txt")).await?;
-        atomic_dir.commit().await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
+        atomic_dir.delete(Path::new("foo.txt"))?;
+        atomic_dir.commit()?;
 
         assert!(!dir.path().join("foo.txt").exists());
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_write_delete_and_commit() -> io::Result<()> {
+    #[test]
+    fn test_write_delete_and_commit() -> io::Result<()> {
         let dir = tempdir()?;
 
         // Create a file to be overwritten.
-        tokio::fs::write(dir.path().join("foo.txt"), "old content").await?;
+        std::fs::write(dir.path().join("foo.txt"), "old content")?;
 
-        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
-        atomic_dir
-            .write(Path::new("foo.txt"), WriteMode::Overwrite, b"new content")
-            .await?;
-        atomic_dir.delete(Path::new("bar.txt")).await?;
-        atomic_dir
-            .write(Path::new("bar.txt"), WriteMode::CreateNew, b"new file")
-            .await?;
-        atomic_dir.commit().await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
+        atomic_dir.write(Path::new("foo.txt"), &WriteMode::Overwrite, b"new content")?;
+        atomic_dir.delete(Path::new("bar.txt"))?;
+        atomic_dir.write(Path::new("bar.txt"), &WriteMode::CreateNew, b"new file")?;
+        atomic_dir.commit()?;
 
-        let contents = tokio::fs::read_to_string(&dir.path().join("foo.txt")).await?;
+        let contents = std::fs::read_to_string(dir.path().join("foo.txt"))?;
         assert_eq!(contents, "new content");
-        let contents_bar = tokio::fs::read_to_string(&dir.path().join("bar.txt")).await?;
+        let contents_bar = std::fs::read_to_string(dir.path().join("bar.txt"))?;
         assert_eq!(contents_bar, "new file");
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_list_dir_reflects_staged_state() -> io::Result<()> {
+    #[test]
+    fn test_list_dir_reflects_staged_state() -> io::Result<()> {
         let dir = tempdir()?;
         let assets_dir = dir.path().join("assets");
-        tokio::fs::create_dir(&assets_dir).await?;
+        std::fs::create_dir(&assets_dir)?;
 
-        tokio::fs::write(assets_dir.join("existing.txt"), b"old").await?;
-        tokio::fs::write(assets_dir.join("deleted.txt"), b"remove me").await?;
-        tokio::fs::write(assets_dir.join("untouched.txt"), b"keep").await?;
+        std::fs::write(assets_dir.join("existing.txt"), b"old")?;
+        std::fs::write(assets_dir.join("deleted.txt"), b"remove me")?;
+        std::fs::write(assets_dir.join("untouched.txt"), b"keep")?;
 
-        let atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
+        let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
 
-        atomic_dir
-            .write(Path::new("assets/new.txt"), WriteMode::CreateNew, b"new")
-            .await?;
-        atomic_dir
-            .write(
-                Path::new("assets/existing.txt"),
-                WriteMode::Overwrite,
-                b"updated",
-            )
-            .await?;
-        atomic_dir.delete(Path::new("assets/deleted.txt")).await?;
+        atomic_dir.write(Path::new("assets/new.txt"), &WriteMode::CreateNew, b"new")?;
+        atomic_dir.write(
+            Path::new("assets/existing.txt"),
+            &WriteMode::Overwrite,
+            b"updated",
+        )?;
+        atomic_dir.delete(Path::new("assets/deleted.txt"))?;
 
-        let mut entries = atomic_dir.list_dir(Path::new("assets")).await?;
+        let entries = atomic_dir.list_dir(Path::new("assets"))?;
         let mut observed = std::collections::BTreeSet::new();
 
-        while let Some(entry) = entries.try_next().await? {
+        for entry in entries {
+            let entry = entry?;
             assert!(entry.file_type().is_file());
             let rel = entry.file_name().to_string_lossy().into_owned();
             observed.insert(rel);
@@ -562,8 +524,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_recovery() -> io::Result<()> {
+    #[test]
+    fn test_recovery() -> io::Result<()> {
         let dir = tempdir()?;
 
         // Simulate a partial commit.
@@ -580,21 +542,21 @@ mod tests {
         );
 
         // Create the temporary directory and file.
-        tokio::fs::create_dir(dir.path().join("tmpdir-recovery-test")).await?;
-        tokio::fs::write(dir.path().join("tmpdir-recovery-test/foo.txt"), "recovered").await?;
+        std::fs::create_dir(dir.path().join("tmpdir-recovery-test"))?;
+        std::fs::write(dir.path().join("tmpdir-recovery-test/foo.txt"), "recovered")?;
 
         // Create a file to be deleted.
-        tokio::fs::write(dir.path().join("bar.txt"), "to be deleted").await?;
+        std::fs::write(dir.path().join("bar.txt"), "to be deleted")?;
 
         // Write the commit file.
         let commit_data = serde_json::to_vec(&commit_schema)?;
-        tokio::fs::write(dir.path().join(COMMIT_PATH), commit_data).await?;
+        std::fs::write(dir.path().join(COMMIT_PATH), commit_data)?;
 
         // Now, run recovery.
-        let _atomic_dir = AtomicDir::new_at_dir(dir.path()).await?;
+        let _atomic_dir = AtomicDir::new_at_dir(dir.path())?;
 
         // Check that recovery happened.
-        let contents = tokio::fs::read_to_string(&dir.path().join("foo.txt")).await?;
+        let contents = std::fs::read_to_string(dir.path().join("foo.txt"))?;
         assert_eq!(contents, "recovered");
         assert!(!dir.path().join("bar.txt").exists());
         assert!(!dir.path().join(COMMIT_PATH).exists());
@@ -603,17 +565,17 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_dir_locking() -> io::Result<()> {
+    #[test]
+    fn test_dir_locking() -> io::Result<()> {
         let dir = tempdir()?;
 
         {
             // Acquire a lock by creating an AtomicDirInner.
-            let _atomic_dir1 = AtomicDir::new_at_dir(dir.path()).await?;
+            let _atomic_dir1 = AtomicDir::new_at_dir(dir.path())?;
 
             // Try to acquire another lock on the same directory.
             // This should fail with `Ok(None)` because the first one is still held.
-            let atomic_dir2 = AtomicDir::try_new_at_dir(dir.path()).await?;
+            let atomic_dir2 = AtomicDir::try_new_at_dir(dir.path())?;
             assert!(
                 atomic_dir2.is_none(),
                 "Should not be able to acquire lock while it's held"
@@ -621,7 +583,7 @@ mod tests {
         } // atomic_dir1 is dropped here, releasing the lock.
 
         // Now that the first lock is released, we should be able to acquire a new one.
-        let atomic_dir3 = AtomicDir::try_new_at_dir(dir.path()).await?;
+        let atomic_dir3 = AtomicDir::try_new_at_dir(dir.path())?;
         assert!(
             atomic_dir3.is_some(),
             "Should be able to acquire lock after it's released"

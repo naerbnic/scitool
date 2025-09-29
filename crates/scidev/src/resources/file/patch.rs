@@ -1,5 +1,5 @@
+use std::io::Write;
 use std::{ffi::OsStr, path::Path};
-use tokio::io::AsyncWriteExt;
 
 use crate::resources::file::{ExtraData, ResourceContents};
 use crate::utils::block::BlockSource;
@@ -24,7 +24,7 @@ pub enum ResourcePatchError {
     Other(#[from] OtherError),
 }
 
-pub(crate) async fn try_patch_from_file(
+pub(crate) fn try_patch_from_file(
     patch_file: &Path,
 ) -> Result<Option<Resource<'static>>, TryPatchError> {
     // Parse the filename to get the resource ID.
@@ -48,11 +48,9 @@ pub(crate) async fn try_patch_from_file(
         return Ok(None);
     };
 
-    let source = BlockSource::from_path(patch_file.to_path_buf())
-        .await
-        .with_other_err()?;
+    let source = BlockSource::from_path(patch_file.to_path_buf()).with_other_err()?;
     let (base_header_block, rest) = source.split_at(2);
-    let base_header = base_header_block.open().await.with_other_err()?;
+    let base_header = base_header_block.open().with_other_err()?;
     let id = base_header[0];
     let header_size = base_header[1];
     let content_res_type: ResourceType = (id & 0x7f).try_into().with_other_err()?;
@@ -72,7 +70,7 @@ pub(crate) async fn try_patch_from_file(
     // and another 22 byte header data that we can skip.
     let (extra_data, data) = if header_size == 128 {
         let (ext_header, rest) = rest.split_at(24);
-        let ext_header_data = ext_header.open().await.with_other_err()?;
+        let ext_header_data = ext_header.open().with_other_err()?;
         let real_header_size = ext_header_data[1];
         if real_header_size != 0 {
             log::warn!(
@@ -102,17 +100,16 @@ pub(crate) async fn try_patch_from_file(
     }))
 }
 
-pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) fn write_resource_to_patch_file<W: Write>(
     resource: &Resource<'_>,
     mut writer: W,
 ) -> Result<(), ResourcePatchError> {
     writer
         .write_all(&[resource.id().type_id().into()])
-        .await
         .with_other_err()?;
     match &resource.contents.extra_data {
         Some(ExtraData::Simple(data)) => {
-            let data = data.open().await.with_other_err()?;
+            let data = data.open().with_other_err()?;
             ensure_other!(
                 data.len() <= 127,
                 "Simple extra data too large: {} bytes",
@@ -120,15 +117,14 @@ pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpi
             );
             writer
                 .write_all(&[data.len().try_into().unwrap()])
-                .await
                 .with_other_err()?;
-            writer.write_all(&data).await.with_other_err()?;
+            writer.write_all(&data).with_other_err()?;
         }
         Some(ExtraData::Composite {
             ext_header,
             extra_data,
         }) => {
-            let ext_header = ext_header.open().await.with_other_err()?;
+            let ext_header = ext_header.open().with_other_err()?;
             ensure_other!(
                 ext_header.len() == 24,
                 "Extended header size incorrect: {} bytes",
@@ -136,20 +132,19 @@ pub(crate) async fn write_resource_to_patch_file<W: tokio::io::AsyncWrite + Unpi
             );
             writer
                 .write_all(&[128]) // Indicate extended header.
-                .await
                 .with_other_err()?;
-            writer.write_all(&ext_header).await.with_other_err()?;
+            writer.write_all(&ext_header).with_other_err()?;
 
-            let extra_data = extra_data.open().await.with_other_err()?;
-            writer.write_all(&extra_data).await.with_other_err()?;
+            let extra_data = extra_data.open().with_other_err()?;
+            writer.write_all(&extra_data).with_other_err()?;
         }
         None => {
-            writer.write_all(&[0]).await.with_other_err()?; // No extra data.
+            writer.write_all(&[0]).with_other_err()?; // No extra data.
         }
     }
 
-    let data = resource.contents.source.open().await.with_other_err()?;
-    writer.write_all(&data).await.with_other_err()?;
+    let data = resource.contents.source.open().with_other_err()?;
+    writer.write_all(&data).with_other_err()?;
 
     Ok(())
 }

@@ -90,8 +90,8 @@ mod tests {
 
     use crate::utils::{mem_reader::Parse, testing::block::mem_reader_from_bytes};
 
-    #[tokio::test]
-    async fn test_basic_contents() {
+    #[test]
+    fn test_basic_contents() {
         let header_data = datalit! {
             @endian = le,
             0x80u8,
@@ -109,7 +109,7 @@ mod tests {
         );
         let contents = Contents::from_parts(header, content_source).unwrap();
 
-        let content_data = contents.data().open().await.unwrap();
+        let content_data = contents.data().open().unwrap();
         assert_eq!(content_data.as_ref(), &[0, 1, 2, 3]);
     }
 }

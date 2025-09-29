@@ -7,6 +7,7 @@ pub mod schema;
 
 use std::{
     borrow::Cow,
+    io::Read as _,
     path::{Path, PathBuf},
 };
 
@@ -18,13 +19,11 @@ use scidev::{
     },
 };
 
-use tokio::io::AsyncReadExt as _;
-
 use crate::{
     fs::{
         atomic_dir::AtomicDir,
         err_helpers::{io_bail, io_err_map},
-        io_wrappers::LengthLimitedAsyncReader,
+        io_wrappers::LengthLimitedReader,
         ops::WriteMode,
     },
     package::schema::Sha256Hash,
@@ -39,7 +38,7 @@ const RAW_BIN_PATH: &str = "raw.bin";
 async fn buffer_info_from_lazy_block(
     block: &LazyBlock<'_>,
 ) -> Result<schema::BufferInfo, LazyBlockError> {
-    let buffer = block.open().await?;
+    let buffer = block.open()?;
 
     let size = u64::try_from(buffer.len()).unwrap();
     let hash = Sha256Hash::from_data_hash(&*buffer);
@@ -65,32 +64,29 @@ impl<'a> Package<'a> {
         }
     }
 
-    pub async fn load_from_path<P>(path: P) -> std::io::Result<Self>
+    pub fn load_from_path<P>(path: P) -> std::io::Result<Self>
     where
         P: Into<Cow<'a, Path>>,
     {
         let base_path = path.into().into_owned();
 
-        let mut meta_file = LengthLimitedAsyncReader::new(
-            tokio::fs::File::open(base_path.join(META_PATH))
-                .await
-                .map_err(io_err_map!(
-                    NotFound,
-                    "Failed to open metadata file at {}",
-                    base_path.join(META_PATH).display()
-                ))?,
+        let mut meta_file = LengthLimitedReader::new(
+            std::fs::File::open(base_path.join(META_PATH)).map_err(io_err_map!(
+                NotFound,
+                "Failed to open metadata file at {}",
+                base_path.join(META_PATH).display()
+            ))?,
             128 * 1024, // 128 KiB
         );
 
         let mut data = Vec::new();
-        meta_file.read_to_end(&mut data).await?;
+        meta_file.read_to_end(&mut data)?;
         let metadata: Metadata = serde_json::from_slice(&data)
             .map_err(io_err_map!(InvalidData, "Failed to parse metadata JSON"))?;
 
         let compressed_path = base_path.join(COMPRESSED_BIN_PATH);
-        let compressed_data = if tokio::fs::try_exists(&compressed_path).await? {
+        let compressed_data = if std::fs::exists(&compressed_path)? {
             let block_source = BlockSource::from_path(compressed_path)
-                .await
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {
@@ -98,9 +94,8 @@ impl<'a> Package<'a> {
         };
 
         let raw_data_path = base_path.join(RAW_BIN_PATH);
-        let raw_data = if tokio::fs::try_exists(&raw_data_path).await? {
+        let raw_data = if std::fs::exists(&raw_data_path)? {
             let block_source = BlockSource::from_path(raw_data_path)
-                .await
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {
@@ -155,7 +150,7 @@ impl<'a> Package<'a> {
         Ok(())
     }
 
-    pub async fn save(&mut self) -> std::io::Result<()> {
+    pub fn save(&mut self) -> std::io::Result<()> {
         let Some(base_path) = &mut self.base_path else {
             io_bail!(
                 InvalidInput,
@@ -163,14 +158,13 @@ impl<'a> Package<'a> {
             );
         };
 
-        let atomic_dir = AtomicDir::new_at_dir(&base_path).await?;
+        let atomic_dir = AtomicDir::new_at_dir(&base_path)?;
 
         if self.metadata.is_dirty() {
             let meta_json = serde_json::to_vec(self.metadata.get())
                 .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
             atomic_dir
-                .write(META_PATH, WriteMode::Overwrite, &meta_json)
-                .await
+                .write(META_PATH, &WriteMode::Overwrite, &meta_json)
                 .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
         }
 
@@ -178,17 +172,14 @@ impl<'a> Package<'a> {
             if let Some(compressed_data) = self.compressed_data.get() {
                 let data = compressed_data
                     .open()
-                    .await
                     .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
                 atomic_dir
-                    .write(COMPRESSED_BIN_PATH, WriteMode::Overwrite, &data)
-                    .await
+                    .write(COMPRESSED_BIN_PATH, &WriteMode::Overwrite, &data)
                     .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
-            } else if atomic_dir.exists(COMPRESSED_BIN_PATH).await? {
+            } else if atomic_dir.exists(COMPRESSED_BIN_PATH)? {
                 atomic_dir
                     .delete(COMPRESSED_BIN_PATH)
-                    .await
                     .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
             }
         }
@@ -197,22 +188,19 @@ impl<'a> Package<'a> {
             if let Some(raw_data) = self.raw_data.get() {
                 let data = raw_data
                     .open()
-                    .await
                     .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
                 atomic_dir
-                    .write(RAW_BIN_PATH, WriteMode::Overwrite, &data)
-                    .await
+                    .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
                     .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
-            } else if atomic_dir.exists(RAW_BIN_PATH).await? {
+            } else if atomic_dir.exists(RAW_BIN_PATH)? {
                 atomic_dir
                     .delete(RAW_BIN_PATH)
-                    .await
                     .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
             }
         }
 
-        atomic_dir.commit().await?;
+        atomic_dir.commit()?;
 
         self.metadata.mark_clean();
         self.compressed_data.mark_clean();
@@ -227,40 +215,35 @@ impl<'a> Package<'a> {
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
     pub async fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
-        let atomic_dir = AtomicDir::new_at_dir(&path).await?;
+        let atomic_dir = AtomicDir::new_at_dir(&path)?;
 
         let meta_json = serde_json::to_vec(self.metadata.get())
             .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
         atomic_dir
-            .write(META_PATH, WriteMode::Overwrite, &meta_json)
-            .await
+            .write(META_PATH, &WriteMode::Overwrite, &meta_json)
             .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
 
         if let Some(compressed_data) = self.compressed_data.get() {
             let data = compressed_data
                 .open()
-                .await
                 .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
             atomic_dir
-                .write(COMPRESSED_BIN_PATH, WriteMode::Overwrite, &data)
-                .await
+                .write(COMPRESSED_BIN_PATH, &WriteMode::Overwrite, &data)
                 .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
         }
 
         if let Some(raw_data) = self.raw_data.get() {
             let data = raw_data
                 .open()
-                .await
                 .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
             atomic_dir
-                .write(RAW_BIN_PATH, WriteMode::Overwrite, &data)
-                .await
+                .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
                 .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
         }
 
-        atomic_dir.commit().await?;
+        atomic_dir.commit()?;
         self.metadata.mark_clean();
         self.raw_data.mark_clean();
         self.compressed_data.mark_clean();
@@ -361,11 +344,9 @@ mod tests {
         );
 
         // Save again to ensure the package path was remembered and the transaction is reusable.
-        package.save().await?;
+        package.save()?;
 
-        Package::load_from_path(&package_dir)
-            .await
-            .expect("package should reload from saved directory");
+        Package::load_from_path(&package_dir).expect("package should reload from saved directory");
 
         Ok(())
     }

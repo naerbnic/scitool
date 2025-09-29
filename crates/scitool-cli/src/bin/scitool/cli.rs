@@ -15,8 +15,8 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
-    pub(crate) async fn run(&self) -> anyhow::Result<()> {
-        self.category.run().await
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
+        self.category.run()
     }
 }
 
@@ -37,11 +37,11 @@ enum Category {
 }
 
 impl Category {
-    async fn run(&self) -> anyhow::Result<()> {
+    fn run(&self) -> anyhow::Result<()> {
         match self {
-            Category::Resource(res) => res.run().await,
-            Category::Message(msg) => msg.run().await,
-            Category::Script(script) => script.run().await,
+            Category::Resource(res) => res.run(),
+            Category::Message(msg) => msg.run(),
+            Category::Script(script) => script.run(),
         }
     }
 }

@@ -5,7 +5,7 @@
 //! closure is run.
 #![allow(unsafe_code, reason = "Unsafe usage is specified here")]
 
-use std::{cell::UnsafeCell, sync::Arc};
+use std::{cell::UnsafeCell, ops::DerefMut, sync::Arc};
 
 struct Inner<T: ?Sized> {
     value: UnsafeCell<T>,
@@ -76,46 +76,24 @@ pub fn loan_arc<T>(value: T) -> (MutBorrowedArc<T>, LentArc<T>) {
 
 // Foreign trait implementations.
 
-impl<T> tokio::io::AsyncRead for MutBorrowedArc<T>
+impl<T> std::io::Read for MutBorrowedArc<T>
 where
-    T: tokio::io::AsyncRead + Unpin + ?Sized,
+    T: std::io::Read,
 {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let this: &mut T = self.get_mut();
-        std::pin::Pin::new(this).poll_read(cx, buf)
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.deref_mut().read(buf)
     }
 }
 
-impl<T> tokio::io::AsyncWrite for MutBorrowedArc<T>
+impl<T> std::io::Write for MutBorrowedArc<T>
 where
-    T: tokio::io::AsyncWrite + Unpin + ?Sized,
+    T: std::io::Write,
 {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
-        let this: &mut T = self.get_mut();
-        std::pin::Pin::new(this).poll_write(cx, buf)
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.deref_mut().write(buf)
     }
 
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        let this: &mut T = self.get_mut();
-        std::pin::Pin::new(this).poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        let this: &mut T = self.get_mut();
-        std::pin::Pin::new(this).poll_shutdown(cx)
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.deref_mut().flush()
     }
 }

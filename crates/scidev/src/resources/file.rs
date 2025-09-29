@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, btree_map},
     error::Error as StdError,
     fs::File,
-    io,
+    io::{self, Write},
     path::Path,
 };
 
@@ -87,20 +87,20 @@ impl From<MemBlockFromReaderError> for Error {
     }
 }
 
-pub(super) async fn read_resources<'a>(
+pub(super) fn read_resources<'a>(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource<'a>],
 ) -> Result<ResourceSet<'a>, Error> {
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
-    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf()).await?);
+    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
     let resource_locations =
         map::ResourceLocationSet::parse(&mut BufferMemReader::from_ref(&map_file))?;
 
     let mut entries = BTreeMap::new();
 
     for location in resource_locations.locations() {
-        let block = data_file.read_contents(location).await?;
+        let block = data_file.read_contents(location)?;
         if block.id() != &location.id() {
             return Err(Error::ResourceIdMismatch {
                 expected: location.id(),
@@ -175,13 +175,12 @@ pub struct ResourceSet<'a> {
 }
 
 impl<'a> ResourceSet<'a> {
-    pub async fn from_root_dir(root_dir: &Path) -> Result<Self, OpenGameResourcesError> {
+    pub fn from_root_dir(root_dir: &Path) -> Result<Self, OpenGameResourcesError> {
         let mut patches = Vec::new();
         for entry in root_dir.read_dir().with_other_err()? {
             let entry = entry.with_other_err()?;
             if entry.file_type().with_other_err()?.is_file()
-                && let Some(patch_res) =
-                    try_patch_from_file(&entry.path()).await.with_other_err()?
+                && let Some(patch_res) = try_patch_from_file(&entry.path()).with_other_err()?
             {
                 patches.push(patch_res);
             }
@@ -190,17 +189,13 @@ impl<'a> ResourceSet<'a> {
         let main_set = {
             let map_file = root_dir.join("RESOURCE.MAP");
             let data_file = root_dir.join("RESOURCE.000");
-            read_resources(&map_file, &data_file, &patches)
-                .await
-                .with_other_err()?
+            read_resources(&map_file, &data_file, &patches).with_other_err()?
         };
 
         let message_set = {
             let map_file = root_dir.join("MESSAGE.MAP");
             let data_file = root_dir.join("RESOURCE.MSG");
-            read_resources(&map_file, &data_file, &[])
-                .await
-                .with_other_err()?
+            read_resources(&map_file, &data_file, &[]).with_other_err()?
         };
         Ok(main_set.merge(&message_set).with_other_err()?)
     }
@@ -338,14 +333,11 @@ impl<'a> Resource<'a> {
         &self.contents
     }
 
-    pub async fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
-        Ok(self.contents.source.open().await.with_other_err()?)
+    pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
+        Ok(self.contents.source.open().with_other_err()?)
     }
 
-    pub async fn write_patch<W: tokio::io::AsyncWrite + Unpin>(
-        &self,
-        writer: W,
-    ) -> Result<(), ResourcePatchError> {
-        write_resource_to_patch_file(self, writer).await
+    pub fn write_patch<W: Write>(&self, writer: W) -> Result<(), ResourcePatchError> {
+        write_resource_to_patch_file(self, writer)
     }
 }

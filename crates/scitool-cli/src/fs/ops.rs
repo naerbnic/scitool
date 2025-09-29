@@ -6,12 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use futures::Stream;
-use tokio::{
-    fs::File as TokioFile,
-    io::{AsyncRead, AsyncWrite},
-};
-
 use crate::fs::owned_arc::{MutBorrowedArc, loan_arc};
 
 #[expect(
@@ -105,9 +99,9 @@ impl OpenOptionsFlags {
     }
 }
 
-pub trait File: AsyncRead + AsyncWrite + AsyncRead + Unpin + Send {}
+pub trait File: io::Read + io::Write {}
 
-impl File for tokio::fs::File {}
+impl File for std::fs::File {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathKind {
@@ -163,69 +157,55 @@ impl DirEntry {
 }
 
 pub trait LockFile {
-    fn lock_shared(&self) -> impl Future<Output = io::Result<()>>;
-    fn lock_exclusive(&self) -> impl Future<Output = io::Result<()>>;
-    fn try_lock_shared(&self) -> impl Future<Output = io::Result<bool>>;
-    fn try_lock_exclusive(&self) -> impl Future<Output = io::Result<bool>>;
-    fn unlock(&self) -> impl Future<Output = io::Result<()>>;
+    fn lock_shared(&self) -> io::Result<()>;
+    fn lock_exclusive(&self) -> io::Result<()>;
+    fn try_lock_shared(&self) -> io::Result<bool>;
+    fn try_lock_exclusive(&self) -> io::Result<bool>;
+    fn unlock(&self) -> io::Result<()>;
 }
 
 /// A trait for the file system operations needed by `AtomicDir`.
 pub trait FileSystemOperations: Send {
     type File: File;
-    type FileReader: AsyncRead + Unpin + Send;
-    type FileWriter: AsyncWrite + Unpin + Send;
-    type FileLock: LockFile + Send;
+    type FileReader: io::Read;
+    type FileWriter: io::Write;
+    type FileLock: LockFile;
 
     /// Checks to see the kind of the path, or if the path does not exist.
-    fn get_path_kind(&self, path: &Path) -> impl Future<Output = io::Result<Option<PathKind>>>;
+    fn get_path_kind(&self, path: &Path) -> io::Result<Option<PathKind>>;
 
     /// Attempts a rename of the file at `src` to `dst` atomically, overwriting it if it exists.
     /// If the source file does not exist, it returns `RenameFileResult::SourceMissing`
-    fn rename_file_atomic(&self, src: &Path, dst: &Path) -> impl Future<Output = io::Result<()>>;
+    fn rename_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()>;
 
     /// Attempts to create a hard link of the file at `src` to `dst` atomically. If the destination
     /// file already exists, it is not modified and an `AlreadyExists` error is returned.
     ///
     /// Once a hard link is created, the file can be accessed from either path. Deleting one path does not
     /// delete the other path, and the file's data is only removed from disk when all hard links to it are deleted.
-    fn link_file_atomic(&self, src: &Path, dst: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_file(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_dir(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>> + Send + 'static;
-    fn list_dir(
-        &self,
-        path: &Path,
-    ) -> impl Future<Output = io::Result<impl Stream<Item = io::Result<DirEntry>> + Unpin>>;
+    fn link_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()>;
+    fn remove_file(&self, path: &Path) -> io::Result<()>;
+    fn remove_dir(&self, path: &Path) -> io::Result<()>;
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
+    fn list_dir(&self, path: &Path) -> io::Result<impl Iterator<Item = io::Result<DirEntry>>>;
     /// Creates a directory at a location. The parent directories must already exist, and the
     /// directory must not already exist.
     ///
     /// Returns an `AlreadyExists` error if the directory already exists.
-    fn create_dir(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn create_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>>;
-    fn read_file<F, Fut, R>(&self, path: &Path, body: F) -> impl Future<Output = io::Result<R>>
+    fn create_dir(&self, path: &Path) -> io::Result<()>;
+    fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+    fn read_file<F, R>(&self, path: &Path, body: F) -> io::Result<R>
     where
-        F: FnOnce(Self::FileReader) -> Fut + Send,
-        Fut: Future<Output = io::Result<R>>;
-    fn write_to_file<F, Fut, R>(
-        &self,
-        write_mode: WriteMode,
-        path: &Path,
-        body: F,
-    ) -> impl Future<Output = io::Result<R>>
+        F: FnOnce(Self::FileReader) -> io::Result<R>;
+    fn write_to_file<F, R>(&self, write_mode: WriteMode, path: &Path, body: F) -> io::Result<R>
     where
-        F: FnOnce(Self::FileWriter) -> Fut,
-        Fut: Future<Output = io::Result<R>>;
+        F: FnOnce(Self::FileWriter) -> io::Result<R>;
 
-    fn open_file(
-        &self,
-        path: &Path,
-        options: &OpenOptionsFlags,
-    ) -> impl Future<Output = io::Result<Self::File>>;
+    fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<Self::File>;
 
-    fn open_lock_file(&self, path: &Path) -> impl Future<Output = io::Result<Self::FileLock>>;
+    fn open_lock_file(&self, path: &Path) -> io::Result<Self::FileLock>;
 
-    fn metadata(&self, path: &Path) -> impl Future<Output = io::Result<Metadata>>;
+    fn metadata(&self, path: &Path) -> io::Result<Metadata>;
 }
 
 pub struct TokioFileLock {
@@ -233,67 +213,45 @@ pub struct TokioFileLock {
 }
 
 impl LockFile for TokioFileLock {
-    async fn lock_shared(&self) -> io::Result<()> {
-        tokio::task::spawn_blocking({
-            let file = self.file.clone();
-            move || file.lock_shared()
-        })
-        .await?
+    fn lock_shared(&self) -> io::Result<()> {
+        self.file.lock_shared()
     }
 
-    async fn lock_exclusive(&self) -> io::Result<()> {
-        tokio::task::spawn_blocking({
-            let file = self.file.clone();
-            move || file.lock()
-        })
-        .await?
+    fn lock_exclusive(&self) -> io::Result<()> {
+        self.file.clone().lock()
     }
 
-    async fn try_lock_shared(&self) -> io::Result<bool> {
-        match tokio::task::spawn_blocking({
-            let file = self.file.clone();
-            move || file.try_lock_shared()
-        })
-        .await?
-        {
+    fn try_lock_shared(&self) -> io::Result<bool> {
+        match self.file.try_lock_shared() {
             Ok(()) => Ok(true),
             Err(TryLockError::Error(err)) => Err(err),
             Err(TryLockError::WouldBlock) => Ok(false),
         }
     }
 
-    async fn try_lock_exclusive(&self) -> io::Result<bool> {
-        match tokio::task::spawn_blocking({
-            let file = self.file.clone();
-            move || file.try_lock()
-        })
-        .await?
-        {
+    fn try_lock_exclusive(&self) -> io::Result<bool> {
+        match self.file.try_lock() {
             Ok(()) => Ok(true),
             Err(TryLockError::Error(err)) => Err(err),
             Err(TryLockError::WouldBlock) => Ok(false),
         }
     }
 
-    async fn unlock(&self) -> io::Result<()> {
-        tokio::task::spawn_blocking({
-            let file = self.file.clone();
-            move || file.unlock()
-        })
-        .await?
+    fn unlock(&self) -> io::Result<()> {
+        self.file.unlock()
     }
 }
 
 pub struct TokioFileSystemOperations;
 
 impl FileSystemOperations for TokioFileSystemOperations {
-    type File = tokio::fs::File;
-    type FileReader = MutBorrowedArc<TokioFile>;
-    type FileWriter = TokioFile;
+    type File = std::fs::File;
+    type FileReader = MutBorrowedArc<std::fs::File>;
+    type FileWriter = std::fs::File;
     type FileLock = TokioFileLock;
 
-    async fn get_path_kind(&self, path: &Path) -> io::Result<Option<PathKind>> {
-        match tokio::fs::metadata(&path).await {
+    fn get_path_kind(&self, path: &Path) -> io::Result<Option<PathKind>> {
+        match std::fs::metadata(path) {
             Ok(metadata) => {
                 if metadata.is_file() {
                     Ok(Some(PathKind::File))
@@ -308,79 +266,68 @@ impl FileSystemOperations for TokioFileSystemOperations {
         }
     }
 
-    async fn rename_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()> {
-        tokio::fs::rename(src, dst).await
+    fn rename_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()> {
+        std::fs::rename(src, dst)
     }
 
-    async fn link_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()> {
-        tokio::fs::hard_link(src, dst).await
+    fn link_file_atomic(&self, src: &Path, dst: &Path) -> io::Result<()> {
+        std::fs::hard_link(src, dst)
     }
 
-    async fn remove_file(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_file(path).await
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_file(path)
     }
 
-    async fn remove_dir(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_dir(path).await
+    fn remove_dir(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_dir(path)
     }
 
-    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = io::Result<()>> + Send + 'static {
-        tokio::fs::remove_dir_all(path.to_path_buf())
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_dir_all(path)
     }
 
-    async fn list_dir(
-        &self,
-        path: &Path,
-    ) -> io::Result<impl Stream<Item = io::Result<DirEntry>> + Unpin> {
-        let mut entries = tokio::fs::read_dir(path).await?;
-        Ok(Box::pin(async_stream::try_stream! {
-            while let Some(entry) = entries.next_entry().await? {
-                let file_type = entry.file_type().await?;
-                let path_kind = if file_type.is_file() {
-                    PathKind::File
-                } else if file_type.is_dir() {
-                    PathKind::Directory
-                } else {
-                    PathKind::Other
-                };
-                yield DirEntry::new(path.to_owned(), entry.file_name(), path_kind);
-            }
+    fn list_dir(&self, path: &Path) -> io::Result<impl Iterator<Item = io::Result<DirEntry>>> {
+        let entries = std::fs::read_dir(path)?;
+        Ok(entries.map(|entry_res| {
+            let entry = entry_res?;
+            let file_type = entry.file_type()?;
+            let path_kind = if file_type.is_file() {
+                PathKind::File
+            } else if file_type.is_dir() {
+                PathKind::Directory
+            } else {
+                PathKind::Other
+            };
+            Ok(DirEntry::new(path.to_owned(), entry.file_name(), path_kind))
         }))
     }
 
-    async fn create_dir(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::create_dir(path).await
+    fn create_dir(&self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir(path)
     }
 
-    async fn create_dir_all(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::create_dir_all(path).await
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir_all(path)
     }
 
-    async fn read_file<F, Fut, R>(&self, path: &Path, body: F) -> io::Result<R>
+    fn read_file<F, R>(&self, path: &Path, body: F) -> io::Result<R>
     where
-        F: FnOnce(Self::FileReader) -> Fut + Send,
-        Fut: Future<Output = io::Result<R>>,
+        F: FnOnce(Self::FileReader) -> io::Result<R>,
     {
         let path = path.to_owned();
-        let (borrowed_file, lent_file) = loan_arc(TokioFile::open(&path).await?);
-        let res = body(borrowed_file).await;
+        let (borrowed_file, lent_file) = loan_arc(std::fs::File::open(&path)?);
+        let res = body(borrowed_file);
         let file = lent_file.take_back();
-        file.sync_all().await?;
+        file.sync_all()?;
         res
     }
 
-    async fn write_to_file<F, Fut, R>(
-        &self,
-        write_mode: WriteMode,
-        path: &Path,
-        body: F,
-    ) -> io::Result<R>
+    fn write_to_file<F, R>(&self, write_mode: WriteMode, path: &Path, body: F) -> io::Result<R>
     where
-        F: FnOnce(Self::FileWriter) -> Fut,
-        Fut: Future<Output = io::Result<R>>,
+        F: FnOnce(Self::FileWriter) -> io::Result<R>,
     {
         let path = path.to_owned();
-        let mut options = TokioFile::options();
+        let mut options = std::fs::File::options();
         match write_mode {
             WriteMode::Overwrite => {
                 options.create(true).truncate(true);
@@ -389,12 +336,12 @@ impl FileSystemOperations for TokioFileSystemOperations {
                 options.create_new(true);
             }
         }
-        let file = options.write(true).open(&path).await?;
-        body(file).await
+        let file = options.write(true).open(&path)?;
+        body(file)
     }
 
-    async fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<Self::File> {
-        let mut open_options = tokio::fs::OpenOptions::new();
+    fn open_file(&self, path: &Path, options: &OpenOptionsFlags) -> io::Result<Self::File> {
+        let mut open_options = std::fs::File::options();
         if options.read {
             open_options.read(true);
         }
@@ -413,26 +360,24 @@ impl FileSystemOperations for TokioFileSystemOperations {
         if options.create_new {
             open_options.create_new(true);
         }
-        let file = open_options.open(path).await?;
+        let file = open_options.open(path)?;
         Ok(file)
     }
 
-    async fn open_lock_file(&self, path: &Path) -> io::Result<Self::FileLock> {
-        let file = tokio::fs::OpenOptions::new()
+    fn open_lock_file(&self, path: &Path) -> io::Result<Self::FileLock> {
+        let file = std::fs::File::options()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(path)
-            .await?;
+            .open(path)?;
 
-        let std_file = file.into_std().await;
         Ok(TokioFileLock {
-            file: Arc::new(std_file),
+            file: Arc::new(file),
         })
     }
 
-    async fn metadata(&self, path: &Path) -> io::Result<Metadata> {
-        tokio::fs::metadata(path).await
+    fn metadata(&self, path: &Path) -> io::Result<Metadata> {
+        std::fs::metadata(path)
     }
 }

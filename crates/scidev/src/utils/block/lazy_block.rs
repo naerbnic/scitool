@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use crate::utils::{block::block_source, errors::OtherError};
 
@@ -33,10 +33,8 @@ impl From<block_source::Error> for Error {
     }
 }
 
-type OpenFuture<'a> = Pin<Box<dyn Future<Output = Result<MemBlock, Error>> + Send + 'a>>;
-
 trait LazyBlockImpl: Send + Sync {
-    fn open(&self) -> OpenFuture<'_>;
+    fn open(&self) -> Result<MemBlock, Error>;
     fn size(&self) -> Option<u64>;
 }
 
@@ -45,8 +43,8 @@ struct RangeLazyBlockImpl<'a> {
 }
 
 impl LazyBlockImpl for RangeLazyBlockImpl<'_> {
-    fn open(&self) -> OpenFuture<'_> {
-        Box::pin(async move { Ok(self.source.open().await?) })
+    fn open(&self) -> Result<MemBlock, Error> {
+        Ok(self.source.open()?)
     }
 
     fn size(&self) -> Option<u64> {
@@ -60,8 +58,8 @@ impl<F> LazyBlockImpl for FactoryLazyBlockImpl<F>
 where
     F: Fn() -> Result<MemBlock, Error> + Send + Sync,
 {
-    fn open(&self) -> OpenFuture<'_> {
-        Box::pin(async move { (self.0)() })
+    fn open(&self) -> Result<MemBlock, Error> {
+        (self.0)()
     }
 
     fn size(&self) -> Option<u64> {
@@ -78,11 +76,9 @@ impl<F> LazyBlockImpl for MapLazyBlockImpl<'_, F>
 where
     F: Fn(MemBlock) -> Result<MemBlock, Error> + Send + Sync,
 {
-    fn open(&self) -> OpenFuture<'_> {
-        Box::pin(async move {
-            let base_block = self.base_impl.open().await?;
-            (self.map_fn)(base_block)
-        })
+    fn open(&self) -> Result<MemBlock, Error> {
+        let base_block = self.base_impl.open()?;
+        (self.map_fn)(base_block)
     }
 
     fn size(&self) -> Option<u64> {
@@ -95,8 +91,8 @@ struct MemLazyBlockImpl {
 }
 
 impl LazyBlockImpl for MemLazyBlockImpl {
-    fn open(&self) -> OpenFuture<'_> {
-        Box::pin(async move { Ok(self.block.clone()) })
+    fn open(&self) -> Result<MemBlock, Error> {
+        Ok(self.block.clone())
     }
 
     fn size(&self) -> Option<u64> {
@@ -139,8 +135,8 @@ impl<'a> LazyBlock<'a> {
 
     /// Opens a block from the lazy block source. Returns an error if the block
     /// cannot be loaded.
-    pub async fn open(&self) -> Result<MemBlock, Error> {
-        self.source.open().await
+    pub fn open(&self) -> Result<MemBlock, Error> {
+        self.source.open()
     }
 
     /// Creates a new `LazyBlock` that transforms the result of the current block

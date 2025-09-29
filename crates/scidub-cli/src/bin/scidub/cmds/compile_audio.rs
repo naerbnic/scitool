@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use futures::{FutureExt, TryStreamExt, stream::FuturesUnordered};
-use scidub_cli::{path::LookupPath, tools::ffmpeg::FfmpegTool};
+use scidub_cli::{file::AudioSampleScan, path::LookupPath, resources::SampleDir, tools::ffmpeg::FfmpegTool};
 
 async fn execute_all<F>(futures: impl IntoIterator<Item = F>) -> anyhow::Result<()>
 where
@@ -57,16 +57,14 @@ impl CompileAudio {
                 .to_path_buf(),
         );
         let sample_dir = match self.scan_type {
-            ScanType::Legacy => {
-                scidub_cli::resources::SampleDir::load_dir(&self.sample_dir).await?
-            }
+            ScanType::Legacy => SampleDir::load_dir(&self.sample_dir)?,
             ScanType::Scannable => {
-                let scan = scidub_cli::file::AudioSampleScan::read_from_dir(&self.sample_dir)?;
+                let scan = AudioSampleScan::read_from_dir(&self.sample_dir)?;
                 anyhow::ensure!(
                     !scan.has_duplicates(),
                     "Duplicate files found in scan directory",
                 );
-                scidub_cli::resources::SampleDir::from_sample_scan(&scan)?
+                SampleDir::from_sample_scan(&scan)?
             }
         };
         let resources = sample_dir.to_audio_resources(&ffmpeg_tool, 4).await?;
@@ -87,8 +85,8 @@ impl CompileAudio {
                         res.id().resource_num(),
                         res.id().type_id().to_file_ext()
                     ));
-                    let open_file = tokio::fs::File::create(output_dir.join(&file)).await?;
-                    res.write_patch(open_file).await?;
+                    let open_file = std::fs::File::create(output_dir.join(&file))?;
+                    res.write_patch(open_file)?;
                     Ok::<_, anyhow::Error>(())
                 }
                 .boxed()

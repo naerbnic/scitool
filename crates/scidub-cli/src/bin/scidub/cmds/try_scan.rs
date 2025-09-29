@@ -9,7 +9,7 @@ pub(crate) struct TryScan {
 }
 
 impl TryScan {
-    pub(crate) async fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
         let scan = scidub_cli::file::AudioSampleScan::read_from_dir(&self.scan_dir)?;
 
         anyhow::ensure!(
