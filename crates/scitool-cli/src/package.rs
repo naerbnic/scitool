@@ -47,38 +47,8 @@ async fn buffer_info_from_lazy_block(
     Ok(schema::BufferInfo::new(size, hash))
 }
 
-async fn new_block_source_from_atomic_dir(
-    atomic_dir: &AtomicDir,
-    path: impl AsRef<Path>,
-) -> std::io::Result<BlockSource<'static>> {
-    let metadata = atomic_dir.metadata(path.as_ref()).await?;
-    if !metadata.file_type().is_file() {
-        io_bail!(
-            InvalidInput,
-            "Path is not a file: {}",
-            path.as_ref().display()
-        );
-    }
-    let handle = atomic_dir.as_read_only_handle();
-    let path = path.as_ref().to_owned();
-    BlockSource::from_reader_thunk(
-        move || {
-            let handle = handle.clone();
-            let path = path.clone();
-            async move { Ok(handle.open(&path).await?) }
-        },
-        metadata.len(),
-    )
-    .map_err(io_err_map!(Other, "Failed to create block source"))
-}
-
-struct DirectoryInfo {
-    base_path: PathBuf,
-    atomic_dir: Option<AtomicDir>,
-}
-
 pub struct Package<'a> {
-    dir_info: Option<DirectoryInfo>,
+    base_path: Option<PathBuf>,
     metadata: Dirty<Metadata>,
     compressed_data: Dirty<Option<LazyBlock<'a>>>,
     raw_data: Dirty<Option<LazyBlock<'a>>>,
@@ -88,7 +58,7 @@ impl<'a> Package<'a> {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
         Package {
-            dir_info: None,
+            base_path: None,
             metadata: Dirty::new_fresh(Metadata::new_with_id(id)),
             compressed_data: Dirty::new_fresh(None),
             raw_data: Dirty::new_fresh(None),
@@ -101,10 +71,8 @@ impl<'a> Package<'a> {
     {
         let base_path = path.into().into_owned();
 
-        let atomic_dir = AtomicDir::new_at_dir(&base_path).await?;
-
         let mut meta_file = LengthLimitedAsyncReader::new(
-            atomic_dir.open_options().read(true).open(META_PATH).await?,
+            tokio::fs::File::open(base_path.join(META_PATH)).await?,
             128 * 1024, // 128 KiB
         );
 
@@ -113,8 +81,9 @@ impl<'a> Package<'a> {
         let metadata: Metadata = serde_json::from_slice(&data)
             .map_err(io_err_map!(InvalidData, "Failed to parse metadata JSON"))?;
 
-        let compressed_data = if atomic_dir.exists(COMPRESSED_BIN_PATH).await? {
-            let block_source = new_block_source_from_atomic_dir(&atomic_dir, COMPRESSED_BIN_PATH)
+        let compressed_path = base_path.join(COMPRESSED_BIN_PATH);
+        let compressed_data = if tokio::fs::try_exists(&compressed_path).await? {
+            let block_source = BlockSource::from_path(compressed_path)
                 .await
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
@@ -122,8 +91,9 @@ impl<'a> Package<'a> {
             None
         };
 
-        let raw_data = if atomic_dir.exists(RAW_BIN_PATH).await? {
-            let block_source = new_block_source_from_atomic_dir(&atomic_dir, RAW_BIN_PATH)
+        let raw_data_path = base_path.join(RAW_BIN_PATH);
+        let raw_data = if tokio::fs::try_exists(&raw_data_path).await? {
+            let block_source = BlockSource::from_path(raw_data_path)
                 .await
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
@@ -136,10 +106,7 @@ impl<'a> Package<'a> {
         };
 
         Ok(Self {
-            dir_info: Some(DirectoryInfo {
-                base_path,
-                atomic_dir: Some(atomic_dir),
-            }),
+            base_path: Some(base_path),
             metadata: Dirty::new_stored(metadata),
             compressed_data: Dirty::new_stored(compressed_data),
             raw_data: Dirty::new_stored(raw_data),
@@ -183,18 +150,14 @@ impl<'a> Package<'a> {
     }
 
     pub async fn save(&mut self) -> std::io::Result<()> {
-        let Some(dir_info) = &mut self.dir_info else {
+        let Some(base_path) = &mut self.base_path else {
             io_bail!(
                 InvalidInput,
                 "Cannot save a package that was not loaded from a path or saved to a path."
             );
         };
 
-        let atomic_dir = if let Some(atomic_dir) = dir_info.atomic_dir.take() {
-            atomic_dir
-        } else {
-            AtomicDir::new_at_dir(&dir_info.base_path).await?
-        };
+        let atomic_dir = AtomicDir::new_at_dir(&base_path).await?;
 
         if self.metadata.is_dirty() {
             let meta_json = serde_json::to_vec(self.metadata.get())
@@ -203,7 +166,6 @@ impl<'a> Package<'a> {
                 .write(META_PATH, WriteMode::Overwrite, &meta_json)
                 .await
                 .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
-            self.metadata.mark_clean();
         }
 
         if self.compressed_data.is_dirty() {
@@ -223,7 +185,6 @@ impl<'a> Package<'a> {
                     .await
                     .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
             }
-            self.compressed_data.mark_clean();
         }
 
         if self.raw_data.is_dirty() {
@@ -243,10 +204,13 @@ impl<'a> Package<'a> {
                     .await
                     .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
             }
-            self.raw_data.mark_clean();
         }
 
         atomic_dir.commit().await?;
+
+        self.metadata.mark_clean();
+        self.compressed_data.mark_clean();
+        self.raw_data.mark_clean();
 
         Ok(())
     }

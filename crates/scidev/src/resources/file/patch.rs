@@ -48,7 +48,9 @@ pub(crate) async fn try_patch_from_file(
         return Ok(None);
     };
 
-    let source = BlockSource::from_path(patch_file.to_path_buf()).with_other_err()?;
+    let source = BlockSource::from_path(patch_file.to_path_buf())
+        .await
+        .with_other_err()?;
     let (base_header_block, rest) = source.split_at(2);
     let base_header = base_header_block.open().await.with_other_err()?;
     let id = base_header[0];

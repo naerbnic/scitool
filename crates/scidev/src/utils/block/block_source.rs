@@ -50,31 +50,6 @@ where
     }
 }
 
-struct ReaderThunkBlockSourceImpl<F, Fut, R> {
-    reader_thunk: F,
-    _phantom: std::marker::PhantomData<fn() -> (Fut, R)>,
-}
-
-impl<F, Fut, R> BlockSourceImpl for ReaderThunkBlockSourceImpl<F, Fut, R>
-where
-    F: Fn() -> Fut + Send + Sync,
-    Fut: Future<Output = Result<R, Error>> + Send,
-    R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send,
-{
-    fn read_block(&self, start: u64, size: u64) -> ReadFuture<'_> {
-        Box::pin(async move {
-            let reader = (self.reader_thunk)();
-
-            let mut reader = std::pin::pin!(reader.await?);
-            reader.seek(io::SeekFrom::Start(start)).await?;
-            let mut data = vec![0; size.try_into()?];
-            reader.read_exact(&mut data).await?;
-
-            Ok(MemBlock::from_vec(data))
-        })
-    }
-}
-
 struct PathBlockSourceImpl<P>(P);
 
 impl<P> BlockSourceImpl for PathBlockSourceImpl<P>
@@ -132,31 +107,15 @@ pub struct BlockSource<'a> {
 impl<'a> BlockSource<'a> {
     /// Creates a block source that represents the contents of a path at the
     /// given path. Returns an error if the file cannot be opened.
-    pub fn from_path<P>(path: P) -> Result<Self, Error>
+    pub async fn from_path<P>(path: P) -> Result<Self, Error>
     where
         P: AsRef<Path> + Send + Sync + 'static,
     {
-        let size = std::fs::metadata(path.as_ref())?.len();
+        let size = tokio::fs::metadata(path.as_ref()).await?.len();
         Ok(Self {
             start: 0,
             size,
             source_impl: Arc::new(PathBlockSourceImpl(path)),
-        })
-    }
-
-    pub fn from_reader_thunk<F, Fut, R>(reader_thunk: F, size: u64) -> Result<Self, Error>
-    where
-        F: Fn() -> Fut + Send + Sync + 'a,
-        Fut: Future<Output = Result<R, Error>> + Send + 'a,
-        R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + 'a,
-    {
-        Ok(Self {
-            start: 0,
-            size,
-            source_impl: Arc::new(ReaderThunkBlockSourceImpl {
-                reader_thunk,
-                _phantom: std::marker::PhantomData,
-            }),
         })
     }
 

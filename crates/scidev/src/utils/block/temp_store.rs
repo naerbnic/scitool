@@ -103,7 +103,8 @@ impl TempStore {
         Ok(BlockSource::from_path(BlockPathHandle {
             path,
             _dir: self.temp_dir.clone(),
-        })?)
+        })
+        .await?)
     }
 }
 

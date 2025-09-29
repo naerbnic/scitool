@@ -93,7 +93,7 @@ pub(super) async fn read_resources<'a>(
     patches: &[Resource<'a>],
 ) -> Result<ResourceSet<'a>, Error> {
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
-    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
+    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf()).await?);
     let resource_locations =
         map::ResourceLocationSet::parse(&mut BufferMemReader::from_ref(&map_file))?;
 
