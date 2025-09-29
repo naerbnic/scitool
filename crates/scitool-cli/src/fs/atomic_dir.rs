@@ -15,7 +15,7 @@ use std::{
 use crate::fs::{
     atomic_dir::engine::Engine,
     open_tracker::{OpenMarker, OpenTracker},
-    ops::{OpenOptionsFlags, TokioFileSystemOperations},
+    ops::{OpenOptionsFlags, StdFileSystemOperations},
 };
 
 pub use self::types::{DirEntry, FileType, Metadata};
@@ -80,13 +80,13 @@ impl io::Seek for AtomicDirFile {
 }
 
 struct WrapperTracker {
-    parent: Option<Arc<Engine<TokioFileSystemOperations>>>,
+    parent: Option<Arc<Engine<StdFileSystemOperations>>>,
     open_marker: Option<OpenMarker>,
 }
 
 impl WrapperTracker {
     fn new(
-        parent: Arc<Engine<TokioFileSystemOperations>>,
+        parent: Arc<Engine<StdFileSystemOperations>>,
         open_marker: Option<OpenMarker>,
     ) -> Self {
         Self {
@@ -95,7 +95,7 @@ impl WrapperTracker {
         }
     }
 
-    fn into_inner(mut self) -> Option<Engine<TokioFileSystemOperations>> {
+    fn into_inner(mut self) -> Option<Engine<StdFileSystemOperations>> {
         Arc::into_inner(self.parent.take().unwrap())
     }
 }
@@ -186,12 +186,12 @@ impl OpenOptions<'_> {
 
 #[derive(Clone)]
 struct Inner {
-    engine: Arc<Engine<TokioFileSystemOperations>>,
+    engine: Arc<Engine<StdFileSystemOperations>>,
     open_tracker: OpenTracker,
 }
 
 impl Inner {
-    fn new(engine: Engine<TokioFileSystemOperations>) -> Self {
+    fn new(engine: Engine<StdFileSystemOperations>) -> Self {
         Self {
             engine: Arc::new(engine),
             open_tracker: OpenTracker::new(),
@@ -211,7 +211,7 @@ impl Inner {
         ))
     }
 
-    fn into_engine(self) -> Option<Engine<TokioFileSystemOperations>> {
+    fn into_engine(self) -> Option<Engine<StdFileSystemOperations>> {
         Arc::into_inner(self.engine)
     }
 
@@ -253,11 +253,11 @@ pub struct AtomicDir {
 }
 
 impl AtomicDir {
-    fn get_inner(&self) -> &Arc<Engine<TokioFileSystemOperations>> {
+    fn get_inner(&self) -> &Arc<Engine<StdFileSystemOperations>> {
         &self.inner.as_ref().unwrap().engine
     }
 
-    fn take_inner(&mut self) -> Option<Engine<TokioFileSystemOperations>> {
+    fn take_inner(&mut self) -> Option<Engine<StdFileSystemOperations>> {
         self.inner
             .take()
             .expect("AtomicDir has already been consumed")
@@ -273,7 +273,7 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
-        let engine = Engine::create_at_dir(TokioFileSystemOperations, dir_root.as_ref())?;
+        let engine = Engine::create_at_dir(StdFileSystemOperations, dir_root.as_ref())?;
         Ok(AtomicDir {
             inner: Some(Inner::new(engine)),
         })
@@ -287,7 +287,7 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
-        let Some(engine) = Engine::try_create_at_dir(TokioFileSystemOperations, dir_root.as_ref())?
+        let Some(engine) = Engine::try_create_at_dir(StdFileSystemOperations, dir_root.as_ref())?
         else {
             return Ok(None);
         };

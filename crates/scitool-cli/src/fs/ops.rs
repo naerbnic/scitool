@@ -242,9 +242,9 @@ impl LockFile for TokioFileLock {
     }
 }
 
-pub struct TokioFileSystemOperations;
+pub struct StdFileSystemOperations;
 
-impl FileSystemOperations for TokioFileSystemOperations {
+impl FileSystemOperations for StdFileSystemOperations {
     type File = std::fs::File;
     type FileReader = std::fs::File;
     type FileWriter = MutBorrowedArc<std::fs::File>;
