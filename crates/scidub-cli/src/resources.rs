@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use rayon::prelude::*;
+
 use futures::{prelude::*, stream::FuturesUnordered};
 use itertools::Itertools;
 use scidev::utils::block::TempStore;
@@ -74,11 +76,10 @@ pub struct Sample {
 pub struct SampleSet(Vec<Sample>);
 
 impl SampleSet {
-    pub async fn to_audio_resources(
+    pub fn to_audio_resources(
         &self,
         base_path: &Path,
         ffmpeg: &FfmpegTool,
-        num_concurrent: usize,
     ) -> anyhow::Result<VoiceSampleResources> {
         struct ProcessedSample {
             room: u16,
@@ -86,34 +87,32 @@ impl SampleSet {
             data: Vec<u8>,
         }
         let mut builder = Audio36ResourceBuilder::new();
-        let conversion_ops = self.0.iter().map(|sample| async {
-            let clip_path = normalize_path(&sample.clip.path);
-            anyhow::ensure!(
-                clip_path.is_relative(),
-                "A path for an audio clip must be relative to the root directory."
-            );
-            let result = ffmpeg
-                .convert(
+        let processed_samples = self
+            .0
+            .par_iter()
+            .map(|sample| {
+                let clip_path = normalize_path(&sample.clip.path);
+                anyhow::ensure!(
+                    clip_path.is_relative(),
+                    "A path for an audio clip must be relative to the root directory."
+                );
+                let result = ffmpeg.convert(
                     base_path.join(&clip_path),
                     ffmpeg::VecOutput,
                     ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
                     &mut ffmpeg::NullProgressListener,
-                )
-                .await?;
-            Ok::<_, anyhow::Error>(ProcessedSample {
-                room: sample.room,
-                message_id: sample.message_id,
-                data: result,
+                )?;
+                Ok::<_, anyhow::Error>(ProcessedSample {
+                    room: sample.room,
+                    message_id: sample.message_id,
+                    data: result,
+                })
             })
-        });
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let mut conversion_stream =
-            futures::stream::iter(conversion_ops).buffer_unordered(num_concurrent);
         let mut temp_store = TempStore::create()?;
-        while let Some(result) = conversion_stream.next().await {
-            let sample = result?;
-            // Only VecDeque implements Buffer.
-            let sample_source = temp_store.store_bytes(&sample.data[..]).await?;
+        for sample in processed_samples {
+            let sample_source = temp_store.store_bytes(&sample.data[..])?;
             let voice_sample = VoiceSample::new(AudioFormat::Ogg, sample_source);
             builder.add_entry(sample.room, sample.message_id, &voice_sample)?;
         }
@@ -239,13 +238,7 @@ impl SampleDir {
         Ok(())
     }
 
-    pub async fn to_audio_resources(
-        &self,
-        ffmpeg: &FfmpegTool,
-        num_concurrent: usize,
-    ) -> anyhow::Result<VoiceSampleResources> {
-        self.samples
-            .to_audio_resources(&self.base_path, ffmpeg, num_concurrent)
-            .await
+    pub fn to_audio_resources(&self, ffmpeg: &FfmpegTool) -> anyhow::Result<VoiceSampleResources> {
+        self.samples.to_audio_resources(&self.base_path, ffmpeg)
     }
 }

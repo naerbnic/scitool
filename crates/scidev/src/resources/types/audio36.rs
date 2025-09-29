@@ -314,6 +314,7 @@ impl Default for Audio36ResourceBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct VoiceSampleResources {
     map_resources: Vec<Resource>,
     audio_volume: OutputBlock,

@@ -77,21 +77,21 @@ impl TempStore {
         })
     }
 
-    pub async fn store_bytes<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
+    pub fn store_bytes<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
     where
         B: Buffer,
     {
-        self.create_temp_block(buffer).await
+        self.create_temp_block(buffer)
     }
 
-    pub async fn store<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
+    pub fn store<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
     where
         B: Buffer,
     {
-        self.create_temp_block(buffer).await
+        self.create_temp_block(buffer)
     }
 
-    async fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource, StoreError>
+    fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource, StoreError>
     where
         B: Buffer,
     {
@@ -114,11 +114,11 @@ mod tests {
     use super::*;
     use crate::utils::block::MemBlock;
     #[cfg_attr(miri, ignore)]
-    #[tokio::test]
-    async fn test_temp_store() -> anyhow::Result<()> {
+    #[test]
+    fn test_temp_store() -> anyhow::Result<()> {
         let mut store = TempStore::create()?;
         let buffer = MemBlock::from_vec(vec![1, 2, 3, 4]);
-        let block_source = store.store(buffer).await?;
+        let block_source = store.store(buffer)?;
         assert_eq!(block_source.size(), 4);
         let mut read_data = Vec::new();
         read_data.put(BufferCursor::new(block_source.to_buffer()?));

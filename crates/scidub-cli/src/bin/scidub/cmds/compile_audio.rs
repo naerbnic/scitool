@@ -1,21 +1,10 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use futures::{FutureExt, TryStreamExt, stream::FuturesUnordered};
+use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator as _};
 use scidub_cli::{
     file::AudioSampleScan, path::LookupPath, resources::SampleDir, tools::ffmpeg::FfmpegTool,
 };
-
-async fn execute_all<F>(futures: impl IntoIterator<Item = F>) -> anyhow::Result<()>
-where
-    F: futures::Future<Output = anyhow::Result<()>> + Unpin,
-{
-    let mut fut_unordered = FuturesUnordered::from_iter(futures);
-    while let Some(()) = fut_unordered.try_next().await? {
-        // Do nothing
-    }
-    Ok(())
-}
 
 #[derive(clap::ValueEnum, Copy, Clone, Debug, Default)]
 enum ScanType {
@@ -45,7 +34,7 @@ pub(crate) struct CompileAudio {
 }
 
 impl CompileAudio {
-    pub(crate) async fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
         let system_path = LookupPath::from_env();
         log::info!("System PATH: {:?}", system_path.find_binary("ffmpeg"));
         let ffmpeg_tool = FfmpegTool::from_path(
@@ -69,31 +58,38 @@ impl CompileAudio {
                 SampleDir::from_sample_scan(&scan)?
             }
         };
-        let resources = sample_dir.to_audio_resources(&ffmpeg_tool, 4).await?;
+        let resources = sample_dir.to_audio_resources(&ffmpeg_tool)?;
 
         let output_dir = &self.output;
 
-        futures::try_join!(
-            async {
-                let resource_aud_file =
-                    tokio::fs::File::create(output_dir.join("resource.aud")).await?;
-                resources.audio_volume().write_to(resource_aud_file).await?;
+        let aud_file_task = std::thread::spawn({
+            let resources = resources.clone();
+            let output_dir = output_dir.clone();
+            move || {
+                let resource_aud_file = std::fs::File::create(output_dir.join("resource.aud"))?;
+                resources.audio_volume().write_to(resource_aud_file)?;
                 Ok::<_, anyhow::Error>(())
-            },
-            execute_all(resources.map_resources().iter().map(|res| {
-                async move {
-                    let file = PathBuf::from(format!(
-                        "{}.{}",
-                        res.id().resource_num(),
-                        res.id().type_id().to_file_ext()
-                    ));
-                    let open_file = std::fs::File::create(output_dir.join(&file))?;
-                    res.write_patch(open_file)?;
-                    Ok::<_, anyhow::Error>(())
-                }
-                .boxed()
-            }))
-        )?;
+            }
+        });
+
+        resources
+            .map_resources()
+            .par_iter()
+            .map(|res| {
+                let output_dir = output_dir.clone();
+                let file = PathBuf::from(format!(
+                    "{}.{}",
+                    res.id().resource_num(),
+                    res.id().type_id().to_file_ext()
+                ));
+                let open_file = std::fs::File::create(output_dir.join(&file))?;
+                res.write_patch(open_file)?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .collect::<anyhow::Result<()>>()?;
+
+        aud_file_task.join().unwrap()?;
+
         Ok(())
     }
 }

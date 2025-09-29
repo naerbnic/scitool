@@ -15,7 +15,7 @@ pub(crate) struct Cli {
 impl Cli {
     pub(crate) async fn run(&self) -> anyhow::Result<()> {
         match &self.command {
-            Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
+            Cmd::CompileAudio(compile_audio) => compile_audio.run()?,
             Cmd::ExportScannable(export_scannable) => export_scannable.run().await?,
             Cmd::TryScan(try_scan) => try_scan.run()?,
             Cmd::GenerateCsv(generate_csv) => generate_csv.run()?,

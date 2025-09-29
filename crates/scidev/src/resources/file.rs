@@ -260,7 +260,7 @@ impl ResourceSet {
 #[error(transparent)]
 pub struct ResourceLoadError(#[from] OtherError);
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ExtraData {
     Simple(LazyBlock),
     Composite {
@@ -269,7 +269,7 @@ pub enum ExtraData {
     },
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct ResourceContents {
     /// Any extra data associated with the resource.
     ///
@@ -291,6 +291,7 @@ impl ResourceContents {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Resource {
     /// The ID of the resource.
     id: ResourceId,

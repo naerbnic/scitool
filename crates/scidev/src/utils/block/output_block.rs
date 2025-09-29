@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{io::Write, sync::Arc};
 
 use bytes::Buf;
 
@@ -7,7 +7,6 @@ use crate::utils::{
     buffer::{Buffer, BufferCursor, SplittableBuffer},
     errors::{OtherError, ensure_other, prelude::*},
 };
-use tokio::io::AsyncWriteExt;
 
 pub struct BlockData<'a>(Box<dyn bytes::Buf + 'a>);
 
@@ -156,6 +155,7 @@ pub enum WriteError {
     Other(#[from] OtherError),
 }
 
+#[derive(Clone)]
 pub struct OutputBlock(Arc<dyn OutputBlockImpl>);
 
 impl OutputBlock {
@@ -187,14 +187,12 @@ impl OutputBlock {
     ) -> impl Iterator<Item = Result<BlockData<'_>, OutputBlockError>> + Unpin + '_ {
         self.0.blocks()
     }
-    pub async fn write_to<W: tokio::io::AsyncWrite + Unpin>(
-        &self,
-        mut writer: W,
-    ) -> Result<(), WriteError> {
+
+    pub fn write_to<W: Write + Unpin>(&self, mut writer: W) -> Result<(), WriteError> {
         for block in self.blocks() {
             let mut block = block.with_other_err()?;
             while block.has_remaining() {
-                let bytes_written = writer.write(block.chunk()).await.with_other_err()?;
+                let bytes_written = writer.write(block.chunk()).with_other_err()?;
                 block.advance(bytes_written);
             }
         }

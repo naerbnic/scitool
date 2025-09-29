@@ -51,7 +51,7 @@ impl FfmpegTool {
         }
     }
 
-    pub async fn convert<I, O>(
+    pub fn convert<I, O>(
         &self,
         input: I,
         output: O,
@@ -62,10 +62,11 @@ impl FfmpegTool {
         I: Input,
         O: Output,
     {
-        let duration = self.probe.read_duration(input.clone()).await?;
+        let duration = self.probe.read_duration(input.clone())?;
+        let rt = tokio::runtime::Builder::new_current_thread().build()?;
         let mut command = tokio::process::Command::new(&self.ffmpeg_path);
-        let input_state = input.create_state().await?;
-        let output_state = output.create_state().await?;
+        let input_state = rt.block_on(input.create_state())?;
+        let output_state = rt.block_on(output.create_state())?;
         let output_format = output_format.into();
         let mut child = command
             .arg("-nostdin")
@@ -84,38 +85,41 @@ impl FfmpegTool {
             .spawn()?;
         let stdout =
             tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
-        let (status, output, _, ()) = futures::join!(
-            child.wait(),
-            output_state.wait(),
-            input_state.wait(),
-            async move {
-                let mut lines = stdout.lines();
-                let mut progress_info = Vec::new();
-                let mut curr_out_time: u64 = 0;
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if let Some((key, value)) = split_key_value_line(&line) {
-                        if key == "progress" {
-                            #[expect(clippy::cast_precision_loss)]
-                            let complete_ratio = (curr_out_time as f64 / 1_000_000.0) / duration;
-                            #[expect(clippy::cast_possible_truncation)]
-                            progress.on_progress(complete_ratio as f32, progress_info);
-                            if value.trim() == "end" {
-                                progress.on_done();
+        let (status, output, _, ()) = rt.block_on(async move {
+            futures::join!(
+                child.wait(),
+                output_state.wait(),
+                input_state.wait(),
+                async move {
+                    let mut lines = stdout.lines();
+                    let mut progress_info = Vec::new();
+                    let mut curr_out_time: u64 = 0;
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if let Some((key, value)) = split_key_value_line(&line) {
+                            if key == "progress" {
+                                #[expect(clippy::cast_precision_loss)]
+                                let complete_ratio =
+                                    (curr_out_time as f64 / 1_000_000.0) / duration;
+                                #[expect(clippy::cast_possible_truncation)]
+                                progress.on_progress(complete_ratio as f32, progress_info);
+                                if value.trim() == "end" {
+                                    progress.on_done();
+                                }
+                                progress_info = Vec::new();
+                            } else {
+                                if key == "out_time_ms"
+                                    && let Ok(time) = value.parse::<u64>()
+                                {
+                                    curr_out_time = time;
+                                }
+                                let value = value.trim().to_string();
+                                progress_info.push((key.to_string(), value));
                             }
-                            progress_info = Vec::new();
-                        } else {
-                            if key == "out_time_ms"
-                                && let Ok(time) = value.parse::<u64>()
-                            {
-                                curr_out_time = time;
-                            }
-                            let value = value.trim().to_string();
-                            progress_info.push((key.to_string(), value));
                         }
                     }
                 }
-            }
-        );
+            )
+        });
         let status = status?;
 
         anyhow::ensure!(

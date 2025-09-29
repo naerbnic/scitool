@@ -58,8 +58,9 @@ impl Probe {
         Probe { path }
     }
 
-    pub(crate) async fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
-        let in_state = input.create_state().await?;
+    pub(crate) fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
+        let rt = tokio::runtime::Builder::new_current_thread().build()?;
+        let in_state = rt.block_on(input.create_state())?;
         let mut command = tokio::process::Command::new(&self.path);
         command
             .arg("-i")
@@ -67,10 +68,12 @@ impl Probe {
             .args(["-v", "error"])
             .args(["-show_entries", "format"])
             .args(["-of", "json"]);
-        let (output, ()) = futures::try_join!(
-            command.output().map_err(anyhow::Error::from),
-            in_state.wait()
-        )?;
+        let (output, ()) = rt.block_on(async move {
+            futures::try_join!(
+                command.output().map_err(anyhow::Error::from),
+                in_state.wait()
+            )
+        })?;
         anyhow::ensure!(
             output.status.success(),
             "ffprobe failed with code {}: {}",
