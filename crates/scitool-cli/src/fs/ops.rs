@@ -110,7 +110,7 @@ pub enum PathKind {
     Other,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum WriteMode {
     /// Overwrite the file if it exists, or create it if it does not.
     Overwrite,

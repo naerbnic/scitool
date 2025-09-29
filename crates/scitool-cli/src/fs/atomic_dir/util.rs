@@ -81,7 +81,7 @@ pub(super) fn write_file_atomic<F, FS>(
     fs: &FS,
     base_dir: &AbsPath,
     tmp_dir: &AbsPath,
-    write_mode: &WriteMode,
+    write_mode: WriteMode,
     path: &RelPath,
     body: F,
 ) -> io::Result<()>

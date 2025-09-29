@@ -35,7 +35,7 @@ const META_PATH: &str = "meta.json";
 const COMPRESSED_BIN_PATH: &str = "compressed.bin";
 const RAW_BIN_PATH: &str = "raw.bin";
 
-async fn buffer_info_from_lazy_block(
+fn buffer_info_from_lazy_block(
     block: &LazyBlock<'_>,
 ) -> Result<schema::BufferInfo, LazyBlockError> {
     let buffer = block.open()?;
@@ -137,10 +137,9 @@ impl<'a> Package<'a> {
         self.metadata.is_dirty() || self.raw_data.is_dirty() || self.compressed_data.is_dirty()
     }
 
-    pub async fn set_raw_data(&mut self, data: LazyBlock<'a>) -> std::io::Result<()> {
+    pub fn set_raw_data(&mut self, data: LazyBlock<'a>) -> std::io::Result<()> {
         // Update the metadata about the raw data.
         let raw_buffer_info = buffer_info_from_lazy_block(&data)
-            .await
             .map_err(io_err_map!(Other, "Failed to compute buffer info"))?;
         {
             let metadata = self.metadata_mut();
@@ -214,7 +213,7 @@ impl<'a> Package<'a> {
     /// This will update the stored path of the package to the new path, ensuring
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
-    pub async fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
+    pub fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
         let atomic_dir = AtomicDir::new_at_dir(&path)?;
 
         let meta_json = serde_json::to_vec(self.metadata.get())
@@ -264,14 +263,14 @@ mod tests {
     use serde_json::Value;
     use tempfile::tempdir;
 
-    #[tokio::test]
-    async fn set_raw_data_updates_metadata_snapshot() -> std::io::Result<()> {
+    #[test]
+    fn set_raw_data_updates_metadata_snapshot() -> std::io::Result<()> {
         let id = ResourceId::new(ResourceType::Script, 123);
         let mut package = Package::new(id);
 
         let raw_bytes = b"hello sci".to_vec();
         let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
-        package.set_raw_data(block).await?;
+        package.set_raw_data(block)?;
 
         let metadata_value =
             serde_json::to_value(package.metadata()).expect("metadata should serialize to JSON");
@@ -306,30 +305,30 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn save_to_writes_files_and_allows_followup_save() -> std::io::Result<()> {
+    #[test]
+    fn save_to_writes_files_and_allows_followup_save() -> std::io::Result<()> {
         let temp_dir = tempdir()?;
         let package_dir = temp_dir.path().join("pkg");
-        tokio::fs::create_dir(&package_dir).await?;
+        std::fs::create_dir(&package_dir)?;
 
         let mut package = Package::new(ResourceId::new(ResourceType::Script, 7));
         let raw_bytes = b"resource data".to_vec();
         let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
-        package.set_raw_data(block).await?;
+        package.set_raw_data(block)?;
 
-        package.save_to(package_dir.clone()).await?;
+        package.save_to(package_dir.clone())?;
 
         assert!(
-            tokio::fs::try_exists(package_dir.join(META_PATH)).await?,
+            std::fs::exists(package_dir.join(META_PATH))?,
             "meta.json should exist after save_to"
         );
 
         assert!(
-            tokio::fs::try_exists(package_dir.join(RAW_BIN_PATH)).await?,
+            std::fs::exists(package_dir.join(RAW_BIN_PATH))?,
             "raw.bin should exist after save_to"
         );
 
-        let meta_bytes = tokio::fs::read(package_dir.join(META_PATH)).await?;
+        let meta_bytes = std::fs::read(package_dir.join(META_PATH))?;
         let meta_json: Value = serde_json::from_slice(&meta_bytes)
             .expect("metadata should deserialize into JSON value");
 

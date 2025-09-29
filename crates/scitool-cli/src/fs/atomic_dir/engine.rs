@@ -561,7 +561,7 @@ where
             &self.fs,
             &self.dir_root,
             &self.dir_root.join_rel(&self.temp_dir),
-            &WriteMode::CreateNew,
+            WriteMode::CreateNew,
             RelPath::new_checked(COMMIT_PATH).map_err(io_err_map!(
                 Other,
                 "Failed to create relative path for commit file"
