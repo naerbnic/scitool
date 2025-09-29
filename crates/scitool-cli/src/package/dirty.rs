@@ -51,6 +51,12 @@ impl<T> Dirty<T> {
     pub(super) fn is_dirty(&self) -> bool {
         self.dirty.is_some()
     }
+
+    pub(super) fn mark_clean(&mut self) {
+        if let Some(dirty) = self.dirty.take() {
+            self.current = Some(dirty);
+        }
+    }
 }
 
 impl<T> Dirty<T>

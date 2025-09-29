@@ -2,8 +2,6 @@
 //!
 //! A *.scires package is a folder that has a `meta.json` file and multiple files in it, to
 //! be able to create a common workable format for importing and exporting SCI resources.
-#![expect(clippy::todo)]
-
 mod dirty;
 pub mod schema;
 
@@ -27,6 +25,7 @@ use crate::{
         atomic_dir::AtomicDir,
         err_helpers::{io_bail, io_err_map},
         io_wrappers::LengthLimitedAsyncReader,
+        ops::WriteMode,
     },
     package::schema::Sha256Hash,
 };
@@ -60,21 +59,26 @@ async fn new_block_source_from_atomic_dir(
             path.as_ref().display()
         );
     }
-    let handle = atomic_dir.as_handle();
+    let handle = atomic_dir.as_read_only_handle();
     let path = path.as_ref().to_owned();
     BlockSource::from_reader_thunk(
         move || {
             let handle = handle.clone();
             let path = path.clone();
-            async move { Ok(handle.open_options().read(true).open(&path).await?) }
+            async move { Ok(handle.open(&path).await?) }
         },
         metadata.len(),
     )
     .map_err(io_err_map!(Other, "Failed to create block source"))
 }
 
-pub struct Package<'a> {
+struct DirectoryInfo {
+    base_path: PathBuf,
     atomic_dir: Option<AtomicDir>,
+}
+
+pub struct Package<'a> {
+    dir_info: Option<DirectoryInfo>,
     metadata: Dirty<Metadata>,
     compressed_data: Dirty<Option<LazyBlock<'a>>>,
     raw_data: Dirty<Option<LazyBlock<'a>>>,
@@ -84,7 +88,7 @@ impl<'a> Package<'a> {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
         Package {
-            atomic_dir: None,
+            dir_info: None,
             metadata: Dirty::new_fresh(Metadata::new_with_id(id)),
             compressed_data: Dirty::new_fresh(None),
             raw_data: Dirty::new_fresh(None),
@@ -95,9 +99,9 @@ impl<'a> Package<'a> {
     where
         P: Into<Cow<'a, Path>>,
     {
-        let path = path.into().into_owned();
+        let base_path = path.into().into_owned();
 
-        let atomic_dir = AtomicDir::new_at_dir(&path).await?;
+        let atomic_dir = AtomicDir::new_at_dir(&base_path).await?;
 
         let mut meta_file = LengthLimitedAsyncReader::new(
             atomic_dir.open_options().read(true).open(META_PATH).await?,
@@ -132,7 +136,10 @@ impl<'a> Package<'a> {
         };
 
         Ok(Self {
-            atomic_dir: Some(atomic_dir),
+            dir_info: Some(DirectoryInfo {
+                base_path,
+                atomic_dir: Some(atomic_dir),
+            }),
             metadata: Dirty::new_stored(metadata),
             compressed_data: Dirty::new_stored(compressed_data),
             raw_data: Dirty::new_stored(raw_data),
@@ -176,23 +183,72 @@ impl<'a> Package<'a> {
     }
 
     pub async fn save(&mut self) -> std::io::Result<()> {
-        // To be maximally safe, the ideal way to save would be to use a multiphase
-        // save process, where we write to temporary files, use the meta.json
-        // file as an atomic reference, and then push the files into place.
-        // This scheme could leave the package in a state where external tools
-        // would not be able to find files in it in predictable ways, but
-        // could be recovered from.
-        //
-        // For the time being, we will just overwrite the files directly.
-
-        let Some(_atomic_dir) = &self.atomic_dir else {
+        let Some(dir_info) = &mut self.dir_info else {
             io_bail!(
                 InvalidInput,
                 "Cannot save a package that was not loaded from a path or saved to a path."
             );
         };
 
-        todo!()
+        let atomic_dir = if let Some(atomic_dir) = dir_info.atomic_dir.take() {
+            atomic_dir
+        } else {
+            AtomicDir::new_at_dir(&dir_info.base_path).await?
+        };
+
+        if self.metadata.is_dirty() {
+            let meta_json = serde_json::to_vec(self.metadata.get())
+                .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
+            atomic_dir
+                .write(META_PATH, WriteMode::Overwrite, &meta_json)
+                .await
+                .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
+            self.metadata.mark_clean();
+        }
+
+        if self.compressed_data.is_dirty() {
+            if let Some(compressed_data) = self.compressed_data.get() {
+                let data = compressed_data
+                    .open()
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
+
+                atomic_dir
+                    .write(COMPRESSED_BIN_PATH, WriteMode::Overwrite, &data)
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+            } else if atomic_dir.exists(COMPRESSED_BIN_PATH).await? {
+                atomic_dir
+                    .delete(COMPRESSED_BIN_PATH)
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
+            }
+            self.compressed_data.mark_clean();
+        }
+
+        if self.raw_data.is_dirty() {
+            if let Some(raw_data) = self.raw_data.get() {
+                let data = raw_data
+                    .open()
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to open raw data"))?;
+
+                atomic_dir
+                    .write(RAW_BIN_PATH, WriteMode::Overwrite, &data)
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+            } else if atomic_dir.exists(RAW_BIN_PATH).await? {
+                atomic_dir
+                    .delete(RAW_BIN_PATH)
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
+            }
+            self.raw_data.mark_clean();
+        }
+
+        atomic_dir.commit().await?;
+
+        Ok(())
     }
 
     /// Saves the package to a new path.
@@ -200,7 +256,42 @@ impl<'a> Package<'a> {
     /// This will update the stored path of the package to the new path, ensuring
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
-    pub async fn save_to(&mut self, _path: PathBuf) -> std::io::Result<()> {
-        todo!()
+    pub async fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
+        let atomic_dir = AtomicDir::new_at_dir(&path).await?;
+
+        let meta_json = serde_json::to_vec(self.metadata.get())
+            .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
+        atomic_dir
+            .write(META_PATH, WriteMode::Overwrite, &meta_json)
+            .await
+            .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
+        self.metadata.mark_clean();
+
+        if let Some(compressed_data) = self.compressed_data.get() {
+            let data = compressed_data
+                .open()
+                .await
+                .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
+
+            atomic_dir
+                .write(COMPRESSED_BIN_PATH, WriteMode::Overwrite, &data)
+                .await
+                .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+        }
+
+        if let Some(raw_data) = self.raw_data.get() {
+            let data = raw_data
+                .open()
+                .await
+                .map_err(io_err_map!(Other, "Failed to open raw data"))?;
+
+            atomic_dir
+                .write(RAW_BIN_PATH, WriteMode::Overwrite, &data)
+                .await
+                .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+        }
+        self.raw_data.mark_clean();
+
+        Ok(())
     }
 }

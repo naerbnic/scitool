@@ -20,10 +20,11 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncWrite, AsyncWriteE
 use crate::fs::{
     atomic_dir::engine::Engine,
     open_tracker::{OpenMarker, OpenTracker},
-    ops::{OpenOptionsFlags, TokioFileSystemOperations, WriteMode},
+    ops::{OpenOptionsFlags, TokioFileSystemOperations},
 };
 
 pub use self::types::{DirEntry, FileType, Metadata};
+pub use crate::fs::ops::WriteMode;
 
 const LOCK_PATH: &str = ".DIR_LOCK";
 const COMMIT_PATH: &str = ".DIR_COMMIT";
@@ -107,10 +108,13 @@ struct WrapperTracker {
 }
 
 impl WrapperTracker {
-    fn new(parent: Arc<Engine<TokioFileSystemOperations>>, open_marker: OpenMarker) -> Self {
+    fn new(
+        parent: Arc<Engine<TokioFileSystemOperations>>,
+        open_marker: Option<OpenMarker>,
+    ) -> Self {
         Self {
             parent: Some(parent),
-            open_marker: Some(open_marker),
+            open_marker,
         }
     }
 
@@ -221,9 +225,16 @@ impl Inner {
         }
     }
     async fn open_file(&self, path: &Path, options: OpenOptionsFlags) -> io::Result<AtomicDirFile> {
+        // Only prevent commit if the file can be changed.
+        let marker = if options.can_change_file() {
+            Some(self.open_tracker.spawn_marker())
+        } else {
+            None
+        };
+
         Ok(AtomicDirFile::new(
             self.engine.open_file(path, &options).await?,
-            WrapperTracker::new(self.engine.clone(), self.open_tracker.spawn_marker()),
+            WrapperTracker::new(self.engine.clone(), marker),
         ))
     }
 
@@ -244,18 +255,15 @@ impl Inner {
 /// It provides a subset of the functionality of `AtomicDir`, primarily focused
 /// on operating on files within the directory.
 #[derive(Clone)]
-pub struct Handle {
+pub struct ReadOnlyHandle {
     inner: Inner,
-    _marker: OpenMarker,
 }
 
-impl Handle {
-    #[must_use]
-    pub fn open_options(&self) -> OpenOptions<'_> {
-        OpenOptions {
-            parent: &self.inner,
-            flags: OpenOptionsFlags::default(),
-        }
+impl ReadOnlyHandle {
+    pub async fn open(&self, path: &Path) -> io::Result<AtomicDirFile> {
+        let mut flags = OpenOptionsFlags::default();
+        flags.set_read(true);
+        self.inner.open_file(path, flags).await
     }
 }
 
@@ -317,11 +325,10 @@ impl AtomicDir {
     }
 
     #[must_use]
-    pub fn as_handle(&self) -> Handle {
+    pub fn as_read_only_handle(&self) -> ReadOnlyHandle {
         let inner = self.inner.as_ref().unwrap();
-        Handle {
+        ReadOnlyHandle {
             inner: inner.clone(),
-            _marker: inner.open_tracker.spawn_marker(),
         }
     }
 

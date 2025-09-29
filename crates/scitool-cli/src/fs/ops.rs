@@ -59,7 +59,7 @@ impl OpenOptionsFlags {
         // We need a temporary file if we are going to modify the file.
         //
         // This is used to determine if we need to provide a temporary path for writing.
-        self.write || self.append || self.truncate || self.create_new
+        self.write || self.append || self.truncate || self.create_new || self.create
     }
 
     #[must_use]
