@@ -1,6 +1,6 @@
-mod error;
 mod core;
+mod error;
 mod object_data;
 
-pub(super) use error::{Error, ObjectError};
 pub use core::Object;
+pub(super) use error::{Error, ObjectError};

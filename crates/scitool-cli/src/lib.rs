@@ -1,3 +1,3 @@
 pub mod commands;
-pub mod package;
 pub mod fs;
+pub mod package;

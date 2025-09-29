@@ -85,10 +85,7 @@ struct WrapperTracker {
 }
 
 impl WrapperTracker {
-    fn new(
-        parent: Arc<Engine<StdFileSystemOperations>>,
-        open_marker: Option<OpenMarker>,
-    ) -> Self {
+    fn new(parent: Arc<Engine<StdFileSystemOperations>>, open_marker: Option<OpenMarker>) -> Self {
         Self {
             parent: Some(parent),
             open_marker,

@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use futures::{FutureExt, TryStreamExt, stream::FuturesUnordered};
-use scidub_cli::{file::AudioSampleScan, path::LookupPath, resources::SampleDir, tools::ffmpeg::FfmpegTool};
+use scidub_cli::{
+    file::AudioSampleScan, path::LookupPath, resources::SampleDir, tools::ffmpeg::FfmpegTool,
+};
 
 async fn execute_all<F>(futures: impl IntoIterator<Item = F>) -> anyhow::Result<()>
 where

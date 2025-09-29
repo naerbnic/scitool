@@ -3,7 +3,7 @@ use std::fmt::Display;
 mod file;
 pub mod types;
 
-pub use file::{ExtraData, ResourceSet, Resource};
+pub use file::{ExtraData, Resource, ResourceSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
