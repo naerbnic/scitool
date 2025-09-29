@@ -58,3 +58,28 @@ impl DirEntry {
         self.file_type
     }
 }
+
+pub struct Metadata {
+    file_type: FileType,
+    len: u64,
+}
+
+impl Metadata {
+    pub(super) fn new(file_type: FileType, len: u64) -> Self {
+        Metadata { file_type, len }
+    }
+
+    #[must_use]
+    pub fn file_type(&self) -> FileType {
+        self.file_type
+    }
+
+    #[expect(
+        clippy::len_without_is_empty,
+        reason = "Not being used to represent containers"
+    )]
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+}

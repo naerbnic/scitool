@@ -10,7 +10,7 @@ use tokio::{io::AsyncWriteExt as _, sync::Mutex};
 
 use crate::fs::{
     atomic_dir::{
-        COMMIT_PATH, LOCK_PATH,
+        COMMIT_PATH, LOCK_PATH, Metadata,
         recovery::recover_path,
         schema::{CommitEntry, CommitSchema, DeleteEntry, OverwriteEntry},
         types::{DirEntry, FileType},
@@ -495,6 +495,39 @@ where
                 Ok(self.fs.get_path_kind(&abs_target_path).await?.is_some())
             }
         }
+    }
+
+    pub(super) async fn metadata(&self, path: &Path) -> io::Result<Metadata> {
+        let rel_target_path = self.normalize_path(path)?;
+        let abs_target_path = self.dir_root.join_rel(&rel_target_path);
+        let abs_temp_path = self
+            .dir_root
+            .join_rel(&self.temp_dir)
+            .join_rel(&rel_target_path);
+
+        let locked_state = self.state.lock().await;
+        let meta = match locked_state.file_statuses.get(&rel_target_path) {
+            Some(TempFileStatus::Deleted) => io_bail!(NotFound, "Path has been deleted"),
+            Some(TempFileStatus::Written) => self
+                .fs
+                .metadata(&abs_temp_path)
+                .await
+                .map_err(io_err_map!(Other, "Failed to get file metadata"))?,
+            Some(TempFileStatus::Unchanged) | None => {
+                // We have not changed this file, so check the main directory.
+                self.fs
+                    .metadata(&abs_target_path)
+                    .await
+                    .map_err(io_err_map!(Other, "Failed to get file metadata"))?
+            }
+        };
+
+        let file_type = if meta.is_dir() {
+            FileType::new_of_dir()
+        } else {
+            FileType::new_of_file()
+        };
+        Ok(Metadata::new(file_type, meta.len()))
     }
 
     pub(super) async fn abort(mut self) -> io::Result<()> {

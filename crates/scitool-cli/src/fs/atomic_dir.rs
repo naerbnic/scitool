@@ -23,7 +23,7 @@ use crate::fs::{
     ops::{OpenOptionsFlags, TokioFileSystemOperations, WriteMode},
 };
 
-pub use self::types::{DirEntry, FileType};
+pub use self::types::{DirEntry, FileType, Metadata};
 
 const LOCK_PATH: &str = ".DIR_LOCK";
 const COMMIT_PATH: &str = ".DIR_COMMIT";
@@ -378,6 +378,13 @@ impl AtomicDir {
         } else {
             Ok(())
         }
+    }
+
+    pub async fn metadata<P>(&self, path: &P) -> io::Result<Metadata>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        self.get_inner().metadata(path.as_ref()).await
     }
 }
 

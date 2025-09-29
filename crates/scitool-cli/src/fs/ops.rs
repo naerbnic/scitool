@@ -1,6 +1,6 @@
 use std::{
     ffi::{OsStr, OsString},
-    fs::TryLockError,
+    fs::{Metadata, TryLockError},
     io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -224,6 +224,8 @@ pub trait FileSystemOperations: Send {
     ) -> impl Future<Output = io::Result<Self::File>>;
 
     fn open_lock_file(&self, path: &Path) -> impl Future<Output = io::Result<Self::FileLock>>;
+
+    fn metadata(&self, path: &Path) -> impl Future<Output = io::Result<Metadata>>;
 }
 
 pub struct TokioFileLock {
@@ -428,5 +430,9 @@ impl FileSystemOperations for TokioFileSystemOperations {
         Ok(TokioFileLock {
             file: Arc::new(std_file),
         })
+    }
+
+    async fn metadata(&self, path: &Path) -> io::Result<Metadata> {
+        tokio::fs::metadata(path).await
     }
 }

@@ -48,8 +48,33 @@ async fn buffer_info_from_lazy_block(
     Ok(schema::BufferInfo::new(size, hash))
 }
 
+async fn new_block_source_from_atomic_dir(
+    atomic_dir: &AtomicDir,
+    path: impl AsRef<Path>,
+) -> std::io::Result<BlockSource<'static>> {
+    let metadata = atomic_dir.metadata(path.as_ref()).await?;
+    if !metadata.file_type().is_file() {
+        io_bail!(
+            InvalidInput,
+            "Path is not a file: {}",
+            path.as_ref().display()
+        );
+    }
+    let handle = atomic_dir.as_handle();
+    let path = path.as_ref().to_owned();
+    BlockSource::from_reader_thunk(
+        move || {
+            let handle = handle.clone();
+            let path = path.clone();
+            async move { Ok(handle.open_options().read(true).open(&path).await?) }
+        },
+        metadata.len(),
+    )
+    .map_err(io_err_map!(Other, "Failed to create block source"))
+}
+
 pub struct Package<'a> {
-    target_path: Option<PathBuf>,
+    atomic_dir: Option<AtomicDir>,
     metadata: Dirty<Metadata>,
     compressed_data: Dirty<Option<LazyBlock<'a>>>,
     raw_data: Dirty<Option<LazyBlock<'a>>>,
@@ -59,7 +84,7 @@ impl<'a> Package<'a> {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
         Package {
-            target_path: None,
+            atomic_dir: None,
             metadata: Dirty::new_fresh(Metadata::new_with_id(id)),
             compressed_data: Dirty::new_fresh(None),
             raw_data: Dirty::new_fresh(None),
@@ -85,29 +110,17 @@ impl<'a> Package<'a> {
             .map_err(io_err_map!(InvalidData, "Failed to parse metadata JSON"))?;
 
         let compressed_data = if atomic_dir.exists(COMPRESSED_BIN_PATH).await? {
-            let handle = atomic_dir.as_handle();
-            let block_source = BlockSource::from_reader_thunk(
-                move || {
-                    let handle = handle.clone();
-                    async move {
-                        Ok(handle
-                            .open_options()
-                            .read(true)
-                            .open(COMPRESSED_BIN_PATH)
-                            .await?)
-                    }
-                },
-                0,
-            )
-            .map_err(io_err_map!(Other, "Failed to create block source"))?;
+            let block_source = new_block_source_from_atomic_dir(&atomic_dir, COMPRESSED_BIN_PATH)
+                .await
+                .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {
             None
         };
 
-        let raw_path = path.join(RAW_BIN_PATH);
-        let raw_data = if raw_path.exists() {
-            let block_source = BlockSource::from_path(raw_path)
+        let raw_data = if atomic_dir.exists(RAW_BIN_PATH).await? {
+            let block_source = new_block_source_from_atomic_dir(&atomic_dir, RAW_BIN_PATH)
+                .await
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {
@@ -119,7 +132,7 @@ impl<'a> Package<'a> {
         };
 
         Ok(Self {
-            target_path: Some(path),
+            atomic_dir: Some(atomic_dir),
             metadata: Dirty::new_stored(metadata),
             compressed_data: Dirty::new_stored(compressed_data),
             raw_data: Dirty::new_stored(raw_data),
@@ -172,7 +185,7 @@ impl<'a> Package<'a> {
         //
         // For the time being, we will just overwrite the files directly.
 
-        let Some(_path) = &self.target_path else {
+        let Some(_atomic_dir) = &self.atomic_dir else {
             io_bail!(
                 InvalidInput,
                 "Cannot save a package that was not loaded from a path or saved to a path."
@@ -187,16 +200,7 @@ impl<'a> Package<'a> {
     /// This will update the stored path of the package to the new path, ensuring
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
-    pub async fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
-        std::fs::create_dir_all(&path)
-            .map_err(io_err_map!(Other, "Failed to create package directory"))?;
-        let old_target_path = self.target_path.replace(path);
-        match self.save().await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                self.target_path = old_target_path;
-                Err(e)
-            }
-        }
+    pub async fn save_to(&mut self, _path: PathBuf) -> std::io::Result<()> {
+        todo!()
     }
 }
