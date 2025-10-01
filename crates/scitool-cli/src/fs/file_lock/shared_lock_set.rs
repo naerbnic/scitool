@@ -45,6 +45,17 @@ impl Lock {
     pub(super) fn lock_type(&self) -> LockType {
         self.lock_type
     }
+
+    pub(super) fn into_file(self) -> File {
+        // It really should be the case that same_file::Handle should be
+        // convertible back to File, but it doesn't seem to be possible.
+        // So we just clone the file handle.
+        self.handle
+            .as_file()
+            .try_clone()
+            .expect("Failed to clone file")
+        // self will be dropped here, releasing the lock
+    }
 }
 
 impl Drop for Lock {

@@ -1,4 +1,5 @@
 mod shared_lock_set;
+pub mod ephemeral;
 
 use std::{
     fs::File,
