@@ -5,3 +5,4 @@ pub mod open_tracker;
 pub mod ops;
 pub mod owned_arc;
 pub mod paths;
+pub mod file_lock;

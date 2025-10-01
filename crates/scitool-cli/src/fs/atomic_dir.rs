@@ -1,6 +1,7 @@
 //! Atomic directory implementation.
 
 mod engine;
+mod new_engine;
 mod recovery;
 mod schema;
 mod types;
