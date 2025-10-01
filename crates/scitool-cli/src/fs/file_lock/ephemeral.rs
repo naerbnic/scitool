@@ -42,13 +42,15 @@ mod sealed {
         path: PathBuf,
     }
 
+    // To follow the protocol, we need to be able to reliably open and unlink
+    // the same file. This trait abstracts over the two ways we support doing that
     pub(super) trait FileManager {
         fn open_file(&self, mode: LockOpenMode) -> io::Result<File>;
         fn unlink_file(&self) -> io::Result<()>;
     }
 
-    // Note: This needs to be public, as it's in the public API of EphemeralLock,
-    // but it should not be constructible outside this module.
+    // Note: This needs to be public, as it's in the public API of lock_file()
+    // and try_lock_file(), functions, but it should not be used by clients.
     #[doc(hidden)]
     pub struct LockFileManager(Box<dyn FileManager + Send + Sync>);
 
