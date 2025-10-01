@@ -19,7 +19,12 @@
 
 use std::{fs::TryLockError, io};
 
-use crate::fs::file_lock::{LockType, shared_lock_set};
+use same_file::Handle as SameFileHandle;
+
+use crate::fs::{
+    err_helpers::io_err,
+    file_lock::{LockType, shared_lock_set},
+};
 
 mod sealed {
 
@@ -137,6 +142,70 @@ mod sealed {
     }
 }
 
+const MAX_RETRIES: usize = 10000;
+
+#[derive(Debug, thiserror::Error)]
+enum SafeLockError {
+    #[error("Nonblocking was requested, and the file is already locked")]
+    WouldBlock,
+    #[error("The lock file was deleted while trying to acquire the lock")]
+    Deleted(std::fs::File),
+    #[error(transparent)]
+    Error(#[from] io::Error),
+}
+
+impl From<TryLockError> for SafeLockError {
+    fn from(value: TryLockError) -> Self {
+        match value {
+            TryLockError::WouldBlock => SafeLockError::WouldBlock,
+            TryLockError::Error(e) => SafeLockError::Error(e),
+        }
+    }
+}
+
+fn take_lock_safe(
+    lock_file: std::fs::File,
+    manager: &sealed::LockFileManager,
+    lock_type: LockType,
+    block: bool,
+) -> Result<shared_lock_set::Lock, SafeLockError> {
+    // Take the expected lock on the file. This path is for blocking locks.
+    let lock = if block {
+        shared_lock_set::lock_file(&lock_file, lock_type)?
+    } else {
+        shared_lock_set::try_lock_file(&lock_file, lock_type)?
+    };
+
+    // We have the lock we expect, but it's possible that the file we
+    // locked is not the current file at the path. This can happen
+    // if another process deleted and recreated the file between when
+    // we opened it and when we locked it. We need to verify that
+    // the file we locked is still the current file at the path.
+    let current_file = match manager.open_file(LockOpenMode::OpenExisting) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            // The file we locked was deleted out from under us.
+            // We need to go through the process again.
+            let lock_file = manager.open_file(LockOpenMode::OpenOrCreate)?;
+            return Err(SafeLockError::Deleted(lock_file));
+        }
+        Err(e) => return Err(e.into()),
+    };
+    // This is not particularly efficient, but it should be quick
+    // enough that it doesn't matter.
+
+    let lock_file_handle = SameFileHandle::from_file(lock_file)?;
+    let current_file_handle = SameFileHandle::from_file(current_file.try_clone()?)?;
+    if lock_file_handle == current_file_handle {
+        // We verified that the file we locked is the current file at the path.
+        // If other clients are well-behaved, the won't change the file without
+        // taking an exclusive lock, so it shouldn't be removed out from under us.
+        return Ok(lock);
+    }
+
+    Err(SafeLockError::Deleted(current_file))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LockOpenMode {
     OpenOrCreate,
@@ -157,62 +226,69 @@ where
     }
 }
 
-pub fn open_lock_file<P>(path: &P, lock_type: LockType) -> io::Result<EphemeralFileLock>
+fn open_lock_file_impl<P>(
+    path: &P,
+    lock_type: LockType,
+    block: bool,
+) -> Result<EphemeralFileLock, TryLockError>
 where
     P: sealed::AsFileManager,
 {
-    let manager = path.to_file_manager()?;
+    let manager = path.to_file_manager().map_err(TryLockError::Error)?;
 
     // Initial opening of the file. This should succeed unless there is a
     // permissions issue or similar.
-    let mut file = manager.open_file(LockOpenMode::OpenOrCreate)?;
+    let mut file = manager
+        .open_file(LockOpenMode::OpenOrCreate)
+        .map_err(TryLockError::Error)?;
 
     // In theory, this loop could spin forever if another process
     // keeps deleting and recreating the file. In practice, this makes progress
     // in the same sense that atomic operations make progress: If we don't make
     // progress, it's because another process is making progress.
-    loop {
-        // Take the expected lock on the file. This path is for blocking locks.
-        let lock = shared_lock_set::lock_file(&file, lock_type)?;
-
-        // We have the lock we expect, but it's possible that the file we
-        // locked is not the current file at the path. This can happen
-        // if another process deleted and recreated the file between when
-        // we opened it and when we locked it. We need to verify that
-        // the file we locked is still the current file at the path.
-        let current_file = match manager.open_file(LockOpenMode::OpenExisting) {
-            Ok(f) => f,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+    //
+    // To be completely safe, we limit the number of retries.
+    for _ in 0..MAX_RETRIES {
+        match take_lock_safe(file, &manager, lock_type, block) {
+            Ok(l) => {
+                return Ok(EphemeralFileLock {
+                    lock: Some(l),
+                    manager,
+                });
+            }
+            Err(SafeLockError::WouldBlock) => {
+                // Nonblocking was requested, and the file is already locked.
+                return Err(TryLockError::WouldBlock);
+            }
+            Err(SafeLockError::Error(e)) => return Err(TryLockError::Error(e)),
+            Err(SafeLockError::Deleted(f)) => {
                 // The file we locked was deleted out from under us.
                 // We need to go through the process again.
-                file = manager.open_file(LockOpenMode::OpenOrCreate)?;
-                continue;
+                file = f;
+                // The loop will continue here.
             }
-            Err(e) => return Err(e),
-        };
-        // This is not particularly efficient, but it should be quick
-        // enough that it doesn't matter.
-
-        let lock_file_handle = same_file::Handle::from_file(file)?;
-        let current_file_handle = same_file::Handle::from_file(current_file.try_clone()?)?;
-        if lock_file_handle == current_file_handle {
-            // We verified that the file we locked is the current file at the path.
-            // If other clients are well-behaved, the won't change the file without
-            // taking an exclusive lock, so it shouldn't be removed out from under us.
-            return Ok(EphemeralFileLock {
-                lock: Some(lock),
-                manager,
-            });
         }
-        // The file we locked is not the current file at the path.
-        // We need to go through the process again.
-        //
-        // This should be a rare occurrence, so we don't need to worry about
-        // performance too much here.
-        //
-        // The current_file we opened is a new candidate for the file to lock.
-        file = current_file;
     }
+
+    Err(TryLockError::Error(io_err!(
+        TimedOut,
+        "Failed to acquire lock after {} retries",
+        MAX_RETRIES
+    )))
+}
+
+pub fn lock_file<P>(path: &P, lock_type: LockType) -> io::Result<EphemeralFileLock>
+where
+    P: sealed::AsFileManager,
+{
+    Ok(open_lock_file_impl(path, lock_type, true)?)
+}
+
+pub fn try_lock_file<P>(path: &P, lock_type: LockType) -> Result<EphemeralFileLock, TryLockError>
+where
+    P: sealed::AsFileManager,
+{
+    open_lock_file_impl(path, lock_type, false)
 }
 
 pub struct EphemeralFileLock {
@@ -227,21 +303,32 @@ impl Drop for EphemeralFileLock {
             return;
         };
 
-        // The cleanup logic requires that we drop our lock and try once to
-        // take an exclusive lock on the file. If we can take the exclusive
-        // lock, we know that no other process is using the file, so we can
-        // safely delete it. If we can't take the exclusive lock, we leave
-        // the file alone, since another process is using it.
+        // If we have an exclusive lock here, we could just delete the file
+        // and still be following the protocol, but there is a chance that
+        // this could create live locks. If another process is waiting for
+        // a lock of any kind, when we delete the file, it will succeed but
+        // fail the same file check. Then it will have to try again, which
+        // if there is nontrivial contention basically makes it a free-for-all
+        // who gets to the lock first.
+        //
+        // By always releasing our lock and then trying to take an exclusive
+        // lock, we are effectively yielding to the OS to give it an opportunity
+        // to give the lock to another waiting process. This should reduce
+        // contention and make it more likely that waiters will get the lock
+        // in a fair order.
 
+        // Release the lock and get the file handle back.
         let lock_file = lock.into_file();
-        let _new_lock = match shared_lock_set::try_lock_file(&lock_file, LockType::Exclusive) {
-            Ok(l) => l,
-            Err(TryLockError::WouldBlock) => {
-                // One or more other processes are using the file. We leave it to
+
+        let _new_lock = match take_lock_safe(lock_file, &self.manager, LockType::Exclusive, false) {
+            Ok(lock) => lock,
+            Err(SafeLockError::WouldBlock | SafeLockError::Deleted(_)) => {
+                // One or more other processes are using the file or has deleted
+                // it which allows another process to acquire the lock. We leave it to
                 // one of them to clean it up later.
                 return;
             }
-            Err(TryLockError::Error(e)) => {
+            Err(SafeLockError::Error(e)) => {
                 // We had an unexpected error trying to take the lock.
                 // We can't safely delete the file, so we leave it alone.
                 panic!("File error occurred on lock acquisition: {e}")
