@@ -3,7 +3,6 @@
 use std::{
     ffi::OsString,
     io::Result,
-    ops::{Deref, DerefMut},
     path::{Component, Path},
 };
 
@@ -17,24 +16,14 @@ use crate::fs::{
 const COMMIT_FILE_SUFFIX: &str = ".commit";
 const LOCK_FILE_NAME: &str = ".dirlock";
 
-/// A transparent wrapper around a lock file.
-///
-/// This is used to provide the expected constraints of the lock file for
-/// `file_guard`.
-struct LockFileWrapper(std::fs::File);
+fn are_dirs_equal(dir1: &Dir, dir2: &Dir) -> Result<bool> {
+    let file1 = dir1.try_clone()?.into_std_file();
+    let file2 = dir2.try_clone()?.into_std_file();
 
-impl Deref for LockFileWrapper {
-    type Target = std::fs::File;
+    let handle1 = same_file::Handle::from_file(file1)?;
+    let handle2 = same_file::Handle::from_file(file2)?;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for LockFileWrapper {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+    Ok(handle1 == handle2)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -144,6 +133,10 @@ impl DirHandle {
         Self::open_impl(dir_path, OpenDirMode::Create, should_block)
     }
 
+    pub(crate) fn downgrade(&mut self, should_block: bool) -> Result<()> {
+        self.lock.downgrade(should_block)
+    }
+
     pub(crate) fn upgrade(&mut self, should_block: bool) -> Result<()> {
         self.lock.upgrade(should_block)?;
         Ok(())
@@ -155,6 +148,34 @@ impl DirHandle {
 
     pub(crate) fn mark_as_written(&mut self) -> Result<()> {
         self.lock.mark_as_written()
+    }
+
+    pub(crate) fn atomic_replace(&mut self, from_dir: DirHandle) -> Result<()> {
+        // Ensure the two directories are siblings.
+        if !are_dirs_equal(&self.parent_dir, &from_dir.parent_dir)? {
+            io_bail!(
+                Other,
+                "Cannot rename from a directory in a different parent directory"
+            );
+        }
+        // Ensure the root dir is still the same as when we opened it.
+        let current_root = self.parent_dir.open_dir(&self.root_dir_name)?;
+        let current_root_file = current_root.into_std_file();
+        let opened_root_file = self.root_dir.try_clone()?.into_std_file();
+
+        let current_root_handle = same_file::Handle::from_file(current_root_file)?;
+        let opened_root_handle = same_file::Handle::from_file(opened_root_file)?;
+
+        if current_root_handle != opened_root_handle {
+            io_bail!(
+                Other,
+                "Directory has changed since it was opened; cannot rename"
+            );
+        }
+
+        drop(from_dir);
+
+        Ok(())
     }
 }
 
