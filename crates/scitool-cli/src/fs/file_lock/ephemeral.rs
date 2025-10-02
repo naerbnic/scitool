@@ -21,10 +21,7 @@ use std::{fs::TryLockError, io};
 
 use same_file::Handle as SameFileHandle;
 
-use crate::fs::{
-    err_helpers::io_err,
-    file_lock::{LockType, shared_lock_set},
-};
+use crate::fs::{err_helpers::io_err, file_lock::shared_lock_set};
 
 mod sealed {
 
@@ -213,6 +210,8 @@ enum LockOpenMode {
     OpenOrCreate,
     OpenExisting,
 }
+
+pub use shared_lock_set::LockType;
 
 pub struct DirRelativePath<'a, P> {
     dir: &'a cap_std::fs::Dir,
