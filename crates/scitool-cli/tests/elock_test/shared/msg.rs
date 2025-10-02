@@ -1,6 +1,7 @@
 use std::{
     io::{Error as IoError, Result as IoResult},
     pin::Pin,
+    time::Duration,
 };
 
 use futures::{Sink, Stream};
@@ -116,4 +117,18 @@ pub(crate) enum ManagerMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum WorkerMessage {}
+pub(crate) struct LockAcquired {
+    pub lock_time: Duration,
+    pub expected_hold_time: Duration,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct LockReleased {
+    pub unlock_time: Duration,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum WorkerMessage {
+    LockAcquired(LockAcquired),
+    LockReleased(LockReleased),
+}

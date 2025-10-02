@@ -141,8 +141,8 @@ async fn main() -> anyhow::Result<()> {
             Ok::<(), IoError>(())
         },
         async {
-            while let Some((_, msg)) = receiver.recv().await {
-                eprintln!("Received message from worker: {msg:?}");
+            while let Some((id, msg)) = receiver.recv().await {
+                eprintln!("Received message from worker {id}: {msg:?}");
             }
             Ok(())
         }

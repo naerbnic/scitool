@@ -2,12 +2,12 @@
 
 use crate::shared::{
     config::WorkerConfig,
-    msg::{ManagerMessage, create_message_sink, create_message_stream},
+    msg::{ManagerMessage, WorkerMessage, create_message_sink, create_message_stream},
 };
 
 use std::io::Error as IoError;
 
-use futures::StreamExt as _;
+use futures::{SinkExt as _, StreamExt as _};
 
 use scitool_cli::fs::file_lock::ephemeral;
 
@@ -49,7 +49,7 @@ where
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut msg_input = create_message_stream(tokio::io::stdin());
-    let mut _msg_output = create_message_sink(tokio::io::stdout());
+    let msg_output = create_message_sink(tokio::io::stdout());
 
     let config: WorkerConfig = serde_json::from_value(
         msg_input
@@ -65,6 +65,11 @@ async fn main() -> anyhow::Result<()> {
         Ok::<_, IoError>(msg)
     });
 
+    let msg_output = msg_output.with(async move |msg: WorkerMessage| {
+        let msg = serde_json::to_value(msg)?;
+        Ok::<_, IoError>(msg)
+    });
+
     let lock_type = if config.use_shared {
         ephemeral::LockType::Shared
     } else {
@@ -72,29 +77,56 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let (mut canceller, token) = cancel::Canceller::new();
+    let (send, mut recv) = tokio::sync::mpsc::channel::<WorkerMessage>(16);
 
     tokio::join!(
         async {
             while !token.is_cancelled() {
-                let _lock = spawn_blocking_propagate({
+                let (lock, lock_time) = spawn_blocking_propagate({
                     let config = config.clone();
                     move || {
                         let start = std::time::Instant::now();
                         let lock = ephemeral::lock_file(&config.lock_file_path, lock_type)
                             .expect("Failed to acquire lock");
-                        eprintln!("Lock acquired in {:?}", start.elapsed());
-                        lock
+                        (lock, start.elapsed())
                     }
                 })
                 .await;
-                let duration = rand::random_range(config.hold_ms.min..config.hold_ms.max);
-                // Do random work until stopped.
-                eprintln!(
-                    "Holding lock for {} ms (shared: {})",
-                    duration.as_millis(),
-                    config.use_shared
-                );
-                tokio::time::sleep(duration).await;
+                let expected_hold_time = rand::random_range(config.hold_ms.min..config.hold_ms.max);
+                let deadline = tokio::time::Instant::now() + expected_hold_time;
+
+                send.send(WorkerMessage::LockAcquired(
+                    crate::shared::msg::LockAcquired {
+                        lock_time,
+                        expected_hold_time,
+                    },
+                ))
+                .await
+                .expect("Failed to send lock acquired message");
+
+                tokio::time::sleep_until(deadline).await;
+
+                let unlock_time = spawn_blocking_propagate(move || {
+                    let start = std::time::Instant::now();
+                    drop(lock);
+                    start.elapsed()
+                })
+                .await;
+
+                send.send(WorkerMessage::LockReleased(
+                    crate::shared::msg::LockReleased { unlock_time },
+                ))
+                .await
+                .expect("Failed to send lock released message");
+            }
+        },
+        async {
+            let mut msg_output = std::pin::pin!(msg_output);
+            while let Some(msg) = recv.recv().await {
+                msg_output
+                    .send(msg)
+                    .await
+                    .expect("Failed to send lock released message");
             }
         },
         async {
