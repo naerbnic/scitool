@@ -8,13 +8,43 @@ use crate::shared::{
 use std::io::Error as IoError;
 
 use futures::StreamExt as _;
-use tokio::sync::oneshot::error::TryRecvError;
 
 use scitool_cli::fs::file_lock::ephemeral;
 
 // Shared module between manager and worker
 #[path = "../shared/mod.rs"]
 mod shared;
+
+mod cancel;
+
+async fn spawn_blocking_propagate<F, T>(f: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (send, recv) = tokio::sync::oneshot::channel();
+    let result = tokio::task::spawn_blocking(move || {
+        drop(send.send(f()));
+    })
+    .await;
+    if let Err(err) = result {
+        match err.try_into_panic() {
+            Ok(panic) => std::panic::resume_unwind(panic),
+            Err(err) => {
+                if err.is_cancelled() {
+                    unreachable!("Impossible for the task to be cancelled")
+                } else {
+                    panic!("Blocking task failed: {err}")
+                }
+            }
+        }
+    }
+
+    // The only way we should get here is if the task completed successfully.
+    // It's possible that the task panicked after sending
+    recv.await
+        .expect("If we're here, the task must have completed successfully")
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -41,36 +71,30 @@ async fn main() -> anyhow::Result<()> {
         ephemeral::LockType::Exclusive
     };
 
-    let (send, mut recv) = tokio::sync::oneshot::channel::<()>();
+    let (mut canceller, token) = cancel::Canceller::new();
 
     tokio::join!(
         async {
-            loop {
-                match recv.try_recv() {
-                    Ok(()) | Err(TryRecvError::Closed) => break,
-                    Err(TryRecvError::Empty) => {
-                        let duration = rand::random_range(config.hold_ms.min..config.hold_ms.max);
-                        let _lock = tokio::task::spawn_blocking({
-                            let config = config.clone();
-                            move || {
-                                let start = std::time::Instant::now();
-                                let lock = ephemeral::lock_file(&config.lock_file_path, lock_type)
-                                    .expect("Failed to acquire lock");
-                                eprintln!("Lock acquired in {:?}", start.elapsed());
-                                lock
-                            }
-                        })
-                        .await
-                        .expect("Lock task panicked");
-                        // Do random work until stopped.
-                        eprintln!(
-                            "Holding lock for {} ms (shared: {})",
-                            duration.as_millis(),
-                            config.use_shared
-                        );
-                        tokio::time::sleep(duration).await;
+            while !token.is_cancelled() {
+                let _lock = spawn_blocking_propagate({
+                    let config = config.clone();
+                    move || {
+                        let start = std::time::Instant::now();
+                        let lock = ephemeral::lock_file(&config.lock_file_path, lock_type)
+                            .expect("Failed to acquire lock");
+                        eprintln!("Lock acquired in {:?}", start.elapsed());
+                        lock
                     }
-                }
+                })
+                .await;
+                let duration = rand::random_range(config.hold_ms.min..config.hold_ms.max);
+                // Do random work until stopped.
+                eprintln!(
+                    "Holding lock for {} ms (shared: {})",
+                    duration.as_millis(),
+                    config.use_shared
+                );
+                tokio::time::sleep(duration).await;
             }
         },
         async {
@@ -84,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
             match msg {
                 ManagerMessage::Stop => {
                     eprintln!("Received stop signal, stopping work...");
-                    send.send(()).expect("Failed to send stop signal");
+                    canceller.cancel();
                 }
             }
             eprintln!("Message reader exiting...");
