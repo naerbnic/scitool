@@ -12,6 +12,8 @@ use tokio::io::{
 
 use serde::{Deserialize, Serialize};
 
+use crate::shared::config::WorkerConfig;
+
 pub(crate) type BoxedMessageStream<T> = Pin<Box<dyn Stream<Item = IoResult<T>> + Send + 'static>>;
 
 pub(crate) type BoxedMessageSink<T> = Pin<Box<dyn Sink<T, Error = IoError> + Send>>;
@@ -113,6 +115,7 @@ where
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum ManagerMessage {
+    Start(WorkerConfig),
     Stop,
 }
 

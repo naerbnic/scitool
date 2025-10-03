@@ -32,11 +32,7 @@ struct ChildManager {
 }
 
 impl ChildManager {
-    async fn spawn_new(
-        id: usize,
-        config: &WorkerConfig,
-        sender: mpsc::Sender<(usize, WorkerMessage)>,
-    ) -> IoResult<Self> {
+    async fn spawn_new(id: usize, sender: mpsc::Sender<(usize, WorkerMessage)>) -> IoResult<Self> {
         let mut child_proc = tokio::process::Command::new(env!("CARGO_BIN_EXE_elock_test_worker"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -44,8 +40,7 @@ impl ChildManager {
             .spawn()?;
         let child_stdin = child_proc.stdin.take().expect("Failed to open stdin");
         let child_stdout = child_proc.stdout.take().expect("Failed to open stdout");
-        let mut msg_output = create_message_sink(child_stdin);
-        msg_output.send(serde_json::to_value(config)?).await?;
+        let msg_output = create_message_sink(child_stdin);
         let msg_input = create_message_stream(child_stdout);
         let worker_msg_task = tokio::spawn({
             async move {
@@ -122,14 +117,12 @@ struct ChildSet {
 impl ChildSet {
     async fn new(
         num_children: usize,
-        config: &WorkerConfig,
         sender: mpsc::Sender<(usize, WorkerMessage)>,
     ) -> IoResult<Self> {
         let children = (0..num_children)
             .map(|id| {
-                let config = config.clone();
                 let sender = sender.clone();
-                async move { ChildManager::spawn_new(id, &config, sender.clone()).await }
+                async move { ChildManager::spawn_new(id, sender.clone()).await }
             })
             .collect::<FuturesUnordered<_>>()
             .try_collect()
@@ -150,6 +143,13 @@ impl ChildSet {
             .try_collect()
             .await?;
         Ok(())
+    }
+
+    async fn start_all(&self, config: &WorkerConfig) -> IoResult<()> {
+        self.apply_to_all(
+            |child| async move { child.send(ManagerMessage::Start(config.clone())).await },
+        )
+        .await
     }
 
     async fn stop_all(&self) -> IoResult<()> {
@@ -303,8 +303,9 @@ struct WorkerSetStats {
 async fn main() -> anyhow::Result<()> {
     let temp_dir = tempfile::tempdir()?;
     eprintln!("Using temp dir: {}", temp_dir.path().display());
+    let lock_path = temp_dir.path().join("elock_test.lock");
     let config = WorkerConfig {
-        lock_file_path: temp_dir.path().join("elock_test.lock"),
+        lock_file_path: lock_path.clone(),
         hold_ms: TimeRange {
             min: Duration::from_micros(500),
             max: Duration::from_micros(1500),
@@ -312,15 +313,18 @@ async fn main() -> anyhow::Result<()> {
         use_shared: false,
     };
     let (sender, mut receiver) = mpsc::channel::<(usize, WorkerMessage)>(100);
-    let child_set = ChildSet::new(NUM_WORKERS, &config, sender).await?;
+    let child_set = ChildSet::new(NUM_WORKERS, sender).await?;
+
+    child_set.start_all(&config).await?;
 
     let mut stats = WorkerSetStats::new(NUM_WORKERS);
 
     tokio::try_join!(
         async {
-            eprintln!("Sleeping for 5 seconds to let worker run...");
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            eprintln!("5 seconds elapsed, stopping worker...");
+            const TEST_DURATION: Duration = Duration::from_secs(30);
+            eprintln!("Sleeping for {TEST_DURATION:?} to let workers run...");
+            tokio::time::sleep(TEST_DURATION).await;
+            eprintln!("{TEST_DURATION:?} elapsed, stopping workers...");
             child_set.stop_all().await?;
             Ok::<(), IoError>(())
         },
@@ -336,5 +340,10 @@ async fn main() -> anyhow::Result<()> {
 
     stats.print_summary();
     stats.validate_time_ranges();
+    if std::fs::exists(&lock_path)? {
+        eprintln!("Lock file still exists: {}", lock_path.display());
+    } else {
+        eprintln!("Lock file was deleted correctly.");
+    }
     Ok(())
 }

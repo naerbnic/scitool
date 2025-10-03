@@ -1,8 +1,7 @@
 #![expect(clippy::mod_module_files)]
 
-use crate::shared::{
-    config::WorkerConfig,
-    msg::{ManagerMessage, WorkerMessage, create_message_sink, create_message_stream},
+use crate::shared::msg::{
+    ManagerMessage, WorkerMessage, create_message_sink, create_message_stream,
 };
 
 use std::io::Error as IoError;
@@ -48,16 +47,8 @@ where
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut msg_input = create_message_stream(tokio::io::stdin());
+    let msg_input = create_message_stream(tokio::io::stdin());
     let msg_output = create_message_sink(tokio::io::stdout());
-
-    let config: WorkerConfig = serde_json::from_value(
-        msg_input
-            .next()
-            .await
-            .expect("Failed to read config")
-            .expect("No config received"),
-    )?;
 
     let mut msg_input = msg_input.map(|msg| {
         let msg = msg?;
@@ -69,6 +60,15 @@ async fn main() -> anyhow::Result<()> {
         let msg = serde_json::to_value(msg)?;
         Ok::<_, IoError>(msg)
     });
+
+    let ManagerMessage::Start(config) = msg_input
+        .next()
+        .await
+        .expect("Failed to read config")
+        .expect("No config received")
+    else {
+        panic!("First message must be a Start message with config");
+    };
 
     let lock_type = if config.use_shared {
         ephemeral::LockType::Shared
@@ -144,6 +144,9 @@ async fn main() -> anyhow::Result<()> {
             match msg {
                 ManagerMessage::Stop => {
                     canceller.cancel();
+                }
+                ManagerMessage::Start(_) => {
+                    panic!("Received unexpected Start message after initialization");
                 }
             }
         },
