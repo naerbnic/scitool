@@ -80,15 +80,15 @@ async fn main() -> anyhow::Result<()> {
     let (send, mut recv) = tokio::sync::mpsc::channel::<WorkerMessage>(16);
 
     tokio::join!(
-        async {
+        async move {
             while !token.is_cancelled() {
-                let (lock, lock_time) = spawn_blocking_propagate({
+                let (lock, lock_time, lock_start) = spawn_blocking_propagate({
                     let config = config.clone();
                     move || {
                         let start = std::time::Instant::now();
                         let lock = ephemeral::lock_file(&config.lock_file_path, lock_type)
                             .expect("Failed to acquire lock");
-                        (lock, start.elapsed())
+                        (lock, start.elapsed(), std::time::SystemTime::now())
                     }
                 })
                 .await;
@@ -99,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
                     crate::shared::msg::LockAcquired {
                         lock_time,
                         expected_hold_time,
+                        lock_start,
                     },
                 ))
                 .await
@@ -106,21 +107,25 @@ async fn main() -> anyhow::Result<()> {
 
                 tokio::time::sleep_until(deadline).await;
 
-                let unlock_time = spawn_blocking_propagate(move || {
+                let (unlock_time, lock_end) = spawn_blocking_propagate(move || {
+                    let lock_end = std::time::SystemTime::now();
                     let start = std::time::Instant::now();
                     drop(lock);
-                    start.elapsed()
+                    (start.elapsed(), lock_end)
                 })
                 .await;
 
                 send.send(WorkerMessage::LockReleased(
-                    crate::shared::msg::LockReleased { unlock_time },
+                    crate::shared::msg::LockReleased {
+                        unlock_time,
+                        lock_end,
+                    },
                 ))
                 .await
                 .expect("Failed to send lock released message");
             }
         },
-        async {
+        async move {
             let mut msg_output = std::pin::pin!(msg_output);
             while let Some(msg) = recv.recv().await {
                 msg_output
@@ -129,8 +134,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("Failed to send lock released message");
             }
         },
-        async {
-            eprintln!("Waiting for messages...");
+        async move {
             // Read any incoming messages (if needed)
             let msg = msg_input
                 .next()
@@ -139,11 +143,9 @@ async fn main() -> anyhow::Result<()> {
                 .expect("Stream closed");
             match msg {
                 ManagerMessage::Stop => {
-                    eprintln!("Received stop signal, stopping work...");
                     canceller.cancel();
                 }
             }
-            eprintln!("Message reader exiting...");
         },
     );
 

@@ -120,11 +120,13 @@ pub(crate) enum ManagerMessage {
 pub(crate) struct LockAcquired {
     pub lock_time: Duration,
     pub expected_hold_time: Duration,
+    pub lock_start: std::time::SystemTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LockReleased {
     pub unlock_time: Duration,
+    pub lock_end: std::time::SystemTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
