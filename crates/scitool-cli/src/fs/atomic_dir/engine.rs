@@ -13,7 +13,7 @@ use crate::fs::{
         recovery::recover_path,
         schema::{CommitEntry, CommitSchema, DeleteEntry, OverwriteEntry},
         types::{DirEntry, FileType},
-        util::{is_valid_path, write_file_atomic},
+        util::is_valid_path,
     },
     err_helpers::{io_bail, io_err_map},
     ops::{FileSystemOperations, LockFile, OpenOptionsFlags, PathKind, WriteMode},
@@ -538,45 +538,8 @@ where
         self.fs.remove_dir_all(&abs_temp_dir)
     }
 
-    pub(super) fn commit(mut self) -> io::Result<()> {
-        let state = self.state.get_mut().unwrap();
-        let pending_commits = std::mem::take(&mut state.file_statuses)
-            .into_iter()
-            .filter_map(|(path, status)| match status {
-                TempFileStatus::Unchanged => None,
-                TempFileStatus::Written => Some(CommitEntry::Overwrite(OverwriteEntry::new(path))),
-                TempFileStatus::Deleted => Some(CommitEntry::Delete(DeleteEntry::new(path))),
-            })
-            .collect::<Vec<_>>();
-        if pending_commits.is_empty() {
-            // Nothing to commit.
-            return Ok(());
-        }
-
-        let commit_schema = CommitSchema::new(self.temp_dir.clone(), pending_commits);
-        let commit_data = serde_json::to_vec(&commit_schema)
-            .map_err(io_err_map!(Other, "Failed to serialize commit schema"))?;
-
-        write_file_atomic(
-            &self.fs,
-            &self.dir_root,
-            &self.dir_root.join_rel(&self.temp_dir),
-            WriteMode::CreateNew,
-            RelPath::new_checked(COMMIT_PATH).map_err(io_err_map!(
-                Other,
-                "Failed to create relative path for commit file"
-            ))?,
-            |mut file| {
-                file.write_all(&commit_data)?;
-                Ok(())
-            },
-        )?;
-
-        // Now that we have written the commit file, we can perform recovery
-        // to finalize the changes.
-        recover_path(&self.fs, &self.dir_root)?;
-
-        Ok(())
+    pub(super) fn commit(self) -> io::Result<()> {
+        todo!()
     }
 }
 

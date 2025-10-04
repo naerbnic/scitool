@@ -21,7 +21,10 @@ use std::{fs::TryLockError, io};
 
 use same_file::Handle as SameFileHandle;
 
-use crate::fs::{err_helpers::io_err, file_lock::shared_lock_set};
+use crate::fs::{
+    err_helpers::{io_bail, io_err},
+    file_lock::shared_lock_set,
+};
 
 mod sealed {
 
@@ -118,7 +121,7 @@ mod sealed {
 
     impl<T> AsFileManager for T
     where
-        T: AsRef<Path>,
+        T: AsRef<Path> + ?Sized,
     {
         fn to_file_manager(&self) -> io::Result<LockFileManager> {
             let path = self.as_ref().to_owned();
@@ -128,7 +131,7 @@ mod sealed {
 
     impl<P> AsFileManager for DirRelativePath<'_, P>
     where
-        P: AsRef<Path>,
+        P: AsRef<Path> + ?Sized,
     {
         fn to_file_manager(&self) -> io::Result<LockFileManager> {
             let dir = self.dir.try_clone()?;
@@ -213,7 +216,10 @@ enum LockOpenMode {
 
 pub use shared_lock_set::LockType;
 
-pub struct DirRelativePath<'a, P> {
+pub struct DirRelativePath<'a, P>
+where
+    P: ?Sized,
+{
     dir: &'a cap_std::fs::Dir,
     path: &'a P,
 }
@@ -233,7 +239,7 @@ fn open_lock_file_impl<P>(
     block: bool,
 ) -> Result<EphemeralFileLock, TryLockError>
 where
-    P: sealed::AsFileManager,
+    P: sealed::AsFileManager + ?Sized,
 {
     let manager = path.to_file_manager().map_err(TryLockError::Error)?;
 
@@ -280,14 +286,14 @@ where
 
 pub fn lock_file<P>(path: &P, lock_type: LockType) -> io::Result<EphemeralFileLock>
 where
-    P: sealed::AsFileManager,
+    P: sealed::AsFileManager + ?Sized,
 {
     Ok(open_lock_file_impl(path, lock_type, true)?)
 }
 
 pub fn try_lock_file<P>(path: &P, lock_type: LockType) -> Result<EphemeralFileLock, TryLockError>
 where
-    P: sealed::AsFileManager,
+    P: sealed::AsFileManager + ?Sized,
 {
     open_lock_file_impl(path, lock_type, false)
 }
@@ -295,6 +301,51 @@ where
 pub struct EphemeralFileLock {
     lock: Option<shared_lock_set::Lock>,
     manager: sealed::LockFileManager,
+}
+
+impl EphemeralFileLock {
+    pub fn upgrade(&mut self) -> io::Result<()> {
+        if let Some(lock) = self.lock.take() {
+            if let LockType::Exclusive = lock.lock_type() {
+                self.lock = Some(lock);
+                return Ok(());
+            }
+            // Release the shared lock and get the file handle back.
+            let lock_file = lock.into_file();
+            let new_lock = take_lock_safe(lock_file, &self.manager, LockType::Exclusive, true)
+                .map_err(|e| match e {
+                    SafeLockError::WouldBlock => io_err!(Other, "Unexpected WouldBlock"),
+                    SafeLockError::Deleted(_) => io_err!(Other, "Unexpected Deleted"),
+                    SafeLockError::Error(e) => e,
+                })?;
+            self.lock = Some(new_lock);
+            Ok(())
+        } else {
+            io_bail!(InvalidData, "Inconsistent internal lock state");
+        }
+    }
+
+    pub fn downgrade(&mut self) -> io::Result<()> {
+        if let Some(lock) = self.lock.take() {
+            if let LockType::Shared = lock.lock_type() {
+                // Already a shared lock, nothing to do.
+                self.lock = Some(lock);
+                return Ok(());
+            }
+            // Release the exclusive lock and get the file handle back.
+            let lock_file = lock.into_file();
+            let new_lock = take_lock_safe(lock_file, &self.manager, LockType::Shared, true)
+                .map_err(|e| match e {
+                    SafeLockError::WouldBlock => io_err!(Other, "Unexpected WouldBlock"),
+                    SafeLockError::Deleted(_) => io_err!(Other, "Unexpected Deleted"),
+                    SafeLockError::Error(e) => e,
+                })?;
+            self.lock = Some(new_lock);
+            Ok(())
+        } else {
+            io_bail!(InvalidData, "Inconsistent internal lock state");
+        }
+    }
 }
 
 impl Drop for EphemeralFileLock {
