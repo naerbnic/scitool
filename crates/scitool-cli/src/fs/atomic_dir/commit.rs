@@ -1,0 +1,131 @@
+use std::{
+    io,
+    path::{Component, PathBuf},
+};
+
+use serde::{Deserialize, Serialize};
+
+use crate::fs::{
+    atomic_dir::{DirLock, util::write_file_atomic},
+    err_helpers::io_bail,
+    ops::WriteMode,
+};
+
+pub(super) const CURR_COMMIT_VERSION: u32 = 1;
+
+const COMMIT_FILE_SUFFIX: &str = ".commit";
+
+fn extract_singleton<I: IntoIterator>(iter: I) -> io::Result<I::Item> {
+    let mut iter = iter.into_iter();
+    let Some(first) = iter.next() else {
+        io_bail!(InvalidData, "Expected exactly one item, found none");
+    };
+    if iter.next().is_some() {
+        io_bail!(InvalidData, "Expected exactly one item, found multiple");
+    }
+    Ok(first)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CommitContents {
+    /// The version of the commit schema, in case it changes.
+    version: u32,
+
+    /// The location of the temp file that was being moved during the commit.
+    ///
+    /// Must be a directory only, i.e. a relative path with a single normal component.
+    temp_dir: PathBuf,
+
+    /// The location the old directory will be moved to.
+    ///
+    /// Must be a directory only, i.e. a relative path with a single normal component.
+    old_dir: PathBuf,
+}
+
+impl CommitContents {
+    fn validate(&self) -> io::Result<()> {
+        if self.version != 1 {
+            io_bail!(
+                InvalidData,
+                "Unsupported commit schema version: {}",
+                self.version
+            );
+        }
+
+        if let Component::Normal(_) = extract_singleton(self.temp_dir.components())? {
+            io_bail!(
+                InvalidData,
+                "Temp dir must be a single normal path component: {}",
+                self.temp_dir.display()
+            );
+        }
+
+        if let Component::Normal(_) = extract_singleton(self.old_dir.components())? {
+            io_bail!(
+                InvalidData,
+                "Old dir must be a single normal path component: {}",
+                self.old_dir.display()
+            );
+        }
+
+        Ok(())
+    }
+}
+
+fn get_commit_file_path(dir_lock: &DirLock) -> PathBuf {
+    dir_lock.adjacent_ext_path(COMMIT_FILE_SUFFIX)
+}
+
+pub struct CommitFileData {
+    contents: CommitContents,
+}
+
+impl CommitFileData {
+    pub fn read_at(lock: &DirLock) -> io::Result<Option<Self>> {
+        // The lock should protect against concurrent access to the commit file.
+        match std::fs::read(lock.path()) {
+            Ok(data) => {
+                let contents: CommitContents = serde_json::from_slice(&data)?;
+                contents.validate()?;
+                Ok(Some(Self { contents }))
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn temp_dir(&self) -> &PathBuf {
+        &self.contents.temp_dir
+    }
+    pub fn old_dir(&self) -> &PathBuf {
+        &self.contents.old_dir
+    }
+
+    pub fn with_old_dir(&self, new_old_dir: PathBuf) -> Self {
+        Self {
+            contents: CommitContents {
+                version: self.contents.version,
+                temp_dir: self.contents.temp_dir.clone(),
+                old_dir: new_old_dir,
+            },
+        }
+    }
+
+    pub fn new(temp_dir: PathBuf, old_dir: PathBuf) -> Self {
+        Self {
+            contents: CommitContents {
+                version: CURR_COMMIT_VERSION,
+                temp_dir,
+                old_dir,
+            },
+        }
+    }
+
+    pub fn commit_file(&self, path: &DirLock) -> io::Result<()> {
+        let commit_file_path = get_commit_file_path(path);
+        let data = serde_json::to_vec(&self.contents)?;
+        // After the commit file is written, the directory should be durable.
+        write_file_atomic(&commit_file_path, &data, WriteMode::CreateNew)?;
+        Ok(())
+    }
+}
