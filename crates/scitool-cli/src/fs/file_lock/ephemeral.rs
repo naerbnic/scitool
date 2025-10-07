@@ -298,17 +298,22 @@ where
     open_lock_file_impl(path, lock_type, false)
 }
 
+pub enum ReacquireResult<T> {
+    Success(T),
+    Preserved(T, io::Error),
+}
+
 pub struct EphemeralFileLock {
     lock: Option<shared_lock_set::Lock>,
     manager: sealed::LockFileManager,
 }
 
 impl EphemeralFileLock {
-    pub fn upgrade(&mut self) -> io::Result<()> {
+    pub fn upgrade(mut self) -> io::Result<Self> {
         if let Some(lock) = self.lock.take() {
             if let LockType::Exclusive = lock.lock_type() {
                 self.lock = Some(lock);
-                return Ok(());
+                return Ok(self);
             }
             // Release the shared lock and get the file handle back.
             let lock_file = lock.into_file();
@@ -319,18 +324,18 @@ impl EphemeralFileLock {
                     SafeLockError::Error(e) => e,
                 })?;
             self.lock = Some(new_lock);
-            Ok(())
+            Ok(self)
         } else {
             io_bail!(InvalidData, "Inconsistent internal lock state");
         }
     }
 
-    pub fn downgrade(&mut self) -> io::Result<()> {
+    pub fn downgrade(mut self) -> io::Result<Self> {
         if let Some(lock) = self.lock.take() {
             if let LockType::Shared = lock.lock_type() {
                 // Already a shared lock, nothing to do.
                 self.lock = Some(lock);
-                return Ok(());
+                return Ok(self);
             }
             // Release the exclusive lock and get the file handle back.
             let lock_file = lock.into_file();
@@ -341,7 +346,7 @@ impl EphemeralFileLock {
                     SafeLockError::Error(e) => e,
                 })?;
             self.lock = Some(new_lock);
-            Ok(())
+            Ok(self)
         } else {
             io_bail!(InvalidData, "Inconsistent internal lock state");
         }

@@ -155,55 +155,57 @@ impl Package {
             );
         };
 
-        let atomic_dir = AtomicDir::new_at_dir(&base_path)?;
+        todo!()
 
-        if self.metadata.is_dirty() {
-            let meta_json = serde_json::to_vec(self.metadata.get())
-                .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
-            atomic_dir
-                .write(META_PATH, &WriteMode::Overwrite, &meta_json)
-                .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
-        }
+        // let atomic_dir = AtomicDir::new_at_dir(&base_path)?;
 
-        if self.compressed_data.is_dirty() {
-            if let Some(compressed_data) = self.compressed_data.get() {
-                let data = compressed_data
-                    .open()
-                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
+        // if self.metadata.is_dirty() {
+        //     let meta_json = serde_json::to_vec(self.metadata.get())
+        //         .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
+        //     atomic_dir
+        //         .write(META_PATH, &WriteMode::Overwrite, &meta_json)
+        //         .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
+        // }
 
-                atomic_dir
-                    .write(COMPRESSED_BIN_PATH, &WriteMode::Overwrite, &data)
-                    .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
-            } else if atomic_dir.exists(COMPRESSED_BIN_PATH)? {
-                atomic_dir
-                    .delete(COMPRESSED_BIN_PATH)
-                    .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
-            }
-        }
+        // if self.compressed_data.is_dirty() {
+        //     if let Some(compressed_data) = self.compressed_data.get() {
+        //         let data = compressed_data
+        //             .open()
+        //             .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
-        if self.raw_data.is_dirty() {
-            if let Some(raw_data) = self.raw_data.get() {
-                let data = raw_data
-                    .open()
-                    .map_err(io_err_map!(Other, "Failed to open raw data"))?;
+        //         atomic_dir
+        //             .write(COMPRESSED_BIN_PATH, &WriteMode::Overwrite, &data)
+        //             .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+        //     } else if atomic_dir.exists(COMPRESSED_BIN_PATH)? {
+        //         atomic_dir
+        //             .delete(COMPRESSED_BIN_PATH)
+        //             .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
+        //     }
+        // }
 
-                atomic_dir
-                    .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
-                    .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
-            } else if atomic_dir.exists(RAW_BIN_PATH)? {
-                atomic_dir
-                    .delete(RAW_BIN_PATH)
-                    .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
-            }
-        }
+        // if self.raw_data.is_dirty() {
+        //     if let Some(raw_data) = self.raw_data.get() {
+        //         let data = raw_data
+        //             .open()
+        //             .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
-        atomic_dir.commit()?;
+        //         atomic_dir
+        //             .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
+        //             .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+        //     } else if atomic_dir.exists(RAW_BIN_PATH)? {
+        //         atomic_dir
+        //             .delete(RAW_BIN_PATH)
+        //             .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
+        //     }
+        // }
 
-        self.metadata.mark_clean();
-        self.compressed_data.mark_clean();
-        self.raw_data.mark_clean();
+        // atomic_dir.commit()?;
 
-        Ok(())
+        // self.metadata.mark_clean();
+        // self.compressed_data.mark_clean();
+        // self.raw_data.mark_clean();
+
+        // Ok(())
     }
 
     /// Saves the package to a new path.
@@ -212,41 +214,42 @@ impl Package {
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
     pub fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
-        let atomic_dir = AtomicDir::new_at_dir(&path)?;
+        todo!()
+        // let atomic_dir = AtomicDir::new_at_dir(&path)?;
 
-        let meta_json = serde_json::to_vec(self.metadata.get())
-            .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
-        atomic_dir
-            .write(META_PATH, &WriteMode::Overwrite, &meta_json)
-            .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
+        // let meta_json = serde_json::to_vec(self.metadata.get())
+        //     .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
+        // atomic_dir
+        //     .write(META_PATH, &WriteMode::Overwrite, &meta_json)
+        //     .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
 
-        if let Some(compressed_data) = self.compressed_data.get() {
-            let data = compressed_data
-                .open()
-                .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
+        // if let Some(compressed_data) = self.compressed_data.get() {
+        //     let data = compressed_data
+        //         .open()
+        //         .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
-            atomic_dir
-                .write(COMPRESSED_BIN_PATH, &WriteMode::Overwrite, &data)
-                .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
-        }
+        //     atomic_dir
+        //         .write(COMPRESSED_BIN_PATH, &WriteMode::Overwrite, &data)
+        //         .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+        // }
 
-        if let Some(raw_data) = self.raw_data.get() {
-            let data = raw_data
-                .open()
-                .map_err(io_err_map!(Other, "Failed to open raw data"))?;
+        // if let Some(raw_data) = self.raw_data.get() {
+        //     let data = raw_data
+        //         .open()
+        //         .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
-            atomic_dir
-                .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
-                .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
-        }
+        //     atomic_dir
+        //         .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
+        //         .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+        // }
 
-        atomic_dir.commit()?;
-        self.metadata.mark_clean();
-        self.raw_data.mark_clean();
-        self.compressed_data.mark_clean();
-        self.base_path = Some(path);
+        // atomic_dir.commit()?;
+        // self.metadata.mark_clean();
+        // self.raw_data.mark_clean();
+        // self.compressed_data.mark_clean();
+        // self.base_path = Some(path);
 
-        Ok(())
+        // Ok(())
     }
 }
 

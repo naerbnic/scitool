@@ -83,7 +83,7 @@ pub struct CommitFileData {
 impl CommitFileData {
     pub fn read_at(lock: &DirLock) -> io::Result<Option<Self>> {
         // The lock should protect against concurrent access to the commit file.
-        match std::fs::read(lock.path()) {
+        match lock.parent_dir().read(get_commit_file_path(lock)) {
             Ok(data) => {
                 let contents: CommitContents = serde_json::from_slice(&data)?;
                 contents.validate()?;

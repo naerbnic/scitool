@@ -7,6 +7,7 @@ use std::{
 };
 
 use cap_std::fs::Dir;
+use cross_file_id::is_same_file;
 
 use crate::fs::{
     err_helpers::{io_bail, io_err},
@@ -17,13 +18,7 @@ const COMMIT_FILE_SUFFIX: &str = ".commit";
 const LOCK_FILE_NAME: &str = ".dirlock";
 
 fn are_dirs_equal(dir1: &Dir, dir2: &Dir) -> Result<bool> {
-    let file1 = dir1.try_clone()?.into_std_file();
-    let file2 = dir2.try_clone()?.into_std_file();
-
-    let handle1 = same_file::Handle::from_file(file1)?;
-    let handle2 = same_file::Handle::from_file(file2)?;
-
-    Ok(handle1 == handle2)
+    is_same_file(dir1, dir2)
 }
 
 #[derive(Debug, Clone, Copy)]

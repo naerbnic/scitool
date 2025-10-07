@@ -153,3 +153,9 @@ pub(crate) fn create_old_path(dir_lock: &DirLock) -> RelPathBuf {
     let new_old_dir_name = format!("{}.old-{}", dir_lock.file_name().display(), suffix);
     RelPathBuf::new_checked(&new_old_dir_name).expect("Generated file name should be valid")
 }
+
+pub(crate) fn create_tmp_path(dir_lock: &DirLock) -> RelPathBuf {
+    let suffix = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 6);
+    let new_temp_dir_name = format!("{}.temp-{}", dir_lock.file_name().display(), suffix);
+    RelPathBuf::new_checked(&new_temp_dir_name).expect("Generated file name should be valid")
+}

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::fs::{
     atomic_dir::{commit::CommitFileData, dir_lock::DirLock},
     err_helpers::io_bail,
-    file_lock::LockType,
+    file_lock::{LockType, ephemeral::ReacquireResult},
 };
 
 const COMMIT_FILE_SUFFIX: &str = ".commit";
@@ -178,33 +178,33 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
 }
 
 #[expect(dead_code, reason = "Primitive for current work")]
-pub(crate) fn recover(dir_lock: &mut DirLock) -> io::Result<()> {
+pub(crate) fn recover(mut dir_lock: DirLock) -> io::Result<DirLock> {
     match dir_lock.lock_type() {
         LockType::Shared => {
             // Since we can't guarantee that when we upgrade/downgrade the lock
             // that another process won't sneak in and do the recovery first, we
             // need to loop until we either
             loop {
-                if !check_needs_recovery(dir_lock)? {
-                    return Ok(());
+                if !check_needs_recovery(&dir_lock)? {
+                    return Ok(dir_lock);
                 }
 
                 // We need to recover, but we only have a shared lock. We need to
                 // upgrade to an exclusive lock.
-                dir_lock.upgrade()?;
+                dir_lock = dir_lock.upgrade()?;
 
-                recover_exclusive(dir_lock)?;
+                recover_exclusive(&dir_lock)?;
 
-                dir_lock.downgrade()?;
+                dir_lock = dir_lock.downgrade()?;
 
                 // Since we may release the lock to downgrade, we could have a
                 // new recovery situation, so loop back to check again.
             }
         }
         LockType::Exclusive => {
-            recover_exclusive(dir_lock)?;
+            recover_exclusive(&dir_lock)?;
         }
     }
 
-    Ok(())
+    Ok(dir_lock)
 }

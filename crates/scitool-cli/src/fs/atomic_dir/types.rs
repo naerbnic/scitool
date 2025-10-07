@@ -2,28 +2,36 @@ use std::ffi::{OsStr, OsString};
 
 use crate::fs::paths::{RelPath, RelPathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileType {
-    is_dir: bool,
+    inner: cap_std::fs::FileType,
 }
 
 impl FileType {
-    pub(super) fn new_of_dir() -> Self {
-        FileType { is_dir: true }
+    pub(super) fn dir() -> Self {
+        FileType {
+            inner: cap_std::fs::FileType::dir(),
+        }
     }
 
-    pub(super) fn new_of_file() -> Self {
-        FileType { is_dir: false }
+    pub(super) fn file() -> Self {
+        FileType {
+            inner: cap_std::fs::FileType::file(),
+        }
+    }
+
+    pub(super) fn of_cap_std(ft: cap_std::fs::FileType) -> Self {
+        FileType { inner: ft }
     }
 
     #[must_use]
     pub fn is_dir(&self) -> bool {
-        self.is_dir
+        self.inner.is_dir()
     }
 
     #[must_use]
     pub fn is_file(&self) -> bool {
-        !self.is_dir
+        !self.inner.is_dir()
     }
 }
 
