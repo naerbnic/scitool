@@ -8,14 +8,14 @@ use crate::fs::{
     paths::{SinglePath, SinglePathBuf},
 };
 
-pub struct TempDir {
+pub(super) struct TempDir {
     parent: Arc<Dir>,
     dir_root: Option<Dir>,
     dir_name: SinglePathBuf,
 }
 
 impl TempDir {
-    pub fn new_in(parent: Arc<Dir>, root_name: &SinglePath) -> io::Result<Self> {
+    pub(super) fn new_in(parent: Arc<Dir>, root_name: &SinglePath) -> io::Result<Self> {
         let dir_name = format!(
             ".{}.{}.tmpdir",
             root_name.display(),
@@ -32,11 +32,11 @@ impl TempDir {
 }
 
 impl TempDir {
-    pub fn dir_name(&self) -> &SinglePath {
+    pub(super) fn dir_name(&self) -> &SinglePath {
         &self.dir_name
     }
 
-    pub fn into_dir(mut self) -> Dir {
+    pub(super) fn into_dir(mut self) -> Dir {
         self.dir_root.take().expect("TempDir is valid")
     }
 }
@@ -51,7 +51,9 @@ impl std::ops::Deref for TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        if let Some(dir) = self.dir_root.take() {
+        // If we weren't invalidated in one of the persist methods, clean up
+        // the temporary directory.
+        if let Some(_dir) = self.dir_root.take() {
             drop(self.parent.remove_dir_all(&self.dir_name));
         }
     }

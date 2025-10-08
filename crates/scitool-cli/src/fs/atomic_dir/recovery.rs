@@ -1,77 +1,16 @@
-use std::{
-    io,
-    path::{Component, Path, PathBuf},
-};
+use std::io;
 
 use cap_std::fs::Dir;
 use rand::distr::SampleString as _;
-use serde::{Deserialize, Serialize};
 
 use crate::fs::{
     atomic_dir::{commit::CommitFileData, dir_lock::DirLock},
     err_helpers::io_bail,
-    file_lock::{LockType, ephemeral::ReacquireResult},
+    file_lock::LockType,
     paths::{SinglePath, SinglePathBuf},
 };
 
 const COMMIT_FILE_SUFFIX: &str = ".commit";
-
-fn extract_singleton<I: IntoIterator>(iter: I) -> io::Result<I::Item> {
-    let mut iter = iter.into_iter();
-    let Some(first) = iter.next() else {
-        io_bail!(InvalidData, "Expected exactly one item, found none");
-    };
-    if iter.next().is_some() {
-        io_bail!(InvalidData, "Expected exactly one item, found multiple");
-    }
-    Ok(first)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CommitContents {
-    /// The version of the commit schema, in case it changes.
-    version: u32,
-
-    /// The location of the temp file that was being moved during the commit.
-    ///
-    /// Must be a directory only, i.e. a relative path with a single normal component.
-    temp_dir: PathBuf,
-
-    /// The location the old directory will be moved to.
-    ///
-    /// Must be a directory only, i.e. a relative path with a single normal component.
-    old_dir: PathBuf,
-}
-
-impl CommitContents {
-    fn validate(&self) -> io::Result<()> {
-        if self.version != 1 {
-            io_bail!(
-                InvalidData,
-                "Unsupported commit schema version: {}",
-                self.version
-            );
-        }
-
-        if let Component::Normal(_) = extract_singleton(self.temp_dir.components())? {
-            io_bail!(
-                InvalidData,
-                "Temp dir must be a single normal path component: {}",
-                self.temp_dir.display()
-            );
-        }
-
-        if let Component::Normal(_) = extract_singleton(self.old_dir.components())? {
-            io_bail!(
-                InvalidData,
-                "Old dir must be a single normal path component: {}",
-                self.old_dir.display()
-            );
-        }
-
-        Ok(())
-    }
-}
 
 pub(crate) fn check_needs_recovery(dir_lock: &DirLock) -> io::Result<bool> {
     let commit_file_path = dir_lock.adjacent_ext_path(COMMIT_FILE_SUFFIX);
@@ -184,7 +123,6 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
     Ok(())
 }
 
-#[expect(dead_code, reason = "Primitive for current work")]
 pub(crate) fn recover(mut dir_lock: DirLock) -> io::Result<DirLock> {
     match dir_lock.lock_type() {
         LockType::Shared => {

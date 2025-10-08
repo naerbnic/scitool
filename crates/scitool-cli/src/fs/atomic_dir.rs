@@ -3,7 +3,6 @@
 mod commit;
 mod dir_lock;
 mod dir_state;
-mod new_engine;
 mod recovery;
 mod temp_dir;
 mod types;
@@ -14,13 +13,10 @@ use std::{
     ffi::OsString,
     io::{self, Read, Seek as _, Write},
     os::fd::{AsFd, AsRawFd},
-    path::{Path, PathBuf},
-    sync::Arc,
+    path::Path,
 };
 
 use cap_std::fs::Dir;
-use rand::{Rng as _, distr::SampleString as _};
-use serde::Serialize;
 
 pub use self::types::FileType;
 pub use crate::fs::ops::WriteMode;
@@ -35,21 +31,16 @@ use crate::fs::{
     },
     err_helpers::{io_bail, io_err_map},
     file_lock::LockType,
-    paths::{RelPathBuf, SinglePath, SinglePathBuf},
+    paths::RelPathBuf,
 };
 
 const STATE_FILE_NAME: &str = ".state";
-
-struct ReadOnlyHandle {}
 
 pub struct File {
     inner: cap_std::fs::File,
 }
 
 impl File {
-    fn from_inner(inner: cap_std::fs::File) -> Self {
-        File { inner }
-    }
     /// Attempts to sync all OS-internal metadata to disk.
     ///
     /// This corresponds to [`std::fs::File::sync_all`].
@@ -128,6 +119,7 @@ pub struct OpenOptions {
 }
 
 impl OpenOptions {
+    #[must_use]
     pub fn new() -> Self {
         OpenOptions {
             inner: cap_std::fs::OpenOptions::new(),
@@ -165,6 +157,12 @@ impl OpenOptions {
     }
 }
 
+impl Default for OpenOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ReadDir {
     at_root: bool,
     inner: cap_std::fs::ReadDir,
@@ -177,7 +175,7 @@ impl Iterator for ReadDir {
         loop {
             match self.inner.next()? {
                 Ok(entry) => {
-                    if !self.at_root || entry.file_name() != OsString::from(STATE_FILE_NAME) {
+                    if !self.at_root || entry.file_name() != STATE_FILE_NAME {
                         return Some(Ok(DirEntry::from_inner(entry)));
                     }
                 }
@@ -253,6 +251,18 @@ impl DirEntry {
 
 pub struct Metadata {
     inner: cap_std::fs::Metadata,
+}
+
+impl Metadata {
+    #[must_use]
+    pub fn is_dir(&self) -> bool {
+        self.inner.is_dir()
+    }
+
+    #[must_use]
+    pub fn is_file(&self) -> bool {
+        self.inner.is_file()
+    }
 }
 
 fn open_dir_safe(path: &Path, lock_type: LockType) -> io::Result<DirLock> {

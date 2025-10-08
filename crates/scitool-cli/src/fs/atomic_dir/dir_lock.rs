@@ -40,12 +40,6 @@ impl DirLock {
         .expect("DirLock target path file name should be valid")
     }
 
-    pub(super) fn parent(&self) -> &Path {
-        self.target_path
-            .parent()
-            .expect("DirLock target path validated in constructors")
-    }
-
     pub(super) fn acquire(path: &Path, lock_type: LockType) -> io::Result<Self> {
         let Some((parent_path, file_name)) = safe_path_parent(path)? else {
             io_bail!(Other, "Path must have a parent: {}", path.display());

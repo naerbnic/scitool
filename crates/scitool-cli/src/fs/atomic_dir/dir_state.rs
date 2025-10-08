@@ -29,23 +29,24 @@ impl From<StateLoadError> for io::Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Schema {
+    #[expect(clippy::struct_field_names, reason = "Intended for schema versioning")]
     schema: u32,
     sequence: u32,
     poisoned: bool,
 }
 
-pub enum LoadedDirState {
+pub(super) enum LoadedDirState {
     Clean(DirState),
     Poisoned,
 }
 
 #[derive(Debug, Clone)]
-pub struct DirState {
+pub(super) struct DirState {
     inner: Schema,
 }
 
 impl DirState {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             inner: Schema {
                 schema: CURRENT_SCHEMA_VERSION,
@@ -55,7 +56,7 @@ impl DirState {
         }
     }
 
-    pub fn load(data: &[u8]) -> Result<LoadedDirState, StateLoadError> {
+    pub(super) fn load(data: &[u8]) -> Result<LoadedDirState, StateLoadError> {
         let inner: Schema =
             serde_json::from_slice(data).map_err(|e| StateLoadError::FormatError(Box::new(e)))?;
         if inner.schema != CURRENT_SCHEMA_VERSION {
@@ -67,12 +68,12 @@ impl DirState {
         Ok(LoadedDirState::Clean(Self { inner }))
     }
 
-    pub fn serialize(&self) -> io::Result<Vec<u8>> {
+    pub(super) fn serialize(&self) -> io::Result<Vec<u8>> {
         serde_json::to_vec(&self.inner)
             .map_err(|e| io_err!(Other, "Failed to serialize directory state: {}", e))
     }
 
-    pub fn to_next(&self) -> Self {
+    pub(super) fn to_next(&self) -> Self {
         Self {
             inner: Schema {
                 schema: self.inner.schema,
@@ -82,17 +83,7 @@ impl DirState {
         }
     }
 
-    pub fn to_poisoned(&self) -> Self {
-        Self {
-            inner: Schema {
-                schema: self.inner.schema,
-                sequence: self.inner.sequence,
-                poisoned: true,
-            },
-        }
-    }
-
-    pub fn is_same(&self, other: &DirState) -> bool {
+    pub(super) fn is_same(&self, other: &DirState) -> bool {
         self.inner.sequence == other.inner.sequence
     }
 }

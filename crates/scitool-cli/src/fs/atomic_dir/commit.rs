@@ -1,15 +1,9 @@
-use std::{
-    io,
-    path::{Component, PathBuf},
-};
+use std::{io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::fs::{
-    atomic_dir::{
-        DirLock,
-        util::{write_file_atomic, write_file_atomic_at},
-    },
+    atomic_dir::{DirLock, util::write_file_atomic_at},
     err_helpers::io_bail,
     ops::WriteMode,
     paths::SinglePathBuf,
@@ -18,17 +12,6 @@ use crate::fs::{
 pub(super) const CURR_COMMIT_VERSION: u32 = 1;
 
 const COMMIT_FILE_SUFFIX: &str = ".commit";
-
-fn extract_singleton<I: IntoIterator>(iter: I) -> io::Result<I::Item> {
-    let mut iter = iter.into_iter();
-    let Some(first) = iter.next() else {
-        io_bail!(InvalidData, "Expected exactly one item, found none");
-    };
-    if iter.next().is_some() {
-        io_bail!(InvalidData, "Expected exactly one item, found multiple");
-    }
-    Ok(first)
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CommitContents {
@@ -64,12 +47,12 @@ fn get_commit_file_path(dir_lock: &DirLock) -> PathBuf {
     dir_lock.adjacent_ext_path(COMMIT_FILE_SUFFIX)
 }
 
-pub struct CommitFileData {
+pub(super) struct CommitFileData {
     contents: CommitContents,
 }
 
 impl CommitFileData {
-    pub fn read_at(lock: &DirLock) -> io::Result<Option<Self>> {
+    pub(super) fn read_at(lock: &DirLock) -> io::Result<Option<Self>> {
         // The lock should protect against concurrent access to the commit file.
         match lock.parent_dir().read(get_commit_file_path(lock)) {
             Ok(data) => {
@@ -82,14 +65,14 @@ impl CommitFileData {
         }
     }
 
-    pub fn temp_dir(&self) -> &SinglePathBuf {
+    pub(super) fn temp_dir(&self) -> &SinglePathBuf {
         &self.contents.temp_dir
     }
-    pub fn old_dir(&self) -> &SinglePathBuf {
+    pub(super) fn old_dir(&self) -> &SinglePathBuf {
         &self.contents.old_dir
     }
 
-    pub fn with_old_dir(&self, new_old_dir: SinglePathBuf) -> Self {
+    pub(super) fn with_old_dir(&self, new_old_dir: SinglePathBuf) -> Self {
         Self {
             contents: CommitContents {
                 version: self.contents.version,
@@ -99,7 +82,7 @@ impl CommitFileData {
         }
     }
 
-    pub fn new(temp_dir: SinglePathBuf, old_dir: SinglePathBuf) -> Self {
+    pub(super) fn new(temp_dir: SinglePathBuf, old_dir: SinglePathBuf) -> Self {
         Self {
             contents: CommitContents {
                 version: CURR_COMMIT_VERSION,
@@ -109,7 +92,7 @@ impl CommitFileData {
         }
     }
 
-    pub fn commit_file(&self, path: &DirLock) -> io::Result<()> {
+    pub(super) fn commit_file(&self, path: &DirLock) -> io::Result<()> {
         let commit_file_path = get_commit_file_path(path);
         let data = serde_json::to_vec(&self.contents)?;
         // After the commit file is written, the directory should be durable.
