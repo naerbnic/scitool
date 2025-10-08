@@ -39,6 +39,7 @@ pub enum LoadedDirState {
     Poisoned,
 }
 
+#[derive(Debug, Clone)]
 pub struct DirState {
     inner: Schema,
 }

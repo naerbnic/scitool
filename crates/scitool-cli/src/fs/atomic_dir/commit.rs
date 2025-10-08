@@ -6,9 +6,13 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::fs::{
-    atomic_dir::{DirLock, util::write_file_atomic},
+    atomic_dir::{
+        DirLock,
+        util::{write_file_atomic, write_file_atomic_at},
+    },
     err_helpers::io_bail,
     ops::WriteMode,
+    paths::SinglePathBuf,
 };
 
 pub(super) const CURR_COMMIT_VERSION: u32 = 1;
@@ -34,12 +38,12 @@ struct CommitContents {
     /// The location of the temp file that was being moved during the commit.
     ///
     /// Must be a directory only, i.e. a relative path with a single normal component.
-    temp_dir: PathBuf,
+    temp_dir: SinglePathBuf,
 
     /// The location the old directory will be moved to.
     ///
     /// Must be a directory only, i.e. a relative path with a single normal component.
-    old_dir: PathBuf,
+    old_dir: SinglePathBuf,
 }
 
 impl CommitContents {
@@ -49,22 +53,6 @@ impl CommitContents {
                 InvalidData,
                 "Unsupported commit schema version: {}",
                 self.version
-            );
-        }
-
-        if let Component::Normal(_) = extract_singleton(self.temp_dir.components())? {
-            io_bail!(
-                InvalidData,
-                "Temp dir must be a single normal path component: {}",
-                self.temp_dir.display()
-            );
-        }
-
-        if let Component::Normal(_) = extract_singleton(self.old_dir.components())? {
-            io_bail!(
-                InvalidData,
-                "Old dir must be a single normal path component: {}",
-                self.old_dir.display()
             );
         }
 
@@ -94,14 +82,14 @@ impl CommitFileData {
         }
     }
 
-    pub fn temp_dir(&self) -> &PathBuf {
+    pub fn temp_dir(&self) -> &SinglePathBuf {
         &self.contents.temp_dir
     }
-    pub fn old_dir(&self) -> &PathBuf {
+    pub fn old_dir(&self) -> &SinglePathBuf {
         &self.contents.old_dir
     }
 
-    pub fn with_old_dir(&self, new_old_dir: PathBuf) -> Self {
+    pub fn with_old_dir(&self, new_old_dir: SinglePathBuf) -> Self {
         Self {
             contents: CommitContents {
                 version: self.contents.version,
@@ -111,7 +99,7 @@ impl CommitFileData {
         }
     }
 
-    pub fn new(temp_dir: PathBuf, old_dir: PathBuf) -> Self {
+    pub fn new(temp_dir: SinglePathBuf, old_dir: SinglePathBuf) -> Self {
         Self {
             contents: CommitContents {
                 version: CURR_COMMIT_VERSION,
@@ -125,7 +113,12 @@ impl CommitFileData {
         let commit_file_path = get_commit_file_path(path);
         let data = serde_json::to_vec(&self.contents)?;
         // After the commit file is written, the directory should be durable.
-        write_file_atomic(&commit_file_path, &data, WriteMode::CreateNew)?;
+        write_file_atomic_at(
+            path.parent_dir(),
+            &commit_file_path,
+            &data,
+            WriteMode::CreateNew,
+        )?;
         Ok(())
     }
 }

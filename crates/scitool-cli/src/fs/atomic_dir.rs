@@ -5,17 +5,21 @@ mod dir_lock;
 mod dir_state;
 mod new_engine;
 mod recovery;
+mod temp_dir;
 mod types;
 mod util;
 
 use std::{
+    borrow::Cow,
     ffi::OsString,
     io::{self, Read, Seek as _, Write},
     os::fd::{AsFd, AsRawFd},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use cap_std::fs::Dir;
+use rand::{Rng as _, distr::SampleString as _};
 use serde::Serialize;
 
 pub use self::types::FileType;
@@ -26,11 +30,12 @@ use crate::fs::{
         dir_lock::DirLock,
         dir_state::{DirState, LoadedDirState},
         recovery::{recover, recover_exclusive},
-        util::{create_old_path, create_tmp_path},
+        temp_dir::TempDir,
+        util::create_old_path,
     },
-    err_helpers::io_bail,
+    err_helpers::{io_bail, io_err_map},
     file_lock::LockType,
-    paths::RelPathBuf,
+    paths::{RelPathBuf, SinglePath, SinglePathBuf},
 };
 
 const STATE_FILE_NAME: &str = ".state";
@@ -161,6 +166,7 @@ impl OpenOptions {
 }
 
 pub struct ReadDir {
+    at_root: bool,
     inner: cap_std::fs::ReadDir,
 }
 
@@ -168,7 +174,16 @@ impl Iterator for ReadDir {
     type Item = io::Result<DirEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|res| res.map(DirEntry::from_inner))
+        loop {
+            match self.inner.next()? {
+                Ok(entry) => {
+                    if !self.at_root || entry.file_name() != OsString::from(STATE_FILE_NAME) {
+                        return Some(Ok(DirEntry::from_inner(entry)));
+                    }
+                }
+                Err(err) => return Some(Err(err)),
+            }
+        }
     }
 }
 
@@ -230,6 +245,7 @@ impl DirEntry {
     ///
     /// This corresponds to [`std::fs::DirEntry::file_name`].
     #[inline]
+    #[must_use]
     pub fn file_name(&self) -> OsString {
         self.inner.file_name()
     }
@@ -258,12 +274,6 @@ fn read_state_file(dir: &Dir) -> io::Result<LoadedDirState> {
     Ok(DirState::load(&state_contents)?)
 }
 
-struct Inner {
-    lock: DirLock,
-    dir_handle: Dir,
-    state: DirState,
-}
-
 /// A high-level atomic directory that allows for changing files within
 /// a directory atomically.
 ///
@@ -273,7 +283,9 @@ struct Inner {
 /// process will attempt to complete the commit the next time an `AtomicDir`
 /// is created for the same directory.
 pub struct AtomicDir {
-    inner: Inner,
+    lock: DirLock,
+    dir_handle: Dir,
+    state: DirState,
 }
 
 impl AtomicDir {
@@ -289,11 +301,9 @@ impl AtomicDir {
         };
 
         Ok(AtomicDir {
-            inner: Inner {
-                lock,
-                dir_handle,
-                state,
-            },
+            lock,
+            dir_handle,
+            state,
         })
     }
 
@@ -308,7 +318,6 @@ impl AtomicDir {
         let path = util::normalize_path(path)?;
         Ok(File {
             inner: self
-                .inner
                 .dir_handle
                 .open_with(&path, cap_std::fs::OpenOptions::new().read(true))?,
         })
@@ -318,8 +327,10 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
+        let path = self.dir_handle.canonicalize(path.as_ref())?;
         Ok(ReadDir {
-            inner: self.inner.dir_handle.read_dir(path.as_ref())?,
+            at_root: path.as_os_str() == "." || path.as_os_str() == "",
+            inner: self.dir_handle.read_dir(path)?,
         })
     }
 
@@ -329,12 +340,12 @@ impl AtomicDir {
     {
         let path = util::normalize_path(path.as_ref())?;
         Ok(Metadata {
-            inner: self.inner.dir_handle.metadata(&path)?,
+            inner: self.dir_handle.metadata(&path)?,
         })
     }
 
-    pub fn begin_update(&self) -> io::Result<DirBuilder> {
-        todo!()
+    pub fn begin_update(self) -> io::Result<DirBuilder> {
+        DirBuilder::from_atomic_dir(self)
     }
 }
 
@@ -343,7 +354,7 @@ impl AtomicDir {
     /// A convenience method to read data from a file within the transaction.
     ///
     /// This reads the entire contents of the file into a `Vec<u8>`.
-    pub async fn read<P>(&self, path: &P) -> io::Result<Vec<u8>>
+    pub fn read<P>(&self, path: &P) -> io::Result<Vec<u8>>
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -354,30 +365,15 @@ impl AtomicDir {
     }
 }
 
-struct TempDir {
-    
-}
-
 enum SourceDir {
     Existing(AtomicDir),
     New(DirLock),
 }
 
-impl SourceDir {
-    fn lock(&self) -> &DirLock {
-        match self {
-            SourceDir::Existing(dir) => &dir.inner.lock,
-            SourceDir::New(lock) => lock,
-        }
-    }
-}
-
 /// A builder to create a new `AtomicDir`, or overwrite an existing one.
 pub struct DirBuilder {
     source: SourceDir,
-    curr_state: DirState,
-    temp_path: Option<RelPathBuf>,
-    temp_dir: Dir,
+    temp_dir: TempDir,
 }
 
 impl DirBuilder {
@@ -401,27 +397,22 @@ impl DirBuilder {
         }
 
         // Create a temporary directory within the parent of the target path.
-        let temp_path = create_tmp_path(&target_lock);
-        let temp_dir = target_lock.parent_dir().open_dir(&temp_path)?;
+        let temp_dir = TempDir::new_in(target_lock.parent_dir().clone(), target_lock.file_name())?;
         Ok(DirBuilder {
             source: SourceDir::New(target_lock),
-            curr_state: DirState::new(),
-            temp_path: Some(temp_path),
             temp_dir,
         })
     }
 
     fn from_atomic_dir(dir: AtomicDir) -> io::Result<Self> {
-        let temp_path = create_tmp_path(&dir.inner.lock);
-        let temp_dir = dir.inner.lock.parent_dir().open_dir(&temp_path)?;
+        let temp_dir = TempDir::new_in(dir.lock.parent_dir().clone(), dir.lock.file_name())?;
         Ok(DirBuilder {
             source: SourceDir::Existing(dir),
-            curr_state: DirState::new(),
-            temp_path: Some(temp_path),
             temp_dir,
         })
     }
 
+    #[must_use]
     pub fn source(&self) -> Option<&AtomicDir> {
         match &self.source {
             SourceDir::Existing(dir) => Some(dir),
@@ -429,21 +420,34 @@ impl DirBuilder {
         }
     }
 
-    pub fn copy_file(&self, src: &Path, dst: &Path) -> io::Result<()> {
+    pub fn copy_file<P1, P2>(&self, src: &P1, dst: &P2) -> io::Result<()>
+    where
+        P1: AsRef<Path> + ?Sized,
+        P2: AsRef<Path> + ?Sized,
+    {
         let SourceDir::Existing(source_dir) = &self.source else {
             io_bail!(
                 Other,
                 "Can only copy files when updating an existing directory"
             );
         };
-        let dst = self.temp_dir.canonicalize(dst)?;
-        if let Some(parent) = dst.parent() {
-            self.temp_dir.create_dir_all(parent)?;
-        }
+        let Some((dst_parent, dst_file_name)) = util::safe_path_parent(dst.as_ref())? else {
+            io_bail!(
+                Other,
+                "Destination path must have a parent: {}",
+                dst.as_ref().display()
+            );
+        };
+        let dst_parent: Cow<Path> = if dst_parent.as_os_str().is_empty() {
+            Cow::Borrowed(dst_parent)
+        } else {
+            let dst_parent = self.temp_dir.canonicalize(dst_parent)?;
+            self.temp_dir.create_dir_all(&dst_parent)?;
+            Cow::Owned(dst_parent)
+        };
         source_dir
-            .inner
             .dir_handle
-            .hard_link(&src, &self.temp_dir, &dst)?;
+            .hard_link(src, &self.temp_dir, dst_parent.join(dst_file_name))?;
         Ok(())
     }
 
@@ -459,9 +463,8 @@ impl DirBuilder {
             self.temp_dir.create_dir_all(parent)?;
         }
         let source_file = source_dir
-            .inner
             .dir_handle
-            .open_with(&src, cap_std::fs::OpenOptions::new().read(true))?;
+            .open_with(src, cap_std::fs::OpenOptions::new().read(true))?;
 
         let mut dest_file = self.temp_dir.open_with(
             &dst,
@@ -475,8 +478,18 @@ impl DirBuilder {
         Ok(File { inner: dest_file })
     }
 
-    pub fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        let path = self.temp_dir.canonicalize(path)?;
+    pub fn write_file<P>(&self, path: &P, data: &[u8]) -> io::Result<()>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = match self.temp_dir.canonicalize(path) {
+            Ok(p) => RelPathBuf::new_checked(&p).map_err(io_err_map!(InvalidInput))?,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                util::normalize_path(path.as_ref())?
+            }
+            Err(err) => return Err(err),
+        };
+
         if let Some(parent) = path.parent() {
             self.temp_dir.create_dir_all(parent)?;
         }
@@ -502,39 +515,73 @@ impl DirBuilder {
     pub fn read_dir(&self, path: &Path) -> io::Result<ReadDir> {
         let path = self.temp_dir.canonicalize(path)?;
         Ok(ReadDir {
+            at_root: path.as_os_str() == "." || path.as_os_str().is_empty(),
             inner: self.temp_dir.read_dir(&path)?,
         })
     }
 
     pub fn commit(self) -> io::Result<AtomicDir> {
-        let target_lock = match self.source {
-            SourceDir::Existing(dir) => dir.inner.lock,
-            SourceDir::New(lock) => lock,
+        let (target_lock, prev_state) = match self.source {
+            SourceDir::Existing(dir) => (dir.lock, Some((dir.dir_handle, dir.state))),
+            SourceDir::New(lock) => (lock, None),
         };
         let mut target_lock = target_lock.upgrade()?;
+
+        // We need to verify that the current state of the directory matches
+        // what we expect. If not, we should abort the operation.
+        let next_state = if let Some((existing_dir, curr_state)) = prev_state {
+            let existing_state = read_state_file(&existing_dir)?;
+            let LoadedDirState::Clean(existing_state) = existing_state else {
+                io_bail!(
+                    InvalidData,
+                    "Directory has been poisoned due to previous failed operation. This is an inconsistent state: {}",
+                    target_lock.path().display()
+                );
+            };
+            if !existing_state.is_same(&curr_state) {
+                io_bail!(
+                    Other,
+                    "Directory has changed since the update operation began. Current state: {:?}, expected state: {:?}. Path: {}",
+                    existing_state,
+                    curr_state,
+                    target_lock.path().display()
+                );
+            }
+            curr_state.to_next()
+        } else {
+            if target_lock
+                .parent_dir()
+                .try_exists(target_lock.file_name())?
+            {
+                io_bail!(
+                    AlreadyExists,
+                    "Target path already exists: {}",
+                    target_lock.path().display()
+                );
+            }
+            DirState::new()
+        };
         {
-            let mut state_file = std::fs::File::options()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(target_lock.path().join(STATE_FILE_NAME))?;
-            state_file.write_all(&self.curr_state.to_next().serialize()?)?;
+            let mut state_file = self.temp_dir.open_with(
+                STATE_FILE_NAME,
+                cap_std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true),
+            )?;
+            state_file.write_all(&next_state.serialize()?)?;
             state_file.flush()?;
             state_file.sync_all()?;
         }
-        let temp_path = self
-            .temp_path
-            .as_ref()
-            .expect("Temp path must exist")
-            .clone();
-        let commit = CommitFileData::new(
-            temp_path.clone().into_path_buf(),
-            create_old_path(&target_lock).into_path_buf(),
-        );
+        let temp_path = self.temp_dir.dir_name().to_owned();
+        let commit = CommitFileData::new(temp_path.clone(), create_old_path(&target_lock));
+
+        // Release the temp dir so it doesn't get deleted.
+        let _temp_dir = self.temp_dir.into_dir();
 
         if let Err(e) = commit.commit_file(&target_lock) {
             // Failed to write the commit file. Try to clean up after ourselves.
-            drop(target_lock.parent_dir().remove_dir_all(&temp_path));
+            drop(target_lock.parent_dir().remove_dir_all(temp_path));
             return Err(e);
         }
 
@@ -549,176 +596,129 @@ impl DirBuilder {
 
         AtomicDir::from_lock(target_lock)
     }
+
+    pub fn abort(self) -> io::Result<Option<AtomicDir>> {
+        let prev_state = match self.source {
+            SourceDir::Existing(dir) => Some(dir),
+            SourceDir::New(_) => None,
+        };
+        Ok(prev_state)
+    }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::fs::{
-//         atomic_dir::schema::{CommitEntry, CommitSchema, DeleteEntry, OverwriteEntry},
-//         paths::RelPathBuf,
-//     };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
 
-//     use super::*;
-//     use tempfile::tempdir;
+    #[test]
+    fn create_atomic_dir() -> io::Result<()> {
+        let dir = tempdir()?;
 
-//     #[test]
-//     fn test_write_and_commit() -> io::Result<()> {
-//         let dir = tempdir()?;
+        let root = dir.path().join("testdir");
+        let builder = DirBuilder::new_empty(&root)?;
+        builder.write_file("file1.txt", b"Hello, world!")?;
+        builder.commit()?;
 
-//         let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
-//         atomic_dir.write("foo.txt", &WriteMode::CreateNew, b"hello")?;
+        let contents = std::fs::read(root.join("file1.txt"))?;
+        assert_eq!(&contents, b"Hello, world!");
+        Ok(())
+    }
 
-//         atomic_dir.commit()?;
+    #[test]
+    fn access_atomic_dir() -> io::Result<()> {
+        let dir = tempdir()?;
 
-//         let contents = std::fs::read_to_string(dir.path().join("foo.txt"))?;
-//         assert_eq!(contents, "hello");
+        let root = dir.path().join("testdir");
+        let builder = DirBuilder::new_empty(&root)?;
+        builder.write_file("file1.txt", b"Hello, world!")?;
+        let atomic_dir = builder.commit()?;
 
-//         Ok(())
-//     }
+        assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, world!");
+        let entries = atomic_dir
+            .read_dir(".")?
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>();
 
-//     #[test]
-//     fn test_delete_and_commit() -> io::Result<()> {
-//         let dir = tempdir()?;
+        assert_eq!(entries, vec![OsString::from("file1.txt")]);
+        Ok(())
+    }
 
-//         // Create a file to be deleted.
-//         std::fs::write(dir.path().join("foo.txt"), "hello")?;
+    #[test]
+    fn update_atomic_dir() -> io::Result<()> {
+        let dir = tempdir()?;
 
-//         let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
-//         atomic_dir.delete(Path::new("foo.txt"))?;
-//         atomic_dir.commit()?;
+        let root = dir.path().join("testdir");
+        let builder = DirBuilder::new_empty(&root)?;
+        builder.write_file("file1.txt", b"Hello, world!")?;
+        let atomic_dir = builder.commit()?;
 
-//         assert!(!dir.path().join("foo.txt").exists());
+        let updater = atomic_dir.begin_update()?;
+        updater.write_file("file1.txt", b"Hello, universe!")?;
+        let atomic_dir = updater.commit()?;
 
-//         Ok(())
-//     }
+        assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, universe!");
+        Ok(())
+    }
 
-//     #[test]
-//     fn test_write_delete_and_commit() -> io::Result<()> {
-//         let dir = tempdir()?;
+    #[test]
+    fn update_copies_files() -> io::Result<()> {
+        let dir = tempdir()?;
 
-//         // Create a file to be overwritten.
-//         std::fs::write(dir.path().join("foo.txt"), "old content")?;
+        let root = dir.path().join("testdir");
+        let builder = DirBuilder::new_empty(&root)?;
+        builder.write_file("file1.txt", b"Hello, world!")?;
+        let atomic_dir = builder.commit()?;
 
-//         let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
-//         atomic_dir.write(Path::new("foo.txt"), &WriteMode::Overwrite, b"new content")?;
-//         atomic_dir.delete(Path::new("bar.txt"))?;
-//         atomic_dir.write(Path::new("bar.txt"), &WriteMode::CreateNew, b"new file")?;
-//         atomic_dir.commit()?;
+        let updater = atomic_dir.begin_update()?;
+        updater.copy_file("file1.txt", "file2.txt")?;
+        updater.write_file("file1.txt", b"Hello, universe!")?;
+        {
+            let atomic_dir = updater.commit()?;
+            assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, universe!");
+            assert_eq!(atomic_dir.read("file2.txt")?, b"Hello, world!");
+        }
 
-//         let contents = std::fs::read_to_string(dir.path().join("foo.txt"))?;
-//         assert_eq!(contents, "new content");
-//         let contents_bar = std::fs::read_to_string(dir.path().join("bar.txt"))?;
-//         assert_eq!(contents_bar, "new file");
+        let tempdir_entries = dir
+            .path()
+            .read_dir()?
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>();
 
-//         Ok(())
-//     }
+        assert_eq!(tempdir_entries, vec![OsString::from("testdir")]); // Only "testdir" should be present.
+        Ok(())
+    }
 
-//     #[test]
-//     fn test_list_dir_reflects_staged_state() -> io::Result<()> {
-//         let dir = tempdir()?;
-//         let assets_dir = dir.path().join("assets");
-//         std::fs::create_dir(&assets_dir)?;
+    #[test]
+    fn aborted_update_cleans_up() -> io::Result<()> {
+        let dir = tempdir()?;
 
-//         std::fs::write(assets_dir.join("existing.txt"), b"old")?;
-//         std::fs::write(assets_dir.join("deleted.txt"), b"remove me")?;
-//         std::fs::write(assets_dir.join("untouched.txt"), b"keep")?;
+        let root = dir.path().join("testdir");
+        let builder = DirBuilder::new_empty(&root)?;
+        builder.write_file("file1.txt", b"Hello, world!")?;
+        let atomic_dir = builder.commit()?;
 
-//         let atomic_dir = AtomicDir::new_at_dir(dir.path())?;
+        let updater = atomic_dir.begin_update()?;
+        updater.copy_file("file1.txt", "file2.txt")?;
+        updater.write_file("file1.txt", b"Hello, universe!")?;
+        {
+            let atomic_dir = updater.abort()?.unwrap();
+            assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, world!");
+        }
 
-//         atomic_dir.write(Path::new("assets/new.txt"), &WriteMode::CreateNew, b"new")?;
-//         atomic_dir.write(
-//             Path::new("assets/existing.txt"),
-//             &WriteMode::Overwrite,
-//             b"updated",
-//         )?;
-//         atomic_dir.delete(Path::new("assets/deleted.txt"))?;
+        let tempdir_entries = dir
+            .path()
+            .read_dir()?
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>();
 
-//         let entries = atomic_dir.list_dir(Path::new("assets"))?;
-//         let mut observed = std::collections::BTreeSet::new();
-
-//         for entry in entries {
-//             let entry = entry?;
-//             assert!(entry.file_type().is_file());
-//             let rel = entry.file_name().to_string_lossy().into_owned();
-//             observed.insert(rel);
-//         }
-
-//         let expected: std::collections::BTreeSet<String> =
-//             ["existing.txt", "new.txt", "untouched.txt"]
-//                 .into_iter()
-//                 .map(String::from)
-//                 .collect();
-
-//         assert_eq!(observed, expected);
-
-//         Ok(())
-//     }
-
-//     #[test]
-//     fn test_recovery() -> io::Result<()> {
-//         let dir = tempdir()?;
-
-//         // Simulate a partial commit.
-//         let commit_schema = CommitSchema::new(
-//             RelPathBuf::new_checked("tmpdir-recovery-test").unwrap(),
-//             vec![
-//                 CommitEntry::Overwrite(OverwriteEntry::new(
-//                     RelPathBuf::new_checked("foo.txt").unwrap(),
-//                 )),
-//                 CommitEntry::Delete(DeleteEntry::new(
-//                     RelPathBuf::new_checked("bar.txt").unwrap(),
-//                 )),
-//             ],
-//         );
-
-//         // Create the temporary directory and file.
-//         std::fs::create_dir(dir.path().join("tmpdir-recovery-test"))?;
-//         std::fs::write(dir.path().join("tmpdir-recovery-test/foo.txt"), "recovered")?;
-
-//         // Create a file to be deleted.
-//         std::fs::write(dir.path().join("bar.txt"), "to be deleted")?;
-
-//         // Write the commit file.
-//         let commit_data = serde_json::to_vec(&commit_schema)?;
-//         std::fs::write(dir.path().join(COMMIT_PATH), commit_data)?;
-
-//         // Now, run recovery.
-//         let _atomic_dir = AtomicDir::new_at_dir(dir.path())?;
-
-//         // Check that recovery happened.
-//         let contents = std::fs::read_to_string(dir.path().join("foo.txt"))?;
-//         assert_eq!(contents, "recovered");
-//         assert!(!dir.path().join("bar.txt").exists());
-//         assert!(!dir.path().join(COMMIT_PATH).exists());
-//         assert!(!dir.path().join("tmpdir-recovery-test").exists());
-
-//         Ok(())
-//     }
-
-//     #[test]
-//     fn test_dir_locking() -> io::Result<()> {
-//         let dir = tempdir()?;
-
-//         {
-//             // Acquire a lock by creating an AtomicDirInner.
-//             let _atomic_dir1 = AtomicDir::new_at_dir(dir.path())?;
-
-//             // Try to acquire another lock on the same directory.
-//             // This should fail with `Ok(None)` because the first one is still held.
-//             let atomic_dir2 = AtomicDir::try_new_at_dir(dir.path())?;
-//             assert!(
-//                 atomic_dir2.is_none(),
-//                 "Should not be able to acquire lock while it's held"
-//             );
-//         } // atomic_dir1 is dropped here, releasing the lock.
-
-//         // Now that the first lock is released, we should be able to acquire a new one.
-//         let atomic_dir3 = AtomicDir::try_new_at_dir(dir.path())?;
-//         assert!(
-//             atomic_dir3.is_some(),
-//             "Should be able to acquire lock after it's released"
-//         );
-
-//         Ok(())
-//     }
-// }
+        assert_eq!(tempdir_entries, vec![OsString::from("testdir")]); // Only "testdir" should be present.
+        Ok(())
+    }
+}

@@ -500,6 +500,25 @@ pub fn classify_path_buf(path: PathBuf) -> Result<PathBufKind, ClassifyError> {
     }
 }
 
+define_path_wrapper! {
+    /// A wrapper around `Path` that guarantees the path is a single normal path element.
+    SinglePath,
+    /// A wrapper around `PathBuf` that guarantees the path is a single normal path element.
+    SinglePathBuf,
+    /// Error returned when trying to convert a `Path` or `PathBuf` to a single path wrapper, but the path is not a single normal path element.
+    SinglePathConvertError,
+    "Path is not a single normal path element",
+    is_single_normal_path
+}
+
+fn is_single_normal_path(path: &Path) -> bool {
+    let mut components = path.components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_))) {
+        return false;
+    }
+    components.next().is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

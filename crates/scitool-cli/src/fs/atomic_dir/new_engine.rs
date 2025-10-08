@@ -94,8 +94,8 @@ impl DirHandle {
 
             let cloned_root_file = root_dir.try_clone()?.into_std_file();
 
-            let subdir_file_handle = same_file::Handle::from_file(subdir_file)?;
-            let cloned_root_file_handle = same_file::Handle::from_file(cloned_root_file)?;
+            let subdir_file_handle = cross_file_id::Handle::from_file(subdir_file)?;
+            let cloned_root_file_handle = cross_file_id::Handle::from_file(cloned_root_file)?;
             if subdir_file_handle != cloned_root_file_handle {
                 io_bail!(
                     Other,
@@ -158,8 +158,8 @@ impl DirHandle {
         let current_root_file = current_root.into_std_file();
         let opened_root_file = self.root_dir.try_clone()?.into_std_file();
 
-        let current_root_handle = same_file::Handle::from_file(current_root_file)?;
-        let opened_root_handle = same_file::Handle::from_file(opened_root_file)?;
+        let current_root_handle = cross_file_id::Handle::from_file(current_root_file)?;
+        let opened_root_handle = cross_file_id::Handle::from_file(opened_root_file)?;
 
         if current_root_handle != opened_root_handle {
             io_bail!(

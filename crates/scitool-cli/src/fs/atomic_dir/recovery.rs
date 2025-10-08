@@ -3,6 +3,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use cap_std::fs::Dir;
 use rand::distr::SampleString as _;
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,7 @@ use crate::fs::{
     atomic_dir::{commit::CommitFileData, dir_lock::DirLock},
     err_helpers::io_bail,
     file_lock::{LockType, ephemeral::ReacquireResult},
+    paths::{SinglePath, SinglePathBuf},
 };
 
 const COMMIT_FILE_SUFFIX: &str = ".commit";
@@ -82,8 +84,8 @@ enum TryRenameResult {
     TargetExists,
 }
 
-fn try_rename(src: &Path, dst: &Path) -> io::Result<TryRenameResult> {
-    match std::fs::rename(src, dst) {
+fn try_rename(root: &Dir, src: &SinglePath, dst: &SinglePath) -> io::Result<TryRenameResult> {
+    match root.rename(src, root, dst) {
         Ok(()) => Ok(TryRenameResult::Success),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(TryRenameResult::SourceMissing),
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Ok(TryRenameResult::TargetExists),
@@ -102,12 +104,11 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
         return Ok(());
     };
 
-    let temp_dir_path = dir_lock.parent().join(commit.temp_dir());
-    let mut old_dir_path = dir_lock.parent().join(commit.old_dir());
+    let parent_dir = dir_lock.parent_dir();
 
-    let mut target_exists = dir_lock.path().try_exists()?;
-    let mut temp_exists = temp_dir_path.try_exists()?;
-    let mut old_exists = old_dir_path.try_exists()?;
+    let mut target_exists = parent_dir.try_exists(dir_lock.file_name())?;
+    let mut temp_exists = parent_dir.try_exists(commit.temp_dir())?;
+    let mut old_exists = parent_dir.try_exists(commit.old_dir())?;
 
     // We go through each step of the recovery process, checking the state of
     // each of the three directories (target, temp, old) to determine what
@@ -126,7 +127,11 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
     if temp_exists && target_exists {
         // Move the target to old, then move temp to target.
         loop {
-            match try_rename(dir_lock.path(), &old_dir_path)? {
+            match try_rename(
+                dir_lock.parent_dir(),
+                dir_lock.file_name(),
+                commit.old_dir(),
+            )? {
                 TryRenameResult::Success => {
                     break;
                 }
@@ -145,9 +150,11 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
                     let suffix = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 6);
                     let new_old_dir_name =
                         format!("{}.old-{}", dir_lock.file_name().display(), suffix);
-                    commit = commit.with_old_dir(PathBuf::from(&new_old_dir_name));
+                    commit = commit.with_old_dir(
+                        SinglePathBuf::new_checked(&new_old_dir_name)
+                            .expect("Generated file name should be valid"),
+                    );
                     commit.commit_file(dir_lock)?;
-                    old_dir_path = dir_lock.parent().join(&commit.old_dir());
                 }
             }
         }
@@ -159,7 +166,7 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
     // Step 2: Move temp to target.
     if temp_exists && !target_exists {
         // Move temp to target.
-        std::fs::rename(&temp_dir_path, dir_lock.path())?;
+        parent_dir.rename(commit.temp_dir(), parent_dir, dir_lock.file_name())?;
         temp_exists = false;
         target_exists = true;
     }
@@ -167,12 +174,12 @@ pub(crate) fn recover_exclusive(dir_lock: &DirLock) -> io::Result<()> {
     // Step 3: Remove old.
     if !temp_exists && target_exists && old_exists {
         // We are done, just need to remove old.
-        std::fs::remove_dir_all(&old_dir_path)?;
+        parent_dir.remove_dir_all(commit.old_dir())?;
     }
 
     // Now, we should only have the target directory, and the recovery should be
     // complete. Delete the commit file to indicate that recovery is complete.
-    std::fs::remove_file(commit_file_path)?;
+    parent_dir.remove_file(&commit_file_path)?;
 
     Ok(())
 }

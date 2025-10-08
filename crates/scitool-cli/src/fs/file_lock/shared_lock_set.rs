@@ -5,9 +5,9 @@ use std::{
     sync::{Arc, Condvar, LazyLock, Mutex},
 };
 
-use same_file::Handle as SameFileHandle;
+use cross_file_id::Handle as SameFileHandle;
 
-type LockMap = HashMap<Arc<SameFileHandle>, LockEntryState>;
+type LockMap = HashMap<Arc<SameFileHandle<File>>, LockEntryState>;
 
 static SHARED_HANDLE_LOCK_STATES: LazyLock<SharedLockSet> = LazyLock::new(SharedLockSet::new);
 
@@ -37,7 +37,7 @@ enum LockEntryState {
 
 #[derive(Debug)]
 pub(super) struct Lock {
-    handle: Arc<SameFileHandle>,
+    handle: Arc<SameFileHandle<File>>,
     lock_type: LockType,
 }
 
@@ -50,10 +50,7 @@ impl Lock {
         // It really should be the case that same_file::Handle should be
         // convertible back to File, but it doesn't seem to be possible.
         // So we just clone the file handle.
-        self.handle
-            .as_file()
-            .try_clone()
-            .expect("Failed to clone file")
+        self.handle.try_clone().expect("Failed to clone file")
         // self will be dropped here, releasing the lock
     }
 }
@@ -68,13 +65,13 @@ impl Drop for Lock {
             LockEntryState::Shared { ref_count } => {
                 *ref_count -= 1;
                 if *ref_count == 0 {
-                    self.handle.as_file().unlock().expect("Unlock failed");
+                    self.handle.unlock().expect("Unlock failed");
                     lock_map.remove(&self.handle);
                     SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
                 }
             }
             LockEntryState::Exclusive => {
-                self.handle.as_file().unlock().expect("Unlock failed");
+                self.handle.unlock().expect("Unlock failed");
                 lock_map.remove(&self.handle);
                 SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
             }
@@ -189,7 +186,7 @@ impl SharedLockSet {
 }
 
 struct PendingGuard {
-    pending_handle: Option<Arc<SameFileHandle>>,
+    pending_handle: Option<Arc<SameFileHandle<File>>>,
     lock_type: LockType,
 }
 

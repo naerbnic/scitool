@@ -19,8 +19,6 @@
 
 use std::{fs::TryLockError, io};
 
-use same_file::Handle as SameFileHandle;
-
 use crate::fs::{
     err_helpers::{io_bail, io_err},
     file_lock::shared_lock_set,
@@ -196,8 +194,8 @@ fn take_lock_safe(
     // This is not particularly efficient, but it should be quick
     // enough that it doesn't matter.
 
-    let lock_file_handle = SameFileHandle::from_file(lock_file)?;
-    let current_file_handle = SameFileHandle::from_file(current_file.try_clone()?)?;
+    let lock_file_handle = cross_file_id::Handle::from_file(lock_file)?;
+    let current_file_handle = cross_file_id::Handle::from_file(current_file.try_clone()?)?;
     if lock_file_handle == current_file_handle {
         // We verified that the file we locked is the current file at the path.
         // If other clients are well-behaved, the won't change the file without

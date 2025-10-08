@@ -2,22 +2,25 @@ use std::{
     fs::TryLockError,
     io,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use cap_std::fs::Dir;
 
 use crate::fs::{
-    err_helpers::io_err,
+    atomic_dir::util::safe_path_parent,
+    err_helpers::{io_bail, io_err},
     file_lock::{
         LockType,
         ephemeral::{self, EphemeralFileLock},
     },
+    paths::SinglePath,
 };
 
 const LOCK_FILE_SUFFIX: &str = ".lock";
 
 pub(super) struct DirLock {
-    parent_dir: Dir,
+    parent_dir: Arc<Dir>,
     target_path: PathBuf,
     lock_type: LockType,
     lock_file: EphemeralFileLock,
@@ -28,10 +31,13 @@ impl DirLock {
         &self.target_path
     }
 
-    pub(super) fn file_name(&self) -> &std::ffi::OsStr {
-        self.target_path
-            .file_name()
-            .expect("DirLock target path validated in constructors")
+    pub(super) fn file_name(&self) -> &SinglePath {
+        SinglePath::new_checked(
+            self.target_path
+                .file_name()
+                .expect("DirLock target path validated in constructors"),
+        )
+        .expect("DirLock target path file name should be valid")
     }
 
     pub(super) fn parent(&self) -> &Path {
@@ -41,23 +47,18 @@ impl DirLock {
     }
 
     pub(super) fn acquire(path: &Path, lock_type: LockType) -> io::Result<Self> {
-        let path = std::fs::canonicalize(path)?;
-        let parent_path = path
-            .parent()
-            .ok_or_else(|| io_err!(Other, "Path must have a parent: {}", path.display()))?;
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| io_err!(Other, "Path must have a file name: {}", path.display()))?;
+        let Some((parent_path, file_name)) = safe_path_parent(path)? else {
+            io_bail!(Other, "Path must have a parent: {}", path.display());
+        };
         let parent_dir = Dir::open_ambient_dir(parent_path, cap_std::ambient_authority())?;
 
-        let lock_file_path =
-            path.with_file_name(format!("{}{}", file_name.display(), LOCK_FILE_SUFFIX));
+        let lock_file_path = format!("{}{}", file_name.display(), LOCK_FILE_SUFFIX);
         let lock_file = ephemeral::lock_file(
             &ephemeral::DirRelativePath::new(&parent_dir, &lock_file_path),
             lock_type,
         )?;
         Ok(Self {
-            parent_dir,
+            parent_dir: Arc::new(parent_dir),
             target_path: path.to_path_buf(),
             lock_type,
             lock_file,
@@ -66,15 +67,15 @@ impl DirLock {
 
     #[expect(dead_code, reason = "Primitive for current work")]
     pub(super) fn try_acquire(path: &Path, lock_type: LockType) -> Result<Self, TryLockError> {
-        let path = std::fs::canonicalize(path).map_err(TryLockError::Error)?;
-        let parent_path = path
-            .parent()
-            .ok_or_else(|| io_err!(Other, "Path must have a parent: {}", path.display()))
-            .map_err(TryLockError::Error)?;
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| io_err!(Other, "Path must have a file name: {}", path.display()))
-            .map_err(TryLockError::Error)?;
+        let Some((parent_path, file_name)) = safe_path_parent(path).map_err(TryLockError::Error)?
+        else {
+            return Err(TryLockError::Error(io_err!(
+                Other,
+                "Path must have a parent: {}",
+                path.display()
+            )));
+        };
+        let parent_path = std::fs::canonicalize(parent_path).map_err(TryLockError::Error)?;
         let parent_dir = Dir::open_ambient_dir(parent_path, cap_std::ambient_authority())
             .map_err(TryLockError::Error)?;
 
@@ -85,7 +86,7 @@ impl DirLock {
             lock_type,
         )?;
         Ok(Self {
-            parent_dir,
+            parent_dir: Arc::new(parent_dir),
             target_path: path.to_path_buf(),
             lock_type,
             lock_file,
@@ -101,8 +102,7 @@ impl DirLock {
             .target_path
             .file_name()
             .expect("DirLock target path must have a file name");
-        self.target_path
-            .with_file_name(format!("{}{}", file_name.display(), ext))
+        format!("{}{}", file_name.display(), ext).into()
     }
 
     pub(super) fn upgrade(self) -> io::Result<Self> {
@@ -135,7 +135,7 @@ impl DirLock {
         })
     }
 
-    pub(super) fn parent_dir(&self) -> &Dir {
+    pub(super) fn parent_dir(&self) -> &Arc<Dir> {
         &self.parent_dir
     }
 }

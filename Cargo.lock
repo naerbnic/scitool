@@ -263,7 +263,7 @@ dependencies = [
 [[package]]
 name = "cross-file-id"
 version = "1.0.6"
-source = "git+https://github.com/naerbnic/cross-file-id.git?branch=main#9e98865013dbc570f0c676a409f75c566961cba7"
+source = "git+https://github.com/naerbnic/cross-file-id.git?branch=main#c30bbbb2a2be3359b4ad980a70f8e0f87fbf4444"
 dependencies = [
  "io-lifetimes 1.0.11",
  "windows",
@@ -1184,7 +1184,6 @@ dependencies = [
  "hex",
  "itertools",
  "rand",
- "same-file",
  "scidev",
  "serde",
  "serde_json",
