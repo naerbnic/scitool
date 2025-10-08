@@ -24,7 +24,6 @@ use crate::{
         atomic_dir::AtomicDir,
         err_helpers::{io_bail, io_err_map},
         io_wrappers::LengthLimitedReader,
-        ops::WriteMode,
     },
     package::schema::Sha256Hash,
 };

@@ -19,7 +19,6 @@ use std::{
 use cap_std::fs::Dir;
 
 pub use self::types::FileType;
-pub use crate::fs::ops::WriteMode;
 use crate::fs::{
     atomic_dir::{
         commit::CommitFileData,
@@ -35,6 +34,14 @@ use crate::fs::{
 };
 
 const STATE_FILE_NAME: &str = ".state";
+
+#[derive(Debug, Clone, Copy)]
+pub enum WriteMode {
+    /// Overwrite the file if it exists, or create it if it does not.
+    Overwrite,
+    /// Create the file, but fail if it already exists.
+    CreateNew,
+}
 
 pub struct File {
     inner: cap_std::fs::File,

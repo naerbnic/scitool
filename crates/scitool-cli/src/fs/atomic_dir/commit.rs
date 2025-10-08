@@ -3,9 +3,8 @@ use std::{io, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::fs::{
-    atomic_dir::{DirLock, util::write_file_atomic_at},
+    atomic_dir::{DirLock, WriteMode, util::write_file_atomic_at},
     err_helpers::io_bail,
-    ops::WriteMode,
     paths::SinglePathBuf,
 };
 
