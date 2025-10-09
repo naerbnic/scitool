@@ -1,6 +1,6 @@
 #[derive(Debug, thiserror::Error)]
 #[error("{context}: {error}")]
-pub struct ErrorWithContext<T, E> {
+pub(super) struct ErrorWithContext<T, E> {
     context: T,
     #[source]
     error: E,
@@ -11,7 +11,7 @@ where
     T: std::fmt::Display,
     E: std::error::Error,
 {
-    pub fn new(context: T, error: E) -> Self {
+    pub(super) fn new(context: T, error: E) -> Self {
         Self { context, error }
     }
 }
@@ -24,7 +24,7 @@ macro_rules! io_err {
 
 macro_rules! io_err_map {
     ($kind:ident, $fmt:literal $($arg:tt)*) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::fs::err_helpers::ErrorWithContext::new(format!($fmt $($arg)*), e))
+        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::package::err_helpers::ErrorWithContext::new(format!($fmt $($arg)*), e))
     };
     ($kind:ident) => {
         |e| std::io::Error::new(std::io::ErrorKind::$kind, e)
@@ -33,7 +33,7 @@ macro_rules! io_err_map {
 
 macro_rules! io_bail {
    ($kind:ident, $fmt:literal $($arg:tt)*) => {
-       return Err($crate::fs::err_helpers::io_err!($kind, $fmt $($arg)*))
+       return Err($crate::package::err_helpers::io_err!($kind, $fmt $($arg)*))
    };
 }
 

@@ -1,9 +1,9 @@
-use crate::fs::err_helpers::io_bail;
+use crate::package::err_helpers::io_bail;
 
 /// Provides an upper bound on the data that can be read from a reader. If the
 /// data available from the reader exceeds the limit, it will return an
 /// [`std::io::ErrorKind::UnexpectedEof`] error.
-pub struct LengthLimitedReader<R> {
+pub(super) struct LengthLimitedReader<R> {
     inner: R,
     remaining: u64,
 }
@@ -16,7 +16,7 @@ impl<R> LengthLimitedReader<R> {
     ///
     /// Panics if `max_bytes` is zero.
     #[must_use]
-    pub fn new(inner: R, max_bytes: u64) -> Self {
+    pub(super) fn new(inner: R, max_bytes: u64) -> Self {
         assert!(max_bytes > 0, "max_bytes must be greater than zero");
         Self {
             inner,

@@ -3,6 +3,8 @@
 //! A *.scires package is a folder that has a `meta.json` file and multiple files in it, to
 //! be able to create a common workable format for importing and exporting SCI resources.
 mod dirty;
+mod err_helpers;
+mod io_wrappers;
 pub mod schema;
 
 use std::{
@@ -20,12 +22,10 @@ use scidev::{
     },
 };
 
-use crate::{
-    fs::{
-        err_helpers::{io_bail, io_err_map},
-        io_wrappers::LengthLimitedReader,
-    },
-    package::schema::Sha256Hash,
+use crate::package::{
+    err_helpers::{io_bail, io_err_map},
+    io_wrappers::LengthLimitedReader,
+    schema::Sha256Hash,
 };
 
 use self::{dirty::Dirty, schema::Metadata};

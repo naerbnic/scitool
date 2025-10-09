@@ -446,8 +446,8 @@ impl AtomicDir {
         })
     }
 
-    pub fn begin_update(self, init_mode: UpdateInitMode) -> io::Result<UpdateBuilder> {
-        UpdateBuilder::from_atomic_dir(self, init_mode)
+    pub fn begin_update(self, init_mode: UpdateInitMode) -> io::Result<DirBuilder> {
+        DirBuilder::from_atomic_dir(self, init_mode)
     }
 }
 
@@ -544,13 +544,13 @@ impl From<CommitError> for io::Error {
 }
 
 /// A builder to create a new `AtomicDir`, or overwrite an existing one.
-pub struct UpdateBuilder {
+pub struct DirBuilder {
     source: SourceDir,
     temp_dir: TempDir,
     linked_files: Mutex<BTreeMap<RelPathBuf, RelPathBuf>>,
 }
 
-impl UpdateBuilder {
+impl DirBuilder {
     fn from_source(source: SourceDir, init_mode: UpdateInitMode) -> io::Result<Self> {
         let lock = match &source {
             SourceDir::Existing(dir) => &dir.lock,
@@ -576,7 +576,7 @@ impl UpdateBuilder {
             BTreeMap::new()
         };
 
-        Ok(UpdateBuilder {
+        Ok(DirBuilder {
             source,
             temp_dir,
             linked_files: Mutex::new(linked_files),
@@ -970,7 +970,7 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = UpdateBuilder::new_at(&root)?;
+        let builder = DirBuilder::new_at(&root)?;
         builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         builder.commit()?;
 
@@ -984,7 +984,7 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = UpdateBuilder::new_at(&root)?;
+        let builder = DirBuilder::new_at(&root)?;
         builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
@@ -1005,7 +1005,7 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = UpdateBuilder::new_at(&root)?;
+        let builder = DirBuilder::new_at(&root)?;
         builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
@@ -1022,7 +1022,7 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = UpdateBuilder::new_at(&root)?;
+        let builder = DirBuilder::new_at(&root)?;
         builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
@@ -1052,7 +1052,7 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = UpdateBuilder::new_at(&root)?;
+        let builder = DirBuilder::new_at(&root)?;
         builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
