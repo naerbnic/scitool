@@ -23,11 +23,8 @@ macro_rules! io_err {
 }
 
 macro_rules! io_err_map {
-    ($kind:ident, $fmt:literal $($arg:tt)+) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::fs::err_helpers::ErrorWithContext::new(format!($fmt $($arg)+), e))
-    };
-    ($kind:ident, $fmt:literal) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::fs::err_helpers::ErrorWithContext::new($fmt, e))
+    ($kind:ident, $fmt:literal $($arg:tt)*) => {
+        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::fs::err_helpers::ErrorWithContext::new(format!($fmt $($arg)*), e))
     };
     ($kind:ident) => {
         |e| std::io::Error::new(std::io::ErrorKind::$kind, e)
