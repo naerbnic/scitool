@@ -311,15 +311,12 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 name = "crosslock"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "cap-std",
  "cross-file-id",
- "futures",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",
- "tokio",
 ]
 
 [[package]]

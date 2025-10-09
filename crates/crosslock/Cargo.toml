@@ -15,7 +15,4 @@ cross-file-id = { git = "https://github.com/naerbnic/cross-file-id.git", branch 
 workspace = true
 
 [dev-dependencies]
-anyhow = "1.0.100"
-futures = "0.3.31"
 tempfile = "3.23.0"
-tokio = { version = "1.47.1", features = ["full"] }
