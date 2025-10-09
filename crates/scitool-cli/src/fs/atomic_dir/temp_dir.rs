@@ -1,13 +1,15 @@
-use std::{io, sync::Arc};
+use std::{io, path::Path, sync::Arc};
 
 use cap_std::fs::Dir;
 use rand::distr::SampleString as _;
 
 use crate::fs::{
-    err_helpers::io_err_map,
+    atomic_dir::util::safe_path_parent,
+    err_helpers::{io_err, io_err_map},
     paths::{SinglePath, SinglePathBuf},
 };
 
+#[derive(Debug)]
 pub(super) struct TempDir {
     parent: Arc<Dir>,
     dir_root: Option<Dir>,
@@ -31,6 +33,20 @@ impl TempDir {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("Unable to persist temporary directory: {cause}")]
+pub(super) struct PersistError {
+    pub(super) dir: TempDir,
+    #[source]
+    pub(super) cause: io::Error,
+}
+
+impl From<PersistError> for io::Error {
+    fn from(err: PersistError) -> Self {
+        err.cause
+    }
+}
+
 impl TempDir {
     pub(super) fn dir_name(&self) -> &SinglePath {
         &self.dir_name
@@ -38,6 +54,39 @@ impl TempDir {
 
     pub(super) fn into_dir(mut self) -> Dir {
         self.dir_root.take().expect("TempDir is valid")
+    }
+
+    pub(super) fn persist_to(mut self, path: &Path) -> Result<(), PersistError> {
+        macro_rules! try_persist {
+            ($expr:expr) => {
+                match $expr {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Err(PersistError {
+                            dir: self,
+                            cause: e,
+                        });
+                    }
+                }
+            };
+        }
+        let Some((target_parent, target_name)) = try_persist!(safe_path_parent(path)) else {
+            return Err(PersistError {
+                dir: self,
+                cause: io_err!(InvalidInput, "Path has no parent: {}", path.display()),
+            });
+        };
+        let target_parent_dir = try_persist!(Dir::open_ambient_dir(
+            target_parent,
+            cap_std::ambient_authority()
+        ));
+        try_persist!(
+            self.parent
+                .rename(&self.dir_name, &target_parent_dir, target_name)
+        );
+        // Disarm the destructor so we don't try to delete the directory.
+        self.dir_root = None;
+        Ok(())
     }
 }
 

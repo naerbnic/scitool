@@ -3,7 +3,7 @@ use std::{io, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::fs::{
-    atomic_dir::{DirLock, WriteMode, util::write_file_atomic_at},
+    atomic_dir::{DirLock, CreateMode, util::write_file_atomic_at},
     err_helpers::io_bail,
     paths::SinglePathBuf,
 };
@@ -99,7 +99,7 @@ impl CommitFileData {
             path.parent_dir(),
             &commit_file_path,
             &data,
-            WriteMode::CreateNew,
+            CreateMode::CreateNew,
         )?;
         Ok(())
     }

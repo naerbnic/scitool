@@ -10,10 +10,12 @@ mod util;
 
 use std::{
     borrow::Cow,
+    collections::BTreeMap,
     ffi::OsString,
-    io::{self, Read, Seek as _, Write},
+    io::{self, Read, Write},
     os::fd::{AsFd, AsRawFd},
     path::Path,
+    sync::Mutex,
 };
 
 use cap_std::fs::Dir;
@@ -25,22 +27,72 @@ use crate::fs::{
         dir_lock::DirLock,
         dir_state::{DirState, LoadedDirState},
         recovery::{recover, recover_exclusive},
-        temp_dir::TempDir,
+        temp_dir::{PersistError, TempDir},
         util::create_old_path,
     },
     err_helpers::{io_bail, io_err_map},
     file_lock::LockType,
-    paths::RelPathBuf,
+    paths::{RelPath, RelPathBuf},
 };
 
 const STATE_FILE_NAME: &str = ".state";
 
+/// The mode of creating a file in an atomic directory.
 #[derive(Debug, Clone, Copy)]
-pub enum WriteMode {
+pub enum CreateMode {
     /// Overwrite the file if it exists, or create it if it does not.
     Overwrite,
-    /// Create the file, but fail if it already exists.
+    /// Create the file if it does not exist. Fail if it already exists.
     CreateNew,
+}
+
+impl CreateMode {
+    fn should_break_links(self) -> bool {
+        match self {
+            CreateMode::Overwrite => true,
+            CreateMode::CreateNew => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum OpenMode {
+    /// Open the file for read-only access. Fails if the file does not exist.
+    ReadOnly,
+    /// Edit the existing file. Fails if file does not exist.
+    Edit,
+    /// Edit the file as is, or create an empty file if it does not exist.
+    EditOrCreate,
+    /// Edit an empty file
+    EditEmpty(CreateMode),
+}
+
+impl OpenMode {
+    fn should_break_links(self) -> bool {
+        match self {
+            OpenMode::Edit | OpenMode::EditOrCreate => true,
+            OpenMode::ReadOnly => false,
+            OpenMode::EditEmpty(create_mode) => create_mode.should_break_links(),
+        }
+    }
+
+    fn can_create_file(self) -> bool {
+        match self {
+            OpenMode::Edit | OpenMode::ReadOnly => false,
+            OpenMode::EditOrCreate | OpenMode::EditEmpty(_) => true,
+        }
+    }
+}
+
+/// The mode of an update operation on an atomic directory.
+#[derive(Debug, Clone, Copy)]
+pub enum UpdateInitMode {
+    /// Copy all existing files into the temporary directory during
+    /// initialization.
+    CopyExisting,
+
+    /// Start with an empty temporary directory.
+    LeaveEmpty,
 }
 
 pub struct File {
@@ -208,19 +260,6 @@ impl DirEntry {
         Ok(File { inner: file })
     }
 
-    /// Open the file with the given options.
-    #[inline]
-    pub fn open_with(&self, options: &OpenOptions) -> io::Result<File> {
-        let file = self.inner.open_with(&options.inner)?;
-        Ok(File { inner: file })
-    }
-
-    /// Removes the file from its filesystem.
-    #[inline]
-    pub fn remove_file(&self) -> io::Result<()> {
-        self.inner.remove_file()
-    }
-
     /// Removes the directory from its filesystem.
     #[inline]
     pub fn remove_dir(&self) -> io::Result<()> {
@@ -272,13 +311,27 @@ impl Metadata {
     }
 }
 
-fn open_dir_safe(path: &Path, lock_type: LockType) -> io::Result<DirLock> {
+/// Open and lock the atomic directory at the given path, recovering it if
+/// necessary.
+///
+/// This still works if the directory does not yet exist, preventing other
+/// processes from creating it while we are working.
+fn lock_dir_safe(path: &Path, lock_type: LockType) -> io::Result<DirLock> {
     let mut target_lock = DirLock::acquire(path, lock_type)?;
     target_lock = recover(target_lock)?;
 
     Ok(target_lock)
 }
 
+fn try_open_dir(path: &Path) -> io::Result<Option<Dir>> {
+    match cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority()) {
+        Ok(dir) => Ok(Some(dir)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Reads the state file from the given directory, returning the loaded state.
 fn read_state_file(dir: &Dir) -> io::Result<LoadedDirState> {
     let mut state_file =
         dir.open_with(STATE_FILE_NAME, cap_std::fs::OpenOptions::new().read(true))?;
@@ -289,6 +342,35 @@ fn read_state_file(dir: &Dir) -> io::Result<LoadedDirState> {
     };
 
     Ok(DirState::load(&state_contents)?)
+}
+
+fn link_all_files_recursively(
+    source: &Dir,
+    target: &Dir,
+    relative_path: &Path,
+    linked_files_sink: &mut Vec<RelPathBuf>,
+) -> io::Result<()> {
+    for entry in source.read_dir(relative_path)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let entry_path = relative_path.join(entry.file_name());
+        let entry_path = source.canonicalize(&entry_path)?;
+
+        if file_type.is_dir() {
+            target.create_dir(&entry_path)?;
+            link_all_files_recursively(source, target, &entry_path, linked_files_sink)?;
+        } else if file_type.is_file() {
+            source.hard_link(&entry_path, target, &entry_path)?;
+            linked_files_sink.push(RelPathBuf::new_checked(&entry_path).expect("valid path"));
+        } else {
+            io_bail!(
+                InvalidData,
+                "Unsupported file type in atomic directory: {}",
+                entry_path.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// A high-level atomic directory that allows for changing files within
@@ -308,7 +390,10 @@ pub struct AtomicDir {
 impl AtomicDir {
     fn from_lock(lock: DirLock) -> io::Result<Self> {
         let dir_handle = Dir::open_ambient_dir(lock.path(), cap_std::ambient_authority())?;
+        Self::from_lock_and_handle(lock, dir_handle)
+    }
 
+    fn from_lock_and_handle(lock: DirLock, dir_handle: Dir) -> io::Result<Self> {
         let LoadedDirState::Clean(state) = read_state_file(&dir_handle)? else {
             io_bail!(
                 InvalidData,
@@ -328,7 +413,7 @@ impl AtomicDir {
     where
         P: AsRef<Path> + ?Sized,
     {
-        Self::from_lock(open_dir_safe(path.as_ref(), LockType::Shared)?)
+        Self::from_lock(lock_dir_safe(path.as_ref(), LockType::Shared)?)
     }
 
     pub fn open_file(&self, path: &Path) -> io::Result<File> {
@@ -361,8 +446,8 @@ impl AtomicDir {
         })
     }
 
-    pub fn begin_update(self) -> io::Result<DirBuilder> {
-        DirBuilder::from_atomic_dir(self)
+    pub fn begin_update(self, init_mode: UpdateInitMode) -> io::Result<DirBuilder> {
+        DirBuilder::from_atomic_dir(self, init_mode)
     }
 }
 
@@ -387,148 +472,373 @@ enum SourceDir {
     New(DirLock),
 }
 
+/// An error indicating that a commit operation failed.
+/// 
+/// This preserves the temporary directory so that the caller can attempt to recover
+/// the changes later. If the caller does not need to recover, they can either
+/// drop the error (which will delete the temporary directory), or propagate
+/// it as an `std::io::Error` (which will also delete the temporary directory).
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to commit changes: {source}")]
+pub struct AbortError {
+    #[source]
+    source: io::Error,
+    temp_dir: TempDir,
+}
+
+impl AbortError {
+    /// Attempts to recover from the failed commit by moving the temporary
+    /// directory to the target path.
+    ///
+    /// If this fails, the original error is returned, along with a new error
+    /// indicating the failure to recover, and the temporary directory is
+    /// returned so the caller can attempt again later.
+    pub fn move_temp_dir_to<P>(self, path: &P) -> Result<io::Error, (io::Error, Self)>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = path.as_ref();
+        let Self { source, temp_dir } = self;
+        match temp_dir.persist_to(path) {
+            Ok(()) => Ok(source),
+            Err(persist_err) => {
+                let PersistError {
+                    cause: persist_err,
+                    dir: temp_dir,
+                } = persist_err;
+                Err((persist_err, Self { source, temp_dir }))
+            }
+        }
+    }
+}
+
+impl From<AbortError> for io::Error {
+    fn from(err: AbortError) -> Self {
+        // This drops the temporary directory, causing it to be deleted.
+        err.source
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CommitError {
+    /// The commit was aborted due to an error. The atomic directory was not
+    /// modified, but the temporary directory may still exist and can be
+    /// recovered from manually.
+    #[error("Failed to commit changes: {0}")]
+    Aborted(#[from] AbortError),
+
+    /// The commit succeeded and is durable, but an error occured while trying
+    /// to clean up the temporary directory. On a successful recovery, the
+    /// atomic directory should be updated.
+    #[error("Failed to recover from failed commit: {0}")]
+    RecoveryFailed(#[source] io::Error),
+}
+
+impl From<CommitError> for io::Error {
+    fn from(err: CommitError) -> Self {
+        match err {
+            CommitError::Aborted(e) => e.into(),
+            CommitError::RecoveryFailed(e) => e,
+        }
+    }
+}
+
 /// A builder to create a new `AtomicDir`, or overwrite an existing one.
 pub struct DirBuilder {
     source: SourceDir,
     temp_dir: TempDir,
+    linked_files: Mutex<BTreeMap<RelPathBuf, RelPathBuf>>,
 }
 
 impl DirBuilder {
-    pub fn new_empty<P>(path: &P) -> io::Result<Self>
-    where
-        P: AsRef<Path> + ?Sized,
-    {
-        let target_lock = open_dir_safe(path.as_ref(), LockType::Exclusive)?;
-        match cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority()) {
-            Ok(_) => {
-                // We should have nothing at the target path, or at the commit file for the path. Otherwise,
-                // we might be overwriting an existing directory.
-                io_bail!(
-                    AlreadyExists,
-                    "Target path already exists: {}",
-                    target_lock.path().display()
-                )
-            }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(err) => return Err(err),
-        }
+    fn from_source(source: SourceDir, init_mode: UpdateInitMode) -> io::Result<Self> {
+        let lock = match &source {
+            SourceDir::Existing(dir) => &dir.lock,
+            SourceDir::New(lock) => lock,
+        };
+        let temp_dir = TempDir::new_in(lock.parent_dir().clone(), lock.file_name())?;
 
-        // Create a temporary directory within the parent of the target path.
-        let temp_dir = TempDir::new_in(target_lock.parent_dir().clone(), target_lock.file_name())?;
+        let linked_files = if let UpdateInitMode::CopyExisting = init_mode
+            && let SourceDir::Existing(dir) = &source
+        {
+            let mut linked_files = Vec::new();
+            link_all_files_recursively(
+                &dir.dir_handle,
+                &temp_dir,
+                Path::new("."),
+                &mut linked_files,
+            )?;
+            linked_files
+                .into_iter()
+                .map(|path| (path.clone(), path))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+
         Ok(DirBuilder {
-            source: SourceDir::New(target_lock),
+            source,
             temp_dir,
+            linked_files: Mutex::new(linked_files),
         })
     }
 
-    fn from_atomic_dir(dir: AtomicDir) -> io::Result<Self> {
-        let temp_dir = TempDir::new_in(dir.lock.parent_dir().clone(), dir.lock.file_name())?;
-        Ok(DirBuilder {
-            source: SourceDir::Existing(dir),
-            temp_dir,
-        })
+    fn source_dir(&self) -> io::Result<&Dir> {
+        let SourceDir::Existing(dir) = &self.source else {
+            io_bail!(Other, "No source directory available");
+        };
+        Ok(&dir.dir_handle)
     }
 
-    #[must_use]
-    pub fn source(&self) -> Option<&AtomicDir> {
-        match &self.source {
-            SourceDir::Existing(dir) => Some(dir),
-            SourceDir::New(_) => None,
+    fn copy_file_contents_from_source(&self, src: &Path, dst: &Path) -> io::Result<()> {
+        self.source_dir()?.copy(src, &self.temp_dir, dst)?;
+        Ok(())
+    }
+
+    fn canonicalize_in_temp(&self, path: &Path) -> io::Result<RelPathBuf> {
+        match self.temp_dir.canonicalize(path) {
+            Ok(p) => Ok(RelPathBuf::new_checked(&p).map_err(io_err_map!(InvalidInput))?),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(util::normalize_path(path)?),
+            Err(err) => Err(err),
         }
     }
 
-    pub fn copy_file<P1, P2>(&self, src: &P1, dst: &P2) -> io::Result<()>
-    where
-        P1: AsRef<Path> + ?Sized,
-        P2: AsRef<Path> + ?Sized,
-    {
-        let SourceDir::Existing(source_dir) = &self.source else {
+    fn ensure_parent(&self, path: &RelPath) -> io::Result<()> {
+        let Some((dst_parent, _)) = util::safe_path_parent(path)? else {
             io_bail!(
                 Other,
-                "Can only copy files when updating an existing directory"
+                "Destination path must have a parent path: {}",
+                path.display()
             );
         };
-        let Some((dst_parent, dst_file_name)) = util::safe_path_parent(dst.as_ref())? else {
-            io_bail!(
-                Other,
-                "Destination path must have a parent: {}",
-                dst.as_ref().display()
-            );
-        };
-        let dst_parent: Cow<Path> = if dst_parent.as_os_str().is_empty() {
+        let path_parent: Cow<Path> = if dst_parent.as_os_str().is_empty() {
             Cow::Borrowed(dst_parent)
         } else {
             let dst_parent = self.temp_dir.canonicalize(dst_parent)?;
             self.temp_dir.create_dir_all(&dst_parent)?;
             Cow::Owned(dst_parent)
         };
-        source_dir
-            .dir_handle
-            .hard_link(src, &self.temp_dir, dst_parent.join(dst_file_name))?;
+        self.temp_dir.create_dir_all(path_parent)?;
         Ok(())
     }
 
-    pub fn copy_for_writing(&self, src: &Path, dst: &Path) -> io::Result<File> {
-        let SourceDir::Existing(source_dir) = &self.source else {
-            io_bail!(
-                Other,
-                "Can only copy files when updating an existing directory"
-            );
-        };
-        let dst = self.temp_dir.canonicalize(dst)?;
-        if let Some(parent) = dst.parent() {
-            self.temp_dir.create_dir_all(parent)?;
+    fn break_link(&self, path: &RelPath) -> io::Result<Option<RelPathBuf>> {
+        let mut linked_files_guard = self.linked_files.lock().unwrap();
+        if linked_files_guard.contains_key(path.as_path()) {
+            // We need to unlink the existing hard link first, otherwise
+            // we might end up modifying the original file.
+            self.temp_dir.remove_file(path)?;
+            Ok(linked_files_guard.remove(path.as_path()))
+        } else {
+            Ok(None)
         }
-        let source_file = source_dir
-            .dir_handle
-            .open_with(src, cap_std::fs::OpenOptions::new().read(true))?;
-
-        let mut dest_file = self.temp_dir.open_with(
-            &dst,
-            cap_std::fs::OpenOptions::new().write(true).create_new(true),
-        )?;
-
-        std::io::copy(&mut &source_file, &mut &dest_file)?;
-        drop(source_file);
-        dest_file.seek(std::io::SeekFrom::Start(0))?;
-        dest_file.sync_all()?;
-        Ok(File { inner: dest_file })
     }
 
-    pub fn write_file<P>(&self, path: &P, data: &[u8]) -> io::Result<()>
+    fn from_atomic_dir(dir: AtomicDir, init_mode: UpdateInitMode) -> io::Result<Self> {
+        Self::from_source(SourceDir::Existing(dir), init_mode)
+    }
+
+    /// Creates a new atomic directory at the given path. Will fail if the path
+    /// is not empty.
+    pub fn new_at<P>(path: &P) -> io::Result<Self>
     where
         P: AsRef<Path> + ?Sized,
     {
-        let path = match self.temp_dir.canonicalize(path) {
-            Ok(p) => RelPathBuf::new_checked(&p).map_err(io_err_map!(InvalidInput))?,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                util::normalize_path(path.as_ref())?
+        let path = path.as_ref();
+        let target_lock = lock_dir_safe(path, LockType::Exclusive)?;
+        if try_open_dir(path)?.is_some() {
+            io_bail!(
+                AlreadyExists,
+                "Target path already exists: {}",
+                target_lock.path().display()
+            )
+        }
+
+        Self::from_source(SourceDir::New(target_lock), UpdateInitMode::LeaveEmpty)
+    }
+
+    /// Opens an existing atomic directory for update. Will fail if the
+    /// directory does not exist.
+    ///
+    /// If `init_mode` is `CopyExisting`, all existing files from the source directory will be
+    /// copied into the temporary directory. If `init_mode` is `LeaveEmpty`, the temporary directory
+    /// will start out empty.
+    pub fn open_existing_at(path: &Path, init_mode: UpdateInitMode) -> io::Result<Self> {
+        let target_lock = lock_dir_safe(path, LockType::Shared)?;
+        let root = try_open_dir(path)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "Target path does not exist: {}",
+                    target_lock.path().display()
+                ),
+            )
+        })?;
+
+        let atomic_dir = AtomicDir::from_lock_and_handle(target_lock, root)?;
+
+        Self::from_source(SourceDir::Existing(atomic_dir), init_mode)
+    }
+
+    /// Opens an atomic directory at the given path. If it does not yet exist, the builder is
+    /// configured to create a new empty directory at that path on commit.
+    ///
+    /// If `init_mode` is `CopyExisting`, all existing files from the source directory will be
+    /// copied into the temporary directory. If `init_mode` is `LeaveEmpty`, the temporary directory
+    /// will start out empty.
+    pub fn open_at(path: &Path, init_mode: UpdateInitMode) -> io::Result<Self> {
+        // Take a shared lock, in case the directory already exists.
+        let source_dir = loop {
+            let target_lock = lock_dir_safe(path, LockType::Shared)?;
+            if let Some(root) = try_open_dir(path)? {
+                break SourceDir::Existing(AtomicDir::from_lock_and_handle(target_lock, root)?);
             }
-            Err(err) => return Err(err),
+
+            let target_lock = lock_dir_safe(path, LockType::Exclusive)?;
+            if try_open_dir(path)?.is_none() {
+                break SourceDir::New(target_lock);
+            }
+            // The directory was created after we took the shared lock, so try again.
         };
 
-        if let Some(parent) = path.parent() {
+        Self::from_source(source_dir, init_mode)
+    }
+
+    /// Renames a file within the updated directory.
+    ///
+    /// Parent directories of the destination path will be created if they
+    /// do not already exist.
+    ///
+    /// If the destination file already exists, it will be overwritten. If
+    /// the destination is a directory, an error will be returned.
+    pub fn rename_file<P1, P2>(&self, src: &P1, dst: &P2) -> io::Result<()>
+    where
+        P1: AsRef<Path> + ?Sized,
+        P2: AsRef<Path> + ?Sized,
+    {
+        let src = self.canonicalize_in_temp(src.as_ref())?;
+        let dst = self.canonicalize_in_temp(dst.as_ref())?;
+
+        self.ensure_parent(&dst)?;
+        self.temp_dir.rename(&src, &self.temp_dir, &dst)?;
+        let mut linked_file_guard = self.linked_files.lock().unwrap();
+        if let Some(source_path) = linked_file_guard.remove(src.as_path()) {
+            linked_file_guard.insert(dst, source_path);
+        }
+        Ok(())
+    }
+
+    /// Copies a file within the updated directory.
+    ///
+    /// Parent directories of the destination path will be created if they
+    /// do not already exist.
+    ///
+    /// If the destination file already exists, or if the destination is a directory,
+    /// an error will be returned.
+    pub fn copy_file<P1, P2>(&self, src: &P1, dst: &P2) -> io::Result<()>
+    where
+        P1: AsRef<Path> + ?Sized,
+        P2: AsRef<Path> + ?Sized,
+    {
+        let src = self.canonicalize_in_temp(src.as_ref())?;
+        let dst = self.canonicalize_in_temp(dst.as_ref())?;
+
+        self.ensure_parent(&dst)?;
+        let mut linked_file_guard = self.linked_files.lock().unwrap();
+        if let Some(source_path) = linked_file_guard.get(src.as_path()) {
+            self.source_dir()?
+                .hard_link(source_path, &self.temp_dir, &dst)?;
+            // Copy the link from the source file to the destination file.
+            let source_path = source_path.clone();
+            linked_file_guard.insert(dst, source_path);
+        } else {
+            drop(linked_file_guard);
+            self.temp_dir.copy(&src, &self.temp_dir, &dst)?;
+        }
+        Ok(())
+    }
+
+    /// Opens a file within the updated directory.
+    ///
+    /// What mode the returned file is opened in depends on the `mode` parameter.
+    ///
+    /// - `OpenMode::ReadOnly`: Opens the file for read-only access. Fails if the file does not exist.
+    /// - `OpenMode::Edit`: Opens the file for read and write access. Fails if the file does not exist.
+    /// - `OpenMode::EditOrCreate`: Opens the file for read and write access, creating it if it does not exist. The file is otherwise left unchanged.
+    /// - `OpenMode::EditEmpty(create_mode)`: Opens the file for write access, discarding any existing contents. The rules for creating the file depend on the `create_mode` parameter
+    pub fn open_file(&self, path: &Path, mode: OpenMode) -> io::Result<File> {
+        let path = self.canonicalize_in_temp(path)?;
+        if mode.should_break_links()
+            && let Some(source_path) = self.break_link(&path)?
+        {
+            // We had a hard link to the source file, so we need to copy
+            // the contents from the source file to the temporary file.
+            self.copy_file_contents_from_source(&source_path, &path)?;
+        }
+
+        if mode.can_create_file()
+            && let Some(parent) = path.parent()
+        {
             self.temp_dir.create_dir_all(parent)?;
         }
-        // We don't need to worry about atomicity here, since the entire temp directory
-        // will be moved into place atomically during commit, or deleted during abort.
-        {
-            let mut file = self.temp_dir.open_with(
-                &path,
-                cap_std::fs::OpenOptions::new().write(true).create_new(true),
-            )?;
-            file.write_all(data)?;
-            file.sync_all()?;
+
+        let mut options = cap_std::fs::OpenOptions::new();
+        match mode {
+            OpenMode::ReadOnly => {
+                options.read(true);
+            }
+            OpenMode::Edit => {
+                options.read(true).write(true).create(false);
+            }
+            OpenMode::EditOrCreate => {
+                options.read(true).write(true).create(true);
+            }
+            OpenMode::EditEmpty(create_mode) => {
+                options.write(true);
+                match create_mode {
+                    CreateMode::Overwrite => {
+                        options.create(true).truncate(true);
+                    }
+                    CreateMode::CreateNew => {
+                        options.create_new(true);
+                    }
+                }
+            }
         }
+        let file = self.temp_dir.open_with(&path, &options)?;
+        Ok(File { inner: file })
+    }
+
+    /// Writes the given data to a file within the updated directory.
+    ///
+    /// How the file is created depends on the `mode` parameter:
+    /// - `CreateMode::Overwrite`: Overwrites the file if it exists, or creates it if it does not.
+    /// - `CreateMode::CreateNew`: Creates the file if it does not exist. Fails if it already exists.
+    pub fn write_file<P>(&self, path: &P, mode: CreateMode, data: &[u8]) -> io::Result<()>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let mut file = self.open_file(path.as_ref(), OpenMode::EditEmpty(mode))?;
+        file.write_all(data)?;
+        file.sync_all()?;
         Ok(())
     }
 
-    pub fn remove_file(&self, path: &Path) -> io::Result<()> {
-        let path = self.temp_dir.canonicalize(path)?;
+    /// Removes a file within the updated directory.
+    pub fn remove_file<P>(&self, path: &P) -> io::Result<()>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = self.canonicalize_in_temp(path.as_ref())?;
         self.temp_dir.remove_file(&path)?;
+        let mut linked_file_guard = self.linked_files.lock().unwrap();
+        linked_file_guard.remove(&path);
         Ok(())
     }
 
+    /// Reads the contents of a directory within the updated directory.
+    ///
+    /// The returned value is an iterator over the entries in the directory.
     pub fn read_dir(&self, path: &Path) -> io::Result<ReadDir> {
         let path = self.temp_dir.canonicalize(path)?;
         Ok(ReadDir {
@@ -537,6 +847,13 @@ impl DirBuilder {
         })
     }
 
+    /// Commits the changes made in the builder to the target directory.
+    ///
+    /// Committing is atomic and durable. It is atomic in the sense that if a
+    /// shared lock is held for the directory, and an opportunity for recovery
+    /// is given, either all changes will be visible, or none will. It is
+    /// durable in the sense that once the commit operation has completed,
+    /// the changes will be visible even in the event of a crash or power loss.
     pub fn commit(self) -> io::Result<AtomicDir> {
         let (target_lock, prev_state) = match self.source {
             SourceDir::Existing(dir) => (dir.lock, Some((dir.dir_handle, dir.state))),
@@ -633,8 +950,8 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = DirBuilder::new_empty(&root)?;
-        builder.write_file("file1.txt", b"Hello, world!")?;
+        let builder = DirBuilder::new_at(&root)?;
+        builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         builder.commit()?;
 
         let contents = std::fs::read(root.join("file1.txt"))?;
@@ -647,8 +964,8 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = DirBuilder::new_empty(&root)?;
-        builder.write_file("file1.txt", b"Hello, world!")?;
+        let builder = DirBuilder::new_at(&root)?;
+        builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
         assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, world!");
@@ -668,12 +985,12 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = DirBuilder::new_empty(&root)?;
-        builder.write_file("file1.txt", b"Hello, world!")?;
+        let builder = DirBuilder::new_at(&root)?;
+        builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
-        let updater = atomic_dir.begin_update()?;
-        updater.write_file("file1.txt", b"Hello, universe!")?;
+        let updater = atomic_dir.begin_update(UpdateInitMode::LeaveEmpty)?;
+        updater.write_file("file1.txt", CreateMode::Overwrite, b"Hello, universe!")?;
         let atomic_dir = updater.commit()?;
 
         assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, universe!");
@@ -681,17 +998,17 @@ mod tests {
     }
 
     #[test]
-    fn update_copies_files() -> io::Result<()> {
+    fn update_can_copy_files() -> io::Result<()> {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = DirBuilder::new_empty(&root)?;
-        builder.write_file("file1.txt", b"Hello, world!")?;
+        let builder = DirBuilder::new_at(&root)?;
+        builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
-        let updater = atomic_dir.begin_update()?;
-        updater.copy_file("file1.txt", "file2.txt")?;
-        updater.write_file("file1.txt", b"Hello, universe!")?;
+        let updater = atomic_dir.begin_update(UpdateInitMode::CopyExisting)?;
+        updater.rename_file("file1.txt", "file2.txt")?;
+        updater.write_file("file1.txt", CreateMode::Overwrite, b"Hello, universe!")?;
         {
             let atomic_dir = updater.commit()?;
             assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, universe!");
@@ -715,13 +1032,13 @@ mod tests {
         let dir = tempdir()?;
 
         let root = dir.path().join("testdir");
-        let builder = DirBuilder::new_empty(&root)?;
-        builder.write_file("file1.txt", b"Hello, world!")?;
+        let builder = DirBuilder::new_at(&root)?;
+        builder.write_file("file1.txt", CreateMode::Overwrite, b"Hello, world!")?;
         let atomic_dir = builder.commit()?;
 
-        let updater = atomic_dir.begin_update()?;
-        updater.copy_file("file1.txt", "file2.txt")?;
-        updater.write_file("file1.txt", b"Hello, universe!")?;
+        let updater = atomic_dir.begin_update(UpdateInitMode::CopyExisting)?;
+        updater.rename_file("file1.txt", "file2.txt")?;
+        updater.write_file("file1.txt", CreateMode::Overwrite, b"Hello, universe!")?;
         {
             let atomic_dir = updater.abort()?.unwrap();
             assert_eq!(atomic_dir.read("file1.txt")?, b"Hello, world!");

@@ -7,7 +7,7 @@ use cap_std::fs::{Dir, File};
 use rand::distr::SampleString as _;
 
 use crate::fs::{
-    atomic_dir::{DirLock, WriteMode},
+    atomic_dir::{DirLock, CreateMode},
     err_helpers::{io_bail, io_err_map},
     paths::{RelPath, RelPathBuf, SinglePath, SinglePathBuf},
 };
@@ -44,6 +44,9 @@ pub(super) fn normalize_path(path: &Path) -> io::Result<RelPathBuf> {
     Ok(RelPathBuf::try_from(PathBuf::from_iter(components)).expect("Components are all normal"))
 }
 
+/// A safe version of `path.parent()` that returns an error if the path ends with
+/// a non-normal component (e.g. `..` or `/`). Thus the parent path should always
+/// be the actual parent directory of the path.
 pub(super) fn safe_path_parent(path: &Path) -> io::Result<Option<(&Path, &Path)>> {
     let mut components = path.components();
     match components.next_back() {
@@ -136,7 +139,7 @@ pub(super) fn write_file_atomic_at(
     root: &Dir,
     path: &Path,
     data: &[u8],
-    write_mode: WriteMode,
+    write_mode: CreateMode,
 ) -> io::Result<()> {
     let Some(parent) = path.parent() else {
         io_bail!(
@@ -161,14 +164,14 @@ pub(super) fn write_file_atomic_at(
         //
         // Note that other file handles with this file open will not see the new data until they
         // reopen the file. If data wants to be persisted
-        WriteMode::Overwrite => temp_file.persist(path)?,
+        CreateMode::Overwrite => temp_file.persist(path)?,
 
         // This will do an atomic creation of the destination file, so only one attempt to
         // create the file will succeed.
         //
         // The file data will appear atomic, but it's possible that the temp file could be left
         // in a crash scenario, even if the move to the final location succeeded.
-        WriteMode::CreateNew => temp_file.persist_noclobber(path)?,
+        CreateMode::CreateNew => temp_file.persist_noclobber(path)?,
     };
 
     drop(file);

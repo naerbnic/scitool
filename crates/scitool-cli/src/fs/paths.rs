@@ -213,6 +213,12 @@ macro_rules! define_path_wrapper {
             }
         }
 
+        impl Borrow<Path> for $path_buf_wrapper {
+            fn borrow(&self) -> &Path {
+                &self.0
+            }
+        }
+
         impl Borrow<OsStr> for $path_buf_wrapper {
             fn borrow(&self) -> &OsStr {
                 self.0.as_os_str()
