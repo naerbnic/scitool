@@ -171,9 +171,9 @@ fn take_lock_safe(
 ) -> Result<shared_lock_set::Lock, SafeLockError> {
     // Take the expected lock on the file. This path is for blocking locks.
     let lock = if block {
-        shared_lock_set::lock_file(&lock_file, lock_type)?
+        shared_lock_set::lock_file(lock_file, lock_type)?
     } else {
-        shared_lock_set::try_lock_file(&lock_file, lock_type)?
+        shared_lock_set::try_lock_file(lock_file, lock_type)?
     };
 
     // We have the lock we expect, but it's possible that the file we
@@ -194,9 +194,7 @@ fn take_lock_safe(
     // This is not particularly efficient, but it should be quick
     // enough that it doesn't matter.
 
-    let lock_file_handle = cross_file_id::Handle::from_file(lock_file)?;
-    let current_file_handle = cross_file_id::Handle::from_file(current_file.try_clone()?)?;
-    if lock_file_handle == current_file_handle {
+    if cross_file_id::is_same_file(&*lock, &current_file)? {
         // We verified that the file we locked is the current file at the path.
         // If other clients are well-behaved, the won't change the file without
         // taking an exclusive lock, so it shouldn't be removed out from under us.

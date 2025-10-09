@@ -2,12 +2,12 @@ use std::{
     collections::{HashMap, hash_map::Entry},
     fs::{File, TryLockError},
     io,
-    sync::{Arc, Condvar, LazyLock, Mutex},
+    sync::{Condvar, LazyLock, Mutex},
 };
 
-use cross_file_id::Handle as SameFileHandle;
+use cross_file_id::{FileId, Handle as SameFileHandle};
 
-type LockMap = HashMap<Arc<SameFileHandle<File>>, LockEntryState>;
+type LockMap = HashMap<FileId, LockEntryState>;
 
 static SHARED_HANDLE_LOCK_STATES: LazyLock<SharedLockSet> = LazyLock::new(SharedLockSet::new);
 
@@ -37,7 +37,9 @@ enum LockEntryState {
 
 #[derive(Debug)]
 pub(super) struct Lock {
-    handle: Arc<SameFileHandle<File>>,
+    // Precondition: This is Some at all times other than during or just before
+    // a drop, and only within private code.
+    handle: Option<SameFileHandle<File>>,
     lock_type: LockType,
 }
 
@@ -46,33 +48,59 @@ impl Lock {
         self.lock_type
     }
 
-    pub(super) fn into_file(self) -> File {
+    pub(super) fn into_file(mut self) -> File {
         // It really should be the case that same_file::Handle should be
         // convertible back to File, but it doesn't seem to be possible.
         // So we just clone the file handle.
-        self.handle.try_clone().expect("Failed to clone file")
+        let handle = self.handle.take().expect("Lock already taken");
+        let file_id = SameFileHandle::id(&handle);
+        // Remove the lock
+        SHARED_HANDLE_LOCK_STATES
+            .unlock_handle(&handle, &file_id)
+            .expect("Unlock failed");
+
         // self will be dropped here, releasing the lock
+        SameFileHandle::into_inner(handle)
+    }
+}
+
+impl std::ops::Deref for Lock {
+    type Target = File;
+
+    fn deref(&self) -> &Self::Target {
+        self.handle.as_ref().expect("Lock already taken")
+    }
+}
+
+impl std::ops::DerefMut for Lock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.handle.as_mut().expect("Lock already taken")
     }
 }
 
 impl Drop for Lock {
     fn drop(&mut self) {
+        let Some(handle) = self.handle.take() else {
+            // If the lock was never fully acquired, do nothing.
+            return;
+        };
         let mut lock_map = SHARED_HANDLE_LOCK_STATES.lock_map.lock().unwrap();
-        let Some(entry) = lock_map.get_mut(&self.handle) else {
+        let file_id = SameFileHandle::id(&handle);
+        let Some(entry) = lock_map.get_mut(&file_id) else {
             panic!("Dropping a lock that is not held");
         };
         match entry {
             LockEntryState::Shared { ref_count } => {
                 *ref_count -= 1;
                 if *ref_count == 0 {
-                    self.handle.unlock().expect("Unlock failed");
-                    lock_map.remove(&self.handle);
+                    handle.unlock().expect("Unlock failed");
+                    lock_map.remove(&file_id);
                     SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
                 }
             }
             LockEntryState::Exclusive => {
-                self.handle.unlock().expect("Unlock failed");
-                lock_map.remove(&self.handle);
+                handle.unlock().expect("Unlock failed");
+                lock_map.remove(&file_id);
                 SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
             }
             LockEntryState::Pending { .. } => {
@@ -100,12 +128,13 @@ impl SharedLockSet {
     /// If the file is not currently locked in any way, a guard will be returned that holds a
     /// "pending" lock on the file. If it is dropped, the lock will be released. You can call
     /// `take_handle_lock` on the guard to convert the pending lock into a real lock.
-    fn lock_handle(&self, file: &File, lock_type: LockType) -> io::Result<Lock> {
-        let handle = Arc::new(SameFileHandle::from_file(file.try_clone()?)?);
+    fn lock_handle(&self, file: File, lock_type: LockType) -> io::Result<Lock> {
+        let handle = SameFileHandle::from_file(file)?;
+        let file_id = SameFileHandle::id(&handle);
         let pending = {
             let mut lock_map = self.lock_map.lock().unwrap();
             loop {
-                match lock_map.entry(handle.clone()) {
+                match lock_map.entry(file_id.clone()) {
                     Entry::Occupied(mut occ) => {
                         if let (LockEntryState::Shared { ref_count }, LockType::Shared) =
                             (occ.get_mut(), lock_type)
@@ -115,7 +144,7 @@ impl SharedLockSet {
 
                             // Returning None indicates that no further action is needed.
                             return Ok(Lock {
-                                handle,
+                                handle: Some(handle),
                                 lock_type: LockType::Shared,
                             });
                         }
@@ -135,21 +164,19 @@ impl SharedLockSet {
         };
 
         match lock_type {
-            LockType::Exclusive => file.lock()?,
-            LockType::Shared => file.lock_shared()?,
+            LockType::Exclusive => pending.handle().lock()?,
+            LockType::Shared => pending.handle().lock_shared()?,
         }
 
         Ok(pending.accept_lock())
     }
 
-    fn try_lock_handle(&self, file: &File, lock_type: LockType) -> Result<Lock, TryLockError> {
-        let handle = Arc::new(
-            SameFileHandle::from_file(file.try_clone().map_err(TryLockError::Error)?)
-                .map_err(TryLockError::Error)?,
-        );
+    fn try_lock_handle(&self, file: File, lock_type: LockType) -> Result<Lock, TryLockError> {
+        let handle = SameFileHandle::from_file(file).map_err(TryLockError::Error)?;
+        let file_id = SameFileHandle::id(&handle);
         let pending = {
             let mut lock_map = self.lock_map.lock().unwrap();
-            match lock_map.entry(handle.clone()) {
+            match lock_map.entry(file_id.clone()) {
                 Entry::Occupied(mut occ) => {
                     match occ.get_mut() {
                         LockEntryState::Shared { ref_count } if lock_type == LockType::Shared => {
@@ -158,7 +185,7 @@ impl SharedLockSet {
 
                             // Returning None indicates that no further action is needed.
                             return Ok(Lock {
-                                handle,
+                                handle: Some(handle),
                                 lock_type: LockType::Shared,
                             });
                         }
@@ -177,45 +204,80 @@ impl SharedLockSet {
         };
 
         match lock_type {
-            LockType::Exclusive => file.try_lock()?,
-            LockType::Shared => file.try_lock_shared()?,
+            LockType::Exclusive => pending.handle().try_lock()?,
+            LockType::Shared => pending.handle().try_lock_shared()?,
         }
 
         Ok(pending.accept_lock())
     }
+
+    fn unlock_handle(&self, file: &File, file_id: &FileId) -> io::Result<()> {
+        let mut lock_map = self.lock_map.lock().unwrap();
+        let Some(entry) = lock_map.get_mut(file_id) else {
+            panic!("Dropping a lock that is not held");
+        };
+        match entry {
+            LockEntryState::Shared { ref_count } => {
+                *ref_count -= 1;
+                if *ref_count == 0 {
+                    file.unlock()?;
+                    lock_map.remove(file_id);
+                    SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
+                }
+            }
+            LockEntryState::Exclusive => {
+                file.unlock().expect("Unlock failed");
+                lock_map.remove(file_id);
+                SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
+            }
+            LockEntryState::Pending { .. } => {
+                panic!("Dropping a pending lock");
+            }
+        }
+        Ok(())
+    }
 }
 
 struct PendingGuard {
-    pending_handle: Option<Arc<SameFileHandle<File>>>,
+    pending_handle: Option<SameFileHandle<File>>,
     lock_type: LockType,
 }
 
 impl PendingGuard {
     pub(self) fn accept_lock(mut self) -> Lock {
         let handle = self.pending_handle.take().expect("Lock already accepted");
+        let file_id = SameFileHandle::id(&handle);
         let lock_type = self.lock_type;
         let mut lock_map = SHARED_HANDLE_LOCK_STATES.lock_map.lock().unwrap();
-        match lock_map.get_mut(&handle).expect("Pending lock missing") {
-            LockEntryState::Pending {
-                lock_type: pending_type,
-            } => {
-                assert!(
-                    *pending_type == lock_type,
-                    "Lock type changed while pending"
-                );
-                match lock_type {
-                    LockType::Exclusive => {
-                        *lock_map.get_mut(&handle).unwrap() = LockEntryState::Exclusive;
-                    }
-                    LockType::Shared => {
-                        *lock_map.get_mut(&handle).unwrap() =
-                            LockEntryState::Shared { ref_count: 1 };
-                    }
-                }
+        let entry = lock_map.get_mut(&file_id).expect("Pending lock missing");
+
+        let LockEntryState::Pending {
+            lock_type: pending_type,
+        } = entry
+        else {
+            panic!("Pending lock in unexpected state");
+        };
+
+        assert!(
+            *pending_type == lock_type,
+            "Lock type changed while pending"
+        );
+        match lock_type {
+            LockType::Exclusive => {
+                *entry = LockEntryState::Exclusive;
             }
-            _ => panic!("Pending lock in unexpected state"),
+            LockType::Shared => {
+                *entry = LockEntryState::Shared { ref_count: 1 };
+            }
         }
-        Lock { handle, lock_type }
+        Lock {
+            handle: Some(handle),
+            lock_type,
+        }
+    }
+
+    pub(self) fn handle(&self) -> &SameFileHandle<File> {
+        self.pending_handle.as_ref().expect("Lock already accepted")
     }
 }
 
@@ -223,9 +285,10 @@ impl Drop for PendingGuard {
     fn drop(&mut self) {
         if let Some(handle) = self.pending_handle.take() {
             let mut lock_map = SHARED_HANDLE_LOCK_STATES.lock_map.lock().unwrap();
-            match lock_map.get_mut(&handle) {
+            let file_id = SameFileHandle::id(&handle);
+            match lock_map.get_mut(&file_id) {
                 Some(LockEntryState::Pending { .. }) => {
-                    lock_map.remove(&handle);
+                    lock_map.remove(&file_id);
                     SHARED_HANDLE_LOCK_STATES.waiters.notify_all();
                 }
                 _ => panic!("Pending lock in unexpected state on drop"),
@@ -234,10 +297,10 @@ impl Drop for PendingGuard {
     }
 }
 
-pub(super) fn lock_file(file: &File, lock_type: LockType) -> io::Result<Lock> {
+pub(super) fn lock_file(file: File, lock_type: LockType) -> io::Result<Lock> {
     SharedLockSet::instance().lock_handle(file, lock_type)
 }
 
-pub(super) fn try_lock_file(file: &File, lock_type: LockType) -> Result<Lock, TryLockError> {
+pub(super) fn try_lock_file(file: File, lock_type: LockType) -> Result<Lock, TryLockError> {
     SharedLockSet::instance().try_lock_handle(file, lock_type)
 }

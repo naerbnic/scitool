@@ -109,26 +109,27 @@ impl LockState {
 
 #[derive(Debug)]
 pub struct LockFile {
-    file: File,
     lock: Option<Lock>,
     lock_state: LockState,
 }
 
 impl LockFile {
+    fn inner_file(&mut self) -> &mut File {
+        self.lock.as_mut().unwrap()
+    }
     pub fn create_in(root_dir: &Dir, lock_name: &str) -> io::Result<Self> {
         let file = root_dir.open_with(
             lock_name,
             OpenOptions::new().create_new(true).write(true).read(true),
         )?;
-        let mut file = file.into_std();
-        let lock = shared_lock_set::try_lock_file(&file, LockType::Exclusive)?;
+        let file = file.into_std();
+        let mut lock = shared_lock_set::try_lock_file(file, LockType::Exclusive)?;
         let lock_state = LockState::new_fresh();
         let bytes = lock_state.to_bytes()?;
-        file.write_all(&bytes)?;
-        file.seek(SeekFrom::Start(0))?;
-        file.flush()?;
+        lock.write_all(&bytes)?;
+        lock.seek(SeekFrom::Start(0))?;
+        lock.flush()?;
         Ok(Self {
-            file,
             lock: Some(lock),
             lock_state,
         })
@@ -148,19 +149,18 @@ impl LockFile {
         Self::new_from_file(file, lock_type, block)
     }
 
-    pub fn new_from_file(mut file: File, lock_type: LockType, block: bool) -> io::Result<Self> {
-        let lock = if block {
-            shared_lock_set::lock_file(&file, lock_type)?
+    pub fn new_from_file(file: File, lock_type: LockType, block: bool) -> io::Result<Self> {
+        let mut lock = if block {
+            shared_lock_set::lock_file(file, lock_type)?
         } else {
-            shared_lock_set::try_lock_file(&file, lock_type)?
+            shared_lock_set::try_lock_file(file, lock_type)?
         };
         let lock_state = {
             let mut content = Vec::new();
-            file.read_to_end(&mut content)?;
+            lock.read_to_end(&mut content)?;
             LockState::new_from_bytes(&content)?
         };
         Ok(Self {
-            file,
             lock: Some(lock),
             lock_state,
         })
@@ -179,10 +179,11 @@ impl LockFile {
 
         if self.lock_state.mark_as_written() {
             let bytes = self.lock_state.to_bytes()?;
-            self.file.set_len(0)?;
-            self.file.write_all(&bytes)?;
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.flush()?;
+            let file: &mut File = self.inner_file();
+            file.set_len(0)?;
+            file.write_all(&bytes)?;
+            file.seek(SeekFrom::Start(0))?;
+            file.flush()?;
         }
 
         Ok(())
@@ -201,10 +202,11 @@ impl LockFile {
 
         if self.lock_state.mark_as_poisoned() {
             let bytes = self.lock_state.to_bytes()?;
-            self.file.set_len(0)?;
-            self.file.write_all(&bytes)?;
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.flush()?;
+            let file: &mut File = self.inner_file();
+            file.set_len(0)?;
+            file.write_all(&bytes)?;
+            file.seek(SeekFrom::Start(0))?;
+            file.flush()?;
         }
 
         Ok(())
@@ -217,18 +219,19 @@ impl LockFile {
             self.lock = Some(old_lock);
             return Ok(());
         }
-        drop(old_lock);
-        let new_lock = if block {
-            shared_lock_set::lock_file(&self.file, LockType::Exclusive)?
+        let file = old_lock.into_file();
+        let mut new_lock = if block {
+            shared_lock_set::lock_file(file, LockType::Exclusive)?
         } else {
-            shared_lock_set::try_lock_file(&self.file, LockType::Exclusive)?
+            shared_lock_set::try_lock_file(file, LockType::Exclusive)?
         };
 
         let new_lock_state = {
             let mut content = Vec::new();
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.read_to_end(&mut content)?;
-            self.file.seek(SeekFrom::Start(0))?;
+
+            new_lock.seek(SeekFrom::Start(0))?;
+            new_lock.read_to_end(&mut content)?;
+            new_lock.seek(SeekFrom::Start(0))?;
             LockState::new_from_bytes(&content)?
         };
 
@@ -249,18 +252,18 @@ impl LockFile {
             self.lock = Some(old_lock);
             return Ok(());
         }
-        drop(old_lock);
-        let new_lock = if block {
-            shared_lock_set::lock_file(&self.file, LockType::Shared)?
+        let file = old_lock.into_file();
+        let mut new_lock = if block {
+            shared_lock_set::lock_file(file, LockType::Shared)?
         } else {
-            shared_lock_set::try_lock_file(&self.file, LockType::Shared)?
+            shared_lock_set::try_lock_file(file, LockType::Shared)?
         };
 
         let new_lock_state = {
             let mut content = Vec::new();
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.read_to_end(&mut content)?;
-            self.file.seek(SeekFrom::Start(0))?;
+            new_lock.seek(SeekFrom::Start(0))?;
+            new_lock.read_to_end(&mut content)?;
+            new_lock.seek(SeekFrom::Start(0))?;
             LockState::new_from_bytes(&content)?
         };
 
