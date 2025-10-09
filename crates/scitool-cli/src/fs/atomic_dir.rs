@@ -473,7 +473,7 @@ enum SourceDir {
 }
 
 /// An error indicating that a commit operation failed.
-/// 
+///
 /// This preserves the temporary directory so that the caller can attempt to recover
 /// the changes later. If the caller does not need to recover, they can either
 /// drop the error (which will delete the temporary directory), or propagate
@@ -758,6 +758,8 @@ impl DirBuilder {
         Ok(())
     }
 
+    // TODO: Ensure that the state file is never overwritten by accident.
+
     /// Opens a file within the updated directory.
     ///
     /// What mode the returned file is opened in depends on the `mode` parameter.
@@ -845,6 +847,17 @@ impl DirBuilder {
             at_root: path.as_os_str() == "." || path.as_os_str().is_empty(),
             inner: self.temp_dir.read_dir(&path)?,
         })
+    }
+
+    /// Checks if a file or directory exists within the updated directory.
+    ///
+    /// If there was an I/O error other than "not found", it is returned.
+    pub fn exists<P>(&self, path: &P) -> io::Result<bool>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = self.canonicalize_in_temp(path.as_ref())?;
+        self.temp_dir.try_exists(&path)
     }
 
     /// Commits the changes made in the builder to the target directory.
