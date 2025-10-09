@@ -19,14 +19,14 @@
 
 use std::{fs::TryLockError, io};
 
-use crate::fs::{
+use crate::{
     err_helpers::{io_bail, io_err},
-    file_lock::shared_lock_set,
+    shared_lock_set,
 };
 
 mod sealed {
 
-    use crate::fs::err_helpers::io_bail;
+    use crate::err_helpers::io_bail;
 
     use super::{DirRelativePath, LockOpenMode};
     use std::{

@@ -6,9 +6,8 @@ use crate::shared::msg::{
 
 use std::io::Error as IoError;
 
+use crosslock::ephemeral;
 use futures::{SinkExt as _, StreamExt as _};
-
-use scitool_cli::fs::file_lock::ephemeral;
 
 // Shared module between manager and worker
 #[path = "../shared/mod.rs"]

@@ -295,6 +295,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
+name = "crosslock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cap-std",
+ "cross-file-id",
+ "futures",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
+name = "crosslock-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crosslock",
+ "futures",
+ "rand",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1179,6 +1208,7 @@ dependencies = [
  "cap-std",
  "clap",
  "cross-file-id",
+ "crosslock",
  "file-guard",
  "futures",
  "hex",

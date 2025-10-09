@@ -19,6 +19,7 @@ use std::{
 };
 
 use cap_std::fs::Dir;
+use crosslock::LockType;
 
 pub use self::types::FileType;
 use crate::fs::{
@@ -31,7 +32,6 @@ use crate::fs::{
         util::create_old_path,
     },
     err_helpers::{io_bail, io_err_map},
-    file_lock::LockType,
     paths::{RelPath, RelPathBuf},
 };
 

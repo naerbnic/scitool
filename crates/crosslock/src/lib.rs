@@ -1,5 +1,6 @@
-mod shared_lock_set;
 pub mod ephemeral;
+mod err_helpers;
+mod shared_lock_set;
 
 use std::{
     fs::File,
@@ -9,9 +10,9 @@ use std::{
 use cap_std::fs::{Dir, OpenOptions};
 use serde::{Deserialize, Serialize};
 
-use crate::fs::{
+use crate::{
     err_helpers::{io_bail, io_err},
-    file_lock::shared_lock_set::Lock,
+    shared_lock_set::Lock,
 };
 
 pub use shared_lock_set::LockType;

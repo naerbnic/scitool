@@ -1,12 +1,12 @@
 use std::io;
 
 use cap_std::fs::Dir;
+use crosslock::LockType;
 use rand::distr::SampleString as _;
 
 use crate::fs::{
     atomic_dir::{commit::CommitFileData, dir_lock::DirLock},
     err_helpers::io_bail,
-    file_lock::LockType,
     paths::{SinglePath, SinglePathBuf},
 };
 

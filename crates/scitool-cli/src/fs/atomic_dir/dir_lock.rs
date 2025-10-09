@@ -6,14 +6,14 @@ use std::{
 };
 
 use cap_std::fs::Dir;
+use crosslock::{
+    LockType,
+    ephemeral::{self, EphemeralFileLock},
+};
 
 use crate::fs::{
     atomic_dir::util::safe_path_parent,
     err_helpers::{io_bail, io_err},
-    file_lock::{
-        LockType,
-        ephemeral::{self, EphemeralFileLock},
-    },
     paths::SinglePath,
 };
 
