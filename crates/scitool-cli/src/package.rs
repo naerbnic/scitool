@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use atomic_dir::{CreateMode, DirBuilder, UpdateInitMode};
 use scidev::{
     resources::ResourceId,
     utils::{
@@ -21,7 +22,6 @@ use scidev::{
 
 use crate::{
     fs::{
-        atomic_dir::{CreateMode, DirBuilder, UpdateInitMode},
         err_helpers::{io_bail, io_err_map},
         io_wrappers::LengthLimitedReader,
     },

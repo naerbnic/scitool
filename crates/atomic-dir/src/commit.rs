@@ -2,10 +2,8 @@ use std::{io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::fs::{
-    atomic_dir::{DirLock, CreateMode, util::write_file_atomic_at},
-    err_helpers::io_bail,
-    paths::SinglePathBuf,
+use crate::{
+    CreateMode, DirLock, err_helpers::io_bail, paths::SinglePathBuf, util::write_file_atomic_at,
 };
 
 pub(super) const CURR_COMMIT_VERSION: u32 = 1;

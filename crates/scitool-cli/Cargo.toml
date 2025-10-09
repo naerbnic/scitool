@@ -25,6 +25,7 @@ cap-std = "3.4.4"
 tempfile = "3.22.0"
 cross-file-id = { git = "https://github.com/naerbnic/cross-file-id.git", branch = "main" }
 crosslock = { path = "../crosslock" }
+atomic-dir = { path = "../atomic-dir" }
 
 [lints]
 workspace = true

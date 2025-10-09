@@ -11,10 +11,10 @@ use crosslock::{
     ephemeral::{self, EphemeralFileLock},
 };
 
-use crate::fs::{
-    atomic_dir::util::safe_path_parent,
+use crate::{
     err_helpers::{io_bail, io_err},
     paths::SinglePath,
+    util::safe_path_parent,
 };
 
 const LOCK_FILE_SUFFIX: &str = ".lock";

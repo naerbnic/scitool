@@ -3,6 +3,8 @@
 mod commit;
 mod dir_lock;
 mod dir_state;
+mod err_helpers;
+mod paths;
 mod recovery;
 mod temp_dir;
 mod types;
@@ -22,17 +24,15 @@ use cap_std::fs::Dir;
 use crosslock::LockType;
 
 pub use self::types::FileType;
-use crate::fs::{
-    atomic_dir::{
-        commit::CommitFileData,
-        dir_lock::DirLock,
-        dir_state::{DirState, LoadedDirState},
-        recovery::{recover, recover_exclusive},
-        temp_dir::{PersistError, TempDir},
-        util::create_old_path,
-    },
+use crate::{
+    commit::CommitFileData,
+    dir_lock::DirLock,
+    dir_state::{DirState, LoadedDirState},
     err_helpers::{io_bail, io_err_map},
     paths::{RelPath, RelPathBuf},
+    recovery::{recover, recover_exclusive},
+    temp_dir::{PersistError, TempDir},
+    util::create_old_path,
 };
 
 const STATE_FILE_NAME: &str = ".state";

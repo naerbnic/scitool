@@ -434,78 +434,6 @@ impl Default for RelPathBuf {
     }
 }
 
-// Discriminatiors for arbitrary Path objects.
-
-#[derive(Debug, thiserror::Error)]
-#[error("Path is neither absolute nor relative.")]
-pub struct ClassifyError;
-
-pub enum PathKind<'a> {
-    Abs(&'a AbsPath),
-    Rel(&'a RelPath),
-}
-
-impl<'a> PathKind<'a> {
-    #[must_use]
-    pub fn as_abs(&self) -> Option<&'a AbsPath> {
-        match self {
-            PathKind::Abs(abs) => Some(abs),
-            PathKind::Rel(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub fn as_rel(&self) -> Option<&'a RelPath> {
-        match self {
-            PathKind::Abs(_) => None,
-            PathKind::Rel(rel) => Some(rel),
-        }
-    }
-}
-
-pub fn classify_path(path: &'_ Path) -> Result<PathKind<'_>, ClassifyError> {
-    if let Ok(abs) = AbsPath::new_checked(path) {
-        Ok(PathKind::Abs(abs))
-    } else if let Ok(rel) = RelPath::new_checked(path) {
-        Ok(PathKind::Rel(rel))
-    } else {
-        Err(ClassifyError)
-    }
-}
-
-pub enum PathBufKind {
-    Abs(AbsPathBuf),
-    Rel(RelPathBuf),
-}
-
-impl PathBufKind {
-    #[must_use]
-    pub fn as_abs(self) -> Option<AbsPathBuf> {
-        match self {
-            PathBufKind::Abs(abs) => Some(abs),
-            PathBufKind::Rel(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub fn as_rel(self) -> Option<RelPathBuf> {
-        match self {
-            PathBufKind::Abs(_) => None,
-            PathBufKind::Rel(rel) => Some(rel),
-        }
-    }
-}
-
-pub fn classify_path_buf(path: PathBuf) -> Result<PathBufKind, ClassifyError> {
-    if let Ok(abs) = AbsPathBuf::try_from(path.clone()) {
-        Ok(PathBufKind::Abs(abs))
-    } else if let Ok(rel) = RelPathBuf::try_from(path) {
-        Ok(PathBufKind::Rel(rel))
-    } else {
-        Err(ClassifyError)
-    }
-}
-
 define_path_wrapper! {
     /// A wrapper around `Path` that guarantees the path is a single normal path element.
     SinglePath,
@@ -677,47 +605,5 @@ mod tests {
         let rel_path = RelPath::new_checked("c/d").unwrap();
         let joined = abs_path.join_rel(rel_path);
         assert_eq!(joined.as_path(), Path::new("/a/b/c/d"));
-    }
-
-    // --- Classification Tests ---
-
-    #[test]
-    fn classify_path_abs() {
-        let path = Path::new("/a/b");
-        let classified = classify_path(path).unwrap();
-        match classified {
-            PathKind::Abs(abs) => assert_eq!(abs.as_ref(), path),
-            PathKind::Rel(_) => panic!("Classified absolute path as relative"),
-        }
-    }
-
-    #[test]
-    fn classify_path_rel() {
-        let path = Path::new("a/b");
-        let classified = classify_path(path).unwrap();
-        match classified {
-            PathKind::Abs(_) => panic!("Classified relative path as absolute"),
-            PathKind::Rel(rel) => assert_eq!(rel.as_ref(), path),
-        }
-    }
-
-    #[test]
-    fn classify_path_buf_abs() {
-        let path_buf = PathBuf::from("/a/b");
-        let classified = classify_path_buf(path_buf.clone()).unwrap();
-        match classified {
-            PathBufKind::Abs(abs) => assert_eq!(abs.as_path(), path_buf.as_path()),
-            PathBufKind::Rel(_) => panic!("Classified absolute path as relative"),
-        }
-    }
-
-    #[test]
-    fn classify_path_buf_rel() {
-        let path_buf = PathBuf::from("a/b");
-        let classified = classify_path_buf(path_buf.clone()).unwrap();
-        match classified {
-            PathBufKind::Abs(_) => panic!("Classified relative path as absolute"),
-            PathBufKind::Rel(rel) => assert_eq!(rel.as_path(), path_buf.as_path()),
-        }
     }
 }

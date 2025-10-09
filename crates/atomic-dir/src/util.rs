@@ -6,8 +6,8 @@ use std::{
 use cap_std::fs::{Dir, File};
 use rand::distr::SampleString as _;
 
-use crate::fs::{
-    atomic_dir::{DirLock, CreateMode},
+use crate::{
+    CreateMode, DirLock,
     err_helpers::{io_bail, io_err_map},
     paths::{RelPath, RelPathBuf, SinglePath, SinglePathBuf},
 };

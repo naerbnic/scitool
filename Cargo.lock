@@ -89,6 +89,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
+name = "atomic-dir"
+version = "0.1.0"
+dependencies = [
+ "cap-std",
+ "crosslock",
+ "rand",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1190,6 +1203,7 @@ name = "scitool-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atomic-dir",
  "base64",
  "bytes",
  "cap-std",

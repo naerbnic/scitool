@@ -3,10 +3,10 @@ use std::{io, path::Path, sync::Arc};
 use cap_std::fs::Dir;
 use rand::distr::SampleString as _;
 
-use crate::fs::{
-    atomic_dir::util::safe_path_parent,
+use crate::{
     err_helpers::{io_err, io_err_map},
     paths::{SinglePath, SinglePathBuf},
+    util::safe_path_parent,
 };
 
 #[derive(Debug)]

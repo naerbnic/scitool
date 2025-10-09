@@ -2,7 +2,7 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 
-use crate::fs::err_helpers::io_err;
+use crate::err_helpers::io_err;
 
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 
