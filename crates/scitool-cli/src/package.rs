@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use atomic_dir::{CreateMode, DirBuilder, UpdateInitMode};
+use atomic_dir::{CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::ResourceId,
     utils::{
@@ -154,7 +154,7 @@ impl Package {
             );
         };
 
-        let atomic_dir = DirBuilder::open_at(base_path, UpdateInitMode::CopyExisting)?;
+        let atomic_dir = UpdateBuilder::open_at(base_path, UpdateInitMode::CopyExisting)?;
 
         if self.metadata.is_dirty() {
             let meta_json = serde_json::to_vec(self.metadata.get())
@@ -211,7 +211,7 @@ impl Package {
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
     pub fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
-        let atomic_dir = DirBuilder::open_at(&path, UpdateInitMode::CopyExisting)?;
+        let atomic_dir = UpdateBuilder::open_at(&path, UpdateInitMode::CopyExisting)?;
 
         let meta_json = serde_json::to_vec(self.metadata.get())
             .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
