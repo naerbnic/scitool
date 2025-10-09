@@ -9,26 +9,26 @@ autotests = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-scidev = { path = "../scidev" }
-clap = { version = "4.5.16", features = ["derive"] }
 anyhow = "1.0.86"
-itertools = "0.13.0"
-serde = { version = "1.0.210", features = ["derive"] }
-sha2 = "0.10.9"
-hex = "0.4.3"
+atomic-dir = { path = "../atomic-dir" }
 base64 = "0.22.1"
 bytes = "1.10.1"
-serde_json = "1.0.145"
-thiserror = "2.0.16"
-rand = "0.9.2"
 cap-std = "3.4.4"
-tempfile = "3.22.0"
+clap = { version = "4.5.16", features = ["derive"] }
 cross-file-id = { git = "https://github.com/naerbnic/cross-file-id.git", branch = "main" }
 crosslock = { path = "../crosslock" }
-atomic-dir = { path = "../atomic-dir" }
-
-[lints]
-workspace = true
+hex = "0.4.3"
+itertools = "0.13.0"
+rand = "0.9.2"
+scidev = { path = "../scidev" }
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+tempfile = "3.22.0"
+thiserror = "2.0.16"
 
 [dev-dependencies]
 tempfile = "3.22.0"
+
+[lints]
+workspace = true

@@ -7,14 +7,6 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
-[dependencies]
-libfuzzer-sys = "0.4"
-tempfile = "3.19.1"
-anyhow = "1.0.91"
-
-[dependencies.scidev]
-path = "../crates/scidev"
-
 [[bin]]
 name = "compress_roundtrip"
 path = "fuzz_targets/compress_roundtrip.rs"
@@ -28,3 +20,11 @@ path = "fuzz_targets/resource_file_reading.rs"
 test = false
 doc = false
 bench = false
+
+[dependencies]
+anyhow = "1.0.91"
+libfuzzer-sys = "0.4"
+tempfile = "3.19.1"
+
+[dependencies.scidev]
+path = "../crates/scidev"

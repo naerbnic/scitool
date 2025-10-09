@@ -6,13 +6,13 @@ autotests = false
 
 [dependencies]
 cap-std = "3.4.4"
+cross-file-id = { git = "https://github.com/naerbnic/cross-file-id.git", branch = "main" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 thiserror = "2.0.17"
-cross-file-id = { git = "https://github.com/naerbnic/cross-file-id.git", branch = "main" }
-
-[lints]
-workspace = true
 
 [dev-dependencies]
 tempfile = "3.23.0"
+
+[lints]
+workspace = true
