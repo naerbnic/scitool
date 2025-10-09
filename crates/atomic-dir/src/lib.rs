@@ -28,7 +28,7 @@ use crate::{
     commit::CommitFileData,
     dir_lock::DirLock,
     dir_state::{DirState, LoadedDirState},
-    err_helpers::{io_bail, io_err_map},
+    err_helpers::{io_bail, io_err, io_err_map},
     paths::{RelPath, RelPathBuf},
     recovery::{recover, recover_exclusive},
     temp_dir::{PersistError, TempDir},
@@ -869,26 +869,48 @@ impl UpdateBuilder {
     /// is given, either all changes will be visible, or none will. It is
     /// durable in the sense that once the commit operation has completed,
     /// the changes will be visible even in the event of a crash or power loss.
-    pub fn commit(self) -> io::Result<AtomicDir> {
+    pub fn commit(self) -> Result<AtomicDir, CommitError> {
+        macro_rules! try_abort {
+            ($expr:expr) => {
+                match $expr {
+                    Ok(val) => val,
+                    Err(err) => {
+                        return Err(CommitError::Aborted(AbortError {
+                            source: err,
+                            temp_dir: self.temp_dir,
+                        }));
+                    }
+                }
+            };
+        }
+
+        macro_rules! bail_abort {
+            ($($arg:tt)*) => {
+                return Err(CommitError::Aborted(AbortError {
+                    source: io_err!($($arg)*),
+                    temp_dir: self.temp_dir,
+                }));
+            }
+        }
         let (target_lock, prev_state) = match self.source {
             SourceDir::Existing(dir) => (dir.lock, Some((dir.dir_handle, dir.state))),
             SourceDir::New(lock) => (lock, None),
         };
-        let mut target_lock = target_lock.upgrade()?;
+        let mut target_lock = try_abort!(target_lock.upgrade());
 
         // We need to verify that the current state of the directory matches
         // what we expect. If not, we should abort the operation.
         let next_state = if let Some((existing_dir, curr_state)) = prev_state {
-            let existing_state = read_state_file(&existing_dir)?;
+            let existing_state = try_abort!(read_state_file(&existing_dir));
             let LoadedDirState::Clean(existing_state) = existing_state else {
-                io_bail!(
+                bail_abort!(
                     InvalidData,
                     "Directory has been poisoned due to previous failed operation. This is an inconsistent state: {}",
                     target_lock.path().display()
                 );
             };
             if !existing_state.is_same(&curr_state) {
-                io_bail!(
+                bail_abort!(
                     Other,
                     "Directory has changed since the update operation began. Current state: {:?}, expected state: {:?}. Path: {}",
                     existing_state,
@@ -898,11 +920,8 @@ impl UpdateBuilder {
             }
             curr_state.to_next()
         } else {
-            if target_lock
-                .parent_dir()
-                .try_exists(target_lock.file_name())?
-            {
-                io_bail!(
+            if try_abort!(target_lock.parent_dir().try_exists(target_lock.file_name())) {
+                bail_abort!(
                     AlreadyExists,
                     "Target path already exists: {}",
                     target_lock.path().display()
@@ -911,44 +930,49 @@ impl UpdateBuilder {
             DirState::new()
         };
         {
-            let mut state_file = self.temp_dir.open_with(
-                STATE_FILE_NAME,
-                cap_std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true),
-            )?;
-            state_file.write_all(&next_state.serialize()?)?;
-            state_file.flush()?;
-            state_file.sync_all()?;
+            let mut state_file = try_abort!(
+                self.temp_dir.open_with(
+                    STATE_FILE_NAME,
+                    cap_std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true),
+                )
+            );
+            let next_state_bytes = try_abort!(next_state.serialize());
+            try_abort!(state_file.write_all(&next_state_bytes));
+            try_abort!(state_file.flush());
+            try_abort!(state_file.sync_all());
         }
         let temp_path = self.temp_dir.dir_name().to_owned();
         let commit = CommitFileData::new(temp_path.clone(), create_old_path(&target_lock));
 
         // Release the temp dir so it doesn't get deleted.
-        let _temp_dir = self.temp_dir.into_dir();
+        let defused = self.temp_dir.defuse();
 
-        if let Err(e) = commit.commit_file(&target_lock) {
-            // Failed to write the commit file. Try to clean up after ourselves.
-            drop(target_lock.parent_dir().remove_dir_all(temp_path));
-            return Err(e);
+        if let Err(source) = commit.commit_file(&target_lock) {
+            // Failed to write the commit file. Recreate the temp directory, and return the error.
+            let temp_dir = defused.relight();
+            return Err(CommitError::Aborted(AbortError { source, temp_dir }));
         }
 
         // Now, perform the recovery steps to move the temp directory into place.
         //
         // Even if this fails, opening the directory again will recover it.
-        recover_exclusive(&target_lock)?;
+        recover_exclusive(&target_lock).map_err(CommitError::RecoveryFailed)?;
 
         // We want to downgrade the lock back to shared, but note that there's
         // always a chance that another process changes the directory after we
         // downgrade the lock. This is why we need to perform the recovery step
         // again after downgrading the lock. The recovery step will be
         // a no-op if the directory is already in a clean state.
-        target_lock = target_lock.downgrade()?;
+        target_lock = target_lock
+            .downgrade()
+            .map_err(CommitError::RecoveryFailed)?;
 
-        target_lock = recover(target_lock)?;
+        target_lock = recover(target_lock).map_err(CommitError::RecoveryFailed)?;
 
-        AtomicDir::from_lock(target_lock)
+        AtomicDir::from_lock(target_lock).map_err(CommitError::RecoveryFailed)
     }
 
     pub fn abort(self) -> io::Result<Option<AtomicDir>> {

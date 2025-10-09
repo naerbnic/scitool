@@ -52,8 +52,12 @@ impl TempDir {
         &self.dir_name
     }
 
-    pub(super) fn into_dir(mut self) -> Dir {
-        self.dir_root.take().expect("TempDir is valid")
+    pub(super) fn defuse(mut self) -> DefusedTempDir {
+        let dir = self.dir_root.take().expect("TempDir is valid");
+        DefusedTempDir {
+            temp_dir: self,
+            dir,
+        }
     }
 
     pub(super) fn persist_to(mut self, path: &Path) -> Result<(), PersistError> {
@@ -105,5 +109,17 @@ impl Drop for TempDir {
         if let Some(_dir) = self.dir_root.take() {
             drop(self.parent.remove_dir_all(&self.dir_name));
         }
+    }
+}
+
+pub(crate) struct DefusedTempDir {
+    temp_dir: TempDir,
+    dir: Dir,
+}
+
+impl DefusedTempDir {
+    pub(crate) fn relight(mut self) -> TempDir {
+        self.temp_dir.dir_root = Some(self.dir);
+        self.temp_dir
     }
 }
