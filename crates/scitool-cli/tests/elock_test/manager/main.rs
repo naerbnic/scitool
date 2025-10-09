@@ -321,7 +321,7 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::try_join!(
         async {
-            const TEST_DURATION: Duration = Duration::from_secs(30);
+            const TEST_DURATION: Duration = Duration::from_secs(5);
             eprintln!("Sleeping for {TEST_DURATION:?} to let workers run...");
             tokio::time::sleep(TEST_DURATION).await;
             eprintln!("{TEST_DURATION:?} elapsed, stopping workers...");

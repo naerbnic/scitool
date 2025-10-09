@@ -164,37 +164,37 @@ impl Package {
                 .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
         }
 
-        // if self.compressed_data.is_dirty() {
-        //     if let Some(compressed_data) = self.compressed_data.get() {
-        //         let data = compressed_data
-        //             .open()
-        //             .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
+        if self.compressed_data.is_dirty() {
+            if let Some(compressed_data) = self.compressed_data.get() {
+                let data = compressed_data
+                    .open()
+                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
-        //         atomic_dir
-        //             .write_file(COMPRESSED_BIN_PATH, WriteMode::Overwrite, &data)
-        //             .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
-        //     } else if atomic_dir.exists(COMPRESSED_BIN_PATH)? {
-        //         atomic_dir
-        //             .remove_file(COMPRESSED_BIN_PATH)
-        //             .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
-        //     }
-        // }
+                atomic_dir
+                    .write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)
+                    .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+            } else if atomic_dir.exists(COMPRESSED_BIN_PATH)? {
+                atomic_dir
+                    .remove_file(COMPRESSED_BIN_PATH)
+                    .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
+            }
+        }
 
-        // if self.raw_data.is_dirty() {
-        //     if let Some(raw_data) = self.raw_data.get() {
-        //         let data = raw_data
-        //             .open()
-        //             .map_err(io_err_map!(Other, "Failed to open raw data"))?;
+        if self.raw_data.is_dirty() {
+            if let Some(raw_data) = self.raw_data.get() {
+                let data = raw_data
+                    .open()
+                    .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
-        //         atomic_dir
-        //             .write(RAW_BIN_PATH, &WriteMode::Overwrite, &data)
-        //             .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
-        //     } else if atomic_dir.exists(RAW_BIN_PATH)? {
-        //         atomic_dir
-        //             .delete(RAW_BIN_PATH)
-        //             .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
-        //     }
-        // }
+                atomic_dir
+                    .write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)
+                    .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+            } else if atomic_dir.exists(RAW_BIN_PATH)? {
+                atomic_dir
+                    .remove_file(RAW_BIN_PATH)
+                    .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
+            }
+        }
 
         atomic_dir.commit()?;
 
@@ -306,7 +306,6 @@ mod tests {
     fn save_to_writes_files_and_allows_followup_save() -> std::io::Result<()> {
         let temp_dir = tempdir()?;
         let package_dir = temp_dir.path().join("pkg");
-        std::fs::create_dir(&package_dir)?;
 
         let mut package = Package::new(ResourceId::new(ResourceType::Script, 7));
         let raw_bytes = b"resource data".to_vec();

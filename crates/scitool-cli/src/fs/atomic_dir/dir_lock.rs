@@ -103,13 +103,13 @@ impl DirLock {
         let DirLock {
             parent_dir,
             target_path,
-            lock_type,
             lock_file,
+            ..
         } = self;
         Ok(Self {
             parent_dir,
             target_path,
-            lock_type,
+            lock_type: LockType::Exclusive,
             lock_file: lock_file.upgrade()?,
         })
     }
@@ -118,13 +118,13 @@ impl DirLock {
         let DirLock {
             parent_dir,
             target_path,
-            lock_type,
             lock_file,
+            ..
         } = self;
         Ok(Self {
             parent_dir,
             target_path,
-            lock_type,
+            lock_type: LockType::Shared,
             lock_file: lock_file.downgrade()?,
         })
     }

@@ -689,9 +689,11 @@ impl DirBuilder {
     pub fn open_at(path: &Path, init_mode: UpdateInitMode) -> io::Result<Self> {
         // Take a shared lock, in case the directory already exists.
         let source_dir = loop {
-            let target_lock = lock_dir_safe(path, LockType::Shared)?;
-            if let Some(root) = try_open_dir(path)? {
-                break SourceDir::Existing(AtomicDir::from_lock_and_handle(target_lock, root)?);
+            {
+                let target_lock = lock_dir_safe(path, LockType::Shared)?;
+                if let Some(root) = try_open_dir(path)? {
+                    break SourceDir::Existing(AtomicDir::from_lock_and_handle(target_lock, root)?);
+                }
             }
 
             let target_lock = lock_dir_safe(path, LockType::Exclusive)?;
@@ -937,6 +939,11 @@ impl DirBuilder {
         // Even if this fails, opening the directory again will recover it.
         recover_exclusive(&target_lock)?;
 
+        // We want to downgrade the lock back to shared, but note that there's
+        // always a chance that another process changes the directory after we
+        // downgrade the lock. This is why we need to perform the recovery step
+        // again after downgrading the lock. The recovery step will be
+        // a no-op if the directory is already in a clean state.
         target_lock = target_lock.downgrade()?;
 
         target_lock = recover(target_lock)?;
