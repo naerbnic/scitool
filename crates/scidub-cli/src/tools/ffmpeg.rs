@@ -126,8 +126,7 @@ impl FfmpegTool {
 
         anyhow::ensure!(
             status.success(),
-            "ffmpeg process exited with non-zero status: {}",
-            status
+            "ffmpeg process exited with non-zero status: {status}",
         );
 
         output

@@ -46,7 +46,7 @@ fn parse_control(ctrl: char, value: Option<u32>) -> anyhow::Result<Control> {
             Some(4) => FontControl::Lowercase,
             Some(5) => FontControl::Title,
             Some(8) => FontControl::BoldLike,
-            Some(n) => anyhow::bail!("Unexpected font control value: {}", n),
+            Some(n) => anyhow::bail!("Unexpected font control value: {n}"),
         }),
 
         // Color control
@@ -58,9 +58,9 @@ fn parse_control(ctrl: char, value: Option<u32>) -> anyhow::Result<Control> {
             Some(4) => ColorControl::Green,
             Some(5) => ColorControl::Cyan,
             Some(6) => ColorControl::Unknown,
-            Some(n) => anyhow::bail!("Unexpected color control value: {}", n),
+            Some(n) => anyhow::bail!("Unexpected color control value: {n}"),
         }),
-        c => anyhow::bail!("Unexpected control value: ({}, {:?})", c, value),
+        c => anyhow::bail!("Unexpected control value: ({c}, {value:?})"),
     })
 }
 

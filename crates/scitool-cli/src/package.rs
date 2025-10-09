@@ -21,7 +21,7 @@ use scidev::{
 
 use crate::{
     fs::{
-        atomic_dir::{DirBuilder, UpdateInitMode, CreateMode},
+        atomic_dir::{CreateMode, DirBuilder, UpdateInitMode},
         err_helpers::{io_bail, io_err_map},
         io_wrappers::LengthLimitedReader,
     },
@@ -154,7 +154,7 @@ impl Package {
             );
         };
 
-        let atomic_dir = DirBuilder::open_at(&base_path, UpdateInitMode::CopyExisting)?;
+        let atomic_dir = DirBuilder::open_at(base_path, UpdateInitMode::CopyExisting)?;
 
         if self.metadata.is_dirty() {
             let meta_json = serde_json::to_vec(self.metadata.get())

@@ -192,8 +192,7 @@ impl SampleDir {
             .collect::<Vec<_>>();
         if !multi_path_counts.is_empty() {
             return Err(anyhow::anyhow!(
-                "The following paths have multiple message IDs: {:?}",
-                multi_path_counts
+                "The following paths have multiple message IDs: {multi_path_counts:?}"
             ));
         }
 

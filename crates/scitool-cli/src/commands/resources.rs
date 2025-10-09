@@ -12,7 +12,7 @@ pub fn dump_resource(
     let resource_set = ResourceSet::from_root_dir(root_dir)?;
     let res = resource_set
         .get_resource(&resource_id)
-        .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
+        .ok_or_else(|| anyhow::anyhow!("Resource not found: {resource_id:?}"))?;
     let data = res.load_data()?;
     hex_dump_to(output, &data, 0)?;
     Ok(())
@@ -34,7 +34,7 @@ pub fn extract_resource_as_patch<'a>(
     let resource_id = ResourceId::new(resource_type, resource_num);
     let contents = resource_set
         .get_resource(&resource_id)
-        .ok_or_else(|| anyhow::anyhow!("Resource not found: {:?}", resource_id))?;
+        .ok_or_else(|| anyhow::anyhow!("Resource not found: {resource_id:?}"))?;
     let ext = match resource_type {
         ResourceType::Script => "SCR",
         ResourceType::Heap => "HEP",
