@@ -143,11 +143,10 @@ impl SharedLockSet {
             let mut lock_map = self.lock_map.lock().unwrap();
             match lock_map.entry(file_id.clone()) {
                 Entry::Vacant(vac) => {
-                    let mut lock_entry = LockEntry {
+                    let lock_entry = LockEntry {
                         queue: WaitQueue::new(),
                         state: LockEntryState::PendingFileAcquire { lock_type },
                     };
-                    lock_entry.queue.push_empty(lock_type);
                     vac.insert(lock_entry);
                     return LockResult::PendingFileLockAcquire(PendingGuard {
                         pending_handle: Some(file_id.clone()),
@@ -183,12 +182,10 @@ impl SharedLockSet {
         let mut lock_map = self.lock_map.lock().unwrap();
         match lock_map.entry(file_id.clone()) {
             Entry::Vacant(vac) => {
-                let mut lock_entry = LockEntry {
+                vac.insert(LockEntry {
                     queue: WaitQueue::new(),
                     state: LockEntryState::PendingFileAcquire { lock_type },
-                };
-                lock_entry.queue.push_empty(lock_type);
-                vac.insert(lock_entry);
+                });
                 Some(LockResult::PendingFileLockAcquire(PendingGuard {
                     pending_handle: Some(file_id.clone()),
                 }))
@@ -241,14 +238,14 @@ impl SharedLockSet {
             panic!("Unlocking a file that is not held");
         };
 
-        match entry.queue.front_mut() {
+        match entry.queue.next_mut() {
             None => {
                 // No one is waiting for the lock, so remove the entry.
                 lock_map.remove(file_id);
             }
-            Some(mut next_wait_group) => {
-                let lock_type = next_wait_group.lock_type();
-                let leader = next_wait_group.take_first_waiter().unwrap();
+            Some(next) => {
+                let lock_type = next.lock_type();
+                let leader = next.take_waiter();
                 entry.state = LockEntryState::PendingFileAcquire { lock_type };
                 leader.wake(LockResult::PendingFileLockAcquire(PendingGuard {
                     pending_handle: Some(file_id.clone()),
@@ -267,23 +264,18 @@ impl SharedLockSet {
             panic!("Reporting a file lock that is not pending");
         };
 
-        let Some(next_wait_group) = entry.queue.front_mut() else {
-            panic!("No wait group when locking a file");
-        };
-
-        assert!(
-            next_wait_group.lock_type() == lock_type,
-            "Lock type changed while pending"
-        );
-
-        let waiters = next_wait_group.take_all_waiters();
-
         match lock_type {
             LockType::Exclusive => {
-                assert!(waiters.is_empty(), "Exclusive lock with multiple waiters");
                 entry.state = LockEntryState::Exclusive;
             }
             LockType::Shared => {
+                let mut waiters = Vec::new();
+                while let Some(next) = entry.queue.next_mut()
+                    && next.lock_type() == LockType::Shared
+                {
+                    waiters.push(next.take_waiter());
+                }
+
                 entry.state = LockEntryState::Shared {
                     ref_count: 1 + waiters.len(),
                 };
@@ -299,34 +291,21 @@ impl SharedLockSet {
         let Some(entry) = lock_map.get_mut(file_id) else {
             panic!("Dropping a lock that is not held");
         };
-        let LockEntryState::PendingFileAcquire { lock_type } = entry.state else {
-            panic!("Dropping a pending lock");
+        let LockEntryState::PendingFileAcquire { .. } = entry.state else {
+            panic!("Dropping a pending lock in the wrong state");
         };
 
-        let mut check_lock_type: Option<LockType> = Some(lock_type);
-
-        loop {
-            // We were pending, so there should be a wait group for us.
-            if let Some(mut next_wait_group) = entry.queue.front_mut() {
-                if let Some(check) = check_lock_type.take() {
-                    assert!(
-                        next_wait_group.lock_type() == check,
-                        "Lock type changed while pending"
-                    );
-                }
-                // Assign a new leader, if there is one.
-                if let Some(new_leader) = next_wait_group.take_first_waiter() {
-                    new_leader.wake(LockResult::PendingFileLockAcquire(PendingGuard {
-                        pending_handle: Some(file_id.clone()),
-                    }));
-                } else {
-                    next_wait_group.drop_empty();
-                }
-            } else {
-                // Well, we're out of waiters, so just remove the entry.
-                lock_map.remove(file_id);
-                return;
-            }
+        // We were pending, so there should be a wait group for us.
+        if let Some(next) = entry.queue.next_mut() {
+            let lock_type = next.lock_type();
+            let new_leader = next.take_waiter();
+            entry.state = LockEntryState::PendingFileAcquire { lock_type };
+            new_leader.wake(LockResult::PendingFileLockAcquire(PendingGuard {
+                pending_handle: Some(file_id.clone()),
+            }));
+        } else {
+            // Well, we're out of waiters, so just remove the entry.
+            lock_map.remove(file_id);
         }
     }
 
