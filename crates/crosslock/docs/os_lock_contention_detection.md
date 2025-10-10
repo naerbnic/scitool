@@ -40,6 +40,12 @@ ways of then detecting if there exists a process waiting on the current lock.
   exclusive lock is taken and released.
 - Byte-range locks that do not intersect are independent; There are in effect
   separate FIFO queues for each non-overlapping byte range.
+- All current locks are associated with open processes. If a process exits
+  (normally or abnormally) then all advisory locks it holds on a file are
+  dropped.
+
+To my knowledge, these are all true for Windows, Linux, POSIX-compatible
+UNIXes, and macOS.
 
 ### OS Non-Assumptions
 
@@ -177,7 +183,7 @@ We need to make sure this follows the normally accepted properties of `Lock()`,
    such that each process in the loop is holding onto a lock that another
    process in the loop is waiting for. We can prevent deadlock loops by
    defining an absolute order of locks, and with the invariant that a blocking
-   lock can never be taken by a process that is holding a lock larger lock.
+   lock can never be taken by a process that is holding a larger lock.
 
    We define the order of locks such that the Pre lock is smaller than the Prim
    lock. From this, we observe that we never have a time that we hold the Prim
@@ -187,7 +193,7 @@ We need to make sure this follows the normally accepted properties of `Lock()`,
 5. `IsContended()` returns CONTENTION only if there is another process that
    is trying to take the lock (either blocking or non-blocking).
 
-   In order for the attempt to lock Prim to fail, there must exist another
+   In order for the attempt to lock Pre to fail, there must exist another
    process which is following the `Lock()` operation, or another process that
    briefly held the lock in the `TryLock()` operation. In both of these cases,
    there was another process that (however briefly) was interested in taking the lock, indicating some amount of contention.
@@ -202,11 +208,23 @@ We need to make sure this follows the normally accepted properties of `Lock()`,
    When we are able to take the Pre lock in `IsContended()`, the only way that
    it could have succeed is if all other locks that are being acquired are
    compatible with the currently held lock, or that there is an interleaving
-   where the another process is scheduled after our test lock attempt of Pre.
+   where another process is scheduled after our test lock attempt of Pre.
 
    If another process runs `Lock()` with an incompatible lock type, and we are
    guaranteed that our call to `IsContended()` will occur in the window where
    that process is holding the Pre lock, then we must detect contention.
+
+7. Crashing during `Lock()` or `TryLock()` either acts as a `Release()` (if
+   the Prim lock was held) or behaves as though no lock was ever held (with
+   the exception of a now-spurious `CONTENTION` result from `IsContended()`).
+
+   Since at its heart this protocol is still modeling a lock queue, and with
+   the assumption that the OS will release any locks or locations in a queue
+   that were previously held by the process, removing the locks for an arbitrary
+   process at any time will not interfere with the queue behavior between other
+   processes currently waiting on the lock. There is always the possibility of
+   whatever state is protected by the lock being left in a corrupted state, but
+   that is outside the scope of this document.
 
 ## Conclusion
 
