@@ -1,6 +1,7 @@
 pub mod ephemeral;
 mod err_helpers;
 mod shared_lock_set;
+mod waiter;
 
 use std::{
     fs::File,
