@@ -226,6 +226,30 @@ We need to make sure this follows the normally accepted properties of `Lock()`,
    whatever state is protected by the lock being left in a corrupted state, but
    that is outside the scope of this document.
 
+## Future work
+
+We may be able to leverage the `IsContended()` operation approach to do true
+upgrade/downgrade without more locks:
+
+If we are able to take a Pre lock of the other type (non-blocking) then that
+means there is no contention to obtain that kind of lock, especially while
+we are holding that lock. Since the FIFO is based on that lock which we
+now hold, we can release the Prim lock, and reacquire it with the opposite
+type. Our state is now similar to Lock(), and since we already hold Pre
+(especially if it's with an EX lock), we know that no other process can
+hold an EX lock on our current state. This is strictly opportunistic, however
+as it's entirely possible in the upgrade case that we are sharing with other
+shared locks, although none of those should be blocking. Timeouts could be
+used to help, but they are not as well supported across platforms.
+
+Another idea is to have a new smallest lock (PreEx) that is only reserved by
+EX locks. We can change the protocol to ensure that if we can get that
+non-blocking while holding Prim/SH, we can be sure that there are no EX locks
+ahead of us in the queue.
+
+This may not be novel in and of its own right, but still a nice contribution
+to the underlying protocol.
+
 ## Conclusion
 
 This protocol allows us to be able to test the contention of a currently held
