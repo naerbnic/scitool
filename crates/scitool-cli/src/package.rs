@@ -7,13 +7,9 @@ mod err_helpers;
 mod io_wrappers;
 pub mod schema;
 
-use std::{
-    borrow::Cow,
-    io::Read as _,
-    path::{Path, PathBuf},
-};
+use std::{borrow::Cow, io::Read as _, path::Path};
 
-use atomic_dir::{CreateMode, UpdateBuilder, UpdateInitMode};
+use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::ResourceId,
     utils::{
@@ -44,20 +40,20 @@ fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, 
 }
 
 pub struct Package {
-    base_path: Option<PathBuf>,
     metadata: Dirty<Metadata>,
     compressed_data: Dirty<Option<LazyBlock>>,
     raw_data: Dirty<Option<LazyBlock>>,
+    disk_backing: Option<AtomicDir>,
 }
 
 impl Package {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
         Package {
-            base_path: None,
             metadata: Dirty::new_fresh(Metadata::new_with_id(id)),
             compressed_data: Dirty::new_fresh(None),
             raw_data: Dirty::new_fresh(None),
+            disk_backing: None,
         }
     }
 
@@ -67,8 +63,14 @@ impl Package {
     {
         let base_path = path.into().into_owned();
 
+        let dir = AtomicDir::open(&base_path).map_err(io_err_map!(
+            NotFound,
+            "Failed to open package directory at {}",
+            base_path.display()
+        ))?;
+
         let mut meta_file = LengthLimitedReader::new(
-            std::fs::File::open(base_path.join(META_PATH)).map_err(io_err_map!(
+            dir.open_file(META_PATH).map_err(io_err_map!(
                 NotFound,
                 "Failed to open metadata file at {}",
                 base_path.join(META_PATH).display()
@@ -104,10 +106,10 @@ impl Package {
         };
 
         Ok(Self {
-            base_path: Some(base_path),
             metadata: Dirty::new_stored(metadata),
             compressed_data: Dirty::new_stored(compressed_data),
             raw_data: Dirty::new_stored(raw_data),
+            disk_backing: Some(dir),
         })
     }
 
@@ -147,21 +149,18 @@ impl Package {
     }
 
     pub fn save(&mut self) -> std::io::Result<()> {
-        let Some(base_path) = &mut self.base_path else {
+        let Some(dir) = self.disk_backing.take() else {
             io_bail!(
                 InvalidInput,
                 "Cannot save a package that was not loaded from a path or saved to a path."
             );
         };
 
-        let atomic_dir = UpdateBuilder::open_at(base_path, UpdateInitMode::CopyExisting)?;
+        let atomic_dir = dir.begin_update(UpdateInitMode::CopyExisting)?;
 
         if self.metadata.is_dirty() {
-            let meta_json = serde_json::to_vec(self.metadata.get())
-                .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
-            atomic_dir
-                .write_file(META_PATH, CreateMode::Overwrite, &meta_json)
-                .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
+            let meta_json = serde_json::to_vec(self.metadata.get())?;
+            atomic_dir.write_file(META_PATH, CreateMode::Overwrite, &meta_json)?;
         }
 
         if self.compressed_data.is_dirty() {
@@ -170,13 +169,9 @@ impl Package {
                     .open()
                     .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
-                atomic_dir
-                    .write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)
-                    .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+                atomic_dir.write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)?;
             } else if atomic_dir.exists(COMPRESSED_BIN_PATH)? {
-                atomic_dir
-                    .remove_file(COMPRESSED_BIN_PATH)
-                    .map_err(io_err_map!(Other, "Failed to remove compressed data file"))?;
+                atomic_dir.remove_file(COMPRESSED_BIN_PATH)?;
             }
         }
 
@@ -186,18 +181,13 @@ impl Package {
                     .open()
                     .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
-                atomic_dir
-                    .write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)
-                    .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+                atomic_dir.write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)?;
             } else if atomic_dir.exists(RAW_BIN_PATH)? {
-                atomic_dir
-                    .remove_file(RAW_BIN_PATH)
-                    .map_err(io_err_map!(Other, "Failed to remove raw data file"))?;
+                atomic_dir.remove_file(RAW_BIN_PATH)?;
             }
         }
 
-        atomic_dir.commit()?;
-
+        self.disk_backing = Some(atomic_dir.commit()?);
         self.metadata.mark_clean();
         self.compressed_data.mark_clean();
         self.raw_data.mark_clean();
@@ -210,23 +200,24 @@ impl Package {
     /// This will update the stored path of the package to the new path, ensuring
     /// all files are saved there. If this was previously loaded from a path,
     /// the previous files will not be modified, but the old path will be forgotten.
-    pub fn save_to(&mut self, path: PathBuf) -> std::io::Result<()> {
-        let atomic_dir = UpdateBuilder::open_at(&path, UpdateInitMode::CopyExisting)?;
+    pub fn save_to<P>(&mut self, path: &P) -> std::io::Result<()>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let atomic_dir = UpdateBuilder::open_at(path, UpdateInitMode::LeaveEmpty)?;
 
-        let meta_json = serde_json::to_vec(self.metadata.get())
-            .map_err(io_err_map!(Other, "Failed to serialize metadata to JSON"))?;
-        atomic_dir
-            .write_file(META_PATH, CreateMode::Overwrite, &meta_json)
-            .map_err(io_err_map!(Other, "Failed to write metadata file"))?;
+        atomic_dir.write_file(
+            META_PATH,
+            CreateMode::Overwrite,
+            &serde_json::to_vec(self.metadata.get())?,
+        )?;
 
         if let Some(compressed_data) = self.compressed_data.get() {
             let data = compressed_data
                 .open()
                 .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
-            atomic_dir
-                .write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)
-                .map_err(io_err_map!(Other, "Failed to write compressed data file"))?;
+            atomic_dir.write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)?;
         }
 
         if let Some(raw_data) = self.raw_data.get() {
@@ -234,16 +225,13 @@ impl Package {
                 .open()
                 .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
-            atomic_dir
-                .write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)
-                .map_err(io_err_map!(Other, "Failed to write raw data file"))?;
+            atomic_dir.write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)?;
         }
 
-        atomic_dir.commit()?;
+        self.disk_backing = Some(atomic_dir.commit()?);
         self.metadata.mark_clean();
         self.raw_data.mark_clean();
         self.compressed_data.mark_clean();
-        self.base_path = Some(path);
 
         Ok(())
     }
@@ -312,7 +300,7 @@ mod tests {
         let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
         package.set_raw_data(block)?;
 
-        package.save_to(package_dir.clone())?;
+        package.save_to(&package_dir)?;
 
         assert!(
             std::fs::exists(package_dir.join(META_PATH))?,

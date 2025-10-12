@@ -35,7 +35,7 @@ use crate::{
     util::create_old_path,
 };
 
-const STATE_FILE_NAME: &str = ".state";
+const STATE_FILE_NAME: &str = ".atomic_dir.state";
 
 /// The mode of creating a file in an atomic directory.
 #[derive(Debug, Clone, Copy)]
@@ -416,8 +416,11 @@ impl AtomicDir {
         Self::from_lock(lock_dir_safe(path.as_ref(), LockType::Shared)?)
     }
 
-    pub fn open_file(&self, path: &Path) -> io::Result<File> {
-        let path = util::normalize_path(path)?;
+    pub fn open_file<P>(&self, path: &P) -> io::Result<File>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = util::normalize_path(path.as_ref())?;
         Ok(File {
             inner: self
                 .dir_handle
@@ -686,7 +689,11 @@ impl UpdateBuilder {
     /// If `init_mode` is `CopyExisting`, all existing files from the source directory will be
     /// copied into the temporary directory. If `init_mode` is `LeaveEmpty`, the temporary directory
     /// will start out empty.
-    pub fn open_at(path: &Path, init_mode: UpdateInitMode) -> io::Result<Self> {
+    pub fn open_at<P>(path: &P, init_mode: UpdateInitMode) -> io::Result<Self>
+    where
+        P: AsRef<Path> + ?Sized,
+    {
+        let path = path.as_ref();
         // Take a shared lock, in case the directory already exists.
         let source_dir = loop {
             {

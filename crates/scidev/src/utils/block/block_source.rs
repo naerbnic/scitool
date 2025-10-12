@@ -83,6 +83,24 @@ impl BlockSourceImpl for VecBlockSourceImpl {
     }
 }
 
+/// Public trait for types that can be used as a source of blocks.
+pub trait CustomBlockSource {
+    fn read_block(&self, start: u64, size: u64) -> Result<Vec<u8>, Error>;
+    fn size(&self) -> u64;
+}
+
+struct CustomBlockSourceImpl<T>(T);
+
+impl<T> BlockSourceImpl for CustomBlockSourceImpl<T>
+where
+    T: CustomBlockSource + Send + Sync,
+{
+    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
+        let data = self.0.read_block(start, size)?;
+        Ok(MemBlock::from_vec(data))
+    }
+}
+
 /// A source of blocks. These can be loaded lazily, and still can be split
 /// into sub-block-sources.
 #[derive(Clone)]
@@ -127,6 +145,19 @@ impl BlockSource {
             start: 0,
             size,
             source_impl: Arc::new(VecBlockSourceImpl { data }),
+        }
+    }
+
+    #[must_use]
+    pub fn from_custom<T>(source: T) -> Self
+    where
+        T: CustomBlockSource + Send + Sync + 'static,
+    {
+        let size = source.size();
+        Self {
+            start: 0,
+            size,
+            source_impl: Arc::new(CustomBlockSourceImpl(source)),
         }
     }
 
