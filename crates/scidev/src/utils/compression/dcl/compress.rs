@@ -1,5 +1,6 @@
 mod dictionary;
 mod index_cache;
+mod input_buffer;
 
 use std::io;
 
@@ -79,19 +80,22 @@ const DEFAULT_PARAMS: MatchLengthParams = MatchLengthParams {
     sufficient: Some(18),
 };
 
-pub fn compress_dcl(
+fn compress_dcl_to<R: io::Read, W: BitWriter>(
+    match_params: MatchLengthParams,
     mode: CompressionMode,
     dict_type: DictType,
-    mut input: &[u8],
-    output: &mut Vec<u8>,
+    input: R,
+    mut writer: W,
 ) -> io::Result<()> {
-    let mut writer = LittleEndianWriter::new(output);
     let mut dict = Dictionary::new(dict_type);
+    let mut input_buffer = input_buffer::InputBuffer::new(input, match_params.max);
+    input_buffer.fill_buffer()?;
     mode.write_to(&mut writer)?;
     dict_type.write_to(&mut writer)?;
-    while !input.is_empty() {
+    while !input_buffer.is_empty() {
+        let curr_buffer = input_buffer.get_buffer();
         let num_bytes_consumed = if let Some(BackrefMatch { offset, length }) =
-            dict.find_best_match(&DEFAULT_PARAMS, input)
+            dict.find_best_match(&DEFAULT_PARAMS, curr_buffer)
             && length >= 2
         {
             // Write a back-reference token
@@ -102,7 +106,7 @@ pub fn compress_dcl(
         } else {
             // Write a literal token
             writer.write_bit(false)?;
-            let byte = input[0];
+            let byte = curr_buffer[0];
             match mode {
                 CompressionMode::Ascii => {
                     // We use the ASCII tree for mode 1
@@ -119,8 +123,9 @@ pub fn compress_dcl(
             1
         };
 
-        dict.append_data(&input[..num_bytes_consumed]);
-        input = &input[num_bytes_consumed..];
+        dict.append_data(&curr_buffer[..num_bytes_consumed]);
+        input_buffer.consume(num_bytes_consumed);
+        input_buffer.fill_buffer()?;
     }
 
     // Write the terminator, which is a back-reference of length 519
@@ -130,4 +135,19 @@ pub fn compress_dcl(
     writer.write_bits(writer.bits_until_byte_aligned(), 0u64)?;
     writer.finish()?;
     Ok(())
+}
+
+pub fn compress_dcl(
+    mode: CompressionMode,
+    dict_type: DictType,
+    mut input: &[u8],
+    output: &mut Vec<u8>,
+) -> io::Result<()> {
+    compress_dcl_to(
+        DEFAULT_PARAMS,
+        mode,
+        dict_type,
+        &mut input,
+        LittleEndianWriter::new(output),
+    )
 }
