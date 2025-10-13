@@ -1,6 +1,8 @@
 mod dictionary;
 mod index_cache;
 
+use std::io;
+
 use crate::utils::compression::{
     bits::Bits,
     dcl::compress::dictionary::MatchLengthParams,
@@ -17,7 +19,7 @@ use self::dictionary::{BackrefMatch, Dictionary};
 const MAX_SHORT_BACKREF_OFFSET: usize = 255;
 const MAX_BACKREF_LENGTH: usize = 518;
 
-fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
+fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) -> io::Result<()> {
     let (length_code, extra_bits) = if length < 10 {
         assert!(length >= 2);
         (length - 2, None::<Bits>)
@@ -34,10 +36,11 @@ fn write_token_length<W: BitWriter>(writer: &mut W, length: u32) {
     let length_code_bits = LENGTH_TREE
         .encoding_of(&u8::try_from(length_code).unwrap())
         .unwrap_or_else(|| panic!("Length code should be in the tree: {length_code}"));
-    length_code_bits.write_to(writer);
+    length_code_bits.write_to(writer)?;
     if let Some(extra_bits) = extra_bits {
-        extra_bits.write_to(writer);
+        extra_bits.write_to(writer)?;
     }
+    Ok(())
 }
 
 fn write_token_offset<W: BitWriter>(
@@ -45,7 +48,7 @@ fn write_token_offset<W: BitWriter>(
     writer: &mut W,
     token_length: usize,
     token_offset: usize,
-) {
+) -> io::Result<()> {
     assert!(token_offset > 0);
     let encoding = token_offset - 1;
 
@@ -64,8 +67,9 @@ fn write_token_offset<W: BitWriter>(
     let distance_code_bits = DISTANCE_TREE
         .encoding_of(&u8::try_from(distance_code).unwrap())
         .unwrap_or_else(|| panic!("Distance code should be in the tree: {distance_code}"));
-    distance_code_bits.write_to(writer);
-    extra_bits.write_to(writer);
+    distance_code_bits.write_to(writer)?;
+    extra_bits.write_to(writer)?;
+    Ok(())
 }
 
 const DEFAULT_PARAMS: MatchLengthParams = MatchLengthParams {
@@ -80,24 +84,24 @@ pub fn compress_dcl(
     dict_type: DictType,
     mut input: &[u8],
     output: &mut Vec<u8>,
-) {
+) -> io::Result<()> {
     let mut writer = LittleEndianWriter::new(output);
     let mut dict = Dictionary::new(dict_type);
-    mode.write_to(&mut writer);
-    dict_type.write_to(&mut writer);
+    mode.write_to(&mut writer)?;
+    dict_type.write_to(&mut writer)?;
     while !input.is_empty() {
         let num_bytes_consumed = if let Some(BackrefMatch { offset, length }) =
             dict.find_best_match(&DEFAULT_PARAMS, input)
             && length >= 2
         {
             // Write a back-reference token
-            writer.write_bit(true);
-            write_token_length(&mut writer, u32::try_from(length).unwrap());
-            write_token_offset(dict_type, &mut writer, length, offset);
+            writer.write_bit(true)?;
+            write_token_length(&mut writer, u32::try_from(length).unwrap())?;
+            write_token_offset(dict_type, &mut writer, length, offset)?;
             length
         } else {
             // Write a literal token
-            writer.write_bit(false);
+            writer.write_bit(false)?;
             let byte = input[0];
             match mode {
                 CompressionMode::Ascii => {
@@ -105,11 +109,11 @@ pub fn compress_dcl(
                     let encoding = ASCII_TREE
                         .encoding_of(&byte)
                         .expect("Byte should be in the tree");
-                    encoding.write_to(&mut writer);
+                    encoding.write_to(&mut writer)?;
                 }
                 CompressionMode::Binary => {
                     // We use a raw byte for mode 0
-                    writer.write_u8(byte);
+                    writer.write_u8(byte)?;
                 }
             }
             1
@@ -120,8 +124,10 @@ pub fn compress_dcl(
     }
 
     // Write the terminator, which is a back-reference of length 519
-    writer.write_bit(true);
-    write_token_length(&mut writer, 519);
+    writer.write_bit(true)?;
+    write_token_length(&mut writer, 519)?;
 
-    writer.write_bits(writer.bits_until_byte_aligned(), 0u64);
+    writer.write_bits(writer.bits_until_byte_aligned(), 0u64)?;
+    writer.finish()?;
+    Ok(())
 }

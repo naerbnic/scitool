@@ -1,5 +1,6 @@
-use crate::utils::compression::{bits::Bits, errors::UnexpectedEndOfInput};
-use bitter::BitReader;
+use std::io;
+
+use crate::utils::compression::{bits::Bits, reader::BitReader};
 
 enum HuffmanTableEntry {
     Leaf(usize),
@@ -50,13 +51,13 @@ where
         Some(&self.encodings[index])
     }
 
-    pub(super) fn lookup<R: BitReader>(&self, reader: &mut R) -> Result<&T, UnexpectedEndOfInput> {
+    pub(super) fn lookup<R: BitReader>(&self, reader: &mut R) -> io::Result<&T> {
         let mut pos = 0;
         loop {
             match &self.entries[pos] {
                 HuffmanTableEntry::Leaf(index) => return Ok(&self.alphabet[*index]),
                 HuffmanTableEntry::Branch(left, right) => {
-                    let bit = reader.read_bit().ok_or(UnexpectedEndOfInput)?;
+                    let bit = reader.read_bit()?;
                     pos = if bit { *right } else { *left };
                 }
             }

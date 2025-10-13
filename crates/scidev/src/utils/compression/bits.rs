@@ -1,3 +1,5 @@
+use std::io;
+
 use super::writer::BitWriter;
 
 #[derive(Debug, Clone, Copy)]
@@ -37,7 +39,8 @@ impl Bits {
         }
     }
 
-    pub(super) fn write_to<W: BitWriter>(&self, writer: &mut W) {
-        writer.write_bits(self.num_bits, self.value);
+    pub(super) fn write_to<W: BitWriter>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_bits(self.num_bits, self.value)?;
+        Ok(())
     }
 }

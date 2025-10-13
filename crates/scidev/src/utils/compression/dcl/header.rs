@@ -1,10 +1,14 @@
-use bitter::BitReader;
+use std::io;
 
-use crate::utils::compression::writer::BitWriter;
+use crate::utils::compression::{reader::BitReader, writer::BitWriter};
 
 #[derive(Debug, thiserror::Error)]
-#[error("Header decode error: {0}")]
-pub struct DecodeError(String);
+#[error("Header decode error: {message}")]
+pub struct DecodeError {
+    message: String,
+    #[source]
+    source: Option<io::Error>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionMode {
@@ -13,8 +17,9 @@ pub enum CompressionMode {
 }
 
 impl CompressionMode {
-    pub(super) fn write_to<W: BitWriter>(self, writer: &mut W) {
-        writer.write_u8(self.into());
+    pub(super) fn write_to<W: BitWriter>(self, writer: &mut W) -> io::Result<()> {
+        writer.write_u8(self.into())?;
+        Ok(())
     }
 }
 
@@ -36,8 +41,9 @@ pub enum DictType {
 }
 
 impl DictType {
-    pub(super) fn write_to<W: BitWriter>(self, writer: &mut W) {
-        writer.write_u8(self.into());
+    pub(super) fn write_to<W: BitWriter>(self, writer: &mut W) -> io::Result<()> {
+        writer.write_u8(self.into())?;
+        Ok(())
     }
 }
 
@@ -75,17 +81,24 @@ pub(super) struct CompressionHeader {
 
 impl CompressionHeader {
     pub(super) fn from_bits<R: BitReader>(reader: &mut R) -> Result<Self, DecodeError> {
-        let Some(mode) = reader.read_u8() else {
-            return Err(DecodeError("Failed to read DCL mode".into()));
-        };
-        let Some(dict_type) = reader.read_u8() else {
-            return Err(DecodeError("Failed to read DCL dictionary type".into()));
-        };
+        let mode = reader.read_u8().map_err(|e| DecodeError {
+            message: "Failed to read DCL mode".into(),
+            source: Some(e),
+        })?;
+        let dict_type = reader.read_u8().map_err(|e| DecodeError {
+            message: "Failed to read DCL dictionary type".into(),
+            source: Some(e),
+        })?;
 
         let mode = match mode {
             0 => CompressionMode::Binary,
             1 => CompressionMode::Ascii,
-            _ => return Err(DecodeError(format!("Unsupported DCL mode: {mode}"))),
+            _ => {
+                return Err(DecodeError {
+                    message: format!("Unsupported DCL mode: {mode}"),
+                    source: None,
+                });
+            }
         };
 
         let dict_type = match dict_type {
@@ -93,9 +106,10 @@ impl CompressionHeader {
             5 => DictType::Size2048,
             6 => DictType::Size4096,
             _ => {
-                return Err(DecodeError(format!(
-                    "Unsupported DCL dictionary type: {dict_type}"
-                )));
+                return Err(DecodeError {
+                    message: format!("Unsupported DCL dictionary type: {dict_type}"),
+                    source: None,
+                });
             }
         };
 

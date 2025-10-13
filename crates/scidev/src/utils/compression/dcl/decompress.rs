@@ -1,4 +1,6 @@
-use bitter::{BitReader, LittleEndianReader};
+use std::io;
+
+use crate::utils::compression::reader::{BitReader, LittleEndianReader};
 
 use crate::utils::{block::MemBlock, compression::errors::UnexpectedEndOfInput};
 
@@ -17,6 +19,8 @@ pub enum DecompressionError {
     UnexpectedEndOfInput(#[from] UnexpectedEndOfInput),
     #[error("Inconsistent data: {0}")]
     InconsistentDataError(String),
+    #[error(transparent)]
+    ReaderError(#[from] io::Error),
 }
 
 fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionError> {
@@ -26,9 +30,7 @@ fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionE
     } else {
         let num_extra_bits = length_code - 7;
 
-        let extra_bits = reader
-            .read_bits(num_extra_bits)
-            .ok_or(UnexpectedEndOfInput)?;
+        let extra_bits = reader.read_bits(num_extra_bits)?;
 
         u32::try_from(8 + ((1 << num_extra_bits) | extra_bits)).unwrap()
     };
@@ -46,9 +48,7 @@ fn read_token_offset<R: BitReader>(
     } else {
         u32::from(header.dict_type().num_extra_bits())
     };
-    let extra_bits = reader
-        .read_bits(num_extra_bits)
-        .ok_or(UnexpectedEndOfInput)?;
+    let extra_bits = reader.read_bits(num_extra_bits)?;
     let token_offset = 1 + ((distance_code << num_extra_bits) | extra_bits);
 
     Ok(usize::try_from(token_offset).unwrap())
@@ -155,7 +155,7 @@ fn decode_byte<R: BitReader>(
 ) -> Result<LoopAction, DecompressionError> {
     let value = match header.mode() {
         CompressionMode::Ascii => *ASCII_TREE.lookup(reader)?,
-        CompressionMode::Binary => reader.read_u8().ok_or(UnexpectedEndOfInput)?,
+        CompressionMode::Binary => reader.read_u8()?,
     };
     output.push(value);
     dict.push_value(value);
@@ -171,7 +171,7 @@ fn decompress_to<R: BitReader>(
     let mut dict = DecompressDictionary::new(header.dict_type().dict_size());
 
     loop {
-        let should_decode_entry = reader.read_bit().ok_or(UnexpectedEndOfInput)?;
+        let should_decode_entry = reader.read_bit()?;
         let action = if should_decode_entry {
             decode_entry(header, reader, &mut dict, output)?
         } else {
@@ -189,7 +189,7 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_size = input.size();
     let input_data = input.read_all();
-    let mut reader = LittleEndianReader::new(&input_data);
+    let mut reader = LittleEndianReader::new(io::Cursor::new(&input_data));
     let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
     decompress_to(&mut reader, &mut output)?;
     Ok(MemBlock::from_vec(output))
