@@ -1,5 +1,8 @@
 use std::io;
 
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
+
+use crate::utils::compression::pipe::{self, DataProcessor};
 use crate::utils::compression::reader::{BitReader, LittleEndianReader};
 
 use crate::utils::{block::MemBlock, compression::errors::UnexpectedEndOfInput};
@@ -20,16 +23,27 @@ pub enum DecompressionError {
     #[error("Inconsistent data: {0}")]
     InconsistentDataError(String),
     #[error(transparent)]
-    ReaderError(#[from] io::Error),
+    ReaderError(io::Error),
+}
+
+impl From<io::Error> for DecompressionError {
+    fn from(value: io::Error) -> Self {
+        match value.downcast::<Self>() {
+            Ok(decomp_err) => decomp_err,
+            Err(io_err) => Self::ReaderError(io_err),
+        }
+    }
 }
 
 // A simple write wrapper that counts the number of bytes written.
+#[pin_project::pin_project]
 struct CountWriter<W> {
+    #[pin]
     inner: W,
     count: usize,
 }
 
-impl<W: io::Write> CountWriter<W> {
+impl<W: AsyncWrite + Unpin> CountWriter<W> {
     fn new(inner: W) -> Self {
         Self { inner, count: 0 }
     }
@@ -39,50 +53,71 @@ impl<W: io::Write> CountWriter<W> {
     }
 }
 
-impl<W: io::Write> io::Write for CountWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let bytes_written = self.inner.write(buf)?;
-        self.count += bytes_written;
-        Ok(bytes_written)
+impl<W: AsyncWrite + Unpin> AsyncWrite for CountWriter<W> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        let project = self.project();
+        match std::task::ready!(project.inner.poll_write(cx, buf)) {
+            Ok(n) => {
+                *project.count += n;
+                std::task::Poll::Ready(Ok(n))
+            }
+            Err(e) => std::task::Poll::Ready(Err(e)),
+        }
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let project = self.project();
+        project.inner.poll_flush(cx)
+    }
+
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let project = self.project();
+        project.inner.poll_close(cx)
     }
 }
 
-fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionError> {
-    let length_code = u32::from(*LENGTH_TREE.lookup(reader)?);
+async fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionError> {
+    let length_code = u32::from(*LENGTH_TREE.lookup(reader).await?);
     let token_length = if length_code < 8 {
         length_code + 2
     } else {
         let num_extra_bits = length_code - 7;
 
-        let extra_bits = reader.read_bits(num_extra_bits)?;
+        let extra_bits = reader.read_bits(num_extra_bits).await?;
 
         u32::try_from(8 + ((1 << num_extra_bits) | extra_bits)).unwrap()
     };
     Ok(token_length)
 }
 
-fn read_token_offset<R: BitReader>(
+async fn read_token_offset<R: BitReader>(
     header: CompressionHeader,
     token_length: u32,
     reader: &mut R,
 ) -> Result<usize, DecompressionError> {
-    let distance_code = u64::from(*DISTANCE_TREE.lookup(reader)?);
+    let distance_code = u64::from(*DISTANCE_TREE.lookup(reader).await?);
     let num_extra_bits = if token_length == 2 {
         2
     } else {
         u32::from(header.dict_type().num_extra_bits())
     };
-    let extra_bits = reader.read_bits(num_extra_bits)?;
+    let extra_bits = reader.read_bits(num_extra_bits).await?;
     let token_offset = 1 + ((distance_code << num_extra_bits) | extra_bits);
 
     Ok(usize::try_from(token_offset).unwrap())
 }
 
-fn write_dict_entry<W: io::Write>(
+async fn write_dict_entry<W: AsyncWrite + Unpin>(
     dict: &mut DecompressDictionary,
     token_offset: usize,
     token_length: u32,
@@ -91,7 +126,7 @@ fn write_dict_entry<W: io::Write>(
     let mut cursor = dict.new_cursor_at_offset(token_offset);
 
     for _ in 0..token_length {
-        output.write_all(&[cursor.next_value()])?;
+        output.write_all(&[cursor.next_value()]).await?;
     }
     Ok(())
 }
@@ -153,58 +188,58 @@ enum LoopAction {
     Continue,
 }
 
-fn decode_entry<R: BitReader, W: io::Write>(
+async fn decode_entry<R: BitReader, W: AsyncWrite + Unpin>(
     header: CompressionHeader,
     reader: &mut R,
     dict: &mut DecompressDictionary,
     output: &mut CountWriter<W>,
 ) -> Result<LoopAction, DecompressionError> {
-    let token_length = read_token_length(reader)?;
+    let token_length = read_token_length(reader).await?;
 
     if token_length == 519 {
         return Ok(LoopAction::Stop);
     }
 
-    let token_offset = read_token_offset(header, token_length, reader)?;
+    let token_offset = read_token_offset(header, token_length, reader).await?;
     if output.len() < token_offset as usize {
         return Err(DecompressionError::InconsistentDataError(
             "DCL token offset exceeds bytes written".into(),
         ));
     }
 
-    write_dict_entry(dict, token_offset, token_length, output)?;
+    write_dict_entry(dict, token_offset, token_length, output).await?;
     Ok(LoopAction::Continue)
 }
 
-fn decode_byte<R: BitReader, W: io::Write>(
+async fn decode_byte<R: BitReader, W: AsyncWrite + Unpin>(
     header: CompressionHeader,
     reader: &mut R,
     dict: &mut DecompressDictionary,
     output: &mut W,
 ) -> Result<LoopAction, DecompressionError> {
     let value = match header.mode() {
-        CompressionMode::Ascii => *ASCII_TREE.lookup(reader)?,
-        CompressionMode::Binary => reader.read_u8()?,
+        CompressionMode::Ascii => *ASCII_TREE.lookup(reader).await?,
+        CompressionMode::Binary => reader.read_u8().await?,
     };
-    output.write_all(&[value])?;
+    output.write_all(&[value]).await?;
     dict.push_value(value);
     Ok(LoopAction::Continue)
 }
 
-fn decompress_to<R: BitReader, W: io::Write>(
+async fn decompress_to<R: BitReader, W: AsyncWrite + Unpin>(
     reader: &mut R,
     output: &mut CountWriter<W>,
 ) -> Result<(), DecompressionError> {
-    let header = CompressionHeader::from_bits(reader)?;
+    let header = CompressionHeader::from_bits(reader).await?;
 
     let mut dict = DecompressDictionary::new(header.dict_type().dict_size());
 
     loop {
-        let should_decode_entry = reader.read_bit()?;
+        let should_decode_entry = reader.read_bit().await?;
         let action = if should_decode_entry {
-            decode_entry(header, reader, &mut dict, output)?
+            decode_entry(header, reader, &mut dict, output).await?
         } else {
-            decode_byte(header, reader, &mut dict, output)?
+            decode_byte(header, reader, &mut dict, output).await?
         };
 
         if let LoopAction::Stop = action {
@@ -214,26 +249,34 @@ fn decompress_to<R: BitReader, W: io::Write>(
     Ok(())
 }
 
-#[expect(dead_code, reason = "Will be used in LazyBlock implementation")]
-pub(super) fn decompress_dcl_to<R, W>(from: R, to: W) -> Result<(), DecompressionError>
-where
-    R: io::Read,
-    W: io::Write,
-{
-    let mut reader = LittleEndianReader::new(from);
-    decompress_to(&mut reader, &mut CountWriter::new(to))?;
-    Ok(())
+pub(super) struct DecompressDclProcessor;
+
+impl pipe::DataProcessor for DecompressDclProcessor {
+    async fn process<R, W>(self, reader: R, writer: W) -> Result<(), io::Error>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        let mut reader = LittleEndianReader::new(reader);
+        decompress_to(&mut reader, &mut CountWriter::new(writer))
+            .await
+            .map_err(|e| match e {
+                DecompressionError::ReaderError(io_err) => io_err,
+                other => io::Error::other(other),
+            })?;
+        Ok(())
+    }
 }
 
 pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_size = input.size();
     let input_data = input.read_all();
-    let mut reader = LittleEndianReader::new(io::Cursor::new(&input_data));
     let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
-    decompress_to(
-        &mut reader,
-        &mut CountWriter::new(io::Cursor::new(&mut output)),
-    )?;
+    {
+        let mut source = DecompressDclProcessor.pull(io::Cursor::new(input_data), 1024);
+        let mut sink = io::Cursor::new(&mut output);
+        std::io::copy(&mut source, &mut sink)?;
+    }
     Ok(MemBlock::from_vec(output))
 }

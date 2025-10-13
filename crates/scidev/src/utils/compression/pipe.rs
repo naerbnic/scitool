@@ -2,14 +2,53 @@
 //! to write both push and pull style data processing as an async pipe,
 //! callable entirely in synchronous code.
 
-use std::{cell::RefCell, io, rc::Rc, task::Poll};
+use std::{io, task::Poll};
 
-use futures::io::{AsyncRead, AsyncWrite};
-pub trait DataProcessor {
-    fn process<R, W>(self, reader: R, writer: W) -> Result<(), io::Error>
+use futures::{
+    FutureExt,
+    io::{AsyncRead, AsyncWrite},
+};
+pub(super) trait DataProcessor {
+    fn process<R, W>(self, reader: R, writer: W) -> impl Future<Output = Result<(), io::Error>>
     where
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin;
+
+    #[expect(dead_code, reason = "Will be used in lazy block")]
+    fn process_sync<R, W>(self, reader: R, writer: W) -> Result<(), io::Error>
+    where
+        Self: Sized,
+        R: io::Read + Unpin,
+        W: io::Write + Unpin,
+    {
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        let mut fut =
+            std::pin::pin!(self.process(SyncAdapter::new(reader), SyncAdapter::new(writer)));
+        match fut.poll_unpin(&mut cx) {
+            Poll::Ready(r) => r,
+            Poll::Pending => Err(io::Error::other(
+                "DataProcessor cannot complete synchronously",
+            )),
+        }
+    }
+
+    fn pull<'a, R>(self, reader: R, buffer_capacity: usize) -> impl io::Read + 'a
+    where
+        Self: Sized + 'static,
+        R: io::Read + Unpin + 'static,
+    {
+        inv_writer::pull_mode(self, reader, buffer_capacity)
+    }
+
+    #[expect(dead_code, reason = "Will be used in lazy block")]
+    fn push<'a, W>(self, writer: W, buffer_capacity: usize) -> impl io::Write + 'a
+    where
+        Self: Sized + 'a,
+        W: io::Write + Unpin + 'a,
+    {
+        inv_reader::push_mode(self, writer, buffer_capacity)
+    }
 }
 
 /// A wrapper that runs any async reader/writer as a synchronous reader/writer.
@@ -18,8 +57,14 @@ pub trait DataProcessor {
 /// executor, but this will only be used in this context, to allow for
 /// a data processing function to be written once for both push and pull
 /// styles.
-struct SyncAdapter<R> {
-    inner: R,
+struct SyncAdapter<T> {
+    inner: T,
+}
+
+impl<T> SyncAdapter<T> {
+    fn new(inner: T) -> Self {
+        Self { inner }
+    }
 }
 
 impl<R> AsyncRead for SyncAdapter<R>
@@ -73,7 +118,7 @@ mod inv_reader {
         task::{Context, Poll, Waker},
     };
 
-    use bytes::{Buf as _, BytesMut};
+    use bytes::Buf as _;
     use futures::AsyncRead;
 
     struct Inner {
@@ -176,7 +221,7 @@ mod inv_reader {
         }
     }
 
-    pub fn push_mode<'a, P, W>(
+    pub(crate) fn push_mode<'a, P, W>(
         processor: P,
         writer: W,
         buffer_capacity: usize,
@@ -193,7 +238,11 @@ mod inv_reader {
         let reader = InvertedReader {
             inner: inner.clone(),
         };
-        let future = async move { processor.process(reader, super::SyncAdapter { inner: writer }) };
+        let future = async move {
+            processor
+                .process(reader, super::SyncAdapter { inner: writer })
+                .await
+        };
 
         Writer {
             reader_state: inner,
@@ -212,7 +261,7 @@ mod inv_writer {
         task::{Context, Poll, Waker},
     };
 
-    use bytes::{Buf as _, BufMut as _, BytesMut};
+    use bytes::Buf as _;
     use futures::AsyncWrite;
 
     struct Inner {
@@ -258,8 +307,9 @@ mod inv_writer {
         }
 
         fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            // No-op for synchronous writers.
-            Poll::Ready(Ok(()))
+            // Flush means we want to empty the current buffer. Returning pending
+            // will cause the caller to try again later, which is what we want.
+            Poll::Pending
         }
 
         fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -278,25 +328,17 @@ mod inv_writer {
         fn poll(&mut self) -> io::Result<()> {
             let mut cx = Context::from_waker(Waker::noop());
             let Some(fut) = &mut self.polled_future else {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "Reader polled after completion",
-                ));
+                // Polling after completion is conceptually fine. The buffer
+                // won't grow again, but that's not an error.
+                return Ok(());
             };
             match fut.as_mut().poll(&mut cx) {
                 Poll::Ready(Ok(())) => {
-                    // The future has completed, which could be fine. If we
-                    // still have data in the buffer, that would be the
-                    // approximate equivalent error of a BrokenPipe.
+                    // The future has completed. All of the data it intended to
+                    // write should be in the buffer now.
                     let mut inner = self.writer_state.borrow_mut();
                     inner.closed = true;
                     self.polled_future = None;
-                    if !inner.buffer.is_empty() {
-                        return Err(io::Error::new(
-                            io::ErrorKind::BrokenPipe,
-                            "Reader finished but writer has not consumed all data",
-                        ));
-                    }
                 }
                 Poll::Ready(Err(e)) => return Err(e),
                 Poll::Pending => {}
@@ -320,6 +362,7 @@ mod inv_writer {
             // If the buffer is empty, either we're done, or we need to wait
             // for more data.
             if to_read == 0 {
+                assert!(!buf.is_empty());
                 assert!(inner.closed);
                 return Ok(0);
             }
@@ -335,7 +378,7 @@ mod inv_writer {
         }
     }
 
-    pub fn pull_mode<'a, P, R>(
+    pub(crate) fn pull_mode<'a, P, R>(
         processor: P,
         reader: R,
         buffer_capacity: usize,
@@ -352,7 +395,11 @@ mod inv_writer {
         let writer = InvertedWriter {
             inner: inner.clone(),
         };
-        let future = async move { processor.process(super::SyncAdapter { inner: reader }, writer) };
+        let future = async move {
+            processor
+                .process(super::SyncAdapter { inner: reader }, writer)
+                .await
+        };
 
         Reader {
             writer_state: inner,
@@ -360,6 +407,3 @@ mod inv_writer {
         }
     }
 }
-
-pub use inv_reader::push_mode;
-pub use inv_writer::pull_mode;

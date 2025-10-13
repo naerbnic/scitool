@@ -13,7 +13,8 @@ fuzz_target!(|data: &[u8]| {
         DictType::Size1024,
         data,
         &mut output,
-    );
+    )
+    .unwrap();
 
     let decompressed = decompress_dcl(&MemBlock::from_vec(output)).unwrap();
     assert_eq!(data, &*decompressed);

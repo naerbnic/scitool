@@ -80,12 +80,12 @@ pub(super) struct CompressionHeader {
 }
 
 impl CompressionHeader {
-    pub(super) fn from_bits<R: BitReader>(reader: &mut R) -> Result<Self, DecodeError> {
-        let mode = reader.read_u8().map_err(|e| DecodeError {
+    pub(super) async fn from_bits<R: BitReader>(reader: &mut R) -> Result<Self, DecodeError> {
+        let mode = reader.read_u8().await.map_err(|e| DecodeError {
             message: "Failed to read DCL mode".into(),
             source: Some(e),
         })?;
-        let dict_type = reader.read_u8().map_err(|e| DecodeError {
+        let dict_type = reader.read_u8().await.map_err(|e| DecodeError {
             message: "Failed to read DCL dictionary type".into(),
             source: Some(e),
         })?;

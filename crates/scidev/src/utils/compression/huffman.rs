@@ -51,13 +51,13 @@ where
         Some(&self.encodings[index])
     }
 
-    pub(super) fn lookup<R: BitReader>(&self, reader: &mut R) -> io::Result<&T> {
+    pub(super) async fn lookup<R: BitReader>(&self, reader: &mut R) -> io::Result<&T> {
         let mut pos = 0;
         loop {
             match &self.entries[pos] {
                 HuffmanTableEntry::Leaf(index) => return Ok(&self.alphabet[*index]),
                 HuffmanTableEntry::Branch(left, right) => {
-                    let bit = reader.read_bit()?;
+                    let bit = reader.read_bit().await?;
                     pos = if bit { *right } else { *left };
                 }
             }
