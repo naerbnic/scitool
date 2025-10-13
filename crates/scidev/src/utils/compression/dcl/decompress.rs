@@ -23,6 +23,34 @@ pub enum DecompressionError {
     ReaderError(#[from] io::Error),
 }
 
+// A simple write wrapper that counts the number of bytes written.
+struct CountWriter<W> {
+    inner: W,
+    count: usize,
+}
+
+impl<W: io::Write> CountWriter<W> {
+    fn new(inner: W) -> Self {
+        Self { inner, count: 0 }
+    }
+
+    fn len(&self) -> usize {
+        self.count
+    }
+}
+
+impl<W: io::Write> io::Write for CountWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let bytes_written = self.inner.write(buf)?;
+        self.count += bytes_written;
+        Ok(bytes_written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 fn read_token_length<R: BitReader>(reader: &mut R) -> Result<u32, DecompressionError> {
     let length_code = u32::from(*LENGTH_TREE.lookup(reader)?);
     let token_length = if length_code < 8 {
@@ -54,17 +82,18 @@ fn read_token_offset<R: BitReader>(
     Ok(usize::try_from(token_offset).unwrap())
 }
 
-fn write_dict_entry(
+fn write_dict_entry<W: io::Write>(
     dict: &mut DecompressDictionary,
     token_offset: usize,
     token_length: u32,
-    output: &mut Vec<u8>,
-) {
+    output: &mut W,
+) -> io::Result<()> {
     let mut cursor = dict.new_cursor_at_offset(token_offset);
 
     for _ in 0..token_length {
-        output.push(cursor.next_value());
+        output.write_all(&[cursor.next_value()])?;
     }
+    Ok(())
 }
 
 struct DecompressDictionary {
@@ -124,11 +153,11 @@ enum LoopAction {
     Continue,
 }
 
-fn decode_entry<R: BitReader>(
+fn decode_entry<R: BitReader, W: io::Write>(
     header: CompressionHeader,
     reader: &mut R,
     dict: &mut DecompressDictionary,
-    output: &mut Vec<u8>,
+    output: &mut CountWriter<W>,
 ) -> Result<LoopAction, DecompressionError> {
     let token_length = read_token_length(reader)?;
 
@@ -143,28 +172,28 @@ fn decode_entry<R: BitReader>(
         ));
     }
 
-    write_dict_entry(dict, token_offset, token_length, output);
+    write_dict_entry(dict, token_offset, token_length, output)?;
     Ok(LoopAction::Continue)
 }
 
-fn decode_byte<R: BitReader>(
+fn decode_byte<R: BitReader, W: io::Write>(
     header: CompressionHeader,
     reader: &mut R,
     dict: &mut DecompressDictionary,
-    output: &mut Vec<u8>,
+    output: &mut W,
 ) -> Result<LoopAction, DecompressionError> {
     let value = match header.mode() {
         CompressionMode::Ascii => *ASCII_TREE.lookup(reader)?,
         CompressionMode::Binary => reader.read_u8()?,
     };
-    output.push(value);
+    output.write_all(&[value])?;
     dict.push_value(value);
     Ok(LoopAction::Continue)
 }
 
-fn decompress_to<R: BitReader>(
+fn decompress_to<R: BitReader, W: io::Write>(
     reader: &mut R,
-    output: &mut Vec<u8>,
+    output: &mut CountWriter<W>,
 ) -> Result<(), DecompressionError> {
     let header = CompressionHeader::from_bits(reader)?;
 
@@ -185,12 +214,26 @@ fn decompress_to<R: BitReader>(
     Ok(())
 }
 
+#[expect(dead_code, reason = "Will be used in LazyBlock implementation")]
+pub(super) fn decompress_dcl_to<R, W>(from: R, to: W) -> Result<(), DecompressionError>
+where
+    R: io::Read,
+    W: io::Write,
+{
+    let mut reader = LittleEndianReader::new(from);
+    decompress_to(&mut reader, &mut CountWriter::new(to))?;
+    Ok(())
+}
+
 pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_size = input.size();
     let input_data = input.read_all();
     let mut reader = LittleEndianReader::new(io::Cursor::new(&input_data));
     let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
-    decompress_to(&mut reader, &mut output)?;
+    decompress_to(
+        &mut reader,
+        &mut CountWriter::new(io::Cursor::new(&mut output)),
+    )?;
     Ok(MemBlock::from_vec(output))
 }

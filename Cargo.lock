@@ -150,12 +150,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2261d10cca569e4643e526d8dc2e62e433cc8aba21ab764233731f8d369bf394"
 
 [[package]]
-name = "bitter"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f777c49153c6244286ce2e3ba0352295c4cbfe4b3368bedf7ec8ffe9dc5920d7"
-
-[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1160,9 +1154,9 @@ name = "scidev"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bitter",
  "bytes",
  "datalit",
+ "futures",
  "log",
  "num",
  "proptest",
