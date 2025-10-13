@@ -148,7 +148,10 @@ impl<In, Out> Channel<In, Out> {
             *flow_state = FlowState::Ready(value);
         }
 
-        ChannelResult { channel: self }
+        ChannelResult {
+            channel: self,
+            is_handled: false,
+        }
     }
 }
 
@@ -156,18 +159,21 @@ impl<In, Out> Channel<In, Out> {
 /// Dropping this without consuming a new value (and thus be running) will cause a panic.
 pub struct ChannelResult<'a, In, Out> {
     channel: &'a mut Channel<In, Out>,
+    is_handled: bool,
 }
 
 impl<In, Out> Future for ChannelResult<'_, In, Out> {
     type Output = Out;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Out> {
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Out> {
         let mut guard = self.channel.inner.borrow_mut();
         let flow_state = &mut guard.flow_state;
 
         match std::mem::replace(flow_state, FlowState::Running) {
             FlowState::Continue(input) => {
                 *flow_state = FlowState::Running;
+                drop(guard);
+                self.is_handled = true;
                 Poll::Ready(input)
             }
             FlowState::Finished => panic!("Cannot continue a finished continuation"),
@@ -177,6 +183,24 @@ impl<In, Out> Future for ChannelResult<'_, In, Out> {
             }
             FlowState::Running => panic!("Cannot yield when already running"),
         }
+    }
+}
+
+impl<In, Out> Drop for ChannelResult<'_, In, Out> {
+    fn drop(&mut self) {
+        if self.is_handled {
+            return;
+        }
+        let guard = self.channel.inner.borrow();
+        let flow_state = &guard.flow_state;
+
+        // If this is dropped while paused, then this is due to future
+        // cancellation. If not, then this is a logic error, as we have sent
+        // a value but not received a response.
+        assert!(
+            matches!(flow_state, FlowState::Paused),
+            "Dropping ChannelResult without consuming the yielded value"
+        );
     }
 }
 
