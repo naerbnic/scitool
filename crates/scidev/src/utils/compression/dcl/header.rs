@@ -17,8 +17,8 @@ pub enum CompressionMode {
 }
 
 impl CompressionMode {
-    pub(super) fn write_to<W: BitWriter>(self, writer: &mut W) -> io::Result<()> {
-        writer.write_u8(self.into())?;
+    pub(super) async fn write_to<W: BitWriter>(self, writer: &mut W) -> io::Result<()> {
+        writer.write_u8(self.into()).await?;
         Ok(())
     }
 }
@@ -41,8 +41,8 @@ pub enum DictType {
 }
 
 impl DictType {
-    pub(super) fn write_to<W: BitWriter>(self, writer: &mut W) -> io::Result<()> {
-        writer.write_u8(self.into())?;
+    pub(super) async fn write_to<W: BitWriter>(self, writer: &mut W) -> io::Result<()> {
+        writer.write_u8(self.into()).await?;
         Ok(())
     }
 }

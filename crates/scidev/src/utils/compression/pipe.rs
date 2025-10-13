@@ -14,7 +14,6 @@ pub(super) trait DataProcessor {
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin;
 
-    #[expect(dead_code, reason = "Will be used in lazy block")]
     fn process_sync<R, W>(self, reader: R, writer: W) -> Result<(), io::Error>
     where
         Self: Sized,

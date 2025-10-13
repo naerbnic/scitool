@@ -39,8 +39,8 @@ impl Bits {
         }
     }
 
-    pub(super) fn write_to<W: BitWriter>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_bits(self.num_bits, self.value)?;
+    pub(super) async fn write_to<W: BitWriter>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_bits(self.num_bits, self.value).await?;
         Ok(())
     }
 }
