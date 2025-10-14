@@ -113,6 +113,7 @@ impl Drop for NotifyToken {
     }
 }
 
+#[derive(Debug)]
 enum FlowState<In, Out> {
     // The computation is ready with an output value
     Ready(Out),
@@ -126,48 +127,65 @@ enum FlowState<In, Out> {
     Finished,
 }
 
-struct InnerState<In, Out> {
+#[derive(Debug)]
+struct Inner<In, Out> {
     flow_state: FlowState<In, Out>,
 }
 
+/// A channel that sends results and receives the next input for a continuation.
+#[derive(Debug, Clone)]
 pub struct Channel<In, Out> {
-    // FIXME: Incorrect
-    inner: Rc<RefCell<InnerState<Out, In>>>,
+    /// Note that we explicitly reverse the direction of In and Out here, since
+    /// from the perspective of the continuation, it is receiving Out and sending In.
+    inner: Rc<RefCell<Inner<Out, In>>>,
 }
 
 impl<In, Out> Channel<In, Out> {
-    pub fn yield_value(&mut self, value: In) -> ChannelResult<'_, In, Out> {
-        {
-            let mut guard = self.inner.borrow_mut();
-            let flow_state = &mut guard.flow_state;
-
-            assert!(
-                matches!(flow_state, FlowState::Running),
-                "In unexpected state when yielding value"
-            );
-            *flow_state = FlowState::Ready(value);
-        }
-
-        ChannelResult {
-            channel: self,
+    /// Yields a value to the caller, and waits for the next input.
+    ///
+    /// This returns control to the caller, and the future will not
+    /// make progress until the caller calls `next` with a new input value.
+    ///
+    /// You must await the returned future for correctness. Dropping it
+    /// without awaiting will cause a panic within the async context.
+    pub fn yield_value(&mut self, value: In) -> ChannelYield<In, Out> {
+        ChannelYield {
+            inner: self.inner.clone(),
+            input: Some(value),
             is_handled: false,
         }
     }
 }
 
-/// Indicates a value has been returned, but the response hasn't been processed yet.
-/// Dropping this without consuming a new value (and thus be running) will cause a panic.
-pub struct ChannelResult<'a, In, Out> {
-    channel: &'a mut Channel<In, Out>,
+#[derive(Debug)]
+/// A future that waits for a response from the channel.
+pub struct ChannelYield<In, Out> {
+    /// The channel context we are waiting on.
+    inner: Rc<RefCell<Inner<Out, In>>>,
+    input: Option<In>,
     is_handled: bool,
 }
 
-impl<In, Out> Future for ChannelResult<'_, In, Out> {
+impl<In, Out> Future for ChannelYield<In, Out>
+where
+    In: Unpin,
+    Out: Unpin,
+{
     type Output = Out;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Out> {
-        let mut guard = self.channel.inner.borrow_mut();
+        let this = &mut *self;
+        let mut guard = this.inner.borrow_mut();
         let flow_state = &mut guard.flow_state;
+
+        if let Some(value) = this.input.take() {
+            assert!(
+                matches!(flow_state, FlowState::Running),
+                "Yield called when not running"
+            );
+            *flow_state = FlowState::Ready(value);
+            return Poll::Pending;
+        }
 
         match std::mem::replace(flow_state, FlowState::Running) {
             FlowState::Continue(input) => {
@@ -177,21 +195,23 @@ impl<In, Out> Future for ChannelResult<'_, In, Out> {
                 Poll::Ready(input)
             }
             FlowState::Finished => panic!("Cannot continue a finished continuation"),
-            state @ (FlowState::Paused | FlowState::Ready(_)) => {
+            FlowState::Running => panic!("Cannot yield when already running"),
+            state => {
+                // This is a sound state to be in, but no progress has been
+                // made. Restore state and yield again.
                 *flow_state = state;
                 Poll::Pending
             }
-            FlowState::Running => panic!("Cannot yield when already running"),
         }
     }
 }
 
-impl<In, Out> Drop for ChannelResult<'_, In, Out> {
+impl<In, Out> Drop for ChannelYield<In, Out> {
     fn drop(&mut self) {
         if self.is_handled {
             return;
         }
-        let guard = self.channel.inner.borrow();
+        let guard = self.inner.borrow();
         let flow_state = &guard.flow_state;
 
         // If this is dropped while paused, then this is due to future
@@ -246,68 +266,71 @@ enum ContinuationPoll<Out, Result> {
 }
 
 pub struct Continuation<'a, In, Out, Result> {
-    state: Rc<RefCell<InnerState<In, Out>>>,
+    state: Rc<RefCell<Inner<In, Out>>>,
     curr_future: Option<Pin<Box<dyn Future<Output = Result> + 'a>>>,
 }
 
 impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
+    /// Potentially run a single poll of the continuation
     fn poll_continuation(&mut self) -> Option<ContinuationPoll<Out, Result>> {
         let curr_future = self.curr_future.as_mut()?;
-        let mut guard = self.state.borrow_mut();
-        let flow_state = &mut guard.flow_state;
+        {
+            let mut guard = self.state.borrow_mut();
+            let flow_state = &mut guard.flow_state;
 
-        match std::mem::replace(flow_state, FlowState::Running) {
-            FlowState::Ready(value) => {
-                *flow_state = FlowState::Paused;
-                Some(ContinuationPoll::Ready(ContinuationResult::Yield(value)))
+            match std::mem::replace(flow_state, FlowState::Running) {
+                FlowState::Ready(value) => {
+                    *flow_state = FlowState::Paused;
+                    return Some(ContinuationPoll::Ready(ContinuationResult::Yield(value)));
+                }
+                FlowState::Finished => {
+                    unreachable!("If this is finished, curr_future should be None");
+                }
+                FlowState::Paused => unreachable!("Cannot poll a paused continuation"),
+                state => {
+                    // We are still waiting on the future to provide the next value,
+                    // or to finish. Restore state and continue.
+                    *flow_state = state;
+                }
             }
-            FlowState::Finished => {
-                unreachable!("If this is finished, curr_future should be None");
+        }
+        let (wait_token, notify_token) = WaitToken::new();
+        let waker = Arc::new(notify_token).into();
+        let mut cx = Context::from_waker(&waker);
+        match curr_future.as_mut().poll(&mut cx) {
+            Poll::Ready(result) => {
+                let mut guard = self.state.borrow_mut();
+                guard.flow_state = FlowState::Finished;
+                self.curr_future = None;
+                Some(ContinuationPoll::Ready(ContinuationResult::Complete(
+                    result,
+                )))
             }
-            state @ (FlowState::Continue(_) | FlowState::Running) => {
-                // There is new input, so we should continue the future.
-                *flow_state = state;
-                let (wait_token, notify_token) = WaitToken::new();
-                let waker = Arc::new(notify_token).into();
-                let mut cx = Context::from_waker(&waker);
-                drop(guard);
-                match curr_future.as_mut().poll(&mut cx) {
-                    Poll::Ready(result) => {
-                        let mut guard = self.state.borrow_mut();
-                        guard.flow_state = FlowState::Finished;
-                        self.curr_future = None;
-                        Some(ContinuationPoll::Ready(ContinuationResult::Complete(
-                            result,
-                        )))
+            Poll::Pending => {
+                // We have to check our state to see if this is intended to
+                // be a yield, or if some other future registered the waker
+                // elsewhere.
+                let mut guard = self.state.borrow_mut();
+                let flow_state = &mut guard.flow_state;
+                match std::mem::replace(flow_state, FlowState::Paused) {
+                    FlowState::Running => {
+                        // We didn't change states, so another future should have
+                        // installed the waker somewhere. Signal to caller.
+                        *flow_state = FlowState::Running;
+                        Some(ContinuationPoll::Pending(wait_token))
                     }
-                    Poll::Pending => {
-                        // We have to check our state to see if this is intended to
-                        // be a yield, or if some other future registered the waker
-                        // elsewhere.
-                        let mut guard = self.state.borrow_mut();
-                        let flow_state = &mut guard.flow_state;
-                        match std::mem::replace(flow_state, FlowState::Paused) {
-                            FlowState::Running => {
-                                // We didn't change states, so another future should have
-                                // installed the waker somewhere. Signal to caller.
-                                *flow_state = FlowState::Running;
-                                Some(ContinuationPoll::Pending(wait_token))
-                            }
-                            FlowState::Ready(value) => {
-                                // We have a value ready, so return it.
-                                Some(ContinuationPoll::Ready(ContinuationResult::Yield(value)))
-                            }
-                            FlowState::Finished | FlowState::Paused => {
-                                unreachable!("Unexpected state after polling continuation future");
-                            }
-                            FlowState::Continue(_) => {
-                                unreachable!("Value was not consumed as expected.");
-                            }
-                        }
+                    FlowState::Ready(value) => {
+                        // We have a value ready, so return it.
+                        Some(ContinuationPoll::Ready(ContinuationResult::Yield(value)))
+                    }
+                    FlowState::Finished | FlowState::Paused => {
+                        unreachable!("Unexpected state after polling continuation future");
+                    }
+                    FlowState::Continue(_) => {
+                        unreachable!("Value was not consumed as expected.");
                     }
                 }
             }
-            FlowState::Paused => unreachable!("Cannot poll a paused continuation"),
         }
     }
 
@@ -328,7 +351,7 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
         F: FnOnce(Channel<Out, In>) -> Fut,
         Fut: Future<Output = Result> + 'a,
     {
-        let state = Rc::new(RefCell::new(InnerState {
+        let state = Rc::new(RefCell::new(Inner {
             flow_state: FlowState::Running,
         }));
 
