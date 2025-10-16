@@ -1,7 +1,6 @@
 use std::io;
 
 use crate::utils::{
-    block::MemBlock,
     compression::{dcl::decompress::DecompressDclProcessor, pipe::DataProcessor as _},
 };
 

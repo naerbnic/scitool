@@ -197,6 +197,17 @@ mod inv_reader {
     }
 
     impl Writer<'_> {
+        fn pump_continuation(&mut self) -> ContinuationResult<super::DataNeeded, io::Result<()>> {
+            if self.continuation.is_finished() {
+                // We're done.
+                return ContinuationResult::Complete(Ok(()));
+            }
+            if self.continuation.has_started() {
+                self.continuation.next(super::DataReady)
+            } else {
+                self.continuation.start()
+            }
+        }
         /// Closes the writer, ensuring that all data is flushed to the reader.
         pub(crate) fn close(mut self) -> io::Result<()> {
             {
@@ -204,16 +215,7 @@ mod inv_reader {
                 assert!(!inner.closed);
                 inner.closed = true;
             }
-            if self.continuation.is_finished() {
-                // We're good to go.
-                return Ok(());
-            }
-            let cont_result = if self.continuation.has_started() {
-                self.continuation.next(super::DataReady)
-            } else {
-                self.continuation.start()
-            };
-            match cont_result {
+            match self.pump_continuation() {
                 ContinuationResult::Yield(_) => {
                     // Since we ran while closed, the channel should not be
                     // yielding back to us. Instead, it should internally be
@@ -227,16 +229,28 @@ mod inv_reader {
 
     impl Drop for Writer<'_> {
         fn drop(&mut self) {
-            if std::thread::panicking() {
-                // If we're panicking, we want to avoid performing a
-                // double-panic, as we're otherwise safe.
+            if self.continuation.is_finished() {
+                // We have already completed, so nothing more we can do.
                 return;
             }
-            let inner = self.reader_state.borrow_mut();
-            assert!(
-                inner.closed,
-                "Writer was dropped without being closed; use the close() method to ensure all data is flushed to the reader"
-            );
+            {
+                let mut inner = self.reader_state.borrow_mut();
+                if inner.closed {
+                    // We're already closed, so nothing more we can do.
+                    return;
+                }
+                inner.closed = true;
+            }
+            match self.pump_continuation() {
+                ContinuationResult::Yield(_) => {
+                    // This shouldn't happen after we've set the closed flag.
+                    unreachable!("Requested more data after writer closed");
+                }
+                ContinuationResult::Complete(_) => {
+                    // We're done. We don't care about the result, since
+                    // we're in a destructor.
+                }
+            }
         }
     }
 
@@ -271,14 +285,7 @@ mod inv_reader {
                 curr_buffer_len = inner.buffer.len();
             }
             if curr_buffer_len >= self.bytes_requested {
-                // If we've satisfied the requested bytes, clear the request
-                // so that the reader can proceed.
-                let cont_result = if self.continuation.has_started() {
-                    self.continuation.next(super::DataReady)
-                } else {
-                    self.continuation.start()
-                };
-                match cont_result {
+                match self.pump_continuation() {
                     ContinuationResult::Yield(data_needed) => {
                         self.bytes_requested = data_needed.requested_data_size;
                     }
@@ -302,10 +309,10 @@ mod inv_reader {
             // If there's anything in the buffer, then write() must have been
             // called, so the continuation must have been started.
             assert!(self.continuation.has_started());
-            match self.continuation.next(super::DataReady) {
+            match self.pump_continuation() {
                 ContinuationResult::Yield(data_needed) => {
                     self.bytes_requested = data_needed.requested_data_size;
-                    let inner = self.reader_state.borrow_mut();
+                    let inner = self.reader_state.borrow();
                     assert!(inner.buffer.is_empty());
                     Ok(())
                 }
