@@ -32,15 +32,15 @@ pub(super) trait DataProcessor {
         }
     }
 
+    #[expect(dead_code, reason = "Will be used in lazy block")]
     fn pull<'a, R>(self, reader: R, buffer_capacity: usize) -> Reader<'a>
     where
         Self: Sized + 'static,
-        R: io::Read + Unpin + 'static,
+        R: io::Read + Unpin + 'a,
     {
         inv_writer::pull_mode(self, reader, buffer_capacity)
     }
 
-    #[expect(dead_code, reason = "Will be used in lazy block")]
     fn push<'a, W>(self, writer: W, buffer_capacity: usize) -> Writer<'a>
     where
         Self: Sized + 'a,
@@ -204,6 +204,10 @@ mod inv_reader {
                 assert!(!inner.closed);
                 inner.closed = true;
             }
+            if self.continuation.is_finished() {
+                // We're good to go.
+                return Ok(());
+            }
             let cont_result = if self.continuation.has_started() {
                 self.continuation.next(super::DataReady)
             } else {
@@ -238,43 +242,43 @@ mod inv_reader {
 
     impl io::Write for Writer<'_> {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            if !self.continuation.has_started() {
-                // Start the continuation if it hasn't been started yet.
-                match self.continuation.start() {
-                    ContinuationResult::Yield(data_needed) => {
-                        self.bytes_requested = data_needed.requested_data_size;
-                    }
-                    ContinuationResult::Complete(Err(e)) => {
-                        return Err(e);
-                    }
-                    ContinuationResult::Complete(Ok(())) => {
-                        // If it returns without consuming any data, and if the
-                        // buffer is not empty, this is a broken pipe situation.
-                        if !buf.is_empty() {
-                            return Err(io::Error::new(
-                                io::ErrorKind::BrokenPipe,
-                                "Writer attempted to write to closed reader",
-                            ));
-                        }
-                        return Ok(0);
-                    }
-                }
+            if buf.is_empty() {
+                return Ok(0);
             }
-            let mut inner = self.reader_state.borrow_mut();
-            if inner.closed {
+
+            if self.continuation.is_finished() {
+                // If the continuation is finished, then we have no more
+                // data to write.
                 return Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "Writer attempted to write to closed reader",
                 ));
             }
-            let remaining_capacity = inner.buffer.capacity() - inner.buffer.len();
-            let to_write = std::cmp::min(buf.len(), remaining_capacity);
-            inner.buffer.extend(&buf[..to_write]);
-            if inner.buffer.len() >= self.bytes_requested {
-                drop(inner);
+
+            let bytes_written;
+            let curr_buffer_len;
+            {
+                let mut inner = self.reader_state.borrow_mut();
+                if inner.closed {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "Writer attempted to write to closed reader",
+                    ));
+                }
+                let remaining_capacity = inner.buffer.capacity() - inner.buffer.len();
+                bytes_written = std::cmp::min(buf.len(), remaining_capacity);
+                inner.buffer.extend(&buf[..bytes_written]);
+                curr_buffer_len = inner.buffer.len();
+            }
+            if curr_buffer_len >= self.bytes_requested {
                 // If we've satisfied the requested bytes, clear the request
                 // so that the reader can proceed.
-                match self.continuation.next(super::DataReady) {
+                let cont_result = if self.continuation.has_started() {
+                    self.continuation.next(super::DataReady)
+                } else {
+                    self.continuation.start()
+                };
+                match cont_result {
                     ContinuationResult::Yield(data_needed) => {
                         self.bytes_requested = data_needed.requested_data_size;
                     }
@@ -284,7 +288,7 @@ mod inv_reader {
                     ContinuationResult::Complete(Ok(())) => {}
                 }
             }
-            Ok(to_write)
+            Ok(bytes_written)
         }
 
         fn flush(&mut self) -> io::Result<()> {

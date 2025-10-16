@@ -279,10 +279,10 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
     let input_data = input.read_all();
     let mut output = Vec::with_capacity(input_size.checked_mul(2).unwrap());
     {
-        let mut source = DecompressDclProcessor.pull(io::Cursor::new(input_data), 1024);
-        let mut sink = io::Cursor::new(&mut output);
+        let mut source = io::Cursor::new(input_data);
+        let mut sink = DecompressDclProcessor.push(io::Cursor::new(&mut output), 1024);
         std::io::copy(&mut source, &mut sink)?;
-        source.close()?;
+        sink.close()?;
     }
     Ok(MemBlock::from_vec(output))
 }
