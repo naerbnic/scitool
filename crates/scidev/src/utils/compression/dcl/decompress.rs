@@ -246,6 +246,11 @@ async fn decompress_to<R: BitReader, W: AsyncWrite + Unpin>(
             break;
         }
     }
+    output.flush().await?;
+    // let mut buf: &[u8] = &[0u8; 128];
+    // loop {
+    //     if reader.
+    // }
     Ok(())
 }
 
@@ -277,6 +282,7 @@ pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> 
         let mut source = DecompressDclProcessor.pull(io::Cursor::new(input_data), 1024);
         let mut sink = io::Cursor::new(&mut output);
         std::io::copy(&mut source, &mut sink)?;
+        source.close()?;
     }
     Ok(MemBlock::from_vec(output))
 }

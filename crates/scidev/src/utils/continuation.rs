@@ -115,6 +115,7 @@ impl Drop for NotifyToken {
 
 #[derive(Debug)]
 enum FlowState<In, Out> {
+    BeforeStarted,
     // The computation is ready with an output value
     Ready(Out),
     // The computation is currently running, and has not yet produced an output
@@ -217,6 +218,9 @@ impl<In, Out> Drop for ChannelYield<In, Out> {
         // If this is dropped while paused, then this is due to future
         // cancellation. If not, then this is a logic error, as we have sent
         // a value but not received a response.
+        //
+        // This should never be triggered if the ChannelYield future is
+        // .await-ed properly.
         assert!(
             matches!(flow_state, FlowState::Paused),
             "Dropping ChannelResult without consuming the yielded value"
@@ -287,6 +291,9 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
                     unreachable!("If this is finished, curr_future should be None");
                 }
                 FlowState::Paused => unreachable!("Cannot poll a paused continuation"),
+                FlowState::BeforeStarted => {
+                    unreachable!("Continuation polled before starting");
+                }
                 state => {
                     // We are still waiting on the future to provide the next value,
                     // or to finish. Restore state and continue.
@@ -329,6 +336,9 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
                     FlowState::Continue(_) => {
                         unreachable!("Value was not consumed as expected.");
                     }
+                    FlowState::BeforeStarted => {
+                        unreachable!("Continuation polled before starting");
+                    }
                 }
             }
         }
@@ -346,13 +356,13 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
         }
     }
 
-    pub fn new<F, Fut>(future_fn: F) -> ContinuationResult<(Self, Out), Result>
+    pub fn new<F, Fut>(future_fn: F) -> Self
     where
         F: FnOnce(Channel<Out, In>) -> Fut,
         Fut: Future<Output = Result> + 'a,
     {
         let state = Rc::new(RefCell::new(Inner {
-            flow_state: FlowState::Running,
+            flow_state: FlowState::BeforeStarted,
         }));
 
         let channel = Channel {
@@ -361,18 +371,29 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
 
         let curr_future = Box::pin(future_fn(channel));
 
-        let mut continuation = Self {
+        Self {
             state,
             curr_future: Some(curr_future),
-        };
-
-        match continuation
-            .pump_continuation()
-            .expect("Continuation marked as finished immediately")
-        {
-            ContinuationResult::Yield(value) => ContinuationResult::Yield((continuation, value)),
-            ContinuationResult::Complete(result) => ContinuationResult::Complete(result),
         }
+    }
+
+    #[must_use]
+    pub fn has_started(&self) -> bool {
+        let guard = self.state.borrow();
+        !matches!(guard.flow_state, FlowState::BeforeStarted)
+    }
+
+    pub fn start(&mut self) -> ContinuationResult<Out, Result> {
+        {
+            let mut guard = self.state.borrow_mut();
+            assert!(
+                matches!(guard.flow_state, FlowState::BeforeStarted),
+                "Continuation already started"
+            );
+            guard.flow_state = FlowState::Running;
+        }
+        self.pump_continuation()
+            .expect("Continuation marked as finished immediately")
     }
 
     #[must_use]
@@ -423,35 +444,30 @@ mod tests {
 
     #[test]
     fn test_no_pause() {
-        let cont = Continuation::new(|_channel: Channel<u32, u32>| async move { 42 });
-        assert_eq!(cont.as_complete(), Some(&42));
+        let mut cont = Continuation::new(|_channel: Channel<u32, u32>| async move { 42 });
+        assert_eq!(cont.start().as_complete(), Some(&42));
     }
 
     #[test]
     fn test_unrelated_future() {
-        let cont = Continuation::new(|_channel: Channel<u32, u32>| async move {
+        let mut cont = Continuation::new(|_channel: Channel<u32, u32>| async move {
             let pending_once = PendingOnce { has_pending: true };
             pending_once.await;
             3
         });
-        assert_eq!(cont.as_complete(), Some(&3));
+        assert_eq!(cont.start().as_complete(), Some(&3));
     }
 
     #[test]
     fn test_simple_yield() {
-        let Some((mut cont, value)) =
-            Continuation::new(|mut channel: Channel<u32, u32>| async move {
-                let val = channel.yield_value(1).await;
-                assert_eq!(val, 2);
-                let val = channel.yield_value(3).await;
-                assert_eq!(val, 4);
-                42
-            })
-            .into_yield()
-        else {
-            panic!("Expected continuation to yield");
-        };
-        assert_eq!(value, 1);
+        let mut cont = Continuation::new(|mut channel: Channel<u32, u32>| async move {
+            let val = channel.yield_value(1).await;
+            assert_eq!(val, 2);
+            let val = channel.yield_value(3).await;
+            assert_eq!(val, 4);
+            42
+        });
+        assert_eq!(cont.start().into_yield(), Some(1));
         assert_eq!(cont.next(2).into_yield(), Some(3));
         assert_eq!(cont.next(4).into_complete(), Some(42));
     }
