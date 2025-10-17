@@ -50,12 +50,12 @@ impl Contents {
                 .map(move |block| Ok(decompress_dcl(&block).with_other_err()?)),
             _ => {
                 // Let's be lazy here.
-                LazyBlock::from_factory(move || {
-                    Err(OtherError::from_msg(format!(
+                LazyBlock::from_error(move || {
+                    OtherError::from_msg(format!(
                         "Unsupported compression type: {}",
                         raw_contents.header.compression_type()
                     ))
-                    .into())
+                    .into()
                 })
             }
         };

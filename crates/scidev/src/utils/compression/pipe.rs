@@ -32,7 +32,7 @@ pub(super) trait DataProcessor {
         }
     }
 
-    #[expect(dead_code, reason = "Will be used in lazy block")]
+    #[allow(dead_code, reason = "Will be used in lazy block")]
     fn pull<'a, R>(self, reader: R, buffer_capacity: usize) -> Reader<'a>
     where
         Self: Sized + 'static,
@@ -424,13 +424,13 @@ mod inv_writer {
             }
         }
 
-        fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             // Flush means we want to empty the current buffer. Returning pending
             // will cause the caller to try again later, which is what we want.
             loop {
                 if let Some(yield_op) = &mut self.yield_op {
                     // We have a pending write operation. Poll it to completion.
-                    std::task::ready!(yield_op.poll_unpin(_cx));
+                    std::task::ready!(yield_op.poll_unpin(cx));
                     self.yield_op = None;
                 }
 
@@ -461,6 +461,7 @@ mod inv_writer {
     }
 
     impl Reader<'_> {
+        #[allow(dead_code, reason = "Might be used soon")]
         pub(crate) fn close(mut self) -> io::Result<()> {
             // Technically, it's safe to drop the reader, but make a reasonable
             // attempt in case the decoder has *shudder* side effects...
