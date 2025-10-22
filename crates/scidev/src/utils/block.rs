@@ -13,3 +13,5 @@ pub use lazy_block::{Error as LazyBlockError, LazyBlock};
 pub use mem_block::{FromReaderError as MemBlockFromReaderError, MemBlock};
 pub use output_block::OutputBlock;
 pub use temp_store::TempStore;
+
+pub mod block2;

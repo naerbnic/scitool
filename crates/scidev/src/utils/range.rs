@@ -1,0 +1,167 @@
+use std::ops::{Bound, RangeBounds};
+
+use num::{Bounded, NumCast};
+
+#[derive(Clone, Copy, Debug)]
+pub struct OffsetSize<T> {
+    offset: T,
+    size: T,
+}
+
+impl<T> OffsetSize<T>
+where
+    T: Copy,
+{
+    pub fn offset(&self) -> T {
+        self.offset
+    }
+
+    pub fn size(&self) -> T {
+        self.size
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Range<T>
+where
+    T: num::PrimInt + num::Unsigned + 'static,
+{
+    start: T,
+    end: Option<T>,
+}
+
+impl<T> Range<T>
+where
+    T: num::PrimInt + num::Unsigned + 'static,
+{
+    pub fn cast_to<T2>(&self) -> Range<T2>
+    where
+        T2: num::PrimInt + num::Unsigned + 'static,
+    {
+        Range {
+            start: NumCast::from(self.start).expect("Failed to cast range start"),
+            end: self
+                .end
+                .as_ref()
+                .map(|v| NumCast::from(*v).expect("Failed to cast range end")),
+        }
+    }
+
+    pub fn is_full_range(&self) -> bool {
+        self.start == T::zero() && self.end.is_none()
+    }
+
+    pub fn as_range_bounds(&self) -> impl RangeBounds<T> + 'static {
+        (
+            Bound::Included(self.start),
+            match &self.end {
+                Some(v) => Bound::Excluded(*v),
+                None => Bound::Unbounded,
+            },
+        )
+    }
+
+    pub fn start(&self) -> T {
+        self.start
+    }
+
+    pub fn end(&self) -> Option<T> {
+        self.end
+    }
+
+    pub fn size(&self) -> Option<T> {
+        self.end.map(|end| end - self.start)
+    }
+
+    /// Create a range that is relative to this range.
+    #[must_use]
+    pub fn new_relative(&self, inner: Range<T>) -> Range<T> {
+        let start = self.start + inner.start;
+
+        let end = match inner.end {
+            Some(v) => {
+                let new_end = self.start + v;
+                if let Some(end) = self.end {
+                    assert!(new_end <= end, "Relative range end out of bounds");
+                }
+                Some(new_end)
+            }
+            None => None,
+        };
+
+        Range { start, end }
+    }
+}
+
+impl<T> Range<T>
+where
+    T: num::PrimInt + num::Unsigned,
+{
+    pub fn from_range_bounds<R>(range: R) -> Self
+    where
+        R: RangeBounds<T>,
+    {
+        let start = match range.start_bound() {
+            Bound::Included(v) => *v,
+            Bound::Excluded(v) => {
+                assert!(*v != T::max_value(), "Start bound overflow");
+                *v + T::one()
+            }
+            Bound::Unbounded => T::zero(),
+        };
+
+        let end = match range.end_bound() {
+            Bound::Included(v) => {
+                assert!(*v != T::max_value(), "End bound overflow");
+                Some(*v + T::one())
+            }
+            Bound::Excluded(v) => Some(*v),
+            Bound::Unbounded => None,
+        };
+        Self { start, end }
+    }
+}
+
+pub struct BoundedRange<T>
+where
+    T: num::PrimInt + num::Unsigned + 'static,
+{
+    start: T,
+    end: T,
+}
+
+impl<T> BoundedRange<T>
+where
+    T: num::PrimInt + num::Unsigned + 'static,
+{
+    pub fn from_size(size: T) -> Self {
+        Self {
+            start: T::zero(),
+            end: size,
+        }
+    }
+
+    pub fn as_range(&self) -> Range<T> {
+        Range {
+            start: self.start,
+            end: Some(self.end),
+        }
+    }
+
+    pub fn as_range_bounds(&self) -> impl RangeBounds<T> + 'static {
+        (Bound::Included(self.start), Bound::Excluded(self.end))
+    }
+
+    pub fn new_relative(&self, inner: Range<T>) -> BoundedRange<T> {
+        let start = self.start + inner.start;
+
+        let end = match inner.end {
+            Some(v) => self.start + v,
+            None => self.end,
+        };
+
+        assert!(end <= self.end, "Relative range end out of bounds");
+
+        BoundedRange { start, end }
+    }
+}
