@@ -138,6 +138,7 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct BoundedRange<T>
 where
     T: num::PrimInt + num::Unsigned + 'static,
@@ -180,6 +181,7 @@ where
     /// than the start of the range, the new start will be zero, and the end
     /// will be adjusted accordingly. Shifting past the entire range ends up
     /// with a zero-sized range at zero.
+    #[must_use]
     pub fn shift_down_by(&self, offset: T) -> BoundedRange<T> {
         BoundedRange {
             start: self.start.saturating_sub(offset),
@@ -206,7 +208,16 @@ where
         }
     }
 
-    pub fn new_relative(&self, inner: Range<T>) -> BoundedRange<T> {
+    pub fn contains(&self, other: BoundedRange<T>) -> bool {
+        self.start <= other.start && other.end <= self.end
+    }
+
+    #[must_use]
+    pub fn new_relative<R>(&self, inner: R) -> BoundedRange<T>
+    where
+        R: RangeBounds<T>,
+    {
+        let inner = Range::from_range(inner);
         let start = self.start + inner.start;
 
         let end = match inner.end {

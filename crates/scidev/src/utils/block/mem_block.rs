@@ -2,7 +2,10 @@ use std::{io, sync::Arc};
 
 use bytes::BufMut;
 
-use crate::utils::buffer::{Buffer, SplittableBuffer};
+use crate::utils::{
+    buffer::{Buffer, SplittableBuffer},
+    range::BoundedRange,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FromReaderError {
@@ -16,8 +19,7 @@ pub enum FromReaderError {
 /// An in-memory block of data that is cheap to clone and create subranges of.
 #[derive(Clone)]
 pub struct MemBlock {
-    start: usize,
-    size: usize,
+    range: BoundedRange<usize>,
     data: Arc<dyn AsRef<[u8]> + Send + Sync>,
 }
 
@@ -43,8 +45,7 @@ impl MemBlock {
     pub fn from_slice_owner<T: AsRef<[u8]> + Send + Sync + 'static>(data: T) -> Self {
         let size = data.as_ref().len();
         Self {
-            start: 0,
-            size,
+            range: BoundedRange::from_size(size),
             data: Arc::new(data),
         }
     }
@@ -57,8 +58,7 @@ impl MemBlock {
         let mut data = Vec::with_capacity(size);
         data.put(buf);
         Self {
-            start: 0,
-            size,
+            range: BoundedRange::from_size(size),
             data: Arc::new(data),
         }
     }
@@ -83,7 +83,7 @@ impl MemBlock {
     /// Returns the size of the block.
     #[must_use]
     pub fn size(&self) -> usize {
-        self.size
+        self.range.size()
     }
 
     /// Returns the offset of the contained block within the current block.
@@ -93,9 +93,8 @@ impl MemBlock {
     #[must_use]
     pub fn offset_in(&self, contained_block: &MemBlock) -> usize {
         assert!(Arc::ptr_eq(&self.data, &contained_block.data));
-        assert!(self.start <= contained_block.start);
-        assert!(contained_block.start + contained_block.size <= self.start + self.size);
-        contained_block.start - self.start
+        assert!(self.range.contains(contained_block.range));
+        contained_block.range.start() - self.range.start()
     }
 }
 
@@ -103,41 +102,31 @@ impl std::ops::Deref for MemBlock {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &(*self.data).as_ref()[self.start..][..self.size]
+        &(*self.data).as_ref()[self.range.start()..self.range.end()]
     }
 }
 
 impl AsRef<[u8]> for MemBlock {
     fn as_ref(&self) -> &[u8] {
-        &(*self.data).as_ref()[self.start..][..self.size]
+        &(*self.data).as_ref()[self.range.start()..self.range.end()]
     }
 }
 
 impl Buffer for MemBlock {
     fn read_slice_at(&self, offset: usize) -> &[u8] {
-        assert!(offset <= self.size);
+        assert!(offset <= self.range.size());
         &self[offset..]
     }
 
     fn size(&self) -> usize {
-        self.size
+        self.range.size()
     }
 }
 
 impl SplittableBuffer for MemBlock {
     fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
-        let start: usize = start;
-        let end: usize = end;
-
-        assert!(start <= end);
-
-        // Actual start/end are offsets from self.start
-        let start = self.start + start;
-        let end = self.start + end;
-
         Self {
-            start,
-            size: end - start,
+            range: self.range.new_relative(start..end),
             data: self.data.clone(),
         }
     }
