@@ -23,31 +23,11 @@ use crate::utils::{
     range::{BoundedRange, Range},
 };
 
-pub type ReadScopeFn<'a> = dyn FnMut(&mut dyn io::Read) -> io::Result<()> + Send + 'a;
-
+/// Implementation trait for Block sources.
+///
+/// This is a dyn-compatible trait that provides the core functionality for
+/// Block sources.
 trait BlockBase {
-    // Features we want to support:
-    //
-    // - A block that needs to be read from disk at a known offset/length.
-    // - A block that is generated on demand, possibly from other blocks.
-    // - Splitting of blocks into sub-blocks, without the data having to be
-    //   loaded first.
-    // - Caching of loaded blocks.
-    // - Sharing data with other blocks (e.g., via reference counting).
-    //
-    // Constraints:
-    //
-    // - Data in a block is considered stable, so opening it multiple times
-    //   should yield the same data (or cause an error).
-    //
-    // This implies we have to have the following capabilities:
-    //
-    // - Open a full block contents (size unknown).
-    // - Open a sub-range of a block (when size known).
-    // - Read the contents of a block within a range (when size known).
-    // - Read all of the contents of a block (size unknown) while being able to
-    //   stop before the end.
-
     // Open as loaded data, possibly shared.
     fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock>;
 
@@ -142,6 +122,7 @@ where
     }
 }
 
+/// A helper trait for creating objects that borrow from the factory.
 pub trait RefFactory {
     type Output<'a>
     where
@@ -182,12 +163,14 @@ impl Block {
         }
     }
 
+    /// Create a block from a [`MemBlock`] instance.
     #[must_use]
     pub fn from_mem_block(mem_block: MemBlock) -> Self {
         let len = mem_block.len() as u64;
         Self::from_source_size(MemBlockWrap(ContainedMemBlock::new(mem_block)), len)
     }
 
+    /// Create a block by concatenating multiple blocks together.
     #[must_use]
     pub fn concat_blocks(blocks: impl IntoIterator<Item = Block>) -> Self {
         let base_impl = SequenceBlockImpl::new(blocks);
@@ -195,11 +178,13 @@ impl Block {
         Self::from_source_size(base_impl, total_size)
     }
 
+    /// Returns a new builder for creating Block instances.
     #[must_use]
     pub fn builder() -> Builder {
         Builder::new()
     }
 
+    /// Open a subrange of the block as loaded data.
     pub fn open_mem<R>(&self, range: R) -> io::Result<MemBlock>
     where
         R: RangeBounds<u64>,
@@ -208,6 +193,7 @@ impl Block {
         self.source.open_mem(self.range.new_relative(range))
     }
 
+    /// Open a subrange of the block as a reader.
     pub fn open_reader<'a, R>(&'a self, range: R) -> io::Result<Box<dyn io::Read + 'a>>
     where
         R: RangeBounds<u64>,
@@ -216,11 +202,13 @@ impl Block {
         self.source.open_reader(self.range.new_relative(range))
     }
 
+    /// Returns the length of the block in bytes.
     #[must_use]
     pub fn len(&self) -> u64 {
         self.range.size()
     }
 
+    /// Returns whether the block is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
