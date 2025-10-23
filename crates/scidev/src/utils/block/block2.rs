@@ -190,7 +190,7 @@ impl Block {
 
     /// Create a block by concatenating multiple blocks together.
     #[must_use]
-    pub fn concat_blocks(blocks: impl IntoIterator<Item = impl Into<Block>>) -> Self {
+    pub fn concat(blocks: impl IntoIterator<Item = impl Into<Block>>) -> Self {
         let base_impl = SequenceBlockImpl::new(blocks.into_iter().map(Into::into));
         let total_size = base_impl.size();
         Self::from_source_size(base_impl, total_size)
@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn test_concat_blocks_empty() {
         let blocks: Vec<Block> = vec![];
-        let concatenated = Block::concat_blocks(blocks);
+        let concatenated = Block::concat(blocks);
         assert_eq!(concatenated.len(), 0);
         assert!(concatenated.is_empty());
     }
@@ -513,7 +513,7 @@ mod tests {
         let data = vec![1, 2, 3];
         let mem_block = MemBlock::from_vec(data);
         let block = Block::from_mem_block(mem_block);
-        let concatenated = Block::concat_blocks(vec![block]);
+        let concatenated = Block::concat(vec![block]);
         assert_eq!(concatenated.len(), 3);
         let mem = concatenated.open_mem(..).unwrap();
         assert_eq!(mem.as_ref(), &[1, 2, 3]);
@@ -524,7 +524,7 @@ mod tests {
         let block1 = MemBlock::from_vec(vec![1, 2]);
         let block2 = MemBlock::from_vec(vec![3, 4]);
         let block3 = MemBlock::from_vec(vec![5, 6]);
-        let concatenated = Block::concat_blocks(vec![block1, block2, block3]);
+        let concatenated = Block::concat(vec![block1, block2, block3]);
         assert_eq!(concatenated.len(), 6);
         let mem = concatenated.open_mem(..).unwrap();
         assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5, 6]);
@@ -535,7 +535,7 @@ mod tests {
         let block1 = Block::from_mem_block(MemBlock::from_vec(vec![1, 2]));
         let block2 = Block::empty();
         let block3 = Block::from_mem_block(MemBlock::from_vec(vec![3, 4]));
-        let concatenated = Block::concat_blocks(vec![block1, block2, block3]);
+        let concatenated = Block::concat(vec![block1, block2, block3]);
         assert_eq!(concatenated.len(), 4);
         let mem = concatenated.open_mem(..).unwrap();
         assert_eq!(mem.as_ref(), &[1, 2, 3, 4]);
@@ -545,7 +545,7 @@ mod tests {
     fn test_concat_blocks_open_reader() {
         let block1 = Block::from_mem_block(MemBlock::from_vec(vec![1, 2]));
         let block2 = Block::from_mem_block(MemBlock::from_vec(vec![3, 4]));
-        let concatenated = Block::concat_blocks(vec![block1, block2]);
+        let concatenated = Block::concat(vec![block1, block2]);
         let mut reader = concatenated.open_reader(..).unwrap();
         let mut result = Vec::new();
         reader.read_to_end(&mut result).unwrap();
@@ -557,7 +557,7 @@ mod tests {
         let block1 = Block::from_mem_block(MemBlock::from_vec(vec![1, 2]));
         let block2 = Block::from_mem_block(MemBlock::from_vec(vec![3, 4]));
         let block3 = Block::from_mem_block(MemBlock::from_vec(vec![5, 6]));
-        let concatenated = Block::concat_blocks(vec![block1, block2, block3]);
+        let concatenated = Block::concat(vec![block1, block2, block3]);
         let subblock = concatenated.subblock(1..5);
         assert_eq!(subblock.len(), 4);
         let mem = subblock.open_mem(..).unwrap();
