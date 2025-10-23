@@ -190,8 +190,8 @@ impl Block {
 
     /// Create a block by concatenating multiple blocks together.
     #[must_use]
-    pub fn concat_blocks(blocks: impl IntoIterator<Item = Block>) -> Self {
-        let base_impl = SequenceBlockImpl::new(blocks);
+    pub fn concat_blocks(blocks: impl IntoIterator<Item = impl Into<Block>>) -> Self {
+        let base_impl = SequenceBlockImpl::new(blocks.into_iter().map(Into::into));
         let total_size = base_impl.size();
         Self::from_source_size(base_impl, total_size)
     }
@@ -329,5 +329,375 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Read};
+
+    #[test]
+    fn test_empty_block() {
+        let block = Block::empty();
+        assert_eq!(block.len(), 0);
+        assert!(block.is_empty());
+    }
+
+    #[test]
+    fn test_empty_block_open_mem() {
+        let block = Block::empty();
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.len(), 0);
+    }
+
+    #[test]
+    fn test_empty_block_open_reader() {
+        let block = Block::empty();
+        let mut reader = block.open_reader(..).unwrap();
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).unwrap();
+        assert_eq!(data.len(), 0);
+    }
+
+    #[test]
+    fn test_from_error_block() {
+        let block = Block::from_error(io::ErrorKind::Other);
+        assert_eq!(block.len(), 0);
+    }
+
+    #[test]
+    fn test_from_error_block_open_mem_fails() {
+        let block = Block::from_error(io::ErrorKind::Other);
+        let result = block.open_mem(..);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_error_block_open_reader_fails() {
+        let block = Block::from_error(io::ErrorKind::Other);
+        let result = block.open_reader(..);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_mem_block() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data.clone());
+        let block = Block::from_mem_block(mem_block);
+        assert_eq!(block.len(), 5);
+        assert!(!block.is_empty());
+    }
+
+    #[test]
+    fn test_from_mem_block_open_mem() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data.clone());
+        let block = Block::from_mem_block(mem_block);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_from_mem_block_open_reader() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data.clone());
+        let block = Block::from_mem_block(mem_block);
+        let mut reader = block.open_reader(..).unwrap();
+        let mut result = Vec::new();
+        reader.read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_from_trait() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block: Block = mem_block.into();
+        assert_eq!(block.len(), 5);
+    }
+
+    #[test]
+    fn test_open_mem_with_range() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let mem = block.open_mem(1..4).unwrap();
+        assert_eq!(mem.as_ref(), &[2, 3, 4]);
+    }
+
+    #[test]
+    fn test_open_mem_with_start_range() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let mem = block.open_mem(2..).unwrap();
+        assert_eq!(mem.as_ref(), &[3, 4, 5]);
+    }
+
+    #[test]
+    fn test_open_mem_with_end_range() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let mem = block.open_mem(..3).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_open_reader_with_range() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let mut reader = block.open_reader(1..4).unwrap();
+        let mut result = Vec::new();
+        reader.read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn test_open_reader_with_start_range() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let mut reader = block.open_reader(2..).unwrap();
+        let mut result = Vec::new();
+        reader.read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn test_open_reader_with_end_range() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let mut reader = block.open_reader(..3).unwrap();
+        let mut result = Vec::new();
+        reader.read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_subblock() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let subblock = block.subblock(1..4);
+        assert_eq!(subblock.len(), 3);
+        let mem = subblock.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[2, 3, 4]);
+    }
+
+    #[test]
+    fn test_subblock_of_subblock() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let subblock1 = block.subblock(1..7);
+        let subblock2 = subblock1.subblock(1..4);
+        assert_eq!(subblock2.len(), 3);
+        let mem = subblock2.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[3, 4, 5]);
+    }
+
+    #[test]
+    fn test_concat_blocks_empty() {
+        let blocks: Vec<Block> = vec![];
+        let concatenated = Block::concat_blocks(blocks);
+        assert_eq!(concatenated.len(), 0);
+        assert!(concatenated.is_empty());
+    }
+
+    #[test]
+    fn test_concat_blocks_single() {
+        let data = vec![1, 2, 3];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let concatenated = Block::concat_blocks(vec![block]);
+        assert_eq!(concatenated.len(), 3);
+        let mem = concatenated.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_concat_blocks_multiple() {
+        let block1 = MemBlock::from_vec(vec![1, 2]);
+        let block2 = MemBlock::from_vec(vec![3, 4]);
+        let block3 = MemBlock::from_vec(vec![5, 6]);
+        let concatenated = Block::concat_blocks(vec![block1, block2, block3]);
+        assert_eq!(concatenated.len(), 6);
+        let mem = concatenated.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn test_concat_blocks_with_empty() {
+        let block1 = Block::from_mem_block(MemBlock::from_vec(vec![1, 2]));
+        let block2 = Block::empty();
+        let block3 = Block::from_mem_block(MemBlock::from_vec(vec![3, 4]));
+        let concatenated = Block::concat_blocks(vec![block1, block2, block3]);
+        assert_eq!(concatenated.len(), 4);
+        let mem = concatenated.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_concat_blocks_open_reader() {
+        let block1 = Block::from_mem_block(MemBlock::from_vec(vec![1, 2]));
+        let block2 = Block::from_mem_block(MemBlock::from_vec(vec![3, 4]));
+        let concatenated = Block::concat_blocks(vec![block1, block2]);
+        let mut reader = concatenated.open_reader(..).unwrap();
+        let mut result = Vec::new();
+        reader.read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_concat_blocks_subblock() {
+        let block1 = Block::from_mem_block(MemBlock::from_vec(vec![1, 2]));
+        let block2 = Block::from_mem_block(MemBlock::from_vec(vec![3, 4]));
+        let block3 = Block::from_mem_block(MemBlock::from_vec(vec![5, 6]));
+        let concatenated = Block::concat_blocks(vec![block1, block2, block3]);
+        let subblock = concatenated.subblock(1..5);
+        assert_eq!(subblock.len(), 4);
+        let mem = subblock.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_new() {
+        let builder = Builder::new();
+        assert!(builder.size.is_none());
+    }
+
+    #[test]
+    fn test_builder_default() {
+        let builder = Builder::default();
+        assert!(builder.size.is_none());
+    }
+
+    #[test]
+    fn test_builder_with_size() {
+        let builder = Builder::new().with_size(100);
+        assert_eq!(builder.size, Some(100));
+    }
+
+    #[test]
+    fn test_builder_from_read_seek() {
+        let data = vec![1, 2, 3, 4, 5];
+        let cursor = Cursor::new(data.clone());
+        let block = Builder::new().build_from_read_seek(cursor).unwrap();
+        assert_eq!(block.len(), 5);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_from_read_seek_with_explicit_size() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let cursor = Cursor::new(data);
+        let block = Builder::new()
+            .with_size(5)
+            .build_from_read_seek(cursor)
+            .unwrap();
+        assert_eq!(block.len(), 5);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_from_read_factory() {
+        let data = vec![1, 2, 3, 4, 5];
+        let factory = move || Ok(Cursor::new(data.clone()));
+        let block = Builder::new().build_from_read_factory(factory).unwrap();
+        assert_eq!(block.len(), 5);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_from_read_factory_with_explicit_size() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let factory = move || Ok(Cursor::new(data.clone()));
+        let block = Builder::new()
+            .with_size(5)
+            .build_from_read_factory(factory)
+            .unwrap();
+        assert_eq!(block.len(), 5);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_from_read_seek_factory() {
+        let data = vec![1, 2, 3, 4, 5];
+        let factory = move || Ok(Cursor::new(data.clone()));
+        let block = Builder::new()
+            .build_from_read_seek_factory(factory)
+            .unwrap();
+        assert_eq!(block.len(), 5);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_from_read_seek_factory_with_explicit_size() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let factory = move || Ok(Cursor::new(data.clone()));
+        let block = Builder::new()
+            .with_size(5)
+            .build_from_read_seek_factory(factory)
+            .unwrap();
+        assert_eq!(block.len(), 5);
+        let mem = block.open_mem(..).unwrap();
+        assert_eq!(mem.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_builder_factory_multiple_calls() {
+        let data = vec![1, 2, 3, 4, 5];
+        let factory = move || Ok(Cursor::new(data.clone()));
+        let block = Builder::new()
+            .build_from_read_seek_factory(factory)
+            .unwrap();
+
+        // Multiple calls to open_mem should work
+        let mem1 = block.open_mem(..).unwrap();
+        let mem2 = block.open_mem(..).unwrap();
+        assert_eq!(mem1.as_ref(), &[1, 2, 3, 4, 5]);
+        assert_eq!(mem2.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_block_clone() {
+        let data = vec![1, 2, 3, 4, 5];
+        let mem_block = MemBlock::from_vec(data);
+        let block = Block::from_mem_block(mem_block);
+        let cloned = block.clone();
+
+        assert_eq!(block.len(), cloned.len());
+        let mem1 = block.open_mem(..).unwrap();
+        let mem2 = cloned.open_mem(..).unwrap();
+        assert_eq!(mem1.as_ref(), mem2.as_ref());
+    }
+
+    #[test]
+    fn test_open_mem_subrange_of_read_seek() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let cursor = Cursor::new(data);
+        let block = Builder::new().build_from_read_seek(cursor).unwrap();
+        let mem = block.open_mem(2..6).unwrap();
+        assert_eq!(mem.as_ref(), &[3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn test_open_reader_subrange_of_read_seek() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let cursor = Cursor::new(data);
+        let block = Builder::new().build_from_read_seek(cursor).unwrap();
+        let mut reader = block.open_reader(2..6).unwrap();
+        let mut result = Vec::new();
+        reader.read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![3, 4, 5, 6]);
     }
 }
