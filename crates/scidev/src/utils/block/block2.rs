@@ -1,3 +1,5 @@
+mod empty_impl;
+mod error_impl;
 mod mem_impl;
 mod read_factory_impl;
 mod read_seek_factory_impl;
@@ -14,9 +16,9 @@ use crate::utils::{
     block::{
         MemBlock,
         block2::{
-            mem_impl::ContainedMemBlock, read_factory_impl::ReadFactoryImpl,
-            read_seek_factory_impl::ReadSeekFactorySource, read_seek_impl::ReadSeekImpl,
-            seq_impl::SequenceBlockImpl,
+            empty_impl::EmptyBlockImpl, error_impl::ErrorBlockImpl, mem_impl::ContainedMemBlock,
+            read_factory_impl::ReadFactoryImpl, read_seek_factory_impl::ReadSeekFactorySource,
+            read_seek_impl::ReadSeekImpl, seq_impl::SequenceBlockImpl,
         },
     },
     buffer::BufferExt as _,
@@ -161,6 +163,22 @@ impl Block {
             source: Arc::new(source),
             range: BoundedRange::from_size(size),
         }
+    }
+
+    /// Returns an empty block.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::from_source_size(EmptyBlockImpl, 0)
+    }
+
+    /// Returns a block that always errors on access.
+    #[must_use]
+    pub fn from_error<E>(error: E) -> Self
+    where
+        E: Into<io::Error> + Clone + Send + Sync + 'static,
+    {
+        let source = ErrorBlockImpl::new(error);
+        Self::from_source_size(source, 0)
     }
 
     /// Create a block from a [`MemBlock`] instance.

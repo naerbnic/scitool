@@ -24,6 +24,11 @@ pub struct MemBlock {
 }
 
 impl MemBlock {
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::from_vec(Vec::new())
+    }
+
     /// Create the block from a vector of bytes.
     #[must_use]
     pub fn from_vec(data: Vec<u8>) -> Self {
