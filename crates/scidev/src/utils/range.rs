@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use num::{Bounded, NumCast};
+use num::NumCast;
 
 #[derive(Clone, Copy, Debug)]
 pub struct OffsetSize<T> {
@@ -97,7 +97,7 @@ impl<T> Range<T>
 where
     T: num::PrimInt + num::Unsigned,
 {
-    pub fn from_range_bounds<R>(range: R) -> Self
+    pub fn from_range<R>(range: R) -> Self
     where
         R: RangeBounds<T>,
     {
@@ -119,6 +119,22 @@ where
             Bound::Unbounded => None,
         };
         Self { start, end }
+    }
+}
+
+impl<T> RangeBounds<T> for Range<T>
+where
+    T: num::PrimInt + num::Unsigned + 'static,
+{
+    fn start_bound(&self) -> Bound<&T> {
+        Bound::Included(&self.start)
+    }
+
+    fn end_bound(&self) -> Bound<&T> {
+        match &self.end {
+            Some(v) => Bound::Excluded(v),
+            None => Bound::Unbounded,
+        }
     }
 }
 
@@ -160,8 +176,34 @@ where
         }
     }
 
-    pub fn as_range_bounds(&self) -> impl RangeBounds<T> + 'static {
-        (Bound::Included(self.start), Bound::Excluded(self.end))
+    /// Shifts this range down by the given offset. If the offset is larger
+    /// than the start of the range, the new start will be zero, and the end
+    /// will be adjusted accordingly. Shifting past the entire range ends up
+    /// with a zero-sized range at zero.
+    pub fn shift_down_by(&self, offset: T) -> BoundedRange<T> {
+        BoundedRange {
+            start: self.start.saturating_sub(offset),
+            end: self.end.saturating_sub(offset),
+        }
+    }
+
+    /// Returns the intersection of this range with another range. Returns
+    /// None if the intersection is empty.
+    pub fn intersect<R>(&self, other: R) -> Option<BoundedRange<T>>
+    where
+        R: RangeBounds<T>,
+    {
+        let other = Range::from_range(other);
+        let start = std::cmp::max(self.start, other.start);
+        let end = match other.end() {
+            Some(v) => std::cmp::min(self.end, v),
+            None => self.end,
+        };
+        if end <= start {
+            None
+        } else {
+            Some(BoundedRange { start, end })
+        }
     }
 
     pub fn new_relative(&self, inner: Range<T>) -> BoundedRange<T> {
@@ -185,5 +227,18 @@ where
             start: NumCast::from(self.start).expect("Failed to cast range start"),
             end: NumCast::from(self.end).expect("Failed to cast range end"),
         }
+    }
+}
+
+impl<T> RangeBounds<T> for BoundedRange<T>
+where
+    T: num::PrimInt + num::Unsigned + 'static,
+{
+    fn start_bound(&self) -> Bound<&T> {
+        Bound::Included(&self.start)
+    }
+
+    fn end_bound(&self) -> Bound<&T> {
+        Bound::Excluded(&self.end)
     }
 }

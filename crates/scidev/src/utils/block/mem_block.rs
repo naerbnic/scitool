@@ -28,6 +28,18 @@ impl MemBlock {
         Self::from_slice_owner(data.into_boxed_slice())
     }
 
+    #[must_use]
+    pub fn concat_blocks(blocks: impl IntoIterator<Item = MemBlock>) -> Self {
+        // There's a potential optimization here, if we can detect that all
+        // blocks are from the same underlying data, we can avoid copying. For
+        // now, we always copy.
+        let mut data = Vec::new();
+        for block in blocks {
+            data.extend_from_slice(&block);
+        }
+        Self::from_vec(data)
+    }
+
     pub fn from_slice_owner<T: AsRef<[u8]> + Send + Sync + 'static>(data: T) -> Self {
         let size = data.as_ref().len();
         Self {
