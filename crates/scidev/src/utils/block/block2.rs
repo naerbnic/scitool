@@ -1,8 +1,7 @@
 use std::{
     io::{self, Read as _, Seek as _},
-    mem,
     ops::RangeBounds,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use crate::utils::{
@@ -37,16 +36,10 @@ trait BlockBase {
     //   stop before the end.
 
     // Open as loaded data, possibly shared.
-    fn open_mem(&self, range: Range<u64>) -> io::Result<MemBlock>;
+    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock>;
 
     /// Open as borrowed reader.
-    fn open_reader<'a>(&'a self, range: Range<u64>) -> io::Result<Box<dyn io::Read + 'a>>;
-}
-
-// Traits that can be used to create a BlockImpl from various sources.
-
-trait SizedBlockBase {
-    fn find_size(&self) -> io::Result<u64>;
+    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>>;
 }
 
 trait MemBlockBase {
@@ -54,27 +47,17 @@ trait MemBlockBase {
 }
 
 trait RangeStreamBase {
-    fn open_range_reader<'a>(&'a self, range: Range<u64>) -> io::Result<Box<dyn io::Read + 'a>>;
+    type Reader<'a>: io::Read + 'a
+    where
+        Self: 'a;
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>>;
 }
 
 trait FullStreamBase {
-    fn open_full_reader<'a>(&'a self) -> io::Result<Box<dyn io::Read + 'a>>;
-}
-
-fn get_size_from_reader<R>(reader: &mut R) -> io::Result<u64>
-where
-    R: io::Read,
-{
-    let mut total_size: u64 = 0;
-    let mut buffer = [0u8; 8192];
-    loop {
-        let read_bytes = reader.read(&mut buffer)?;
-        if read_bytes == 0 {
-            break;
-        }
-        total_size += read_bytes as u64;
-    }
-    Ok(total_size)
+    type Reader<'a>: io::Read + 'a
+    where
+        Self: 'a;
+    fn open_full_reader(&self) -> io::Result<Self::Reader<'_>>;
 }
 
 struct MemBlockWrap<T>(T);
@@ -83,7 +66,7 @@ impl<T> BlockBase for MemBlockWrap<T>
 where
     T: MemBlockBase,
 {
-    fn open_mem(&self, range: Range<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
         let mem_block = self.0.load_mem_block()?;
         let mem_block = mem_block
             .sub_buffer(range.cast_to::<usize>().as_range_bounds())
@@ -91,7 +74,7 @@ where
         Ok(mem_block.clone())
     }
 
-    fn open_reader<'a>(&'a self, range: Range<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
+    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
         let mem_block = self.0.load_mem_block()?;
         let mem_block = mem_block
             .sub_buffer(range.cast_to::<usize>().as_range_bounds())
@@ -106,14 +89,15 @@ impl<T> BlockBase for RangeStreamBaseWrap<T>
 where
     T: RangeStreamBase,
 {
-    fn open_mem(&self, range: Range<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
         let mut data = Vec::new();
         self.0.open_range_reader(range)?.read_to_end(&mut data)?;
         Ok(MemBlock::from_vec(data))
     }
 
-    fn open_reader<'a>(&'a self, range: Range<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
-        self.0.open_range_reader(range)
+    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
+        let reader = self.0.open_range_reader(range)?;
+        Ok(Box::new(reader))
     }
 }
 
@@ -123,19 +107,14 @@ impl<T> BlockBase for FullStreamBaseWrap<T>
 where
     T: FullStreamBase,
 {
-    fn open_mem(&self, range: Range<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
         let mut data = Vec::new();
         self.open_reader(range)?.read_to_end(&mut data)?;
         Ok(MemBlock::from_vec(data))
     }
 
-    fn open_reader<'a>(&'a self, range: Range<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
-        if range.is_full_range() {
-            return self.0.open_full_reader();
-        }
-
+    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
         let mut reader = self.0.open_full_reader()?;
-
         let temp_buffer = &mut [0u8; 8192];
         let mut data_remaining = range.start();
         while data_remaining > 0 {
@@ -146,11 +125,7 @@ where
             }
             data_remaining -= read_bytes as u64;
         }
-        if let Some(size) = range.size() {
-            Ok(Box::new(reader.take(size)))
-        } else {
-            Ok(Box::new(reader))
-        }
+        Ok(Box::new(reader.take(range.size())))
     }
 }
 
@@ -200,7 +175,7 @@ impl Block {
         }
     }
 
-    pub fn from_read_seek<F>(reader_factory: F) -> io::Result<Self>
+    pub fn from_read_seek_factory<F>(reader_factory: F) -> io::Result<Self>
     where
         F: RefFactory + Send + Sync + 'static,
         for<'a> F::Output<'a>: io::Read + io::Seek,
@@ -212,17 +187,14 @@ impl Block {
             F: RefFactory,
             for<'a> F::Output<'a>: io::Read + io::Seek,
         {
-            fn open_range_reader<'a>(
-                &'a self,
-                range: Range<u64>,
-            ) -> io::Result<Box<dyn io::Read + 'a>> {
+            type Reader<'a>
+                = io::Take<F::Output<'a>>
+            where
+                Self: 'a;
+            fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>> {
                 let mut reader = self.0.create_new()?;
                 reader.seek(io::SeekFrom::Start(range.start()))?;
-                if let Some(size) = range.size() {
-                    Ok(Box::new(reader.take(size)))
-                } else {
-                    Ok(Box::new(reader))
-                }
+                Ok(reader.take(range.size()))
             }
         }
 
@@ -233,6 +205,66 @@ impl Block {
 
         Ok(Block {
             source: Arc::new(RangeStreamBaseWrap(ReaderBlockSource(reader_factory))),
+            range: BoundedRange::from_size(size),
+        })
+    }
+
+    pub fn from_read_seek<R>(mut reader: R) -> io::Result<Self>
+    where
+        R: io::Read + io::Seek + Send + 'static,
+    {
+        struct BorrowedReader<'a, R> {
+            reader: &'a Mutex<R>,
+            position: u64,
+            remaining_length: u64,
+        }
+
+        impl<R> io::Read for BorrowedReader<'_, R>
+        where
+            R: io::Read + io::Seek,
+        {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.remaining_length == 0 {
+                    return Ok(0);
+                }
+                let to_read = std::cmp::min(buf.len().try_into().unwrap(), self.remaining_length)
+                    .try_into()
+                    .unwrap();
+                let mut reader = self.reader.lock().unwrap();
+                reader.seek(io::SeekFrom::Start(self.position))?;
+                let read_bytes = reader.read(&mut buf[..to_read])?;
+                self.position += read_bytes as u64;
+                self.remaining_length -= read_bytes as u64;
+                Ok(read_bytes)
+            }
+        }
+
+        struct ReaderBlockSource<R>(Arc<Mutex<R>>);
+
+        impl<R> RangeStreamBase for ReaderBlockSource<R>
+        where
+            R: io::Read + io::Seek,
+        {
+            type Reader<'a>
+                = BorrowedReader<'a, R>
+            where
+                Self: 'a;
+            fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>> {
+                let reader = &*self.0;
+                Ok(BorrowedReader {
+                    reader,
+                    position: range.start(),
+                    remaining_length: range.size(),
+                })
+            }
+        }
+        let size = reader.seek(io::SeekFrom::End(0))?;
+        reader.seek(io::SeekFrom::Start(0))?;
+
+        Ok(Block {
+            source: Arc::new(RangeStreamBaseWrap(ReaderBlockSource(Arc::new(
+                Mutex::new(reader),
+            )))),
             range: BoundedRange::from_size(size),
         })
     }
@@ -249,9 +281,12 @@ impl Block {
             F: RefFactory,
             for<'a> F::Output<'a>: io::Read,
         {
-            fn open_full_reader<'a>(&'a self) -> io::Result<Box<dyn io::Read + 'a>> {
-                let reader = self.0.create_new()?;
-                Ok(Box::new(reader))
+            type Reader<'a>
+                = F::Output<'a>
+            where
+                Self: 'a;
+            fn open_full_reader(&self) -> io::Result<Self::Reader<'_>> {
+                self.0.create_new()
             }
         }
 
@@ -266,8 +301,7 @@ impl Block {
         R: RangeBounds<u64>,
     {
         let range = Range::from_range_bounds(range);
-        self.source
-            .open_mem(self.range.new_relative(range).as_range())
+        self.source.open_mem(self.range.new_relative(range))
     }
 
     pub fn open_reader<'a, R>(&'a self, range: R) -> io::Result<Box<dyn io::Read + 'a>>
@@ -275,7 +309,6 @@ impl Block {
         R: RangeBounds<u64>,
     {
         let range = Range::from_range_bounds(range);
-        self.source
-            .open_reader(self.range.new_relative(range).as_range())
+        self.source.open_reader(self.range.new_relative(range))
     }
 }

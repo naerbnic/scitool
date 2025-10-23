@@ -141,6 +141,18 @@ where
         }
     }
 
+    pub fn start(&self) -> T {
+        self.start
+    }
+
+    pub fn end(&self) -> T {
+        self.end
+    }
+
+    pub fn size(&self) -> T {
+        self.end - self.start
+    }
+
     pub fn as_range(&self) -> Range<T> {
         Range {
             start: self.start,
@@ -163,5 +175,15 @@ where
         assert!(end <= self.end, "Relative range end out of bounds");
 
         BoundedRange { start, end }
+    }
+
+    pub fn cast_to<T2>(&self) -> BoundedRange<T2>
+    where
+        T2: num::PrimInt + num::Unsigned + 'static,
+    {
+        BoundedRange {
+            start: NumCast::from(self.start).expect("Failed to cast range start"),
+            end: NumCast::from(self.end).expect("Failed to cast range end"),
+        }
     }
 }
