@@ -1,9 +1,6 @@
 use std::io;
 
-use crate::utils::{
-    block::{block_source, block2::Block},
-    errors::OtherError,
-};
+use crate::utils::{block::block2::Block, errors::OtherError};
 
 use super::MemBlock;
 
@@ -24,15 +21,6 @@ impl Error {
         E: std::error::Error + Send + Sync + 'static,
     {
         Self::Other(OtherError::new(err))
-    }
-}
-
-impl From<block_source::Error> for Error {
-    fn from(value: block_source::Error) -> Self {
-        match value {
-            block_source::Error::Io(io_err) => Self::Io(io_err),
-            block_source::Error::Conversion(conv_err) => Self::Conversion(conv_err),
-        }
     }
 }
 
@@ -60,7 +48,7 @@ impl LazyBlock {
         F: Fn() -> Error + Clone + Send + Sync + 'static,
     {
         Self {
-            block: Block::from_error_fn(move || io::Error::new(io::ErrorKind::Other, err())),
+            block: Block::from_error_fn(move || io::Error::other(err())),
         }
     }
 
@@ -84,7 +72,6 @@ impl LazyBlock {
 
     /// Creates a new `LazyBlock` that transforms the result of the current block
     /// with the given function when opened.
-    #[must_use]
     pub fn map<F>(self, map_fn: F) -> Result<Self, Error>
     where
         F: Fn(MemBlock) -> Result<MemBlock, Error> + Send + Sync + 'static,
@@ -107,7 +94,6 @@ impl LazyBlock {
 
     /// Creates a new lazy block that checks properties about the resulting
     /// block.
-    #[must_use]
     pub fn with_check<F>(&self, check_fn: F) -> Result<Self, Error>
     where
         F: Fn(&MemBlock) -> Result<(), Error> + Send + Sync + 'static,

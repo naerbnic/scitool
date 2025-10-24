@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::utils::{
-    block::{Block, block_source, lazy_block},
+    block::{Block, lazy_block},
     buffer::{Buffer, BufferCursor},
     errors::{OtherError, prelude::*},
 };
@@ -45,15 +45,6 @@ impl From<lazy_block::Error> for StoreError {
             lazy_block::Error::Io(io_err) => Self::Io(io_err),
             lazy_block::Error::Conversion(err) => Self::Other(OtherError::new(err)),
             lazy_block::Error::Other(err) => Self::Other(err),
-        }
-    }
-}
-
-impl From<block_source::Error> for StoreError {
-    fn from(value: block_source::Error) -> Self {
-        match value {
-            block_source::Error::Io(io_err) => Self::Io(io_err),
-            block_source::Error::Conversion(err) => Self::Other(OtherError::new(err)),
         }
     }
 }

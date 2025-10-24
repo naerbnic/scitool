@@ -211,9 +211,9 @@ impl Block {
         P: AsRef<Path> + Send + Sync + 'static,
     {
         let size = std::fs::metadata(path.as_ref())?.len();
-        Ok(Builder::new()
+        Builder::new()
             .with_size(size)
-            .build_from_read_seek_factory(move || std::fs::File::open(path.as_ref()))?)
+            .build_from_read_seek_factory(move || std::fs::File::open(path.as_ref()))
     }
 
     /// Create a block from a [`MemBlock`] instance.

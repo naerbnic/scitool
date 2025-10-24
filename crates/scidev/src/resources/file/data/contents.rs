@@ -41,7 +41,7 @@ impl Contents {
         let decompressed_data = match raw_contents.header.compression_type() {
             0 => raw_contents.data,
             18..=20 => {
-                let unpacked_size = raw_contents.header.unpacked_size() as u64;
+                let unpacked_size = u64::from(raw_contents.header.unpacked_size());
                 let data = raw_contents.data.clone();
                 Block::builder()
                     .with_size(unpacked_size)

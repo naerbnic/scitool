@@ -1,7 +1,6 @@
 //! Types that are used to work with ranges of bytes data.
 
 mod block2;
-mod block_source;
 mod lazy_block;
 mod mem_block;
 mod output_block;
