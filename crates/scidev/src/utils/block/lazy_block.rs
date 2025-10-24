@@ -1,6 +1,12 @@
 use std::{io, sync::Arc};
 
-use crate::utils::{block::block_source, errors::OtherError};
+use crate::utils::{
+    block::{
+        block_source,
+        block2::{Block, Builder},
+    },
+    errors::OtherError,
+};
 
 use super::{BlockSource, MemBlock};
 
@@ -29,6 +35,16 @@ impl From<block_source::Error> for Error {
         match value {
             block_source::Error::Io(io_err) => Self::Io(io_err),
             block_source::Error::Conversion(conv_err) => Self::Conversion(conv_err),
+        }
+    }
+}
+
+impl From<Error> for io::Error {
+    fn from(value: Error) -> Self {
+        match value {
+            Error::Io(error) => error,
+            Error::Conversion(try_from_int_error) => io::Error::other(try_from_int_error),
+            Error::Other(other_error) => io::Error::other(other_error),
         }
     }
 }
@@ -148,7 +164,7 @@ impl LazyBlockImpl for MemLazyBlockImpl {
 /// This can be cheaply cloned, but cannot be split into smaller ranges.
 #[derive(Clone)]
 pub struct LazyBlock {
-    source: Arc<dyn LazyBlockImpl>,
+    block: Block,
 }
 
 impl LazyBlock {
@@ -157,83 +173,82 @@ impl LazyBlock {
         F: Fn() -> Error + Clone + Send + Sync + 'static,
     {
         Self {
-            source: Arc::new(ErrorLazyBlockImpl(err)),
+            block: Block::from_error_fn(move || io::Error::new(io::ErrorKind::Other, err())),
         }
     }
 
     #[must_use]
     pub fn from_block_source(source: BlockSource) -> Self {
         Self {
-            source: Arc::new(RangeLazyBlockImpl { source }),
+            block: source.inner().clone(),
         }
     }
 
     #[must_use]
     pub fn from_mem_block(block: MemBlock) -> Self {
         Self {
-            source: Arc::new(MemLazyBlockImpl { block }),
+            block: Block::from_mem_block(block),
         }
     }
 
     /// Opens a block from the lazy block source. Returns an error if the block
     /// cannot be loaded.
     pub fn open(&self) -> Result<MemBlock, Error> {
-        self.source.open()
+        self.block.open_mem(..).map_err(Error::Io)
     }
 
     /// Creates a new `LazyBlock` that transforms the result of the current block
     /// with the given function when opened.
     #[must_use]
-    pub fn map<F>(self, map_fn: F) -> Self
+    pub fn map<F>(self, map_fn: F) -> Result<Self, Error>
     where
         F: Fn(MemBlock) -> Result<MemBlock, Error> + Send + Sync + 'static,
     {
-        Self {
-            source: Arc::new(MapLazyBlockImpl {
-                base_impl: self.source,
-                mapper: move |reader: &mut dyn io::Read, body: &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>| {
-                    let mut data = Vec::new();
-                    reader.read_to_end(&mut data)?;
-                    let block = MemBlock::from_vec(data);
-                    let block = map_fn(block)
-                        .map_err(io::Error::other)?;
-                    body(&mut &block[..])?;
-                    Ok(())
-                },
-            }),
-        }
+        // Ok(Self {
+        //     block: Builder::new().build_from_mem_block_factory({
+        //         let this = self.clone();
+        //         move || {
+        //             let mem_block = this.open()?;
+        //             Ok(map_fn(mem_block)?)
+        //         }
+        //     })?,
+        // })
+
+        let mem_block = self.open()?;
+        Ok(Self {
+            block: Block::from_mem_block(map_fn(mem_block)?),
+        })
     }
 
     /// Creates a new lazy block that checks properties about the resulting
     /// block.
     #[must_use]
-    pub fn with_check<F>(&self, check_fn: F) -> Self
+    pub fn with_check<F>(&self, check_fn: F) -> Result<Self, Error>
     where
         F: Fn(&MemBlock) -> Result<(), Error> + Send + Sync + 'static,
     {
-        Self {
-            source: Arc::new(MapLazyBlockImpl {
-                base_impl: self.source.clone(),
-                mapper: move |reader: &mut dyn io::Read,
-                              body: &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>|
-                      -> io::Result<()> {
-                    let mut data = Vec::new();
-                    reader.read_to_end(&mut data)?;
-                    let block = MemBlock::from_vec(data);
-                    // FIXME: Handle errors correctly.
-                    check_fn(&block).map_err(io::Error::other)?;
-                    body(&mut &block[..])?;
-                    Ok(())
-                },
-            }),
-        }
+        // Ok(Self {
+        //     block: Builder::new().build_from_mem_block_factory({
+        //         let this = self.clone();
+        //         move || {
+        //             let mem_block = this.open()?;
+        //             check_fn(&mem_block)?;
+        //             Ok(mem_block)
+        //         }
+        //     })?,
+        // })
+        let mem_block = self.open()?;
+        check_fn(&mem_block)?;
+        Ok(Self {
+            block: Block::from_mem_block(mem_block),
+        })
     }
 }
 
 impl std::fmt::Debug for LazyBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("LazyBlock")
-            .field("size", &self.source.size())
+            .field("size", &self.block.len())
             .finish()
     }
 }

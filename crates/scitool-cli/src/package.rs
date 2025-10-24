@@ -98,11 +98,15 @@ impl Package {
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {
-            compressed_data.as_ref().map(|compressed_data| {
-                compressed_data
-                    .clone()
-                    .map(|block| decompress_dcl(&block).map_err(LazyBlockError::from_other))
-            })
+            compressed_data
+                .as_ref()
+                .map(|compressed_data| {
+                    compressed_data
+                        .clone()
+                        .map(|block| decompress_dcl(&block).map_err(LazyBlockError::from_other))
+                })
+                .transpose()
+                .map_err(io_err_map!(Other, "Failed to decompress data"))?
         };
 
         Ok(Self {

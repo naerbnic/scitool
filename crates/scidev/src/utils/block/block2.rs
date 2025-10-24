@@ -1,5 +1,6 @@
 mod empty_impl;
 mod error_impl;
+mod mem_factory_impl;
 mod mem_impl;
 mod read_factory_impl;
 mod read_seek_factory_impl;
@@ -16,7 +17,8 @@ use crate::utils::{
     block::{
         MemBlock,
         block2::{
-            empty_impl::EmptyBlockImpl, error_impl::ErrorBlockImpl, mem_impl::ContainedMemBlock,
+            empty_impl::EmptyBlockImpl, error_impl::ErrorBlockImpl,
+            mem_factory_impl::MemFactoryImpl, mem_impl::ContainedMemBlock,
             read_factory_impl::ReadFactoryImpl, read_seek_factory_impl::ReadSeekFactorySource,
             read_seek_impl::ReadSeekImpl, seq_impl::SequenceBlockImpl,
         },
@@ -38,7 +40,7 @@ trait BlockBase {
 }
 
 trait MemBlockBase {
-    fn load_mem_block(&self) -> io::Result<&MemBlock>;
+    fn load_mem_block(&self) -> io::Result<MemBlock>;
 }
 
 trait RangeStreamBase {
@@ -176,6 +178,16 @@ impl Block {
     pub fn from_error<E>(error: E) -> Self
     where
         E: Into<io::Error> + Clone + Send + Sync + 'static,
+    {
+        let source = ErrorBlockImpl::new(move || error.clone().into());
+        Self::from_source_size(source, 0)
+    }
+
+    /// Returns a block that always errors on access.
+    #[must_use]
+    pub fn from_error_fn<F>(error: F) -> Self
+    where
+        F: Fn() -> io::Error + Clone + Send + Sync + 'static,
     {
         let source = ErrorBlockImpl::new(error);
         Self::from_source_size(source, 0)
@@ -321,6 +333,23 @@ impl Builder {
 
         Ok(Block::from_source_size(
             RangeStreamBaseWrap(ReadSeekFactorySource::new(factory)),
+            size,
+        ))
+    }
+
+    pub fn build_from_mem_block_factory<F>(self, factory: F) -> io::Result<Block>
+    where
+        F: RefFactory + Send + Sync + 'static,
+        for<'a> F::Output<'a>: Into<MemBlock>,
+    {
+        let size = if let Some(size) = self.size {
+            size
+        } else {
+            let mem_block: MemBlock = factory.create_new()?.into();
+            mem_block.len() as u64
+        };
+        Ok(Block::from_source_size(
+            MemBlockWrap(MemFactoryImpl::new(factory)),
             size,
         ))
     }

@@ -44,10 +44,11 @@ impl Contents {
 
         let decompressed_data = match raw_contents.header.compression_type() {
             0 => raw_contents.data.to_lazy_block(),
-            18 => raw_contents
+            18..=20 => raw_contents
                 .data
                 .to_lazy_block()
-                .map(move |block| Ok(decompress_dcl(&block).with_other_err()?)),
+                .map(move |block| Ok(decompress_dcl(&block).with_other_err()?))
+                .map_err(ConversionError::new)?,
             _ => {
                 // Let's be lazy here.
                 LazyBlock::from_error(move || {
@@ -59,12 +60,14 @@ impl Contents {
                 })
             }
         };
-        let decompressed_data = decompressed_data.with_check(move |block| {
-            if block.size() != raw_contents.header.unpacked_size() as usize {
-                return Err(io::Error::other("Decompressed data size mismatch").into());
-            }
-            Ok(())
-        });
+        let decompressed_data = decompressed_data
+            .with_check(move |block| {
+                if block.size() != raw_contents.header.unpacked_size() as usize {
+                    return Err(io::Error::other("Decompressed data size mismatch").into());
+                }
+                Ok(())
+            })
+            .map_err(ConversionError::new)?;
 
         Ok(Contents {
             id: ResourceId::new(

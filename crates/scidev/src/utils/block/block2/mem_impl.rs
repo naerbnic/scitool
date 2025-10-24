@@ -11,7 +11,7 @@ impl ContainedMemBlock {
 }
 
 impl MemBlockBase for ContainedMemBlock {
-    fn load_mem_block(&self) -> io::Result<&MemBlock> {
-        Ok(&self.0)
+    fn load_mem_block(&self) -> io::Result<MemBlock> {
+        Ok(self.0.clone())
     }
 }

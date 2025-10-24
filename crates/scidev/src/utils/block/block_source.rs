@@ -1,11 +1,7 @@
-use std::{
-    io::{self, Read as _, Seek as _},
-    ops::RangeBounds,
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::{io, ops::RangeBounds, path::Path};
 
 use crate::utils::{
+    block::block2::{Block, Builder},
     buffer::Buffer,
     errors::{AnyInvalidDataError, NoError},
     mem_reader::{self, BufferMemReader, MemReader, NoErrorResultExt as _},
@@ -23,91 +19,11 @@ pub enum Error {
     Conversion(#[from] std::num::TryFromIntError),
 }
 
-trait BlockSourceImpl: Send + Sync {
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error>;
-}
-
-struct ReaderBlockSourceImpl<R>(Mutex<R>);
-
-impl<R> BlockSourceImpl for ReaderBlockSourceImpl<R>
-where
-    R: io::Read + io::Seek + Send,
-{
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let mut reader = self.0.lock().unwrap();
-        reader.seek(io::SeekFrom::Start(start))?;
-        let mut data = vec![0; size.try_into()?];
-        reader.read_exact(&mut data)?;
-        Ok(MemBlock::from_vec(data))
-    }
-}
-
-struct PathBlockSourceImpl<P>(P);
-
-impl<P> BlockSourceImpl for PathBlockSourceImpl<P>
-where
-    P: AsRef<Path> + Sync + Send,
-{
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let mut file = std::fs::File::open(self.0.as_ref())?;
-        file.seek(io::SeekFrom::Start(start))?;
-        let mut data = vec![0; size.try_into()?];
-        file.read_exact(&mut data)?;
-
-        Ok(MemBlock::from_vec(data))
-    }
-}
-
-struct VecBlockSourceImpl {
-    data: Vec<u8>,
-}
-
-impl BlockSourceImpl for VecBlockSourceImpl {
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let start: usize = start.try_into()?;
-        let size: usize = size.try_into()?;
-        let end = start + size;
-        if end > self.data.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Tried to read block from {} to {}, but data is only {} bytes long",
-                    start,
-                    end,
-                    self.data.len()
-                ),
-            )
-            .into());
-        }
-        Ok(MemBlock::from_vec(self.data[start..end].to_vec()))
-    }
-}
-
-/// Public trait for types that can be used as a source of blocks.
-pub trait CustomBlockSource {
-    fn read_block(&self, start: u64, size: u64) -> Result<Vec<u8>, Error>;
-    fn size(&self) -> u64;
-}
-
-struct CustomBlockSourceImpl<T>(T);
-
-impl<T> BlockSourceImpl for CustomBlockSourceImpl<T>
-where
-    T: CustomBlockSource + Send + Sync,
-{
-    fn read_block(&self, start: u64, size: u64) -> Result<MemBlock, Error> {
-        let data = self.0.read_block(start, size)?;
-        Ok(MemBlock::from_vec(data))
-    }
-}
-
 /// A source of blocks. These can be loaded lazily, and still can be split
 /// into sub-block-sources.
 #[derive(Clone)]
 pub struct BlockSource {
-    start: u64,
-    size: u64,
-    source_impl: Arc<dyn BlockSourceImpl>,
+    block: Block,
 }
 
 impl BlockSource {
@@ -119,9 +35,9 @@ impl BlockSource {
     {
         let size = std::fs::metadata(path.as_ref())?.len();
         Ok(Self {
-            start: 0,
-            size,
-            source_impl: Arc::new(PathBlockSourceImpl(path)),
+            block: Builder::new()
+                .with_size(size)
+                .build_from_read_seek_factory(move || std::fs::File::open(path.as_ref()))?,
         })
     }
 
@@ -129,48 +45,32 @@ impl BlockSource {
     where
         R: io::Read + io::Seek + Send + 'static,
     {
-        let mut reader = io::BufReader::new(reader);
-        let size = reader.seek(io::SeekFrom::End(0))?;
         Ok(Self {
-            start: 0,
-            size,
-            source_impl: Arc::new(ReaderBlockSourceImpl(Mutex::new(reader))),
+            block: Builder::new().build_from_read_seek(reader)?,
         })
     }
 
     #[must_use]
     pub fn from_vec(data: Vec<u8>) -> Self {
-        let size = data.len() as u64;
         Self {
-            start: 0,
-            size,
-            source_impl: Arc::new(VecBlockSourceImpl { data }),
+            block: Block::from_mem_block(MemBlock::from_vec(data)),
         }
     }
 
-    #[must_use]
-    pub fn from_custom<T>(source: T) -> Self
-    where
-        T: CustomBlockSource + Send + Sync + 'static,
-    {
-        let size = source.size();
-        Self {
-            start: 0,
-            size,
-            source_impl: Arc::new(CustomBlockSourceImpl(source)),
-        }
+    pub fn inner(&self) -> &Block {
+        &self.block
     }
 
     /// Returns the size of the block source.
     #[must_use]
     pub fn size(&self) -> u64 {
-        self.size
+        self.block.len()
     }
 
     /// Opens the block source, returning the block of data. Returns an error
     /// if the data cannot be read and/or loaded.
     pub fn open(&self) -> Result<MemBlock, Error> {
-        self.source_impl.read_block(self.start, self.size)
+        Ok(self.block.open_mem(..)?)
     }
 
     /// Returns a sub-block source that represents a subrange of the current
@@ -180,44 +80,17 @@ impl BlockSource {
     where
         R: RangeBounds<u64>,
     {
-        let start = match range.start_bound() {
-            std::ops::Bound::Included(&start) => start,
-            std::ops::Bound::Excluded(&start) => start + 1,
-            std::ops::Bound::Unbounded => 0,
-        };
-
-        let end = match range.end_bound() {
-            std::ops::Bound::Included(&end) => end + 1,
-            std::ops::Bound::Excluded(&end) => end,
-            std::ops::Bound::Unbounded => self.size,
-        };
-
-        // Actual start/end are offsets from self.start
-        let start = self.start + start;
-        let end = self.start + end;
-
-        assert!(start <= end);
-        assert!(
-            end <= self.start + self.size,
-            "Start: {} End: {} Size: {}",
-            start,
-            end,
-            self.start + self.size
-        );
-
         Self {
-            start,
-            size: end - start,
-            source_impl: self.source_impl.clone(),
+            block: self.block.subblock(range),
         }
     }
 
     #[must_use]
     pub fn split_at(self, at: u64) -> (Self, Self) {
         assert!(
-            at <= self.size,
+            at <= self.size(),
             "Tried to split a block of size {} at offset {}",
-            self.size,
+            self.size(),
             at
         );
         (self.clone().subblock(..at), self.subblock(at..))

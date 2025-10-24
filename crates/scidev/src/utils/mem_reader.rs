@@ -310,7 +310,6 @@ where
     }
 
     #[track_caller]
-    #[allow(unsafe_code)]
     fn err_with_context<E>(&self) -> impl FnOnce(E) -> Error<B::Error>
     where
         E: StdError + Send + Sync + 'static,

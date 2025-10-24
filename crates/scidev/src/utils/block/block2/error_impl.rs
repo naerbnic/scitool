@@ -5,28 +5,28 @@ use crate::utils::{
     range::BoundedRange,
 };
 
-pub(super) struct ErrorBlockImpl<E> {
-    error: E,
+pub(super) struct ErrorBlockImpl<F> {
+    error: F,
 }
 
-impl<E> ErrorBlockImpl<E>
+impl<F> ErrorBlockImpl<F>
 where
-    E: Into<io::Error> + Clone,
+    F: Fn() -> io::Error + Clone,
 {
-    pub(super) fn new(error: E) -> Self {
+    pub(super) fn new(error: F) -> Self {
         Self { error }
     }
 }
 
-impl<E> BlockBase for ErrorBlockImpl<E>
+impl<F> BlockBase for ErrorBlockImpl<F>
 where
-    E: Into<io::Error> + Clone,
+    F: Fn() -> io::Error + Clone,
 {
     fn open_mem(&self, _range: BoundedRange<u64>) -> io::Result<MemBlock> {
-        Err(self.error.clone().into())
+        Err((self.error)())
     }
 
     fn open_reader<'a>(&'a self, _range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
-        Err(self.error.clone().into())
+        Err((self.error)())
     }
 }
