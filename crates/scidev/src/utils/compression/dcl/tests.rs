@@ -98,6 +98,6 @@ fn empty_reader_roundtrip_works() -> io::Result<()> {
 
     io::copy(&mut reader, &mut decompressed)?;
 
-    assert_eq!(&*data, &*decompressed);
+    assert_eq!(data, &*decompressed);
     Ok(())
 }

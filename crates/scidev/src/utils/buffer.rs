@@ -1,6 +1,10 @@
-use std::ops::{Bound, RangeBounds};
+use std::ops::RangeBounds;
 
-use crate::utils::{convert::convert_if_different, errors::NoError};
+use crate::utils::{
+    convert::convert_if_different,
+    errors::NoError,
+    range::{BoundedRange, Range},
+};
 
 /// An abstraction over types that contain a buffer of bytes.
 ///
@@ -23,7 +27,7 @@ pub trait SplittableBuffer: Buffer + Sized + Clone {
     ///
     /// This will be of the same type as the source object.
     #[must_use]
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self;
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self;
 }
 
 impl Buffer for &[u8] {
@@ -68,10 +72,8 @@ where
 }
 
 impl SplittableBuffer for &[u8] {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
-        assert!(start <= end);
-        assert!(end <= self.len());
-        &self[start..end]
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self {
+        &self[range.start()..range.end()]
     }
 }
 
@@ -148,12 +150,12 @@ where
 
 /// A buffer that can be split and can fail when reading.
 pub trait SplittableFallibleBuffer: FallibleBuffer + Sized + Clone {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Result<Self, Self::Error>;
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error>;
 }
 
 impl<T: SplittableBuffer> SplittableFallibleBuffer for T {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Result<Self, Self::Error> {
-        Ok(self.sub_buffer_from_range(start, end))
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
+        Ok(self.sub_buffer_from_range(range))
     }
 }
 
@@ -201,24 +203,12 @@ impl<B: Buffer> bytes::Buf for BufferCursor<B> {
 pub trait BufferExt: SplittableFallibleBuffer {
     fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Result<Self, Self::Error>
     where
-        T: Into<usize> + Copy,
+        T: num::PrimInt + num::Unsigned + Into<usize> + 'static,
     {
-        let start = match range.start_bound() {
-            Bound::Included(&start) => start.into(),
-            Bound::Excluded(&start) => start.into() + 1,
-            Bound::Unbounded => 0usize,
-        };
+        let range = Range::from_range(range);
+        let self_range = BoundedRange::from_size(self.size()).new_relative(range.coerce_to());
 
-        let end = match range.end_bound() {
-            Bound::Included(&end) => end.into() + 1,
-            Bound::Excluded(&end) => end.into(),
-            Bound::Unbounded => self.size(),
-        };
-
-        assert!(start <= end);
-
-        assert!(start <= end);
-        self.sub_buffer_from_range(start, end)
+        self.sub_buffer_from_range(self_range)
     }
 }
 

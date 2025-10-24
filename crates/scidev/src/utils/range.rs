@@ -47,6 +47,17 @@ where
         }
     }
 
+    pub fn coerce_to<T2>(&self) -> Range<T2>
+    where
+        T: Into<T2>,
+        T2: num::PrimInt + num::Unsigned + 'static,
+    {
+        Range {
+            start: self.start.into(),
+            end: self.end.as_ref().map(|v| (*v).into()),
+        }
+    }
+
     pub fn is_full_range(&self) -> bool {
         self.start == T::zero() && self.end.is_none()
     }

@@ -129,9 +129,9 @@ impl Buffer for MemBlock {
 }
 
 impl SplittableBuffer for MemBlock {
-    fn sub_buffer_from_range(&self, start: usize, end: usize) -> Self {
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self {
         Self {
-            range: self.range.new_relative(start..end),
+            range: self.range.new_relative(range),
             data: self.data.clone(),
         }
     }
