@@ -1,5 +1,5 @@
 use crate::utils::{
-    block::FromBlockSource,
+    block::FromBlock,
     mem_reader::{self, MemReader, Parse},
 };
 
@@ -54,7 +54,7 @@ impl Parse for RawEntryHeader {
     }
 }
 
-impl FromBlockSource for RawEntryHeader {
+impl FromBlock for RawEntryHeader {
     fn read_size() -> usize {
         9
     }

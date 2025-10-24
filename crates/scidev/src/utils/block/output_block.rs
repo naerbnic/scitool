@@ -3,7 +3,7 @@ use std::{io::Write, sync::Arc};
 use bytes::Buf;
 
 use crate::utils::{
-    block::BlockSource,
+    block::Block,
     buffer::{Buffer, BufferCursor, SplittableBuffer},
     errors::{OtherError, ensure_other, prelude::*},
 };
@@ -122,26 +122,22 @@ impl OutputBlockImpl for BytesOutputBlock {
 }
 
 struct BlockSourceOutputBlock {
-    source: BlockSource,
+    source: Block,
     max_block_size: usize,
 }
 
 impl OutputBlockImpl for BlockSourceOutputBlock {
     fn size(&self) -> u64 {
-        self.source.size()
+        self.source.len()
     }
 
     fn blocks(&self) -> BufIter<'_> {
-        let num_blocks = self.source.size().div_ceil(self.max_block_size as u64);
+        let num_blocks = self.source.len().div_ceil(self.max_block_size as u64);
         Box::new((0..num_blocks).map(move |i| {
             let start = i * self.max_block_size as u64;
-            let end = std::cmp::min(start + self.max_block_size as u64, self.source.size());
+            let end = std::cmp::min(start + self.max_block_size as u64, self.source.len());
             Ok(BlockData::from_buffer(
-                self.source
-                    .clone()
-                    .subblock(start..end)
-                    .open()
-                    .with_other_err()?,
+                self.source.clone().open_mem(start..end).with_other_err()?,
             ))
         }))
     }
@@ -170,7 +166,7 @@ impl OutputBlock {
     }
 
     #[must_use]
-    pub fn from_block_source(source: BlockSource) -> Self {
+    pub fn from_block_source(source: Block) -> Self {
         Self(Arc::new(BlockSourceOutputBlock {
             source,
             max_block_size: 4 * 1024 * 1024,

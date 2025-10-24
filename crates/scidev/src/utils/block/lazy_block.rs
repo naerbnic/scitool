@@ -1,14 +1,11 @@
-use std::{io, sync::Arc};
+use std::io;
 
 use crate::utils::{
-    block::{
-        block_source,
-        block2::{Block, Builder},
-    },
+    block::{block_source, block2::Block},
     errors::OtherError,
 };
 
-use super::{BlockSource, MemBlock};
+use super::MemBlock;
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -49,116 +46,6 @@ impl From<Error> for io::Error {
     }
 }
 
-trait LazyBlockImpl: Send + Sync {
-    fn open(&self) -> Result<MemBlock, Error>;
-    fn apply_contents(
-        &self,
-        body: &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>,
-    ) -> Result<(), Error> {
-        let block = self.open()?;
-        body(&mut &block[..]).map_err(Error::Io)
-    }
-    fn size(&self) -> Option<u64>;
-}
-
-struct RangeLazyBlockImpl {
-    source: BlockSource,
-}
-
-impl LazyBlockImpl for RangeLazyBlockImpl {
-    fn open(&self) -> Result<MemBlock, Error> {
-        Ok(self.source.open()?)
-    }
-
-    fn size(&self) -> Option<u64> {
-        Some(self.source.size())
-    }
-}
-
-struct ErrorLazyBlockImpl<F>(F);
-
-impl<F> LazyBlockImpl for ErrorLazyBlockImpl<F>
-where
-    F: Fn() -> Error + Clone + Send + Sync + 'static,
-{
-    fn open(&self) -> Result<MemBlock, Error> {
-        Err((self.0)())
-    }
-
-    fn size(&self) -> Option<u64> {
-        None
-    }
-}
-
-/// A trait that captures the ability to map a writer to a wrapped kind of
-/// writer.
-trait ReadMapper {
-    fn map(
-        &self,
-        reader: &mut dyn io::Read,
-        body: &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>,
-    ) -> io::Result<()>;
-}
-
-impl<F> ReadMapper for F
-where
-    F: Fn(&mut dyn io::Read, &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>) -> io::Result<()>,
-{
-    fn map(
-        &self,
-        reader: &mut dyn io::Read,
-        body: &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>,
-    ) -> io::Result<()> {
-        (self)(reader, body)
-    }
-}
-
-struct MapLazyBlockImpl<'a, Mapper> {
-    base_impl: Arc<dyn LazyBlockImpl + 'a>,
-    mapper: Mapper,
-}
-
-impl<Mapper> LazyBlockImpl for MapLazyBlockImpl<'_, Mapper>
-where
-    Mapper: ReadMapper + Send + Sync,
-{
-    fn size(&self) -> Option<u64> {
-        None
-    }
-
-    fn open(&self) -> Result<MemBlock, Error> {
-        let mut data = Vec::new();
-        self.apply_contents(&mut |read| {
-            read.read_to_end(&mut data)?;
-            Ok(())
-        })?;
-        Ok(MemBlock::from_vec(data))
-    }
-
-    fn apply_contents(
-        &self,
-        body: &mut dyn FnMut(&mut dyn io::Read) -> io::Result<()>,
-    ) -> Result<(), Error> {
-        self.base_impl
-            .apply_contents(&mut |read| self.mapper.map(read, body))?;
-        Ok(())
-    }
-}
-
-struct MemLazyBlockImpl {
-    block: MemBlock,
-}
-
-impl LazyBlockImpl for MemLazyBlockImpl {
-    fn open(&self) -> Result<MemBlock, Error> {
-        Ok(self.block.clone())
-    }
-
-    fn size(&self) -> Option<u64> {
-        Some(self.block.size() as u64)
-    }
-}
-
 /// A block that is lazily loaded on demand.
 ///
 /// This can be cheaply cloned, but cannot be split into smaller ranges.
@@ -178,10 +65,8 @@ impl LazyBlock {
     }
 
     #[must_use]
-    pub fn from_block_source(source: BlockSource) -> Self {
-        Self {
-            block: source.inner().clone(),
-        }
+    pub fn from_block_source(source: Block) -> Self {
+        Self { block: source }
     }
 
     #[must_use]

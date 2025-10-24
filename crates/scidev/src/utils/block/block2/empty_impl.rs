@@ -5,6 +5,7 @@ use crate::utils::{
     range::BoundedRange,
 };
 
+#[derive(Debug)]
 pub(super) struct EmptyBlockImpl;
 
 impl BlockBase for EmptyBlockImpl {

@@ -2,6 +2,7 @@ use std::io;
 
 use crate::utils::block::{MemBlock, block2::MemBlockBase};
 
+#[derive(Debug)]
 pub(super) struct ContainedMemBlock(MemBlock);
 
 impl ContainedMemBlock {

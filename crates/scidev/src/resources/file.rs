@@ -12,7 +12,7 @@ use self::patch::try_patch_from_file;
 use crate::{
     resources::{ConversionError, file::patch::write_resource_to_patch_file},
     utils::{
-        block::{BlockSource, BlockSourceError, LazyBlock, MemBlock, MemBlockFromReaderError},
+        block::{Block, MemBlock, MemBlockFromReaderError},
         errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
         mem_reader::{self, BufferMemReader, Parse as _},
     },
@@ -29,7 +29,7 @@ mod patch;
 #[derive(Debug, thiserror::Error)]
 pub(super) enum Error {
     #[error("I/O error during operation: {0}")]
-    Io(#[from] io::Error),
+    Io(io::Error),
     #[error("Malformed data: {0}")]
     MalformedData(#[from] AnyInvalidDataError),
     #[error(transparent)]
@@ -65,13 +65,11 @@ impl From<mem_reader::Error<NoError>> for Error {
     }
 }
 
-impl From<BlockSourceError> for Error {
-    fn from(err: BlockSourceError) -> Self {
-        match err {
-            BlockSourceError::Io(io_err) => Self::Io(io_err),
-            BlockSourceError::Conversion(conv_err) => {
-                Self::Conversion(ConversionError::new(conv_err))
-            }
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        match err.downcast() {
+            Ok(err) => err,
+            Err(err) => Self::Io(err),
         }
     }
 }
@@ -93,7 +91,7 @@ pub(super) fn read_resources(
     patches: &[Resource],
 ) -> Result<ResourceSet, Error> {
     let map_file = MemBlock::from_reader(File::open(map_file)?)?;
-    let data_file = DataFile::new(BlockSource::from_path(data_file.to_path_buf())?);
+    let data_file = DataFile::new(Block::from_path(data_file.to_path_buf())?);
     let resource_locations =
         map::ResourceLocationSet::parse(&mut BufferMemReader::from_ref(&map_file))?;
 
@@ -262,10 +260,10 @@ pub struct ResourceLoadError(#[from] OtherError);
 
 #[derive(Debug, Clone)]
 pub enum ExtraData {
-    Simple(LazyBlock),
+    Simple(Block),
     Composite {
-        ext_header: LazyBlock,
-        extra_data: LazyBlock,
+        ext_header: Block,
+        extra_data: Block,
     },
 }
 
@@ -278,12 +276,12 @@ struct ResourceContents {
     extra_data: Option<ExtraData>,
 
     /// The main data source for the resource.
-    source: LazyBlock,
+    source: Block,
 }
 
 impl ResourceContents {
     #[must_use]
-    pub(crate) fn from_source(source: LazyBlock) -> Self {
+    pub(crate) fn from_source(source: Block) -> Self {
         ResourceContents {
             extra_data: None,
             source,
@@ -301,7 +299,7 @@ pub struct Resource {
 
 impl Resource {
     #[must_use]
-    pub fn new(id: ResourceId, source: LazyBlock) -> Self {
+    pub fn new(id: ResourceId, source: Block) -> Self {
         Resource {
             id,
             contents: ResourceContents {
@@ -332,7 +330,7 @@ impl Resource {
     }
 
     pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
-        Ok(self.contents.source.open().with_other_err()?)
+        Ok(self.contents.source.open_mem(..).with_other_err()?)
     }
 
     pub fn write_patch<W: Write>(&self, writer: W) -> Result<(), ResourcePatchError> {

@@ -1,14 +1,11 @@
 use std::io;
 
-use crate::{
-    resources::ConversionError,
-    utils::{block::FromBlockSourceError, errors::AnyInvalidDataError},
-};
+use crate::{resources::ConversionError, utils::errors::AnyInvalidDataError};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error(transparent)]
-    Io(#[from] io::Error),
+    Io(io::Error),
     #[error(transparent)]
     MemReader(#[from] AnyInvalidDataError),
     #[error(transparent)]
@@ -17,12 +14,11 @@ pub(crate) enum Error {
     InvalidResourceLocation { location: usize, reason: String },
 }
 
-impl From<FromBlockSourceError> for Error {
-    fn from(err: FromBlockSourceError) -> Self {
-        match err {
-            FromBlockSourceError::Io(io_err) => Self::Io(io_err),
-            FromBlockSourceError::MemReader(mem_err) => Self::MemReader(mem_err),
-            FromBlockSourceError::Conversion(err) => Self::Conversion(ConversionError::new(err)),
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        match err.downcast() {
+            Ok(err) => err,
+            Err(err) => Self::Io(err),
         }
     }
 }

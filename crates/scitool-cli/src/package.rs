@@ -13,7 +13,7 @@ use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::ResourceId,
     utils::{
-        block::{BlockSource, LazyBlock, LazyBlockError},
+        block::{Block, LazyBlock, LazyBlockError},
         compression::dcl::decompress_dcl,
     },
 };
@@ -85,7 +85,7 @@ impl Package {
 
         let compressed_path = base_path.join(COMPRESSED_BIN_PATH);
         let compressed_data = if std::fs::exists(&compressed_path)? {
-            let block_source = BlockSource::from_path(compressed_path)
+            let block_source = Block::from_path(compressed_path)
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {
@@ -94,7 +94,7 @@ impl Package {
 
         let raw_data_path = base_path.join(RAW_BIN_PATH);
         let raw_data = if std::fs::exists(&raw_data_path)? {
-            let block_source = BlockSource::from_path(raw_data_path)
+            let block_source = Block::from_path(raw_data_path)
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
             Some(LazyBlock::from_block_source(block_source))
         } else {

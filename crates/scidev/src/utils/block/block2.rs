@@ -8,8 +8,10 @@ mod read_seek_impl;
 mod seq_impl;
 
 use std::{
+    fmt::Debug,
     io::{self, Read as _, Seek as _},
     ops::RangeBounds,
+    path::Path,
     sync::Arc,
 };
 
@@ -24,6 +26,7 @@ use crate::utils::{
         },
     },
     buffer::BufferExt as _,
+    mem_reader::{self, BufferMemReader, MemReader as _, NoErrorResultExt as _},
     range::{BoundedRange, Range},
 };
 
@@ -31,7 +34,7 @@ use crate::utils::{
 ///
 /// This is a dyn-compatible trait that provides the core functionality for
 /// Block sources.
-trait BlockBase {
+trait BlockBase: Debug {
     // Open as loaded data, possibly shared.
     fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock>;
 
@@ -39,24 +42,25 @@ trait BlockBase {
     fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>>;
 }
 
-trait MemBlockBase {
+trait MemBlockBase: Debug {
     fn load_mem_block(&self) -> io::Result<MemBlock>;
 }
 
-trait RangeStreamBase {
+trait RangeStreamBase: Debug {
     type Reader<'a>: io::Read + 'a
     where
         Self: 'a;
     fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>>;
 }
 
-trait FullStreamBase {
+trait FullStreamBase: Debug {
     type Reader<'a>: io::Read + 'a
     where
         Self: 'a;
     fn open_full_reader(&self) -> io::Result<Self::Reader<'_>>;
 }
 
+#[derive(Debug)]
 struct MemBlockWrap<T>(T);
 
 impl<T> BlockBase for MemBlockWrap<T>
@@ -80,6 +84,7 @@ where
     }
 }
 
+#[derive(Debug)]
 struct RangeStreamBaseWrap<T>(T);
 
 impl<T> BlockBase for RangeStreamBaseWrap<T>
@@ -98,6 +103,7 @@ where
     }
 }
 
+#[derive(Debug)]
 struct FullStreamBaseWrap<T>(T);
 
 impl<T> BlockBase for FullStreamBaseWrap<T>
@@ -149,7 +155,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Block {
     source: Arc<dyn BlockBase + Send + Sync>,
     range: BoundedRange<u64>,
@@ -183,6 +189,11 @@ impl Block {
         Self::from_source_size(source, 0)
     }
 
+    #[must_use]
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        Self::from_mem_block(MemBlock::from_vec(data))
+    }
+
     /// Returns a block that always errors on access.
     #[must_use]
     pub fn from_error_fn<F>(error: F) -> Self
@@ -191,6 +202,18 @@ impl Block {
     {
         let source = ErrorBlockImpl::new(error);
         Self::from_source_size(source, 0)
+    }
+
+    /// Creates a block source that represents the contents of a path at the
+    /// given path. Returns an error if the file cannot be opened.
+    pub fn from_path<P>(path: P) -> io::Result<Self>
+    where
+        P: AsRef<Path> + Send + Sync + 'static,
+    {
+        let size = std::fs::metadata(path.as_ref())?.len();
+        Ok(Builder::new()
+            .with_size(size)
+            .build_from_read_seek_factory(move || std::fs::File::open(path.as_ref()))?)
     }
 
     /// Create a block from a [`MemBlock`] instance.
@@ -257,6 +280,17 @@ impl Block {
             source: self.source.clone(),
             range: self.range.new_relative(range),
         }
+    }
+
+    #[must_use]
+    pub fn split_at(self, at: u64) -> (Self, Self) {
+        assert!(
+            at <= self.len(),
+            "Tried to split a block of size {} at offset {}",
+            self.len(),
+            at
+        );
+        (self.clone().subblock(..at), self.subblock(at..))
     }
 }
 
@@ -358,6 +392,29 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub trait FromBlock: mem_reader::Parse {
+    fn read_size() -> usize;
+
+    fn from_block_source(source: &Block) -> io::Result<(Self, Block)> {
+        if Self::read_size() as u64 > source.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "Tried to read {} bytes from block source of size {}",
+                    Self::read_size(),
+                    source.len()
+                ),
+            ));
+        }
+        let block = source.subblock(..Self::read_size() as u64).open_mem(..)?;
+        let mut reader = BufferMemReader::from_ref(&block);
+        let parse_result = Self::parse(&mut reader);
+        let value = parse_result.remove_no_error().map_err(io::Error::other)?;
+        let rest = source.subblock(reader.tell() as u64..);
+        Ok((value, rest))
     }
 }
 

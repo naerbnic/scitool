@@ -205,8 +205,8 @@ impl ProcessViewResources {
                     );
                 };
 
-                let ext_data = ext_header.open()?;
-                let extra_data = extra_data.open()?;
+                let ext_data = ext_header.open_mem(..)?;
+                let extra_data = extra_data.open_mem(..)?;
                 let file_data = resource.load_data()?;
 
                 eprintln!(

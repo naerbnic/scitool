@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     io,
     sync::{Arc, Mutex},
 };
@@ -33,7 +34,10 @@ where
 
 pub(super) struct ReadSeekImpl<R>(Arc<Mutex<R>>);
 
-impl<R> ReadSeekImpl<R> {
+impl<R> ReadSeekImpl<R>
+where
+    R: io::Read + io::Seek,
+{
     pub(super) fn new(reader: R) -> Self {
         Self(Arc::new(Mutex::new(reader)))
     }
@@ -54,5 +58,14 @@ where
             position: range.start(),
             remaining_length: range.size(),
         })
+    }
+}
+
+impl<R> Debug for ReadSeekImpl<R>
+where
+    R: io::Read + io::Seek,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadSeekImpl").finish()
     }
 }

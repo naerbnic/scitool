@@ -1,21 +1,21 @@
 use crate::{
     resources::file::map::ResourceLocation,
-    utils::block::{BlockSource, FromBlockSource},
+    utils::block::{Block, FromBlock as _},
 };
 
 use super::{contents::Contents, errors::Error, raw_header::RawEntryHeader};
 
 pub(crate) struct DataFile {
-    data: BlockSource,
+    data: Block,
 }
 
 impl DataFile {
-    pub(crate) fn new(data: BlockSource) -> Self {
+    pub(crate) fn new(data: Block) -> Self {
         DataFile { data }
     }
 
     pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, Error> {
-        if self.data.size() < u64::from(location.file_offset()) {
+        if self.data.len() < u64::from(location.file_offset()) {
             return Err(Error::InvalidResourceLocation {
                 location: location.file_offset() as usize,
                 reason: "file offset is beyond end of file".into(),
@@ -28,7 +28,7 @@ impl DataFile {
 
         let packed_size = u64::from(header.packed_size());
 
-        if rest.size() < packed_size {
+        if rest.len() < packed_size {
             return Err(Error::InvalidResourceLocation {
                 location: location.file_offset() as usize,
                 reason: format!("resource data ({packed_size} bytes) extends beyond end of file"),
@@ -64,10 +64,10 @@ mod tests {
         let id = ResourceId::new(ResourceType::Pic, 100);
         let location = ResourceLocation::new(id, 0);
 
-        let data_file = DataFile::new(BlockSource::from_vec(data.to_vec()));
+        let data_file = DataFile::new(Block::from_vec(data.to_vec()));
         let contents = data_file.read_contents(location).unwrap();
         assert_eq!(contents.id(), &id);
-        let block = contents.data().open().unwrap();
+        let block = contents.data().open_mem(..).unwrap();
         assert_eq!(block.as_ref(), &[0xFA, 0xDE, 0xDF, 0xAE]);
     }
 }

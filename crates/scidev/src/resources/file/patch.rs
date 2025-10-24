@@ -2,9 +2,9 @@ use std::io::Write;
 use std::{ffi::OsStr, path::Path};
 
 use crate::resources::file::{ExtraData, ResourceContents};
-use crate::utils::block::BlockSource;
 
 use crate::resources::{ResourceId, ResourceType};
+use crate::utils::block::Block;
 use crate::utils::errors::ensure_other;
 use crate::utils::errors::{OtherError, prelude::*};
 
@@ -46,9 +46,9 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
         return Ok(None);
     };
 
-    let source = BlockSource::from_path(patch_file.to_path_buf()).with_other_err()?;
+    let source = Block::from_path(patch_file.to_path_buf()).with_other_err()?;
     let (base_header_block, rest) = source.split_at(2);
-    let base_header = base_header_block.open().with_other_err()?;
+    let base_header = base_header_block.open_mem(..).with_other_err()?;
     let id = base_header[0];
     let header_size = base_header[1];
     let content_res_type: ResourceType = (id & 0x7f).try_into().with_other_err()?;
@@ -68,7 +68,7 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
     // and another 22 byte header data that we can skip.
     let (extra_data, data) = if header_size == 128 {
         let (ext_header, rest) = rest.split_at(24);
-        let ext_header_data = ext_header.open().with_other_err()?;
+        let ext_header_data = ext_header.open_mem(..).with_other_err()?;
         let real_header_size = ext_header_data[1];
         if real_header_size != 0 {
             log::warn!(
@@ -79,21 +79,21 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
         let (extra_data, data) = rest.split_at(u64::from(real_header_size));
         (
             Some(ExtraData::Composite {
-                ext_header: ext_header.to_lazy_block(),
-                extra_data: extra_data.to_lazy_block(),
+                ext_header,
+                extra_data,
             }),
             data,
         )
     } else {
         let (header_data, data) = rest.split_at(u64::from(header_size));
-        (Some(ExtraData::Simple(header_data.to_lazy_block())), data)
+        (Some(ExtraData::Simple(header_data)), data)
     };
 
     Ok(Some(Resource {
         id: ResourceId::new(res_type, res_num),
         contents: ResourceContents {
             extra_data,
-            source: data.to_lazy_block(),
+            source: data,
         },
     }))
 }
@@ -107,7 +107,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
         .with_other_err()?;
     match &resource.contents.extra_data {
         Some(ExtraData::Simple(data)) => {
-            let data = data.open().with_other_err()?;
+            let data = data.open_mem(..).with_other_err()?;
             ensure_other!(
                 data.len() <= 127,
                 "Simple extra data too large: {} bytes",
@@ -122,7 +122,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
             ext_header,
             extra_data,
         }) => {
-            let ext_header = ext_header.open().with_other_err()?;
+            let ext_header = ext_header.open_mem(..).with_other_err()?;
             ensure_other!(
                 ext_header.len() == 24,
                 "Extended header size incorrect: {} bytes",
@@ -133,7 +133,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
                 .with_other_err()?;
             writer.write_all(&ext_header).with_other_err()?;
 
-            let extra_data = extra_data.open().with_other_err()?;
+            let extra_data = extra_data.open_mem(..).with_other_err()?;
             writer.write_all(&extra_data).with_other_err()?;
         }
         None => {
@@ -141,7 +141,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
         }
     }
 
-    let data = resource.contents.source.open().with_other_err()?;
+    let data = resource.contents.source.open_mem(..).with_other_err()?;
     writer.write_all(&data).with_other_err()?;
 
     Ok(())

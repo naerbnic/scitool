@@ -4,12 +4,10 @@ use std::{
 };
 
 use crate::utils::{
-    block::{block_source, lazy_block},
+    block::{Block, block_source, lazy_block},
     buffer::{Buffer, BufferCursor},
     errors::{OtherError, prelude::*},
 };
-
-use super::BlockSource;
 
 struct BlockPathHandle {
     path: PathBuf,
@@ -77,21 +75,21 @@ impl TempStore {
         })
     }
 
-    pub fn store_bytes<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
+    pub fn store_bytes<B>(&mut self, buffer: B) -> Result<Block, StoreError>
     where
         B: Buffer,
     {
         self.create_temp_block(buffer)
     }
 
-    pub fn store<B>(&mut self, buffer: B) -> Result<BlockSource, StoreError>
+    pub fn store<B>(&mut self, buffer: B) -> Result<Block, StoreError>
     where
         B: Buffer,
     {
         self.create_temp_block(buffer)
     }
 
-    fn create_temp_block<B>(&self, buffer: B) -> Result<BlockSource, StoreError>
+    fn create_temp_block<B>(&self, buffer: B) -> Result<Block, StoreError>
     where
         B: Buffer,
     {
@@ -100,7 +98,7 @@ impl TempStore {
             .with_other_err()?;
         std::io::copy(&mut BufferCursor::new(buffer), &mut file)?;
         drop(file);
-        Ok(BlockSource::from_path(BlockPathHandle {
+        Ok(Block::from_path(BlockPathHandle {
             path,
             _dir: self.temp_dir.clone(),
         })?)
@@ -119,9 +117,9 @@ mod tests {
         let mut store = TempStore::create()?;
         let buffer = MemBlock::from_vec(vec![1, 2, 3, 4]);
         let block_source = store.store(buffer)?;
-        assert_eq!(block_source.size(), 4);
+        assert_eq!(block_source.len(), 4);
         let mut read_data = Vec::new();
-        read_data.put(BufferCursor::new(block_source.to_buffer()?));
+        read_data.put(BufferCursor::new(block_source.open_mem(..)?));
         assert_eq!(read_data, vec![1, 2, 3, 4]);
         Ok(())
     }

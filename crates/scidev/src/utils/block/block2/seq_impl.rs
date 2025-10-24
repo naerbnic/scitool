@@ -8,6 +8,7 @@ use crate::utils::{
     range::BoundedRange,
 };
 
+#[derive(Debug)]
 pub(super) struct SequenceBlockImpl {
     blocks: Vec<Block>,
 }

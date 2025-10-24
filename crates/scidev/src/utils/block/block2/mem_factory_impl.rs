@@ -1,4 +1,4 @@
-use std::io;
+use std::{fmt::Debug, io};
 
 use crate::utils::block::{
     MemBlock,
@@ -24,5 +24,15 @@ where
 {
     fn load_mem_block(&self) -> io::Result<MemBlock> {
         Ok(self.0.create_new()?.into())
+    }
+}
+
+impl<F> Debug for MemFactoryImpl<F>
+where
+    F: RefFactory,
+    for<'a> F::Output<'a>: Into<MemBlock>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemFactoryImpl").finish()
     }
 }

@@ -4,23 +4,19 @@ use crate::{
     resources::{
         ConversionError, ResourceId, ResourceType, file::data::raw_header::RawEntryHeader,
     },
-    utils::{
-        block::{BlockSource, LazyBlock},
-        compression::dcl::decompress_dcl,
-        errors::{OtherError, prelude::*},
-    },
+    utils::{block::Block, compression::dcl::decompress_dcl},
 };
 
 struct RawContents {
     header: RawEntryHeader,
-    data: BlockSource,
+    data: Block,
 }
 
 impl std::fmt::Debug for RawContents {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawContents")
             .field("header", &self.header)
-            .field("data", &self.data.size())
+            .field("data", &self.data.len())
             .finish()
     }
 }
@@ -28,46 +24,42 @@ impl std::fmt::Debug for RawContents {
 #[derive(Debug, Clone)]
 pub(crate) struct Contents {
     id: ResourceId,
-    data: LazyBlock,
+    data: Block,
 }
 
 impl Contents {
     pub(super) fn from_parts(
         header: RawEntryHeader,
-        resource_block: BlockSource,
+        resource_block: Block,
     ) -> Result<Self, ConversionError> {
-        assert_eq!(resource_block.size(), u64::from(header.packed_size()));
+        assert_eq!(resource_block.len(), u64::from(header.packed_size()));
         let raw_contents = RawContents {
             header,
             data: resource_block,
         };
 
         let decompressed_data = match raw_contents.header.compression_type() {
-            0 => raw_contents.data.to_lazy_block(),
-            18..=20 => raw_contents
-                .data
-                .to_lazy_block()
-                .map(move |block| Ok(decompress_dcl(&block).with_other_err()?))
-                .map_err(ConversionError::new)?,
+            0 => raw_contents.data,
+            18..=20 => {
+                let unpacked_size = raw_contents.header.unpacked_size() as u64;
+                let data = raw_contents.data.clone();
+                Block::builder()
+                    .with_size(unpacked_size)
+                    .build_from_mem_block_factory(move || {
+                        decompress_dcl(&data.open_mem(..)?).map_err(io::Error::other)
+                    })
+                    .map_err(ConversionError::new)?
+            }
             _ => {
                 // Let's be lazy here.
-                LazyBlock::from_error(move || {
-                    OtherError::from_msg(format!(
+                Block::from_error_fn(move || {
+                    io::Error::other(format!(
                         "Unsupported compression type: {}",
                         raw_contents.header.compression_type()
                     ))
-                    .into()
                 })
             }
         };
-        let decompressed_data = decompressed_data
-            .with_check(move |block| {
-                if block.size() != raw_contents.header.unpacked_size() as usize {
-                    return Err(io::Error::other("Decompressed data size mismatch").into());
-                }
-                Ok(())
-            })
-            .map_err(ConversionError::new)?;
 
         Ok(Contents {
             id: ResourceId::new(
@@ -81,7 +73,8 @@ impl Contents {
     pub(crate) fn id(&self) -> &ResourceId {
         &self.id
     }
-    pub(crate) fn data(&self) -> &LazyBlock {
+
+    pub(crate) fn data(&self) -> &Block {
         &self.data
     }
 }
@@ -104,7 +97,7 @@ mod tests {
             0u16,
         };
         let header = RawEntryHeader::parse(&mut mem_reader_from_bytes(header_data)).unwrap();
-        let content_source = BlockSource::from_vec(
+        let content_source = Block::from_vec(
             datalit! {
                 0x00010203
             }
@@ -112,7 +105,7 @@ mod tests {
         );
         let contents = Contents::from_parts(header, content_source).unwrap();
 
-        let content_data = contents.data().open().unwrap();
+        let content_data = contents.data().open_mem(..).unwrap();
         assert_eq!(content_data.as_ref(), &[0, 1, 2, 3]);
     }
 }

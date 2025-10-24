@@ -104,7 +104,7 @@ impl BlockSource {
     /// be opened on demand.
     #[must_use]
     pub fn to_lazy_block(&self) -> LazyBlock {
-        LazyBlock::from_block_source(self.clone())
+        LazyBlock::from_block_source(self.block.clone())
     }
 }
 

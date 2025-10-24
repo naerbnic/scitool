@@ -1,4 +1,4 @@
-use std::io;
+use std::{fmt::Debug, io};
 
 use crate::utils::{
     block::{MemBlock, block2::BlockBase},
@@ -28,5 +28,14 @@ where
 
     fn open_reader<'a>(&'a self, _range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
         Err((self.error)())
+    }
+}
+
+impl<F> Debug for ErrorBlockImpl<F>
+where
+    F: Fn() -> io::Error + Clone,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ErrorBlockImpl").finish()
     }
 }

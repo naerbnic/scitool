@@ -1,4 +1,7 @@
-use std::io::{self, Read as _, Seek as _};
+use std::{
+    fmt::Debug,
+    io::{self, Read as _, Seek as _},
+};
 
 use crate::utils::{
     block::block2::{RangeStreamBase, RefFactory},
@@ -30,5 +33,15 @@ where
         let mut reader = self.0.create_new()?;
         reader.seek(io::SeekFrom::Start(range.start()))?;
         Ok(reader.take(range.size()))
+    }
+}
+
+impl<F> Debug for ReadSeekFactorySource<F>
+where
+    F: RefFactory,
+    for<'a> F::Output<'a>: io::Read + io::Seek,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadSeekFactorySource").finish()
     }
 }

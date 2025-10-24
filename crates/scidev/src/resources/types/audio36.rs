@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::utils::{
-    block::{BlockSource, LazyBlock, MemBlock, OutputBlock},
+    block::{Block, MemBlock, OutputBlock},
     data_writer::{DataWriter, IoDataWriter},
     errors::{OtherError, ensure_other, prelude::*},
     mem_reader::{self, MemReader},
@@ -110,12 +110,12 @@ pub enum AudioFormat {
 
 pub struct VoiceSample {
     format: AudioFormat,
-    data: BlockSource,
+    data: Block,
 }
 
 impl VoiceSample {
     #[must_use]
-    pub fn new(format: AudioFormat, data: BlockSource) -> Self {
+    pub fn new(format: AudioFormat, data: Block) -> Self {
         VoiceSample { format, data }
     }
 
@@ -125,14 +125,14 @@ impl VoiceSample {
     }
 
     #[must_use]
-    pub fn data(&self) -> &BlockSource {
+    pub fn data(&self) -> &Block {
         &self.data
     }
 }
 
 struct AudioVolumeEntry {
     logical_offset: u32,
-    data: BlockSource,
+    data: Block,
 }
 
 struct AudioVolumeBuilder {
@@ -193,7 +193,7 @@ impl AudioVolumeBuilder {
         // can just use the size of the current entry as the size of this entry.
         #[expect(clippy::cast_possible_truncation)]
         {
-            self.curr_offset += data.size() as u32;
+            self.curr_offset += data.len() as u32;
         }
         self.entries.push(AudioVolumeEntry {
             logical_offset,
@@ -218,7 +218,7 @@ impl AudioVolumeBuilder {
         for entry in &self.entries {
             header_bytes.put_u32_le(entry.logical_offset);
             header_bytes.put_u32_le(curr_data_offset);
-            curr_data_offset += u32::try_from(entry.data.size()).unwrap();
+            curr_data_offset += u32::try_from(entry.data.len()).unwrap();
         }
         #[expect(clippy::cast_possible_truncation)]
         {
@@ -295,7 +295,7 @@ impl Audio36ResourceBuilder {
                 .with_other_err()?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
-                LazyBlock::from_mem_block(MemBlock::from_vec(map_data)),
+                Block::from_mem_block(MemBlock::from_vec(map_data)),
             ));
         }
 
