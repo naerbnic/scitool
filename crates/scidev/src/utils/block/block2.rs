@@ -15,6 +15,8 @@ use std::{
     sync::Arc,
 };
 
+use bytes::Buf;
+
 use crate::utils::{
     block::{
         MemBlock,
@@ -214,6 +216,10 @@ impl Block {
         Builder::new()
             .with_size(size)
             .build_from_read_seek_factory(move || std::fs::File::open(path.as_ref()))
+    }
+
+    pub fn from_buf<B: Buf>(buf: B) -> Self {
+        Self::from_mem_block(MemBlock::from_buf(buf))
     }
 
     /// Create a block from a [`MemBlock`] instance.

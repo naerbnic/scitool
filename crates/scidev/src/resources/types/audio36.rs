@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::utils::{
-    block::{Block, MemBlock, OutputBlock},
+    block::{Block, MemBlock},
     data_writer::{DataWriter, IoDataWriter},
     errors::{OtherError, ensure_other, prelude::*},
     mem_reader::{self, MemReader},
@@ -209,7 +209,7 @@ impl AudioVolumeBuilder {
         (8 * self.entries.len() as u32) // The size of all the entries
     }
 
-    fn to_raw_of_compressed_format(&self, archive_type: [u8; 4]) -> OutputBlock {
+    fn to_raw_of_compressed_format(&self, archive_type: [u8; 4]) -> Block {
         let mut header_bytes = bytes::BytesMut::new();
         header_bytes.extend_from_slice(&archive_type);
         #[expect(clippy::cast_possible_truncation)]
@@ -224,16 +224,16 @@ impl AudioVolumeBuilder {
         {
             assert_eq!(self.header_size(), header_bytes.len() as u32);
         }
-        let header: OutputBlock = header_bytes.freeze().into();
+        let header: Block = Block::from_buf(header_bytes.freeze());
         let mut volume_blocks = Vec::new();
         volume_blocks.push(header);
         for entry in &self.entries {
-            volume_blocks.push(OutputBlock::from_block_source(entry.data.clone()));
+            volume_blocks.push(entry.data.clone());
         }
-        volume_blocks.into_iter().collect()
+        Block::concat(volume_blocks)
     }
 
-    pub(crate) fn to_raw(&self) -> OutputBlock {
+    pub(crate) fn to_raw(&self) -> Block {
         match self.format {
             Some(AudioFormat::Mp3) => self.to_raw_of_compressed_format(*b"MP3 "),
             Some(AudioFormat::Flac) => self.to_raw_of_compressed_format(*b"FLAC"),
@@ -243,11 +243,11 @@ impl AudioVolumeBuilder {
                 // concatenate the entries together.
                 let mut volume_blocks = Vec::new();
                 for entry in &self.entries {
-                    volume_blocks.push(OutputBlock::from_block_source(entry.data.clone()));
+                    volume_blocks.push(entry.data.clone());
                 }
-                volume_blocks.into_iter().collect()
+                Block::concat(volume_blocks)
             }
-            None => OutputBlock::from_buffer(MemBlock::from_vec(vec![])),
+            None => Block::empty(),
         }
     }
 }
@@ -317,7 +317,7 @@ impl Default for Audio36ResourceBuilder {
 #[derive(Clone)]
 pub struct VoiceSampleResources {
     map_resources: Vec<Resource>,
-    audio_volume: OutputBlock,
+    audio_volume: Block,
 }
 
 impl VoiceSampleResources {
@@ -327,7 +327,7 @@ impl VoiceSampleResources {
     }
 
     #[must_use]
-    pub fn audio_volume(&self) -> &OutputBlock {
+    pub fn audio_volume(&self) -> &Block {
         &self.audio_volume
     }
 }
