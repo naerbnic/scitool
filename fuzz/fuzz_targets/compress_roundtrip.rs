@@ -1,11 +1,8 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use scidev::utils::{
-    block::MemBlock,
-    compression::dcl::{
-        CompressionMode, DictType, compress_dcl, compress_reader, decompress_dcl, decompress_reader,
-    },
+use scidev::utils::compression::dcl::{
+    CompressionMode, DictType, compress_reader, decompress_reader,
 };
 
 fuzz_target!(|data: &[u8]| {
