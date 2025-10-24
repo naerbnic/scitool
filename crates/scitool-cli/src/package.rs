@@ -16,7 +16,7 @@ use std::{
 use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::ResourceId,
-    utils::{block::Block, compression::dcl::decompress_dcl},
+    utils::{block::Block, compression::dcl::DecompressFactory},
 };
 
 use crate::package::{
@@ -102,12 +102,8 @@ impl Package {
             compressed_data
                 .as_ref()
                 .map(|compressed_data| {
-                    Block::builder().build_from_mem_block_factory({
-                        let compressed_data = compressed_data.clone();
-                        move || {
-                            decompress_dcl(&compressed_data.open_mem(..)?).map_err(io::Error::other)
-                        }
-                    })
+                    Block::builder()
+                        .build_from_read_factory(DecompressFactory::new(compressed_data.clone()))
                 })
                 .transpose()
                 .map_err(io_err_map!(Other, "Failed to decompress data"))?

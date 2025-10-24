@@ -4,10 +4,7 @@ use crate::{
     resources::{
         ConversionError, ResourceId, ResourceType, file::data::raw_header::RawEntryHeader,
     },
-    utils::{
-        block::{Block, RefFactory},
-        compression::dcl::decompress_reader,
-    },
+    utils::{block::Block, compression::dcl::DecompressFactory},
 };
 
 struct RawContents {
@@ -21,21 +18,6 @@ impl std::fmt::Debug for RawContents {
             .field("header", &self.header)
             .field("data", &self.data.len())
             .finish()
-    }
-}
-
-struct DecompressFactory(Block);
-
-impl RefFactory for DecompressFactory {
-    type Output<'a>
-        = Box<dyn io::Read + 'a>
-    where
-        Self: 'a;
-
-    fn create_new(&self) -> io::Result<Self::Output<'_>> {
-        let reader = self.0.open_reader(..)?;
-        let decompressed_reader = decompress_reader(reader);
-        Ok(Box::new(decompressed_reader))
     }
 }
 
@@ -63,7 +45,7 @@ impl Contents {
                 let data = raw_contents.data.clone();
                 Block::builder()
                     .with_size(unpacked_size)
-                    .build_from_read_factory(DecompressFactory(data))
+                    .build_from_read_factory(DecompressFactory::new(data))
                     .map_err(ConversionError::new)?
             }
             _ => {
