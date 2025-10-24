@@ -7,15 +7,16 @@ mod err_helpers;
 mod io_wrappers;
 pub mod schema;
 
-use std::{borrow::Cow, io::Read as _, path::Path};
+use std::{
+    borrow::Cow,
+    io::{self, Read as _},
+    path::Path,
+};
 
 use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::ResourceId,
-    utils::{
-        block::{Block, LazyBlock, LazyBlockError},
-        compression::dcl::decompress_dcl,
-    },
+    utils::{block::Block, compression::dcl::decompress_dcl},
 };
 
 use crate::package::{
@@ -30,8 +31,8 @@ const META_PATH: &str = "meta.json";
 const COMPRESSED_BIN_PATH: &str = "compressed.bin";
 const RAW_BIN_PATH: &str = "raw.bin";
 
-fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, LazyBlockError> {
-    let buffer = block.open()?;
+fn buffer_info_from_lazy_block(block: &Block) -> io::Result<schema::BufferInfo> {
+    let buffer = block.open_mem(..)?;
 
     let size = u64::try_from(buffer.len()).unwrap();
     let hash = Sha256Hash::from_data_hash(&*buffer);
@@ -41,8 +42,8 @@ fn buffer_info_from_lazy_block(block: &LazyBlock) -> Result<schema::BufferInfo, 
 
 pub struct Package {
     metadata: Dirty<Metadata>,
-    compressed_data: Dirty<Option<LazyBlock>>,
-    raw_data: Dirty<Option<LazyBlock>>,
+    compressed_data: Dirty<Option<Block>>,
+    raw_data: Dirty<Option<Block>>,
     disk_backing: Option<AtomicDir>,
 }
 
@@ -87,7 +88,7 @@ impl Package {
         let compressed_data = if std::fs::exists(&compressed_path)? {
             let block_source = Block::from_path(compressed_path)
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
-            Some(LazyBlock::from_block_source(block_source))
+            Some(block_source)
         } else {
             None
         };
@@ -96,14 +97,17 @@ impl Package {
         let raw_data = if std::fs::exists(&raw_data_path)? {
             let block_source = Block::from_path(raw_data_path)
                 .map_err(io_err_map!(Other, "Failed to create block source"))?;
-            Some(LazyBlock::from_block_source(block_source))
+            Some(block_source)
         } else {
             compressed_data
                 .as_ref()
                 .map(|compressed_data| {
-                    compressed_data
-                        .clone()
-                        .map(|block| decompress_dcl(&block).map_err(LazyBlockError::from_other))
+                    Block::builder().build_from_mem_block_factory({
+                        let compressed_data = compressed_data.clone();
+                        move || {
+                            decompress_dcl(&compressed_data.open_mem(..)?).map_err(io::Error::other)
+                        }
+                    })
                 })
                 .transpose()
                 .map_err(io_err_map!(Other, "Failed to decompress data"))?
@@ -140,7 +144,7 @@ impl Package {
         self.metadata.is_dirty() || self.raw_data.is_dirty() || self.compressed_data.is_dirty()
     }
 
-    pub fn set_raw_data(&mut self, data: LazyBlock) -> std::io::Result<()> {
+    pub fn set_raw_data(&mut self, data: Block) -> std::io::Result<()> {
         // Update the metadata about the raw data.
         let raw_buffer_info = buffer_info_from_lazy_block(&data)
             .map_err(io_err_map!(Other, "Failed to compute buffer info"))?;
@@ -170,7 +174,7 @@ impl Package {
         if self.compressed_data.is_dirty() {
             if let Some(compressed_data) = self.compressed_data.get() {
                 let data = compressed_data
-                    .open()
+                    .open_mem(..)
                     .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
                 atomic_dir.write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)?;
@@ -182,7 +186,7 @@ impl Package {
         if self.raw_data.is_dirty() {
             if let Some(raw_data) = self.raw_data.get() {
                 let data = raw_data
-                    .open()
+                    .open_mem(..)
                     .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
                 atomic_dir.write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)?;
@@ -218,7 +222,7 @@ impl Package {
 
         if let Some(compressed_data) = self.compressed_data.get() {
             let data = compressed_data
-                .open()
+                .open_mem(..)
                 .map_err(io_err_map!(Other, "Failed to open compressed data"))?;
 
             atomic_dir.write_file(COMPRESSED_BIN_PATH, CreateMode::Overwrite, &data)?;
@@ -226,7 +230,7 @@ impl Package {
 
         if let Some(raw_data) = self.raw_data.get() {
             let data = raw_data
-                .open()
+                .open_mem(..)
                 .map_err(io_err_map!(Other, "Failed to open raw data"))?;
 
             atomic_dir.write_file(RAW_BIN_PATH, CreateMode::Overwrite, &data)?;
@@ -247,7 +251,7 @@ mod tests {
     use bytes::Bytes;
     use scidev::{
         resources::{ResourceId, ResourceType},
-        utils::block::{LazyBlock, MemBlock},
+        utils::block::{Block, MemBlock},
     };
     use serde_json::Value;
     use tempfile::tempdir;
@@ -258,7 +262,7 @@ mod tests {
         let mut package = Package::new(id);
 
         let raw_bytes = b"hello sci".to_vec();
-        let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
+        let block = Block::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
         package.set_raw_data(block)?;
 
         let metadata_value =
@@ -301,7 +305,7 @@ mod tests {
 
         let mut package = Package::new(ResourceId::new(ResourceType::Script, 7));
         let raw_bytes = b"resource data".to_vec();
-        let block = LazyBlock::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
+        let block = Block::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
         package.set_raw_data(block)?;
 
         package.save_to(&package_dir)?;
