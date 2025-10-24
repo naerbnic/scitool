@@ -3,7 +3,7 @@ use std::io;
 use crate::utils::{
     block::{
         MemBlock,
-        block2::{Block, BlockBase},
+        core::{Block, BlockBase},
     },
     range::BoundedRange,
 };

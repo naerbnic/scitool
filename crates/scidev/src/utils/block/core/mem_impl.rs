@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::utils::block::{MemBlock, block2::MemBlockBase};
+use crate::utils::block::{MemBlock, core::MemBlockBase};
 
 #[derive(Debug)]
 pub(super) struct ContainedMemBlock(MemBlock);

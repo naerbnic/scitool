@@ -2,7 +2,7 @@ use std::{fmt::Debug, io};
 
 use crate::utils::block::{
     MemBlock,
-    block2::{MemBlockBase, RefFactory},
+    core::{MemBlockBase, RefFactory},
 };
 
 pub(super) struct MemFactoryImpl<F>(F);

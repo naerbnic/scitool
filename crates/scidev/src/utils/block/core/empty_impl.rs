@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::utils::{
-    block::{MemBlock, block2::BlockBase},
+    block::{MemBlock, core::BlockBase},
     range::BoundedRange,
 };
 

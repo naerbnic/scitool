@@ -1,6 +1,6 @@
 use std::{fmt::Debug, io};
 
-use crate::utils::block::block2::{FullStreamBase, RefFactory};
+use crate::utils::block::core::{FullStreamBase, RefFactory};
 
 pub(super) struct ReadFactoryImpl<F>(F);
 

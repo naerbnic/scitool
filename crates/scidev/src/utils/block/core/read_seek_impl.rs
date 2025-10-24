@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::utils::{block::block2::RangeStreamBase, range::BoundedRange};
+use crate::utils::{block::core::RangeStreamBase, range::BoundedRange};
 
 pub(super) struct BorrowedReader<'a, R> {
     reader: &'a Mutex<R>,

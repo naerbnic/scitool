@@ -20,7 +20,7 @@ use bytes::Buf;
 use crate::utils::{
     block::{
         MemBlock,
-        block2::{
+        core::{
             empty_impl::EmptyBlockImpl, error_impl::ErrorBlockImpl,
             mem_factory_impl::MemFactoryImpl, mem_impl::ContainedMemBlock,
             read_factory_impl::ReadFactoryImpl, read_seek_factory_impl::ReadSeekFactorySource,

@@ -67,7 +67,11 @@ impl CompileAudio {
             let output_dir = output_dir.clone();
             move || {
                 let resource_aud_file = std::fs::File::create(output_dir.join("resource.aud"))?;
-                resources.audio_volume().write_to(resource_aud_file)?;
+                let mut reader = resources.audio_volume().open_reader(..)?;
+                std::io::copy(
+                    &mut reader,
+                    &mut std::io::BufWriter::new(&resource_aud_file),
+                )?;
                 Ok::<_, anyhow::Error>(())
             }
         });

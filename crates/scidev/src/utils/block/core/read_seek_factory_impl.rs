@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::utils::{
-    block::block2::{RangeStreamBase, RefFactory},
+    block::core::{RangeStreamBase, RefFactory},
     range::BoundedRange,
 };
 
