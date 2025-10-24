@@ -1,7 +1,7 @@
 use std::io;
 
-use crate::utils::{
-    compression::{dcl::decompress::DecompressDclProcessor, pipe::DataProcessor as _},
+use crate::utils::compression::{
+    dcl::decompress::DecompressDclProcessor, pipe::DataProcessor as _,
 };
 
 use super::*;
@@ -83,5 +83,21 @@ fn compress_shrinks_data() -> io::Result<()> {
         data.len(),
         compressed.len()
     );
+    Ok(())
+}
+
+#[test]
+fn empty_reader_roundtrip_works() -> io::Result<()> {
+    let data: &[u8] = &[];
+    let mut decompressed = Vec::new();
+    let mut reader = decompress_reader(compress_reader(
+        CompressionMode::Binary,
+        DictType::Size1024,
+        data,
+    ));
+
+    io::copy(&mut reader, &mut decompressed)?;
+
+    assert_eq!(&*data, &*decompressed);
     Ok(())
 }

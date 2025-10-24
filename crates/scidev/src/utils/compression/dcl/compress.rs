@@ -91,11 +91,11 @@ async fn compress_dcl_to<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     writer: W,
 ) -> io::Result<()> {
     let mut writer = LittleEndianWriter::new(writer);
+    mode.write_to(&mut writer).await?;
+    dict_type.write_to(&mut writer).await?;
     let mut dict = Dictionary::new(dict_type);
     let mut input_buffer = input_buffer::InputBuffer::new(input, match_params.max);
     input_buffer.fill_buffer().await?;
-    mode.write_to(&mut writer).await?;
-    dict_type.write_to(&mut writer).await?;
     while !input_buffer.is_empty() {
         let curr_buffer = input_buffer.get_buffer();
         let num_bytes_consumed = if let Some(BackrefMatch { offset, length }) =
@@ -168,6 +168,18 @@ impl DataProcessor for CompressDclProcessor {
     {
         compress_dcl_to(self.match_params, self.mode, self.dict_type, reader, writer).await
     }
+}
+
+pub fn compress_reader<'a, R>(
+    mode: CompressionMode,
+    dict_type: DictType,
+    reader: R,
+) -> impl io::Read + 'a
+where
+    R: io::Read + Unpin + 'a,
+{
+    let processor = CompressDclProcessor::new(mode, dict_type);
+    processor.pull(reader, 8192)
 }
 
 pub fn compress_dcl(

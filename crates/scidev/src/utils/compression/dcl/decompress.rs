@@ -273,6 +273,13 @@ impl pipe::DataProcessor for DecompressDclProcessor {
     }
 }
 
+pub fn decompress_reader<'a, R>(reader: R) -> impl io::Read + 'a
+where
+    R: io::Read + Unpin + 'a,
+{
+    DecompressDclProcessor.pull(reader, 8192)
+}
+
 pub fn decompress_dcl(input: &MemBlock) -> Result<MemBlock, DecompressionError> {
     // This follows the implementation from ScummVM, in DecompressorDCL::unpack()
     let input_size = input.size();

@@ -92,6 +92,7 @@ where
             self.curr_byte = 0;
             self.bits_filled = 0;
         }
+        self.output.flush().await?;
         self.finished = true;
         Ok(())
     }

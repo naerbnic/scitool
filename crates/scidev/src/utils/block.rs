@@ -4,6 +4,6 @@ mod core;
 mod mem_block;
 mod temp_store;
 
-pub use core::{Block, FromBlock};
+pub use core::{Block, FromBlock, RefFactory};
 pub use mem_block::{FromReaderError as MemBlockFromReaderError, MemBlock};
 pub use temp_store::TempStore;

@@ -494,11 +494,19 @@ mod inv_writer {
                 // Never cause a double-panic
                 return;
             }
-            let guard = self.writer_state.borrow();
-            assert!(
-                guard.closed,
-                "Must always close the reader before dropping."
-            );
+            if !self.continuation.has_started() || self.continuation.is_finished() {
+                return;
+            }
+            self.writer_state.borrow_mut().closed = true;
+            // If we have started but not finished, we need to close
+            // the writer side.
+            match self.continuation.next(super::DataReady) {
+                ContinuationResult::Yield(_) => {
+                    // This shouldn't happen after we've set the closed flag.
+                    unreachable!("Requested more data after reader dropped.");
+                }
+                ContinuationResult::Complete(_) => {}
+            }
         }
     }
 

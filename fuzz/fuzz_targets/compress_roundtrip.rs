@@ -3,19 +3,20 @@
 use libfuzzer_sys::fuzz_target;
 use scidev::utils::{
     block::MemBlock,
-    compression::dcl::{CompressionMode, DictType, compress_dcl, decompress_dcl},
+    compression::dcl::{
+        CompressionMode, DictType, compress_dcl, compress_reader, decompress_dcl, decompress_reader,
+    },
 };
 
 fuzz_target!(|data: &[u8]| {
     let mut output = Vec::new();
-    compress_dcl(
+    let mut reader = decompress_reader(compress_reader(
         CompressionMode::Binary,
         DictType::Size1024,
         data,
-        &mut output,
-    )
-    .unwrap();
+    ));
 
-    let decompressed = decompress_dcl(&MemBlock::from_vec(output)).unwrap();
-    assert_eq!(data, &*decompressed);
+    std::io::copy(&mut reader, &mut output).unwrap();
+
+    assert_eq!(data, &*output);
 });
