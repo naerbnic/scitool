@@ -19,7 +19,7 @@ use scidev::{
     utils::{block::Block, compression::dcl::DecompressFactory},
 };
 
-use crate::package::{
+use crate::respack::{
     err_helpers::{io_bail, io_err_map},
     io_wrappers::LengthLimitedReader,
     schema::Sha256Hash,

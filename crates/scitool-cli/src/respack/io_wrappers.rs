@@ -1,4 +1,4 @@
-use crate::package::err_helpers::io_bail;
+use crate::respack::err_helpers::io_bail;
 
 /// Provides an upper bound on the data that can be read from a reader. If the
 /// data available from the reader exceeds the limit, it will return an

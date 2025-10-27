@@ -24,7 +24,7 @@ macro_rules! io_err {
 
 macro_rules! io_err_map {
     ($kind:ident, $fmt:literal $($arg:tt)*) => {
-        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::package::err_helpers::ErrorWithContext::new(format!($fmt $($arg)*), e))
+        |e| std::io::Error::new(std::io::ErrorKind::$kind, $crate::respack::err_helpers::ErrorWithContext::new(format!($fmt $($arg)*), e))
     };
     ($kind:ident) => {
         |e| std::io::Error::new(std::io::ErrorKind::$kind, e)
@@ -33,7 +33,7 @@ macro_rules! io_err_map {
 
 macro_rules! io_bail {
    ($kind:ident, $fmt:literal $($arg:tt)*) => {
-       return Err($crate::package::err_helpers::io_err!($kind, $fmt $($arg)*))
+       return Err($crate::respack::err_helpers::io_err!($kind, $fmt $($arg)*))
    };
 }
 
