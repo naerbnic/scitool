@@ -3,7 +3,7 @@ use std::{
     error::Error as StdError,
     fs::File,
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use data::DataFile;
@@ -291,26 +291,6 @@ impl CompressedData {
     pub fn compressed_block(&self) -> &Block {
         &self.compressed_block
     }
-}
-
-pub(crate) struct VolumeSource {
-    volume_id: u16,
-    offset: u32,
-    size: u32,
-
-    /// If the block was originally compressed, this contains the compressed
-    /// data and necessary metadata.
-    compressed: Option<CompressedData>,
-}
-
-pub(crate) struct PatchSource {
-    relative_path: PathBuf,
-    extra_data: Vec<u8>,
-}
-
-pub(crate) enum SourceInfo {
-    Volume(VolumeSource),
-    Patch(PatchSource),
 }
 
 #[derive(Debug, Clone)]
