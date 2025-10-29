@@ -15,14 +15,14 @@ use std::{
 
 use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
-    resources::ResourceId,
+    resources::{Resource, ResourceId},
     utils::{block::Block, compression::dcl::DecompressFactory},
 };
 
 use crate::respack::{
     err_helpers::{io_bail, io_err_map},
     io_wrappers::LengthLimitedReader,
-    schema::Sha256Hash,
+    schema::{BufferInfo, Sha256Hash},
 };
 
 use self::{dirty::Dirty, schema::Metadata};
@@ -40,22 +40,61 @@ fn buffer_info_from_lazy_block(block: &Block) -> io::Result<schema::BufferInfo> 
     Ok(schema::BufferInfo::new(size, hash))
 }
 
-pub struct Package {
+pub struct ResPack {
     metadata: Dirty<Metadata>,
     compressed_data: Dirty<Option<Block>>,
     raw_data: Dirty<Option<Block>>,
     disk_backing: Option<AtomicDir>,
 }
 
-impl Package {
+impl ResPack {
     #[must_use]
     pub fn new(id: ResourceId) -> Self {
-        Package {
+        ResPack {
             metadata: Dirty::new_fresh(Metadata::new_with_id(id)),
             compressed_data: Dirty::new_fresh(None),
             raw_data: Dirty::new_fresh(None),
             disk_backing: None,
         }
+    }
+
+    pub fn from_resource(resource: &Resource) -> io::Result<Self> {
+        let raw_data = resource.data().clone();
+
+        let raw_buffer_info = BufferInfo::from_stream(raw_data.open_reader(..)?)?;
+
+        let (compressed_info, compressed_data) = if let Some(compressed) = resource.compressed() {
+            let block = compressed.compressed_block().clone();
+            let compressed_info = BufferInfo::from_stream(
+                block
+                    .open_reader(..)
+                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?,
+            )?;
+            (
+                Some(schema::CompressedInfo::new(compressed_info)),
+                Some(block),
+            )
+        } else {
+            (None, None)
+        };
+
+        let metadata = Metadata {
+            version: schema::CURRENT_VERSION,
+            id: *resource.id(),
+            content: Some(schema::ContentInfo {
+                raw: raw_buffer_info.clone(),
+                original_raw: Some(raw_buffer_info.clone()),
+                compressed: compressed_info,
+            }),
+            source: None,
+        };
+
+        Ok(ResPack {
+            metadata: Dirty::new_stored(metadata),
+            compressed_data: Dirty::new_stored(compressed_data),
+            raw_data: Dirty::new_stored(Some(raw_data)),
+            disk_backing: None,
+        })
     }
 
     pub fn load_from_path<'a, P>(path: P) -> std::io::Result<Self>
@@ -243,7 +282,7 @@ impl Package {
 
 #[cfg(test)]
 mod tests {
-    use super::{META_PATH, Package, RAW_BIN_PATH, schema::Sha256Hash};
+    use super::{META_PATH, RAW_BIN_PATH, ResPack, schema::Sha256Hash};
     use bytes::Bytes;
     use scidev::{
         resources::{ResourceId, ResourceType},
@@ -255,7 +294,7 @@ mod tests {
     #[test]
     fn set_raw_data_updates_metadata_snapshot() -> std::io::Result<()> {
         let id = ResourceId::new(ResourceType::Script, 123);
-        let mut package = Package::new(id);
+        let mut package = ResPack::new(id);
 
         let raw_bytes = b"hello sci".to_vec();
         let block = Block::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
@@ -299,7 +338,7 @@ mod tests {
         let temp_dir = tempdir()?;
         let package_dir = temp_dir.path().join("pkg");
 
-        let mut package = Package::new(ResourceId::new(ResourceType::Script, 7));
+        let mut package = ResPack::new(ResourceId::new(ResourceType::Script, 7));
         let raw_bytes = b"resource data".to_vec();
         let block = Block::from_mem_block(MemBlock::from_vec(raw_bytes.clone()));
         package.set_raw_data(block)?;
@@ -333,7 +372,7 @@ mod tests {
         // Save again to ensure the package path was remembered and the transaction is reusable.
         package.save()?;
 
-        Package::load_from_path(&package_dir).expect("package should reload from saved directory");
+        ResPack::load_from_path(&package_dir).expect("package should reload from saved directory");
 
         Ok(())
     }

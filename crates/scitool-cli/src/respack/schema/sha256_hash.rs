@@ -1,11 +1,18 @@
 use bytes::Buf;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::{fmt::Debug, io};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Sha256Hash([u8; 32]);
 
 impl Sha256Hash {
+    pub(crate) fn from_stream_hash<R: std::io::Read>(mut reader: R) -> io::Result<(Self, u64)> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        let size = std::io::copy(&mut reader, &mut hasher)?;
+        Ok((Sha256Hash(hasher.finalize().into()), size))
+    }
+
     pub(crate) fn from_data_hash<B: Buf>(mut data: B) -> Self {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();

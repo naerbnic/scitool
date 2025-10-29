@@ -2,7 +2,8 @@ use std::io;
 
 use crate::{
     resources::{
-        ConversionError, ResourceId, ResourceType, file::data::raw_header::RawEntryHeader,
+        ConversionError, ResourceId, ResourceType,
+        file::{CompressedData, data::raw_header::RawEntryHeader},
     },
     utils::{block::Block, compression::dcl::DecompressFactory},
 };
@@ -24,6 +25,7 @@ impl std::fmt::Debug for RawContents {
 #[derive(Debug, Clone)]
 pub(crate) struct Contents {
     id: ResourceId,
+    compressed: Option<CompressedData>,
     data: Block,
 }
 
@@ -38,24 +40,32 @@ impl Contents {
             data: resource_block,
         };
 
-        let decompressed_data = match raw_contents.header.compression_type() {
-            0 => raw_contents.data,
-            18..=20 => {
+        let (compressed, data) = match raw_contents.header.compression_type() {
+            0 => (None, raw_contents.data),
+            compression_type @ 18..=20 => {
                 let unpacked_size = u64::from(raw_contents.header.unpacked_size());
                 let data = raw_contents.data.clone();
-                Block::builder()
+
+                let decompressed_data = Block::builder()
                     .with_size(unpacked_size)
                     .build_from_read_factory(DecompressFactory::new(data))
-                    .map_err(ConversionError::new)?
+                    .map_err(ConversionError::new)?;
+                (
+                    Some(CompressedData::new(compression_type, raw_contents.data)),
+                    decompressed_data,
+                )
             }
-            _ => {
+            compression_type => {
                 // Let's be lazy here.
-                Block::from_error_fn(move || {
-                    io::Error::other(format!(
-                        "Unsupported compression type: {}",
-                        raw_contents.header.compression_type()
-                    ))
-                })
+                (
+                    Some(CompressedData::new(compression_type, raw_contents.data)),
+                    Block::from_error_fn(move || {
+                        io::Error::other(format!(
+                            "Unsupported compression type: {}",
+                            raw_contents.header.compression_type()
+                        ))
+                    }),
+                )
             }
         };
 
@@ -64,12 +74,17 @@ impl Contents {
                 ResourceType::try_from(raw_contents.header.res_type())?,
                 raw_contents.header.res_number(),
             ),
-            data: decompressed_data,
+            compressed,
+            data,
         })
     }
 
     pub(crate) fn id(&self) -> &ResourceId {
         &self.id
+    }
+
+    pub(crate) fn compressed(&self) -> Option<&CompressedData> {
+        self.compressed.as_ref()
     }
 
     pub(crate) fn data(&self) -> &Block {

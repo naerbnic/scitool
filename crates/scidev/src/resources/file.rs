@@ -3,7 +3,7 @@ use std::{
     error::Error as StdError,
     fs::File,
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use data::DataFile;
@@ -105,19 +105,21 @@ pub(super) fn read_resources(
                 got: *block.id(),
             });
         }
-        entries.insert(
-            location.id(),
-            ResourceBlocks::new_of_data(ResourceContents::from_source(block.data().clone())),
-        );
+        let contents = if let Some(compressed) = block.compressed() {
+            ResourceContents::from_compressed_source(compressed.clone(), block.data().clone())
+        } else {
+            ResourceContents::from_source(block.data().clone())
+        };
+        entries.insert(location.id(), ResourceBlocks::new_of_data(contents));
     }
 
     for patch in patches {
         let id = patch.id();
         match entries.entry(*id) {
             btree_map::Entry::Vacant(vac) => {
-                vac.insert(ResourceBlocks::new_of_patch(patch.contents().clone()));
+                vac.insert(ResourceBlocks::new_of_patch(patch.contents.clone()));
             }
-            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.contents().clone()),
+            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.contents.clone()),
         }
     }
 
@@ -268,12 +270,60 @@ pub enum ExtraData {
 }
 
 #[derive(Debug, Clone)]
-struct ResourceContents {
+pub struct CompressedData {
+    compression_type: u16,
+    compressed_block: Block,
+}
+
+impl CompressedData {
+    pub fn new(compression_type: u16, compressed_block: Block) -> Self {
+        CompressedData {
+            compression_type,
+            compressed_block,
+        }
+    }
+    #[must_use]
+    pub fn compression_type(&self) -> u16 {
+        self.compression_type
+    }
+
+    #[must_use]
+    pub fn compressed_block(&self) -> &Block {
+        &self.compressed_block
+    }
+}
+
+pub(crate) struct VolumeSource {
+    volume_id: u16,
+    offset: u32,
+    size: u32,
+
+    /// If the block was originally compressed, this contains the compressed
+    /// data and necessary metadata.
+    compressed: Option<CompressedData>,
+}
+
+pub(crate) struct PatchSource {
+    relative_path: PathBuf,
+    extra_data: Vec<u8>,
+}
+
+pub(crate) enum SourceInfo {
+    Volume(VolumeSource),
+    Patch(PatchSource),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResourceContents {
     /// Any extra data associated with the resource.
     ///
     /// This is typically only present if the resource was loaded from a
     /// patch file.
     extra_data: Option<ExtraData>,
+
+    /// If the block was originally compressed, this contains the compressed
+    /// data and necessary metadata.
+    compressed: Option<CompressedData>,
 
     /// The main data source for the resource.
     source: Block,
@@ -284,6 +334,16 @@ impl ResourceContents {
     pub(crate) fn from_source(source: Block) -> Self {
         ResourceContents {
             extra_data: None,
+            compressed: None,
+            source,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn from_compressed_source(compressed: CompressedData, source: Block) -> Self {
+        ResourceContents {
+            extra_data: None,
+            compressed: Some(compressed),
             source,
         }
     }
@@ -293,20 +353,13 @@ impl ResourceContents {
 pub struct Resource {
     /// The ID of the resource.
     id: ResourceId,
-
     contents: ResourceContents,
 }
 
 impl Resource {
     #[must_use]
-    pub fn new(id: ResourceId, source: Block) -> Self {
-        Resource {
-            id,
-            contents: ResourceContents {
-                extra_data: None,
-                source,
-            },
-        }
+    pub(crate) fn new(id: ResourceId, contents: ResourceContents) -> Self {
+        Resource { id, contents }
     }
 
     #[must_use]
@@ -325,8 +378,13 @@ impl Resource {
     }
 
     #[must_use]
-    fn contents(&self) -> &ResourceContents {
-        &self.contents
+    pub fn compressed(&self) -> Option<&CompressedData> {
+        self.contents.compressed.as_ref()
+    }
+
+    #[must_use]
+    pub fn data(&self) -> &Block {
+        &self.contents.source
     }
 
     pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {

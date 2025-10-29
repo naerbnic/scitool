@@ -93,6 +93,7 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
         id: ResourceId::new(res_type, res_num),
         contents: ResourceContents {
             extra_data,
+            compressed: None,
             source: data,
         },
     }))

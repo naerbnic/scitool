@@ -3,11 +3,14 @@ use std::{
     io::{self, Cursor},
 };
 
-use crate::utils::{
-    block::{Block, MemBlock},
-    data_writer::{DataWriter, IoDataWriter},
-    errors::{OtherError, ensure_other, prelude::*},
-    mem_reader::{self, MemReader},
+use crate::{
+    resources::file::ResourceContents,
+    utils::{
+        block::{Block, MemBlock},
+        data_writer::{DataWriter, IoDataWriter},
+        errors::{OtherError, ensure_other, prelude::*},
+        mem_reader::{self, MemReader},
+    },
 };
 use bytes::BufMut;
 
@@ -295,7 +298,7 @@ impl Audio36ResourceBuilder {
                 .with_other_err()?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
-                Block::from_mem_block(MemBlock::from_vec(map_data)),
+                ResourceContents::from_source(Block::from_mem_block(MemBlock::from_vec(map_data))),
             ));
         }
 

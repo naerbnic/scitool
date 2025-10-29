@@ -2,18 +2,25 @@ mod base64;
 mod res_id;
 mod sha256_hash;
 
-use std::fmt::Debug;
+use std::{fmt::Debug, io};
 
 use scidev::resources::ResourceId;
 use serde::{Deserialize, Serialize};
 
 pub(super) use self::{base64::Base64Data, sha256_hash::Sha256Hash};
 
-const CURRENT_VERSION: u32 = 1;
+pub(super) const CURRENT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompressedInfo {
     buffer: BufferInfo,
+}
+
+impl CompressedInfo {
+    #[must_use]
+    pub(crate) fn new(buffer: BufferInfo) -> Self {
+        Self { buffer }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,16 +59,24 @@ impl BufferInfo {
     pub(crate) fn new(size: u64, hash: Sha256Hash) -> Self {
         Self { size, hash }
     }
+
+    pub(crate) fn from_stream<R: std::io::Read>(reader: R) -> io::Result<Self> {
+        let (hash, size) = Sha256Hash::from_stream_hash(reader)?;
+        Ok(BufferInfo { size, hash })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentInfo {
-    /// Info about the raw bytes..
-    raw: BufferInfo,
+    /// Info about the raw bytes.
+    pub(super) raw: BufferInfo,
 
-    original_raw: Option<BufferInfo>,
+    /// Info about the original raw bytes, if this was exported from an
+    /// existing resource package.
+    pub(super) original_raw: Option<BufferInfo>,
+
     // If the data was compressed, information about the compressed data.
-    compressed: Option<CompressedInfo>,
+    pub(super) compressed: Option<CompressedInfo>,
 }
 
 /// Metadata about a resource in a project. This is general for all types of
@@ -70,17 +85,17 @@ pub struct ContentInfo {
 pub struct Metadata {
     /// The version of the metadata schema. This can be used to handle
     /// different versions of the schema in the future.
-    version: u32,
+    pub(super) version: u32,
 
     /// The type of the resource.
     #[serde(with = "self::res_id::ResourceIdSerde")]
-    id: ResourceId,
+    pub(super) id: ResourceId,
 
     /// Information about the content of the resource, if available.
-    content: Option<ContentInfo>,
+    pub(super) content: Option<ContentInfo>,
 
     /// Info about the source of the resource data. Can be used to help round-trip the data.
-    source: Option<SourceInfo>,
+    pub(super) source: Option<SourceInfo>,
 }
 
 impl Metadata {
