@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes::BufMut;
 
-use crate::resources::{ResourceId, ResourceType, file::Resource};
+use crate::resources::{ResourceId, ResourceType, Resource};
 
 use super::msg::MessageId;
 

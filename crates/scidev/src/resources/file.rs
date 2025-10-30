@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, btree_map},
     error::Error as StdError,
     fs::File,
-    io::{self, Write},
+    io::{self},
     path::Path,
 };
 
@@ -10,12 +10,9 @@ use volume::VolumeFile;
 
 use self::patch::try_patch_from_file;
 use crate::{
-    resources::{
-        ConversionError,
-        file::{map::MapFile, patch::write_resource_to_patch_file},
-    },
+    resources::{ConversionError, file::map::MapFile, resource::Resource},
     utils::{
-        block::{Block, MemBlock, MemBlockFromReaderError},
+        block::{Block, MemBlockFromReaderError},
         errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
         mem_reader,
     },
@@ -23,7 +20,7 @@ use crate::{
 
 use super::{ResourceId, ResourceType};
 
-pub(super) use self::patch::ResourcePatchError;
+pub(super) use self::patch::{ResourcePatchError, write_resource_to_patch_file};
 
 mod map;
 mod patch;
@@ -115,9 +112,9 @@ pub(super) fn read_resources(
         let id = patch.id();
         match entries.entry(*id) {
             btree_map::Entry::Vacant(vac) => {
-                vac.insert(ResourceBlocks::new_of_patch(patch.contents.clone()));
+                vac.insert(ResourceBlocks::new_of_patch(patch.contents().clone()));
             }
-            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.contents.clone()),
+            btree_map::Entry::Occupied(occ) => occ.into_mut().add_patch(patch.contents().clone()),
         }
     }
 
@@ -254,10 +251,6 @@ impl ResourceSet {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct ResourceLoadError(#[from] OtherError);
-
 #[derive(Debug, Clone)]
 pub enum ExtraData {
     Simple(Block),
@@ -325,51 +318,16 @@ impl ResourceContents {
             source,
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct Resource {
-    /// The ID of the resource.
-    id: ResourceId,
-    contents: ResourceContents,
-}
-
-impl Resource {
-    #[must_use]
-    pub(crate) fn new(id: ResourceId, contents: ResourceContents) -> Self {
-        Resource { id, contents }
+    pub(crate) fn extra_data(&self) -> Option<&ExtraData> {
+        self.extra_data.as_ref()
     }
 
-    #[must_use]
-    fn from_contents(id: ResourceId, contents: ResourceContents) -> Resource {
-        Resource { id, contents }
+    pub(crate) fn compressed(&self) -> Option<&CompressedData> {
+        self.compressed.as_ref()
     }
 
-    #[must_use]
-    pub fn id(&self) -> &ResourceId {
-        &self.id
-    }
-
-    #[must_use]
-    pub fn extra_data(&self) -> Option<&ExtraData> {
-        self.contents.extra_data.as_ref()
-    }
-
-    #[must_use]
-    pub fn compressed(&self) -> Option<&CompressedData> {
-        self.contents.compressed.as_ref()
-    }
-
-    #[must_use]
-    pub fn data(&self) -> &Block {
-        &self.contents.source
-    }
-
-    pub fn load_data(&self) -> Result<MemBlock, ResourceLoadError> {
-        Ok(self.contents.source.open_mem(..).with_other_err()?)
-    }
-
-    pub fn write_patch<W: Write>(&self, writer: W) -> Result<(), ResourcePatchError> {
-        write_resource_to_patch_file(self, writer)
+    pub(crate) fn source(&self) -> &Block {
+        &self.source
     }
 }

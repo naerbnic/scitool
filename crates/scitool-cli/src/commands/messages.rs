@@ -6,7 +6,7 @@ pub fn print_talkers(game_dir: &Path, mut output: impl std::io::Write) -> anyhow
     let resource_set = ResourceSet::from_root_dir(game_dir)?;
     let mut talkers = BTreeSet::new();
     for res in resource_set.resources_of_type(ResourceType::Message) {
-        let msg_resources = parse_message_resource(&res.load_data()?)?;
+        let msg_resources = parse_message_resource(&res.data().open_mem(..)?)?;
         for (_, record) in msg_resources.messages() {
             talkers.insert(record.talker());
         }

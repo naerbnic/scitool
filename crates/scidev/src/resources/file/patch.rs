@@ -89,14 +89,14 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
         (Some(ExtraData::Simple(header_data)), data)
     };
 
-    Ok(Some(Resource {
-        id: ResourceId::new(res_type, res_num),
-        contents: ResourceContents {
+    Ok(Some(Resource::from_contents(
+        ResourceId::new(res_type, res_num),
+        ResourceContents {
             extra_data,
             compressed: None,
             source: data,
         },
-    }))
+    )))
 }
 
 pub(crate) fn write_resource_to_patch_file<W: Write>(
@@ -106,7 +106,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
     writer
         .write_all(&[resource.id().type_id().into()])
         .with_other_err()?;
-    match &resource.contents.extra_data {
+    match &resource.extra_data() {
         Some(ExtraData::Simple(data)) => {
             let data = data.open_mem(..).with_other_err()?;
             ensure_other!(
@@ -142,7 +142,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
         }
     }
 
-    let data = resource.contents.source.open_mem(..).with_other_err()?;
+    let data = resource.data().open_mem(..).with_other_err()?;
     writer.write_all(&data).with_other_err()?;
 
     Ok(())

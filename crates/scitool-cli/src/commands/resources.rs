@@ -16,7 +16,7 @@ pub fn dump_resource(
     let res = resource_set
         .get_resource(&resource_id)
         .ok_or_else(|| anyhow::anyhow!("Resource not found: {resource_id:?}"))?;
-    let data = res.load_data()?;
+    let data = res.data().open_mem(..)?;
     hex_dump_to(output, &data, 0)?;
     Ok(())
 }

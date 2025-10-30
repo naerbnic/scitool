@@ -26,7 +26,7 @@ fn export_book(
     // Extra testing for building a conversation.
 
     for res in resource_set.resources_of_type(ResourceType::Message) {
-        let msg_resources = parse_message_resource(&res.load_data()?)?;
+        let msg_resources = parse_message_resource(&res.data().open_mem(..)?)?;
         for (msg_id, record) in msg_resources.messages() {
             builder.add_message(res.id().resource_num(), msg_id, record)?;
         }

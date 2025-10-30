@@ -1,9 +1,11 @@
 use std::fmt::Display;
 
 mod file;
+mod resource;
 pub mod types;
 
-pub use file::{ExtraData, Resource, ResourceSet};
+pub use file::{ExtraData, ResourceSet};
+pub use resource::Resource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]

@@ -84,18 +84,20 @@ impl ScriptLoader {
                 SELECTOR_TABLE_VOCAB_NUM,
             ))
             .ok_or_else_other(|| "Selector table not found")?
-            .load_data()
+            .data()
+            .open_mem(..)
             .with_other_err()?;
         let reader = BufferMemReader::new(selector_table_data.into_fallible());
         let selectors = selectors::SelectorTable::load_from(&reader)?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
-            let script_data = script.load_data().with_other_err()?;
+            let script_data = script.data().open_mem(..).with_other_err()?;
             let heap = resources
                 .get_resource(&ResourceId::new(ResourceType::Heap, script_num))
                 .ok_or_else_other(|| "Selector heap not found")?
-                .load_data()
+                .data()
+                .open_mem(..)
                 .with_other_err()?;
 
             let loaded_script =
