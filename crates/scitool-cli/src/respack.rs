@@ -15,7 +15,7 @@ use std::{
 
 use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
-    resources::{Resource, ResourceId},
+    resources::{ExtraData, Resource, ResourceId, ResourceProvenance},
     utils::{block::Block, compression::dcl::DecompressFactory},
 };
 
@@ -63,20 +63,54 @@ impl ResPack {
 
         let raw_buffer_info = BufferInfo::from_stream(raw_data.open_reader(..)?)?;
 
-        let (compressed_info, compressed_data) = if let Some(compressed) = resource.compressed() {
-            let block = compressed.compressed_block().clone();
-            let compressed_info = BufferInfo::from_stream(
-                block
-                    .open_reader(..)
-                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?,
-            )?;
-            (
-                Some(schema::CompressedInfo::new(compressed_info)),
-                Some(block),
-            )
-        } else {
-            (None, None)
+        // Get provenance info from the contents.
+        let source = match resource.contents().provenance() {
+            ResourceProvenance::Volume(volume_source) => {
+                Some(schema::SourceInfo::Volume(schema::VolumeSource::new(
+                    volume_source.archive_num(),
+                    volume_source.archive_offset(),
+                )))
+            }
+            ResourceProvenance::PatchFile(patch_source) => {
+                let header_data = match patch_source.extra_data() {
+                    ExtraData::Simple(data) => {
+                        let data = data.open_mem(..)?;
+                        schema::HeaderData::Simple(schema::Base64Data::new(data.to_vec()))
+                    }
+                    ExtraData::Composite {
+                        ext_header,
+                        extra_data,
+                    } => {
+                        let ext_header = ext_header.open_mem(..)?;
+                        let extra_data = extra_data.open_mem(..)?;
+                        schema::HeaderData::Composite {
+                            ext_header_data: schema::Base64Data::new(ext_header.to_vec()),
+                            extra_data: schema::Base64Data::new(extra_data.to_vec()),
+                        }
+                    }
+                };
+                Some(schema::SourceInfo::Patch(schema::PatchSource::new(
+                    header_data,
+                )))
+            }
+            ResourceProvenance::New => None,
         };
+
+        let (compressed_info, compressed_data) =
+            if let Some(compressed) = resource.contents().compressed() {
+                let block = compressed.compressed_block().clone();
+                let compressed_info = BufferInfo::from_stream(
+                    block
+                        .open_reader(..)
+                        .map_err(io_err_map!(Other, "Failed to open compressed data"))?,
+                )?;
+                (
+                    Some(schema::CompressedInfo::new(compressed_info)),
+                    Some(block),
+                )
+            } else {
+                (None, None)
+            };
 
         let metadata = Metadata {
             version: schema::CURRENT_VERSION,
@@ -86,7 +120,7 @@ impl ResPack {
                 original_raw: Some(raw_buffer_info.clone()),
                 compressed: compressed_info,
             }),
-            source: None,
+            source,
         };
 
         Ok(ResPack {

@@ -3,7 +3,7 @@ use std::{ffi::OsStr, path::Path};
 
 use crate::resources::file::ResourceContents;
 
-use crate::resources::resource::ExtraData;
+use crate::resources::resource::{ExtraData, PatchSource};
 use crate::resources::{ResourceId, ResourceType};
 use crate::utils::block::Block;
 use crate::utils::errors::ensure_other;
@@ -90,9 +90,11 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
         (ExtraData::Simple(header_data), data)
     };
 
-    Ok(Some(Resource::from_contents(
+    let patch_source = PatchSource::new(extra_data);
+
+    Ok(Some(Resource::new(
         ResourceId::new(res_type, res_num),
-        ResourceContents::from_extra_data_source(extra_data, data),
+        ResourceContents::from_patch(patch_source, data),
     )))
 }
 
@@ -103,7 +105,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
     writer
         .write_all(&[resource.id().type_id().into()])
         .with_other_err()?;
-    match &resource.extra_data() {
+    match &resource.contents().extra_data() {
         Some(ExtraData::Simple(data)) => {
             let data = data.open_mem(..).with_other_err()?;
             ensure_other!(

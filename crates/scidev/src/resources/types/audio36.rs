@@ -298,7 +298,7 @@ impl Audio36ResourceBuilder {
                 .with_other_err()?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
-                ResourceContents::from_source(Block::from_mem_block(MemBlock::from_vec(map_data))),
+                ResourceContents::new(Block::from_mem_block(MemBlock::from_vec(map_data))),
             ));
         }
 

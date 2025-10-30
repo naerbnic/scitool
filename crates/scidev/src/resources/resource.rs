@@ -42,16 +42,65 @@ impl CompressedData {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ResourceContents {
-    /// Any extra data associated with the resource.
-    ///
-    /// This is typically only present if the resource was loaded from a
-    /// patch file.
-    extra_data: Option<ExtraData>,
+pub struct VolumeSource {
+    archive_num: u16,
+    archive_offset: u32,
+    compressed_data: Option<CompressedData>,
+}
 
-    /// If the block was originally compressed, this contains the compressed
-    /// data and necessary metadata.
-    compressed: Option<CompressedData>,
+impl VolumeSource {
+    #[must_use]
+    pub(super) fn new(archive_offset: u32, compressed_data: Option<CompressedData>) -> Self {
+        VolumeSource {
+            archive_num: 0,
+            archive_offset,
+            compressed_data,
+        }
+    }
+
+    #[must_use]
+    pub fn archive_num(&self) -> u16 {
+        self.archive_num
+    }
+
+    #[must_use]
+    pub fn archive_offset(&self) -> u32 {
+        self.archive_offset
+    }
+
+    #[must_use]
+    pub fn compressed_data(&self) -> Option<&CompressedData> {
+        self.compressed_data.as_ref()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchSource {
+    patch_header_data: ExtraData,
+}
+
+impl PatchSource {
+    #[must_use]
+    pub fn new(patch_header_data: ExtraData) -> Self {
+        PatchSource { patch_header_data }
+    }
+
+    #[must_use]
+    pub fn extra_data(&self) -> &ExtraData {
+        &self.patch_header_data
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ResourceProvenance {
+    Volume(VolumeSource),
+    PatchFile(PatchSource),
+    New,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResourceContents {
+    provenance: ResourceProvenance,
 
     /// The main data source for the resource.
     source: Block,
@@ -59,41 +108,51 @@ pub(crate) struct ResourceContents {
 
 impl ResourceContents {
     #[must_use]
-    pub(crate) fn from_source(source: Block) -> Self {
+    pub(super) fn from_volume(source: VolumeSource, data: Block) -> Self {
         ResourceContents {
-            extra_data: None,
-            compressed: None,
-            source,
+            provenance: ResourceProvenance::Volume(source),
+            source: data,
         }
     }
 
     #[must_use]
-    pub(crate) fn from_extra_data_source(extra_data: ExtraData, source: Block) -> Self {
+    pub(super) fn from_patch(patch: PatchSource, data: Block) -> Self {
         ResourceContents {
-            extra_data: Some(extra_data),
-            compressed: None,
-            source,
+            provenance: ResourceProvenance::PatchFile(patch),
+            source: data,
         }
     }
 
     #[must_use]
-    pub(crate) fn from_compressed_source(compressed: CompressedData, source: Block) -> Self {
+    pub fn new(source: Block) -> Self {
         ResourceContents {
-            extra_data: None,
-            compressed: Some(compressed),
+            provenance: ResourceProvenance::New,
             source,
         }
     }
 
     pub(crate) fn extra_data(&self) -> Option<&ExtraData> {
-        self.extra_data.as_ref()
+        match &self.provenance {
+            ResourceProvenance::PatchFile(patch) => Some(&patch.patch_header_data),
+            _ => None,
+        }
     }
 
-    pub(crate) fn compressed(&self) -> Option<&CompressedData> {
-        self.compressed.as_ref()
+    #[must_use]
+    pub fn compressed(&self) -> Option<&CompressedData> {
+        match &self.provenance {
+            ResourceProvenance::Volume(volume) => volume.compressed_data.as_ref(),
+            _ => None,
+        }
     }
 
-    pub(crate) fn source(&self) -> &Block {
+    #[must_use]
+    pub fn provenance(&self) -> &ResourceProvenance {
+        &self.provenance
+    }
+
+    #[must_use]
+    pub fn source(&self) -> &Block {
         &self.source
     }
 }
@@ -107,33 +166,18 @@ pub struct Resource {
 
 impl Resource {
     #[must_use]
-    pub(crate) fn new(id: ResourceId, contents: ResourceContents) -> Self {
+    pub fn new(id: ResourceId, contents: ResourceContents) -> Self {
         Resource { id, contents }
     }
 
     #[must_use]
-    pub(crate) fn from_contents(id: ResourceId, contents: ResourceContents) -> Resource {
-        Resource { id, contents }
-    }
-
-    #[must_use]
-    pub(crate) fn contents(&self) -> &ResourceContents {
+    pub fn contents(&self) -> &ResourceContents {
         &self.contents
     }
 
     #[must_use]
     pub fn id(&self) -> &ResourceId {
         &self.id
-    }
-
-    #[must_use]
-    pub fn extra_data(&self) -> Option<&ExtraData> {
-        self.contents.extra_data()
-    }
-
-    #[must_use]
-    pub fn compressed(&self) -> Option<&CompressedData> {
-        self.contents.compressed()
     }
 
     #[must_use]

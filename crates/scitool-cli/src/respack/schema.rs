@@ -32,11 +32,37 @@ pub struct VolumeSource {
     archive_offset: u32,
 }
 
+impl VolumeSource {
+    #[must_use]
+    pub(crate) fn new(archive_num: u16, archive_offset: u32) -> Self {
+        Self {
+            archive_num,
+            archive_offset,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum HeaderData {
+    Simple(Base64Data),
+    Composite {
+        ext_header_data: Base64Data,
+        extra_data: Base64Data,
+    },
+}
+
 /// The patch source info of a resource (i.e. a separate patch file, like `12.spr`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchSource {
     /// The initial data of the header of the patch file, before the actual resource data.
-    patch_header_data: Base64Data,
+    patch_header_data: HeaderData,
+}
+
+impl PatchSource {
+    #[must_use]
+    pub(crate) fn new(patch_header_data: HeaderData) -> Self {
+        PatchSource { patch_header_data }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

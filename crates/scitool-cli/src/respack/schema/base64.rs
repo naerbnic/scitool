@@ -6,7 +6,6 @@ pub(crate) struct Base64Data(Vec<u8>);
 
 impl Base64Data {
     #[must_use]
-    #[expect(dead_code, reason = "Will use to import data")]
     pub(crate) fn new(data: Vec<u8>) -> Self {
         Base64Data(data)
     }

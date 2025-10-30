@@ -13,7 +13,7 @@ use crate::{
     resources::{
         ConversionError,
         file::map::MapFile,
-        resource::{Resource, ResourceContents},
+        resource::{Resource, ResourceContents, VolumeSource},
     },
     utils::{
         block::{Block, MemBlockFromReaderError},
@@ -104,11 +104,8 @@ pub(super) fn read_resources(
 
     for location in map_file.locations() {
         let block = data_file.read_contents(location)?;
-        let contents = if let Some(compressed) = block.compressed() {
-            ResourceContents::from_compressed_source(compressed.clone(), block.data().clone())
-        } else {
-            ResourceContents::from_source(block.data().clone())
-        };
+        let volume_source = VolumeSource::new(location.file_offset(), block.compressed().cloned());
+        let contents = ResourceContents::from_volume(volume_source, block.data().clone());
         entries.insert(location.id(), ResourceBlocks::new_of_data(contents));
     }
 
@@ -202,7 +199,7 @@ impl ResourceSet {
     pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
         self.entries
             .get(id)
-            .map(|b| Resource::from_contents(*id, b.default_contents().clone()))
+            .map(|b| Resource::new(*id, b.default_contents().clone()))
     }
 
     pub fn resource_ids(&self) -> impl Iterator<Item = ResourceId> + '_ {
@@ -212,7 +209,7 @@ impl ResourceSet {
     pub fn resources(&self) -> impl Iterator<Item = Resource> + '_ {
         self.entries
             .iter()
-            .map(|(id, block)| Resource::from_contents(*id, block.default_contents().clone()))
+            .map(|(id, block)| Resource::new(*id, block.default_contents().clone()))
     }
 
     pub fn resources_of_type(&self, type_id: ResourceType) -> impl Iterator<Item = Resource> + '_ {
@@ -220,10 +217,7 @@ impl ResourceSet {
             if id.type_id != type_id {
                 return None;
             }
-            Some(Resource::from_contents(
-                *id,
-                block.default_contents().clone(),
-            ))
+            Some(Resource::new(*id, block.default_contents().clone()))
         })
     }
 
