@@ -3,7 +3,7 @@ use std::io;
 use crate::{
     resources::{
         ConversionError, ResourceId, ResourceType,
-        file::{CompressedData, data::raw_header::RawEntryHeader},
+        file::{CompressedData, volume::raw_header::RawEntryHeader},
     },
     utils::{block::Block, compression::dcl::DecompressFactory},
 };

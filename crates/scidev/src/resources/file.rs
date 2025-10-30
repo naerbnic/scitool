@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use data::DataFile;
+use volume::DataFile;
 
 use self::patch::try_patch_from_file;
 use crate::{
@@ -25,7 +25,7 @@ use super::{ResourceId, ResourceType};
 
 pub(super) use self::patch::ResourcePatchError;
 
-mod data;
+mod volume;
 mod map;
 mod patch;
 
@@ -46,13 +46,13 @@ pub(super) enum Error {
     Other(Box<dyn StdError + Send + Sync>),
 }
 
-impl From<data::Error> for Error {
-    fn from(err: data::Error) -> Self {
+impl From<volume::Error> for Error {
+    fn from(err: volume::Error) -> Self {
         match err {
-            data::Error::Io(io_err) => Self::Io(io_err),
-            data::Error::MemReader(mem_err) => Self::MalformedData(mem_err),
-            data::Error::Conversion(err) => Self::Conversion(err),
-            e @ data::Error::InvalidResourceLocation { .. } => Self::Other(Box::new(e)),
+            volume::Error::Io(io_err) => Self::Io(io_err),
+            volume::Error::MemReader(mem_err) => Self::MalformedData(mem_err),
+            volume::Error::Conversion(err) => Self::Conversion(err),
+            e @ volume::Error::InvalidResourceLocation { .. } => Self::Other(Box::new(e)),
         }
     }
 }
