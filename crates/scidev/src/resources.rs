@@ -4,7 +4,7 @@ mod file;
 mod resource;
 pub mod types;
 
-pub use file::{ExtraData, ResourceSet};
+pub use file::ResourceSet;
 pub use resource::Resource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

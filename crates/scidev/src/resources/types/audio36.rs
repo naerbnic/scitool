@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    resources::file::ResourceContents,
+    resources::resource::ResourceContents,
     utils::{
         block::{Block, MemBlock},
         data_writer::{DataWriter, IoDataWriter},
@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes::BufMut;
 
-use crate::resources::{ResourceId, ResourceType, Resource};
+use crate::resources::{Resource, ResourceId, ResourceType};
 
 use super::msg::MessageId;
 

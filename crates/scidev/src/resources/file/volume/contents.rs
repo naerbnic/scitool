@@ -2,8 +2,7 @@ use std::io;
 
 use crate::{
     resources::{
-        ConversionError,
-        file::{CompressedData, volume::raw_contents::RawContents},
+        ConversionError, file::volume::raw_contents::RawContents, resource::CompressedData,
     },
     utils::{block::Block, compression::dcl::DecompressFactory},
 };

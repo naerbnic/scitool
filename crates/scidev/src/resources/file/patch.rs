@@ -1,8 +1,9 @@
 use std::io::Write;
 use std::{ffi::OsStr, path::Path};
 
-use crate::resources::file::{ExtraData, ResourceContents};
+use crate::resources::file::ResourceContents;
 
+use crate::resources::resource::ExtraData;
 use crate::resources::{ResourceId, ResourceType};
 use crate::utils::block::Block;
 use crate::utils::errors::ensure_other;
@@ -78,24 +79,20 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
         }
         let (extra_data, data) = rest.split_at(u64::from(real_header_size));
         (
-            Some(ExtraData::Composite {
+            ExtraData::Composite {
                 ext_header,
                 extra_data,
-            }),
+            },
             data,
         )
     } else {
         let (header_data, data) = rest.split_at(u64::from(header_size));
-        (Some(ExtraData::Simple(header_data)), data)
+        (ExtraData::Simple(header_data), data)
     };
 
     Ok(Some(Resource::from_contents(
         ResourceId::new(res_type, res_num),
-        ResourceContents {
-            extra_data,
-            compressed: None,
-            source: data,
-        },
+        ResourceContents::from_extra_data_source(extra_data, data),
     )))
 }
 
