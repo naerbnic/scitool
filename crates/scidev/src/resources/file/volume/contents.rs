@@ -2,25 +2,11 @@ use std::io;
 
 use crate::{
     resources::{
-        ConversionError, ResourceId, ResourceType,
-        file::{CompressedData, volume::raw_header::RawEntryHeader},
+        ConversionError, ResourceId,
+        file::{CompressedData, volume::raw_contents::RawContents},
     },
     utils::{block::Block, compression::dcl::DecompressFactory},
 };
-
-struct RawContents {
-    header: RawEntryHeader,
-    data: Block,
-}
-
-impl std::fmt::Debug for RawContents {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RawContents")
-            .field("header", &self.header)
-            .field("data", &self.data.len())
-            .finish()
-    }
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Contents {
@@ -30,39 +16,29 @@ pub(crate) struct Contents {
 }
 
 impl Contents {
-    pub(super) fn from_parts(
-        header: RawEntryHeader,
-        resource_block: Block,
-    ) -> Result<Self, ConversionError> {
-        assert_eq!(resource_block.len(), u64::from(header.packed_size()));
-        let raw_contents = RawContents {
-            header,
-            data: resource_block,
-        };
-
-        let (compressed, data) = match raw_contents.header.compression_type() {
-            0 => (None, raw_contents.data),
+    pub(super) fn from_raw(raw_contents: &RawContents) -> Result<Self, ConversionError> {
+        let raw_data = raw_contents.data().clone();
+        let (compressed, data) = match raw_contents.compression_type() {
+            0 => (None, raw_data),
             compression_type @ 18..=20 => {
-                let unpacked_size = u64::from(raw_contents.header.unpacked_size());
-                let data = raw_contents.data.clone();
+                let unpacked_size = u64::from(raw_contents.unpacked_size());
 
                 let decompressed_data = Block::builder()
                     .with_size(unpacked_size)
-                    .build_from_read_factory(DecompressFactory::new(data))
+                    .build_from_read_factory(DecompressFactory::new(raw_data.clone()))
                     .map_err(ConversionError::new)?;
                 (
-                    Some(CompressedData::new(compression_type, raw_contents.data)),
+                    Some(CompressedData::new(compression_type, raw_data)),
                     decompressed_data,
                 )
             }
             compression_type => {
                 // Let's be lazy here.
                 (
-                    Some(CompressedData::new(compression_type, raw_contents.data)),
+                    Some(CompressedData::new(compression_type, raw_data)),
                     Block::from_error_fn(move || {
                         io::Error::other(format!(
-                            "Unsupported compression type: {}",
-                            raw_contents.header.compression_type()
+                            "Unsupported compression type: {compression_type}"
                         ))
                     }),
                 )
@@ -70,10 +46,7 @@ impl Contents {
         };
 
         Ok(Contents {
-            id: ResourceId::new(
-                ResourceType::try_from(raw_contents.header.res_type())?,
-                raw_contents.header.res_number(),
-            ),
+            id: raw_contents.id(),
             compressed,
             data,
         })
@@ -97,7 +70,10 @@ mod tests {
     use super::*;
     use datalit::datalit;
 
-    use crate::utils::{mem_reader::Parse, testing::block::mem_reader_from_bytes};
+    use crate::{
+        resources::file::volume::raw_header::RawEntryHeader,
+        utils::{mem_reader::Parse, testing::block::mem_reader_from_bytes},
+    };
 
     #[test]
     fn test_basic_contents() {
@@ -116,7 +92,8 @@ mod tests {
             }
             .to_vec(),
         );
-        let contents = Contents::from_parts(header, content_source).unwrap();
+        let raw_contents = RawContents::new(0, header, content_source);
+        let contents = Contents::from_raw(&raw_contents).unwrap();
 
         let content_data = contents.data().open_mem(..).unwrap();
         assert_eq!(content_data.as_ref(), &[0, 1, 2, 3]);

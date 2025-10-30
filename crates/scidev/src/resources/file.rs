@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use volume::DataFile;
+use volume::VolumeFile;
 
 use self::patch::try_patch_from_file;
 use crate::{
@@ -94,7 +94,7 @@ pub(super) fn read_resources(
     patches: &[Resource],
 ) -> Result<ResourceSet, Error> {
     let map_file = MapFile::from_read_seek(File::open(map_file)?)?;
-    let data_file = DataFile::new(Block::from_path(data_file.to_path_buf())?);
+    let data_file = VolumeFile::new(Block::from_path(data_file.to_path_buf())?);
 
     let mut entries = BTreeMap::new();
 
