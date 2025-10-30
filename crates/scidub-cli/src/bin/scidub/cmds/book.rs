@@ -15,7 +15,7 @@ fn export_book(
     output: impl std::io::Write,
 ) -> anyhow::Result<()> {
     let config = if config_path.exists() {
-        let config: BookConfig = serde_yml::from_reader(std::fs::File::open(config_path)?)?;
+        let config: BookConfig = serde_norway::from_reader(std::fs::File::open(config_path)?)?;
         config
     } else {
         BookConfig::default()
