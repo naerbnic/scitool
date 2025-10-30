@@ -77,7 +77,7 @@ impl TempStore {
         let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?
             .keep()
             .with_other_err()?;
-        std::io::copy(&mut BufferCursor::new(buffer), &mut file)?;
+        std::io::copy(&mut BufferCursor::new(buffer.into_fallible()), &mut file)?;
         drop(file);
         Ok(Block::from_path(BlockPathHandle {
             path,

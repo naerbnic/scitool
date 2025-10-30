@@ -27,7 +27,7 @@ use crate::utils::{
             read_seek_impl::ReadSeekImpl, seq_impl::SequenceBlockImpl,
         },
     },
-    buffer::BufferExt as _,
+    buffer::{Buffer, SplittableBuffer as _},
     mem_reader::{self, BufferMemReader, MemReader as _, NoErrorResultExt as _},
     range::{BoundedRange, Range},
 };
@@ -71,17 +71,13 @@ where
 {
     fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
         let mem_block = self.0.load_mem_block()?;
-        let mem_block = mem_block
-            .sub_buffer(range.cast_to::<usize>())
-            .map_err(io::Error::other)?;
+        let mem_block = mem_block.sub_buffer(range.cast_to::<usize>());
         Ok(mem_block.clone())
     }
 
     fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
         let mem_block = self.0.load_mem_block()?;
-        let mem_block = mem_block
-            .sub_buffer(range.cast_to::<usize>())
-            .map_err(io::Error::other)?;
+        let mem_block = mem_block.sub_buffer(range.cast_to::<usize>());
         Ok(Box::new(io::Cursor::new(mem_block)))
     }
 }
@@ -416,7 +412,7 @@ pub trait FromBlock: mem_reader::Parse {
             ));
         }
         let block = source.subblock(..Self::read_size() as u64).open_mem(..)?;
-        let mut reader = BufferMemReader::from_ref(&block);
+        let mut reader = BufferMemReader::new(block.as_fallible());
         let parse_result = Self::parse(&mut reader);
         let value = parse_result.remove_no_error().map_err(io::Error::other)?;
         let rest = source.subblock(reader.tell() as u64..);

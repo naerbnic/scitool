@@ -1,8 +1,8 @@
 use crate::utils::{
     block::MemBlock,
-    buffer::BufferExt,
+    buffer::{Buffer, SplittableBuffer as _},
     errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
-    mem_reader::{self, BufferMemReader, MemReader, NoErrorResultExt},
+    mem_reader::{self, BufferMemReader, MemReader},
 };
 
 use super::selectors::SelectorTable;
@@ -174,7 +174,7 @@ impl Relocations {
 
 fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Error> {
     let cloned_data = data.clone();
-    let mut reader = BufferMemReader::from_ref(&cloned_data);
+    let mut reader = BufferMemReader::new(cloned_data.as_fallible());
     let relocation_offset = reader.read_value::<u16>("Relocation offset")?;
     if relocation_offset as usize > cloned_data.size() {
         return Err(AnyInvalidDataError::from(
@@ -185,9 +185,7 @@ fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Error> {
     }
     Ok((
         relocation_offset,
-        cloned_data
-            .sub_buffer(relocation_offset as usize..)
-            .remove_no_error(),
+        cloned_data.sub_buffer(relocation_offset as usize..),
     ))
 }
 
@@ -220,24 +218,23 @@ impl LoadedScript {
 
         apply_relocations(
             script_data_slice,
-            &mut BufferMemReader::from_ref(&script_relocation_block),
+            &mut BufferMemReader::new(script_relocation_block.as_fallible()),
             u16_heap_offset,
         )?;
         apply_relocations(
             heap_data_slice,
-            &mut BufferMemReader::from_ref(&heap_relocation_block),
+            &mut BufferMemReader::new(heap_relocation_block.as_fallible()),
             u16_heap_offset,
         )?;
 
         let loaded_script = MemBlock::from_vec(loaded_script);
         let heap_data = loaded_script
             .clone()
-            .sub_buffer(heap_offset..heap_offset + heap_relocation_offset as usize)
-            .remove_no_error();
+            .sub_buffer(heap_offset..heap_offset + heap_relocation_offset as usize);
         let heap = Heap::from_block(
             selector_table,
-            &BufferMemReader::from_ref(&loaded_script),
-            &mut BufferMemReader::from_ref(&heap_data),
+            &BufferMemReader::new(loaded_script.as_fallible()),
+            &mut BufferMemReader::new(heap_data.as_fallible()),
         )?;
 
         Ok(LoadedScript { heap })

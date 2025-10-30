@@ -1,4 +1,8 @@
-use std::ops::RangeBounds;
+use std::{
+    io,
+    ops::RangeBounds,
+    sync::{Arc, Mutex},
+};
 
 use crate::utils::{
     convert::convert_if_different,
@@ -19,6 +23,33 @@ pub trait Buffer {
 
     /// Returns the size of the buffer in bytes.
     fn size(&self) -> usize;
+
+    fn into_fallible(self) -> FallibleBufWrap<Self>
+    where
+        Self: Sized,
+    {
+        FallibleBufWrap { buffer: self }
+    }
+
+    fn as_fallible(&self) -> FallibleBufWrap<&Self>
+    where
+        Self: Sized,
+    {
+        FallibleBufWrap { buffer: self }
+    }
+}
+
+impl<B> Buffer for &B
+where
+    B: Buffer,
+{
+    fn read_slice_at(&self, offset: usize) -> &[u8] {
+        (*self).read_slice_at(offset)
+    }
+
+    fn size(&self) -> usize {
+        (*self).size()
+    }
 }
 
 /// A buffer whose contents can be extracted as an independent sub-buffer.
@@ -28,6 +59,17 @@ pub trait SplittableBuffer: Buffer + Sized + Clone {
     /// This will be of the same type as the source object.
     #[must_use]
     fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self;
+
+    #[must_use]
+    fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Self
+    where
+        T: num::PrimInt + num::Unsigned + Into<usize> + 'static,
+    {
+        let range = Range::from_range(range);
+        let self_range = BoundedRange::from_size(self.size()).new_relative(range.coerce_to());
+
+        self.sub_buffer_from_range(self_range)
+    }
 }
 
 impl Buffer for &[u8] {
@@ -91,21 +133,73 @@ pub trait FallibleBuffer {
     fn size(&self) -> usize;
 }
 
-/// All buffers are fallible buffers that never fail.
-impl<T: Buffer> FallibleBuffer for T {
-    /// The error type is `NoError`, which can never be constructed.
+impl<T> FallibleBuffer for &T
+where
+    T: FallibleBuffer,
+{
+    type Error = T::Error;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        (*self).read_slice(offset, buf)
+    }
+
+    fn size(&self) -> usize {
+        (*self).size()
+    }
+}
+
+impl<T> FallibleBuffer for &mut T
+where
+    T: FallibleBuffer,
+{
+    type Error = T::Error;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        (**self).read_slice(offset, buf)
+    }
+
+    fn size(&self) -> usize {
+        (**self).size()
+    }
+}
+
+impl<T> FallibleBuffer for Arc<T>
+where
+    T: FallibleBuffer,
+{
+    type Error = T::Error;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        (**self).read_slice(offset, buf)
+    }
+
+    fn size(&self) -> usize {
+        (**self).size()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FallibleBufWrap<B> {
+    buffer: B,
+}
+
+impl<B> FallibleBuffer for FallibleBufWrap<B>
+where
+    B: Buffer,
+{
     type Error = NoError;
 
-    fn read_slice(&self, offset: usize, mut buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         assert!(
-            offset + buf.len() <= self.size(),
+            offset + buf.len() <= self.buffer.size(),
             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
             buf.len(),
-            self.size()
+            self.buffer.size()
         );
         let mut curr_offset = offset;
+        let mut buf = buf;
         while !buf.is_empty() {
-            let slice = self.read_slice_at(curr_offset);
+            let slice = self.buffer.read_slice_at(curr_offset);
             let to_copy = std::cmp::min(slice.len(), buf.len());
             buf[..to_copy].copy_from_slice(&slice[..to_copy]);
             curr_offset += to_copy;
@@ -115,7 +209,100 @@ impl<T: Buffer> FallibleBuffer for T {
     }
 
     fn size(&self) -> usize {
-        self.size()
+        self.buffer.size()
+    }
+}
+
+impl<B> SplittableFallibleBuffer for FallibleBufWrap<B>
+where
+    B: SplittableBuffer,
+{
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
+        Ok(self.buffer.sub_buffer_from_range(range).into_fallible())
+    }
+}
+
+/// All buffers are fallible buffers that never fail.
+// impl<T> FallibleBuffer for T
+// where
+//     T: Buffer,
+// {
+//     /// The error type is `NoError`, which can never be constructed.
+//     type Error = NoError;
+
+//     fn read_slice(&self, offset: usize, mut buf: &mut [u8]) -> Result<(), Self::Error> {
+//         assert!(
+//             offset + buf.len() <= self.size(),
+//             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
+//             buf.len(),
+//             self.size()
+//         );
+//         let mut curr_offset = offset;
+//         while !buf.is_empty() {
+//             let slice = self.read_slice_at(curr_offset);
+//             let to_copy = std::cmp::min(slice.len(), buf.len());
+//             buf[..to_copy].copy_from_slice(&slice[..to_copy]);
+//             curr_offset += to_copy;
+//             buf = &mut buf[to_copy..];
+//         }
+//         Ok(())
+//     }
+
+//     fn size(&self) -> usize {
+//         self.size()
+//     }
+// }
+
+#[derive(Debug)]
+pub struct ReaderBuffer<R> {
+    reader: Mutex<R>,
+    size: usize,
+}
+
+impl<R> ReaderBuffer<R>
+where
+    R: io::Read + io::Seek,
+{
+    pub fn new(mut reader: R) -> io::Result<Self> {
+        let size = reader.seek(io::SeekFrom::End(0))?;
+        let size = usize::try_from(size).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Buffer size exceeds addressable range",
+            )
+        })?;
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
+    }
+
+    pub fn try_into_inner(self) -> R {
+        self.reader.into_inner().unwrap()
+    }
+}
+
+impl<R> FallibleBuffer for ReaderBuffer<R>
+where
+    R: io::Read + io::Seek,
+{
+    type Error = io::Error;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        assert!(
+            offset + buf.len() <= self.size,
+            "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
+            buf.len(),
+            self.size
+        );
+        let mut reader = self.reader.lock().unwrap();
+        reader.seek(io::SeekFrom::Start(offset as u64))?;
+        reader.read_exact(buf)?;
+        Ok(())
+    }
+
+    fn size(&self) -> usize {
+        self.size
     }
 }
 
@@ -132,6 +319,19 @@ impl<T> Clone for FallibleBufferRef<'_, T> {
 }
 
 impl<T> Copy for FallibleBufferRef<'_, T> {}
+
+impl<T> Buffer for FallibleBufferRef<'_, T>
+where
+    T: Buffer,
+{
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    fn read_slice_at(&self, offset: usize) -> &[u8] {
+        self.0.read_slice_at(offset)
+    }
+}
 
 impl<T> FallibleBuffer for FallibleBufferRef<'_, T>
 where
@@ -151,9 +351,21 @@ where
 /// A buffer that can be split and can fail when reading.
 pub trait SplittableFallibleBuffer: FallibleBuffer + Sized + Clone {
     fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error>;
+    fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Result<Self, Self::Error>
+    where
+        T: num::PrimInt + num::Unsigned + Into<usize> + 'static,
+    {
+        let range = Range::from_range(range);
+        let self_range = BoundedRange::from_size(self.size()).new_relative(range.coerce_to());
+
+        self.sub_buffer_from_range(self_range)
+    }
 }
 
-impl<T: SplittableBuffer> SplittableFallibleBuffer for T {
+impl<T> SplittableFallibleBuffer for T
+where
+    T: SplittableBuffer + FallibleBuffer,
+{
     fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
         Ok(self.sub_buffer_from_range(range))
     }
@@ -165,7 +377,7 @@ pub struct BufferCursor<B> {
     position: usize,
 }
 
-impl<B: FallibleBuffer> BufferCursor<B> {
+impl<B> BufferCursor<B> {
     pub fn new(buffer: B) -> Self {
         Self {
             buffer,
@@ -174,13 +386,13 @@ impl<B: FallibleBuffer> BufferCursor<B> {
     }
 }
 
-impl<B: FallibleBuffer> std::io::Read for BufferCursor<B> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl<B: FallibleBuffer> io::Read for BufferCursor<B> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let available = std::cmp::min(self.buffer.size() - self.position, buf.len());
         let buf = &mut buf[..available];
         self.buffer
             .read_slice(self.position, buf)
-            .map_err(|e| convert_if_different(e, std::io::Error::other))?;
+            .map_err(|e| convert_if_different(e, io::Error::other))?;
         self.position += buf.len();
         Ok(buf.len())
     }
@@ -199,17 +411,3 @@ impl<B: Buffer> bytes::Buf for BufferCursor<B> {
         self.position += cnt;
     }
 }
-
-pub trait BufferExt: SplittableFallibleBuffer {
-    fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Result<Self, Self::Error>
-    where
-        T: num::PrimInt + num::Unsigned + Into<usize> + 'static,
-    {
-        let range = Range::from_range(range);
-        let self_range = BoundedRange::from_size(self.size()).new_relative(range.coerce_to());
-
-        self.sub_buffer_from_range(self_range)
-    }
-}
-
-impl<T: SplittableFallibleBuffer> BufferExt for T {}

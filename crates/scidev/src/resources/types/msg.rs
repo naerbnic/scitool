@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::utils::{
     block::MemBlock,
-    buffer::{BufferExt, BufferRef},
+    buffer::{Buffer, BufferRef, SplittableBuffer as _},
     errors::{OtherError, bail_other, ensure_other, prelude::*},
-    mem_reader::{BufferMemReader, MemReader, NoErrorResultExt},
+    mem_reader::{BufferMemReader, MemReader},
 };
 
 use serde::{Deserialize, Serialize};
@@ -158,11 +158,8 @@ fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, Pars
         offset as usize <= msg_res.size(),
         "String offset out of bounds"
     );
-    let base_buffer = msg_res
-        .clone()
-        .sub_buffer(offset as usize..)
-        .remove_no_error();
-    let mut reader = BufferMemReader::new(BufferRef::from(&base_buffer));
+    let base_buffer = msg_res.clone().sub_buffer(offset as usize..);
+    let mut reader = BufferMemReader::new(BufferRef::from(&base_buffer).into_fallible());
     let mut text = Vec::new();
     loop {
         let ch = reader.read_u8().with_other_err()?;
@@ -197,10 +194,10 @@ impl RoomMessageSet {
 }
 
 pub fn parse_message_resource(msg_res: &MemBlock) -> Result<RoomMessageSet, ParseError> {
-    let mut reader = BufferMemReader::from_ref(msg_res);
+    let mut reader = BufferMemReader::new(msg_res.into_fallible());
     let version_num = reader.read_u32_le().with_other_err()? / 1000;
     let raw_records = match version_num {
-        4 => parse_message_resource_v4(reader)?,
+        4 => parse_message_resource_v4(&mut reader)?,
         _ => bail_other!("Unsupported message resource version: {}", version_num),
     };
 

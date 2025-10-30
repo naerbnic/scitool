@@ -10,11 +10,14 @@ use data::DataFile;
 
 use self::patch::try_patch_from_file;
 use crate::{
-    resources::{ConversionError, file::patch::write_resource_to_patch_file},
+    resources::{
+        ConversionError,
+        file::{map::MapFile, patch::write_resource_to_patch_file},
+    },
     utils::{
         block::{Block, MemBlock, MemBlockFromReaderError},
         errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
-        mem_reader::{self, BufferMemReader, Parse as _},
+        mem_reader,
     },
 };
 
@@ -90,14 +93,12 @@ pub(super) fn read_resources(
     data_file: &Path,
     patches: &[Resource],
 ) -> Result<ResourceSet, Error> {
-    let map_file = MemBlock::from_reader(File::open(map_file)?)?;
+    let map_file = MapFile::from_read_seek(File::open(map_file)?)?;
     let data_file = DataFile::new(Block::from_path(data_file.to_path_buf())?);
-    let resource_locations =
-        map::ResourceLocationSet::parse(&mut BufferMemReader::from_ref(&map_file))?;
 
     let mut entries = BTreeMap::new();
 
-    for location in resource_locations.locations() {
+    for location in map_file.locations() {
         let block = data_file.read_contents(location)?;
         if block.id() != &location.id() {
             return Err(Error::ResourceIdMismatch {

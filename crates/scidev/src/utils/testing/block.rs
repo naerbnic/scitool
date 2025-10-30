@@ -1,5 +1,6 @@
 use crate::utils::{
     block::MemBlock,
+    buffer::Buffer,
     errors::{NoError, OtherError},
     mem_reader::{self, BufferMemReader, MemReader, Parse},
 };
@@ -11,7 +12,7 @@ pub fn memblock_from_bytes(data: &[u8]) -> MemBlock {
 
 #[must_use]
 pub fn mem_reader_from_bytes(data: &[u8]) -> impl MemReader<Error = NoError> {
-    BufferMemReader::new(memblock_from_bytes(data))
+    BufferMemReader::new(memblock_from_bytes(data).into_fallible())
 }
 
 pub fn mem_reader_parse_fully<T: Parse>(data: impl AsRef<[u8]>) -> mem_reader::Result<T, NoError> {

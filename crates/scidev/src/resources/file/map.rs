@@ -4,6 +4,8 @@ mod index;
 mod index_entry;
 mod location_entry;
 mod location_set;
+mod map_file;
 mod type_locations;
 
 pub(crate) use self::location_set::{ResourceLocation, ResourceLocationSet};
+pub(crate) use self::map_file::MapFile;

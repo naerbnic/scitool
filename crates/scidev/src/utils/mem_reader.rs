@@ -98,6 +98,15 @@ where
     }
 }
 
+impl Error<NoError> {
+    pub fn extract_base(self) -> AnyInvalidDataError {
+        match self {
+            Error::BaseError(err) => err.absurd(),
+            Error::InvalidData(err) => err,
+        }
+    }
+}
+
 pub type Result<T, E> = std::result::Result<T, Error<E>>;
 
 pub trait MemReader {
@@ -272,6 +281,75 @@ pub trait MemReader {
         let mut buf = [0u8; 4];
         self.read_exact(&mut buf)?;
         Ok(u32::from_le_bytes(buf))
+    }
+}
+
+impl<M> MemReader for &mut M
+where
+    M: MemReader,
+{
+    type Error = M::Error;
+
+    fn seek_to(&mut self, offset: usize) -> Result<(), Self::Error> {
+        (**self).seek_to(offset)
+    }
+
+    fn tell(&self) -> usize {
+        (**self).tell()
+    }
+
+    fn data_size(&self) -> usize {
+        (**self).data_size()
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+        (**self).read_exact(buf)
+    }
+
+    fn remaining(&self) -> usize {
+        (**self).remaining()
+    }
+
+    fn create_invalid_data_error<Err>(&self, message: Err) -> InvalidDataError<Err>
+    where
+        Err: StdError + Send + Sync + 'static,
+    {
+        (**self).create_invalid_data_error(message)
+    }
+
+    fn sub_reader_range<'b, R, Ctxt>(
+        &'b self,
+        context: Ctxt,
+        range: R,
+    ) -> Result<impl MemReader<Error = Self::Error> + 'b, Self::Error>
+    where
+        R: std::ops::RangeBounds<usize>,
+        Ctxt: Into<Cow<'b, str>>,
+    {
+        (**self).sub_reader_range(context, range)
+    }
+
+    fn read_to_subreader<'b, Ctxt>(
+        &'b mut self,
+        context: Ctxt,
+        len: usize,
+    ) -> Result<impl MemReader<Error = Self::Error> + 'b, Self::Error>
+    where
+        Ctxt: Into<Cow<'b, str>>,
+    {
+        (**self).read_to_subreader(context, len)
+    }
+
+    fn read_until<T: FromFixedBytes + Debug>(
+        &mut self,
+        context: &str,
+        pred: impl Fn(&T) -> bool,
+    ) -> Result<Vec<T>, Self::Error> {
+        (**self).read_until(context, pred)
+    }
+
+    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>, Self::Error> {
+        (**self).split_values(context)
     }
 }
 
