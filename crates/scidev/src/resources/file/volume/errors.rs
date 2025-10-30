@@ -1,6 +1,9 @@
 use std::io;
 
-use crate::{resources::ConversionError, utils::errors::AnyInvalidDataError};
+use crate::{
+    resources::{ConversionError, ResourceId},
+    utils::errors::AnyInvalidDataError,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -12,6 +15,11 @@ pub(crate) enum Error {
     Conversion(#[from] ConversionError),
     #[error("Invalid resource location {location:x}: {reason}")]
     InvalidResourceLocation { location: usize, reason: String },
+    #[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
+    ResourceIdMismatch {
+        expected: ResourceId,
+        got: ResourceId,
+    },
 }
 
 impl From<io::Error> for Error {

@@ -25,9 +25,9 @@ use super::{ResourceId, ResourceType};
 
 pub(super) use self::patch::ResourcePatchError;
 
-mod volume;
 mod map;
 mod patch;
+mod volume;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum Error {
@@ -53,6 +53,9 @@ impl From<volume::Error> for Error {
             volume::Error::MemReader(mem_err) => Self::MalformedData(mem_err),
             volume::Error::Conversion(err) => Self::Conversion(err),
             e @ volume::Error::InvalidResourceLocation { .. } => Self::Other(Box::new(e)),
+            volume::Error::ResourceIdMismatch { expected, got } => {
+                Self::ResourceIdMismatch { expected, got }
+            }
         }
     }
 }
@@ -100,12 +103,6 @@ pub(super) fn read_resources(
 
     for location in map_file.locations() {
         let block = data_file.read_contents(location)?;
-        if block.id() != &location.id() {
-            return Err(Error::ResourceIdMismatch {
-                expected: location.id(),
-                got: *block.id(),
-            });
-        }
         let contents = if let Some(compressed) = block.compressed() {
             ResourceContents::from_compressed_source(compressed.clone(), block.data().clone())
         } else {

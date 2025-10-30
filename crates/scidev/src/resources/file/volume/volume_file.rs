@@ -39,9 +39,14 @@ impl VolumeFile {
     }
 
     pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, Error> {
-        Ok(Contents::from_raw(
-            &self.read_raw_contents(location.file_offset())?,
-        )?)
+        let raw_contents = &self.read_raw_contents(location.file_offset())?;
+        if raw_contents.id() != location.id() {
+            return Err(Error::ResourceIdMismatch {
+                expected: location.id(),
+                got: raw_contents.id(),
+            });
+        }
+        Ok(Contents::from_raw(raw_contents)?)
     }
 }
 
@@ -71,7 +76,6 @@ mod tests {
 
         let data_file = VolumeFile::new(Block::from_vec(data.to_vec()));
         let contents = data_file.read_contents(location).unwrap();
-        assert_eq!(contents.id(), &id);
         let block = contents.data().open_mem(..).unwrap();
         assert_eq!(block.as_ref(), &[0xFA, 0xDE, 0xDF, 0xAE]);
     }

@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{
     resources::{
-        ConversionError, ResourceId,
+        ConversionError,
         file::{CompressedData, volume::raw_contents::RawContents},
     },
     utils::{block::Block, compression::dcl::DecompressFactory},
@@ -10,7 +10,6 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct Contents {
-    id: ResourceId,
     compressed: Option<CompressedData>,
     data: Block,
 }
@@ -45,15 +44,7 @@ impl Contents {
             }
         };
 
-        Ok(Contents {
-            id: raw_contents.id(),
-            compressed,
-            data,
-        })
-    }
-
-    pub(crate) fn id(&self) -> &ResourceId {
-        &self.id
+        Ok(Contents { compressed, data })
     }
 
     pub(crate) fn compressed(&self) -> Option<&CompressedData> {
