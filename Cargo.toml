@@ -3,6 +3,7 @@ resolver = "2"
 members = ["crates/*", "fuzz"]
 
 [workspace.dependencies]
+scidev = { path = "crates/scidev" }
 datalit = "0.1.0-alpha.4"
 
 [workspace.lints.rust]

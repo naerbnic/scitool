@@ -1,4 +1,4 @@
-use scidev::resources::{ResourceId, ResourceType};
+use crate::resources::{ResourceId, ResourceType};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Serialize, Deserialize)]
@@ -9,14 +9,10 @@ struct RawSerialization<'a> {
     resource_num: u16,
 }
 
-pub(super) struct ResourceIdSerde;
+pub struct ResourceIdSerde;
 
 impl ResourceIdSerde {
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "Required by serde with attribute"
-    )]
-    pub(super) fn serialize<S>(res_id: &ResourceId, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(res_id: &ResourceId, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -27,7 +23,7 @@ impl ResourceIdSerde {
         Serialize::serialize(&raw, serializer)
     }
 
-    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<ResourceId, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<ResourceId, D::Error>
     where
         D: Deserializer<'de>,
     {

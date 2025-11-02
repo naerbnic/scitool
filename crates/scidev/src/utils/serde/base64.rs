@@ -2,11 +2,11 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
-pub(crate) struct Base64Data(Vec<u8>);
+pub struct Base64Data(Vec<u8>);
 
 impl Base64Data {
     #[must_use]
-    pub(crate) fn new(data: Vec<u8>) -> Self {
+    pub fn new(data: Vec<u8>) -> Self {
         Base64Data(data)
     }
 }

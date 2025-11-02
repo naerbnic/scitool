@@ -9,6 +9,7 @@ pub mod errors;
 pub mod mem_reader;
 pub mod range;
 pub mod validation;
+pub mod serde;
 
 #[cfg(test)]
 pub mod testing;

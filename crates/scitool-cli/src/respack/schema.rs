@@ -1,13 +1,9 @@
-mod base64;
-mod res_id;
-mod sha256_hash;
-
 use std::{fmt::Debug, io};
 
 use scidev::resources::ResourceId;
 use serde::{Deserialize, Serialize};
 
-pub(super) use self::{base64::Base64Data, sha256_hash::Sha256Hash};
+pub(super) use scidev::utils::serde::{Base64Data, ResourceIdSerde, Sha256Hash};
 
 pub(super) const CURRENT_VERSION: u32 = 1;
 
@@ -114,7 +110,7 @@ pub struct Metadata {
     pub(super) version: u32,
 
     /// The type of the resource.
-    #[serde(with = "self::res_id::ResourceIdSerde")]
+    #[serde(with = "ResourceIdSerde")]
     pub(super) id: ResourceId,
 
     /// Information about the content of the resource, if available.
