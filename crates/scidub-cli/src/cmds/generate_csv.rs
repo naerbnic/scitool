@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use scidub_cli::book::{Book, file_format};
+use scidub::book::{Book, file_format};
 
 #[derive(Serialize)]
 struct LineRecord {

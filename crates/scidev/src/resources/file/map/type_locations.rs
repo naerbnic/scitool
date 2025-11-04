@@ -28,7 +28,7 @@ impl ResourceTypeLocations {
     ) -> mem_reader::Result<ResourceTypeLocations, M::Error> {
         // Despite documentation to the contrary, SCI11 uses 5 byte entries in the resource map
         // file.
-        if (end - start) % 5 != 0 {
+        if !(end - start).is_multiple_of(5) {
             return Err(reader
                 .create_invalid_data_error_msg(format!(
                     "Resource type {type_id:?} has invalid location entry size: {} bytes",

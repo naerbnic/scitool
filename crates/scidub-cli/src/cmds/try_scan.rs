@@ -10,7 +10,7 @@ pub(crate) struct TryScan {
 
 impl TryScan {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
-        let scan = scidub_cli::file::AudioSampleScan::read_from_dir(&self.scan_dir)?;
+        let scan = scidub::file::AudioSampleScan::read_from_dir(&self.scan_dir)?;
 
         anyhow::ensure!(
             !scan.has_duplicates(),

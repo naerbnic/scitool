@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::Subcommand;
-use scidub_cli::book::Line;
+use scidub::book::Line;
 
 use std::path::Path;
 
 use scidev::resources::{ResourceSet, ResourceType, types::msg::parse_message_resource};
-use scidub_cli::book::{Book, builder::BookBuilder, config::BookConfig, file_format};
+use scidub::book::{Book, builder::BookBuilder, config::BookConfig, file_format};
 
 fn export_book(
     config_path: &Path,

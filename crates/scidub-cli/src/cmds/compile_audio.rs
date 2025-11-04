@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator as _};
-use scidub_cli::{
+use scidub::{
     file::AudioSampleScan, path::LookupPath, resources::SampleDir, tools::ffmpeg::FfmpegTool,
 };
 

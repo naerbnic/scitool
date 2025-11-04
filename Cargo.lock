@@ -307,7 +307,6 @@ version = "0.1.0"
 dependencies = [
  "cap-std",
  "cross-file-id",
- "io-lifetimes 3.0.1",
  "serde",
  "serde_json",
  "tempfile",
@@ -647,12 +646,6 @@ name = "io-lifetimes"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06432fb54d3be7964ecd3649233cddf80db2832f47fec34c01f65b3d9d774983"
-
-[[package]]
-name = "io-lifetimes"
-version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f0fb0570afe1fed943c5c3d4102d5358592d8625fda6a0007fdbe65a92fba96"
 
 [[package]]
 name = "io-uring"
@@ -1190,8 +1183,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "scidub-cli"
+name = "scidub"
 version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "itertools",
+ "log",
+ "rayon",
+ "schemars",
+ "scidev",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
+name = "scidub-cli"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1202,6 +1213,7 @@ dependencies = [
  "rayon",
  "schemars",
  "scidev",
+ "scidub",
  "serde",
  "serde_json",
  "serde_norway",
