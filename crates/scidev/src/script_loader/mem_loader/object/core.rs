@@ -70,7 +70,7 @@ impl Object {
                     read_null_terminated_string(string_data)
                         .map_err(|e| loaded_data.create_invalid_data_error(e))
                         .map_err(AnyInvalidDataError::from)?
-                        .to_string(),
+                        .clone(),
                 )
             }
         } else {

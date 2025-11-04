@@ -478,7 +478,7 @@ where
     }
 
     fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>, Self::Error> {
-        if self.remaining() % T::SIZE != 0 {
+        if !self.remaining().is_multiple_of(T::SIZE) {
             return Err(self.err_with_context()(BufferError::NotDivisible {
                 required: T::SIZE,
                 overflow: self.remaining() % T::SIZE,

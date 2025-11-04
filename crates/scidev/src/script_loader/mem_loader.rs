@@ -200,7 +200,7 @@ impl LoadedScript {
         heap_data: &MemBlock,
     ) -> Result<LoadedScript, Error> {
         let heap_offset = script_data.size();
-        if heap_offset % 2 != 0 {
+        if !heap_offset.is_multiple_of(2) {
             return Err(Error::ScriptSizeNotAligned { size: heap_offset });
         }
 
