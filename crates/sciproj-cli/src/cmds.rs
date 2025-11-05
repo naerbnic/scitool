@@ -4,6 +4,7 @@ mod book;
 mod compile_audio;
 mod export_scannable;
 mod generate_csv;
+mod project;
 mod try_scan;
 
 #[derive(Parser)]
@@ -20,6 +21,7 @@ impl Cli {
             Cmd::TryScan(try_scan) => try_scan.run()?,
             Cmd::GenerateCsv(generate_csv) => generate_csv.run()?,
             Cmd::Book(book) => book.run()?,
+            Cmd::Project(project) => project.run()?,
         }
         Ok(())
     }
@@ -37,4 +39,6 @@ enum Cmd {
     GenerateCsv(generate_csv::GenerateCsv),
     #[clap(name = "book")]
     Book(book::BookCommand),
+    #[clap(name = "project", alias = "proj", alias = "p")]
+    Project(project::Cmd),
 }
