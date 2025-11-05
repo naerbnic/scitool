@@ -17,14 +17,14 @@ struct ProjectConfig {
 
     /// Configuration about the base game to use, if this is intended to be
     /// a mod/patch on an existing game.
-    #[serde(rename = "base-game")]
+    #[serde(rename = "base-game", default)]
     base_game: Option<BaseGame>,
 
     /// Paths to search for resource files when searching for files to include.
     ///
     /// By default, this is the project root itself. Project config files will
     /// not be searched.
-    #[serde(rename = "asset-paths")]
+    #[serde(rename = "asset-paths", default)]
     asset_paths: Vec<String>,
 
     /// File patterns that are used to infer resource ids when importing files.
@@ -43,7 +43,7 @@ struct ProjectConfig {
     /// Examples:
     ///   - Classic SCI patch file names: "{num}.{type}.{ext}"
     ///   - Prefix nameed files: "{name}.{type}.{num}.{ext}"
-    #[serde(rename = "import-patterns")]
+    #[serde(rename = "import-patterns", default)]
     import_patterns: Vec<String>,
 }
 

@@ -13,7 +13,11 @@ impl InitCommand {
     fn run(&self) -> anyhow::Result<()> {
         let target_dir: PathBuf = self.path.as_deref().unwrap_or(".").into();
         let target_dir = target_dir.canonicalize()?;
+
+        // Some initial checks to sanity check the target directory
+
         println!("Initializing new project in {}", target_dir.display());
+        Project::create_at(&target_dir)?;
         Ok(())
     }
 }

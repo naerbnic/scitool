@@ -20,7 +20,7 @@ struct KnownFile {
     resource_mapping: FileMapping,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct KnownFiles(Vec<KnownFile>);
 
 impl Serialize for KnownFiles {
