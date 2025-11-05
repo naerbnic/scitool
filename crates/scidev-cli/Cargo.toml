@@ -25,5 +25,5 @@ walkdir = "2.5.0"
 workspace = true
 
 [[bin]]
-name = "sciproj"
+name = "scidev"
 path = "src/main.rs"
