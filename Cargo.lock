@@ -1183,7 +1183,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scidub"
+name = "sciproj"
 version = "0.0.0"
 dependencies = [
  "anyhow",
@@ -1195,13 +1195,15 @@ dependencies = [
  "scidev",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "toml",
  "walkdir",
 ]
 
 [[package]]
-name = "scidub-cli"
+name = "sciproj-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1213,25 +1215,13 @@ dependencies = [
  "rayon",
  "schemars",
  "scidev",
- "scidub",
+ "sciproj",
  "serde",
  "serde_json",
  "serde_norway",
  "thiserror 1.0.69",
  "tokio",
  "walkdir",
-]
-
-[[package]]
-name = "sciproj"
-version = "0.1.0"
-dependencies = [
- "clap",
- "scidev",
- "serde",
- "serde_json",
- "tempfile",
- "toml",
 ]
 
 [[package]]

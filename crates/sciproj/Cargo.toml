@@ -1,17 +1,23 @@
 [package]
 name = "sciproj"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 
 [dependencies]
-scidev = { workspace = true }
+anyhow = { version = "1.0.97", features = ["backtrace"] }
+futures = "0.3.31"
+itertools = "0.13"
+log = "0.4.27"
+rayon = "1.11.0"
+schemars = "1.0.4"
+scidev = { path = "../scidev" }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+thiserror = "1.0.63"
+tokio = { version = "1.0", features = ["full"] }
+walkdir = "2.5.0"
+tempfile = "3.19.1"
 toml = "0.9.8"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1.0.145"
-tempfile = "3.23.0"
-
-[dev-dependencies]
-clap = "4.5"
 
 [lints]
 workspace = true
