@@ -1169,6 +1169,8 @@ name = "sciproj"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bitflags",
+ "bytes",
  "futures",
  "itertools",
  "log",

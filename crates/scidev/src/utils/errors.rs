@@ -2,6 +2,7 @@ mod context;
 mod invalid_data;
 mod no_error;
 mod other;
+mod io_err;
 
 pub mod prelude {
     pub use super::ErrorExt as _;
