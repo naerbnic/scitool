@@ -32,7 +32,7 @@ impl ViewHeader {
             cel_size,
             rest: header_data
                 .read_remaining()
-                .map_err(mem_reader::Error::BaseError)?,
+                .map_err(mem_reader::MemReaderError::Base)?,
         })
     }
 }
@@ -63,7 +63,7 @@ impl LoopEntry {
             cel_offset,
             rest: reader
                 .read_remaining()
-                .map_err(mem_reader::Error::BaseError)?,
+                .map_err(mem_reader::MemReaderError::Base)?,
         })
     }
 }
@@ -94,7 +94,7 @@ impl CelEntry {
         let literal_offset = reader.read_u32_le()?;
         let rest = reader
             .read_remaining()
-            .map_err(mem_reader::Error::BaseError)?;
+            .map_err(mem_reader::MemReaderError::Base)?;
         Ok(CelEntry {
             width,
             height,

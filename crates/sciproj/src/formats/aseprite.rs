@@ -194,12 +194,12 @@ mod layer {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(reader: M) -> io::Result<Self>
+        fn from_block<M>(_reader: M) -> io::Result<Self>
         where
             M: MemReader,
             M::Error: Into<io::Error>,
         {
-            let flags = reader.read_u16_le()?;
+            todo!()
         }
     }
 }

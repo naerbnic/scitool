@@ -20,11 +20,11 @@ pub(crate) enum Error {
     InvalidData(#[from] AnyInvalidDataError),
 }
 
-impl From<mem_reader::Error<NoError>> for Error {
-    fn from(err: mem_reader::Error<NoError>) -> Self {
+impl From<mem_reader::MemReaderError<NoError>> for Error {
+    fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
         match err {
-            mem_reader::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
-            mem_reader::Error::BaseError(err) => err.absurd(),
+            mem_reader::MemReaderError::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+            mem_reader::MemReaderError::Base(err) => err.absurd(),
         }
     }
 }

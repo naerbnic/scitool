@@ -6,7 +6,7 @@ use crate::resources::file::ResourceContents;
 use crate::resources::resource::{ExtraData, PatchSource};
 use crate::resources::{ResourceId, ResourceType};
 use crate::utils::block::Block;
-use crate::utils::errors::ensure_other;
+use crate::utils::errors::{BoxError, DynError, ErrWrapper, ensure_other};
 use crate::utils::errors::{OtherError, prelude::*};
 
 use super::Resource;
@@ -18,11 +18,53 @@ pub(crate) enum TryPatchError {
     Other(#[from] OtherError),
 }
 
+impl ErrWrapper for TryPatchError {
+    fn wrapped_err(&self) -> Option<&DynError> {
+        match self {
+            TryPatchError::Other(other) => other.wrapped_err(),
+        }
+    }
+
+    fn try_unwrap_box(self) -> Result<BoxError, Self> {
+        match self {
+            TryPatchError::Other(other) => match other.try_unwrap_box() {
+                Ok(boxed) => Ok(boxed),
+                Err(wrap) => Err(TryPatchError::Other(wrap)),
+            },
+        }
+    }
+
+    fn wrap_box(err: BoxError) -> Self {
+        TryPatchError::Other(OtherError::wrap_box(err))
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum ResourcePatchError {
     #[doc(hidden)]
     #[error(transparent)]
     Other(#[from] OtherError),
+}
+
+impl ErrWrapper for ResourcePatchError {
+    fn wrapped_err(&self) -> Option<&DynError> {
+        match self {
+            ResourcePatchError::Other(other) => other.wrapped_err(),
+        }
+    }
+
+    fn try_unwrap_box(self) -> Result<BoxError, Self> {
+        match self {
+            ResourcePatchError::Other(other) => match other.try_unwrap_box() {
+                Ok(boxed) => Ok(boxed),
+                Err(wrap) => Err(ResourcePatchError::Other(wrap)),
+            },
+        }
+    }
+
+    fn wrap_box(err: BoxError) -> Self {
+        ResourcePatchError::Other(OtherError::wrap_box(err))
+    }
 }
 
 pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>, TryPatchError> {

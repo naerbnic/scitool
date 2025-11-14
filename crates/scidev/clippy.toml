@@ -1,0 +1,3 @@
+[[disallowed-types]]
+path = "anyhow::Error"
+reason = "Use crate::utils::errors::OtherError instead of raw anyhow::Error within this crate."

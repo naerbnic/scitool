@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io};
 
 use crate::{
     resources::{ResourceId, ResourceSet, ResourceType},
     utils::{
         buffer::Buffer,
-        errors::{AnyInvalidDataError, OtherError, prelude::*},
+        errors::{
+            AnyInvalidDataError, BoxError, CastChain, DynError, ErrWrapper, OtherError, prelude::*,
+        },
         mem_reader::BufferMemReader,
     },
 };
@@ -60,7 +62,17 @@ pub enum ScriptLoadError {
 
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] OtherError),
+    Other(OtherError),
+}
+
+impl From<OtherError> for ScriptLoadError {
+    fn from(err: OtherError) -> Self {
+        CastChain::new(err)
+            .register_wrapper::<io::Error>()
+            .with_cast(ScriptLoadError::Io)
+            .with_cast(ScriptLoadError::InvalidData)
+            .finish(ScriptLoadError::Other)
+    }
 }
 
 impl From<selectors::Error> for ScriptLoadError {
@@ -130,6 +142,27 @@ pub enum ClassDeclSetError {
     #[doc(hidden)]
     #[error(transparent)]
     Other(#[from] OtherError),
+}
+
+impl ErrWrapper for ClassDeclSetError {
+    fn wrap_box(err: BoxError) -> Self {
+        ClassDeclSetError::Other(OtherError::from_boxed(err))
+    }
+
+    fn wrapped_err(&self) -> Option<&DynError> {
+        match self {
+            ClassDeclSetError::Other(other) => other.wrapped_err(),
+        }
+    }
+
+    fn try_unwrap_box(self) -> Result<BoxError, Self> {
+        match self {
+            ClassDeclSetError::Other(other) => match other.try_unwrap_box() {
+                Ok(boxed) => Ok(boxed),
+                Err(wrap) => Err(ClassDeclSetError::Other(wrap)),
+            },
+        }
+    }
 }
 
 pub struct ClassDeclSet {

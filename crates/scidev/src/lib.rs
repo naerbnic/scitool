@@ -1,3 +1,5 @@
+#![deny(clippy::disallowed_types)] // Deny anyhow usage in this crate
+
 pub mod common;
 pub mod resources;
 pub mod script_loader;

@@ -17,7 +17,9 @@ use crate::{
     },
     utils::{
         block::{Block, MemBlockFromReaderError},
-        errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
+        errors::{
+            AnyInvalidDataError, BoxError, DynError, ErrWrapper, NoError, OtherError, prelude::*,
+        },
         mem_reader,
     },
 };
@@ -61,13 +63,13 @@ impl From<volume::Error> for Error {
     }
 }
 
-impl From<mem_reader::Error<NoError>> for Error {
-    fn from(err: mem_reader::Error<NoError>) -> Self {
+impl From<mem_reader::MemReaderError<NoError>> for Error {
+    fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
         match err {
-            mem_reader::Error::InvalidData(invalid_data_err) => {
+            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
                 Self::MalformedData(invalid_data_err)
             }
-            mem_reader::Error::BaseError(err) => err.absurd(),
+            mem_reader::MemReaderError::Base(err) => err.absurd(),
         }
     }
 }
@@ -160,10 +162,24 @@ impl ResourceBlocks {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum OpenGameResourcesError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OtherError),
+#[error(transparent)]
+pub struct OpenGameResourcesError(#[from] OtherError);
+
+impl ErrWrapper for OpenGameResourcesError {
+    fn wrapped_err(&self) -> Option<&DynError> {
+        self.0.wrapped_err()
+    }
+
+    fn try_unwrap_box(self) -> Result<BoxError, Self> {
+        match self.0.try_unwrap_box() {
+            Ok(boxed) => Ok(boxed),
+            Err(wrap) => Err(OpenGameResourcesError(wrap)),
+        }
+    }
+
+    fn wrap_box(err: BoxError) -> Self {
+        OpenGameResourcesError(OtherError::wrap_box(err))
+    }
 }
 
 pub struct ResourceSet {

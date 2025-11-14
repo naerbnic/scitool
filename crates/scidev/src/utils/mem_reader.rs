@@ -60,14 +60,14 @@ pub enum BufferError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error<E> {
+pub enum MemReaderError<E> {
     #[error(transparent)]
-    BaseError(E),
+    Base(E),
     #[error(transparent)]
     InvalidData(AnyInvalidDataError),
 }
 
-impl<E, BaseErr> From<InvalidDataError<BaseErr>> for Error<E>
+impl<E, BaseErr> From<InvalidDataError<BaseErr>> for MemReaderError<E>
 where
     E: StdError + Send + Sync + 'static,
     BaseErr: StdError + Send + Sync + 'static,
@@ -77,7 +77,7 @@ where
     }
 }
 
-impl<E> From<AnyInvalidDataError> for Error<E>
+impl<E> From<AnyInvalidDataError> for MemReaderError<E>
 where
     E: StdError + Send + Sync + 'static,
 {
@@ -86,7 +86,7 @@ where
     }
 }
 
-impl<E> Error<E>
+impl<E> MemReaderError<E>
 where
     E: StdError + Send + Sync + 'static,
 {
@@ -98,16 +98,16 @@ where
     }
 }
 
-impl Error<NoError> {
+impl MemReaderError<NoError> {
     pub fn extract_base(self) -> AnyInvalidDataError {
         match self {
-            Error::BaseError(err) => err.absurd(),
-            Error::InvalidData(err) => err,
+            MemReaderError::Base(err) => err.absurd(),
+            MemReaderError::InvalidData(err) => err,
         }
     }
 }
 
-pub type Result<T, E> = std::result::Result<T, Error<E>>;
+pub type Result<T, E> = std::result::Result<T, MemReaderError<E>>;
 
 pub trait MemReader {
     type Error: StdError + Send + Sync + 'static;
@@ -155,8 +155,8 @@ pub trait MemReader {
         let remaining = self.remaining();
         let mut buf = vec![0; remaining];
         self.read_exact(&mut buf).map_err(|e| match e {
-            Error::BaseError(err) => err,
-            Error::InvalidData(_) => unreachable!(),
+            MemReaderError::Base(err) => err,
+            MemReaderError::InvalidData(_) => unreachable!(),
         })?;
         Ok(buf)
     }
@@ -388,23 +388,23 @@ where
     }
 
     #[track_caller]
-    fn err_with_context<E>(&self) -> impl FnOnce(E) -> Error<B::Error>
+    fn err_with_context<E>(&self) -> impl FnOnce(E) -> MemReaderError<B::Error>
     where
         E: StdError + Send + Sync + 'static,
     {
         move |err| {
             convert_if_different(err, |err| {
-                Error::new(self.context.create_error(self.position, err))
+                MemReaderError::new(self.context.create_error(self.position, err))
             })
         }
     }
 
     #[track_caller]
-    fn err_with_message<Msg>(&self, message: Msg) -> Error<B::Error>
+    fn err_with_message<Msg>(&self, message: Msg) -> MemReaderError<B::Error>
     where
         Msg: Into<String>,
     {
-        Error::new(
+        MemReaderError::new(
             self.context
                 .create_error(self.position, OtherError::from_msg(message.into())),
         )
@@ -502,7 +502,7 @@ where
 
         self.buffer
             .read_slice(self.start + self.position, buf)
-            .map_err(Error::BaseError)?;
+            .map_err(MemReaderError::Base)?;
 
         self.position += buf.len();
         Ok(())
@@ -611,13 +611,13 @@ pub trait NoErrorResultExt<T> {
     fn remove_no_error(self) -> Self::R;
 }
 
-impl<T> NoErrorResultExt<T> for std::result::Result<T, Error<NoError>> {
+impl<T> NoErrorResultExt<T> for std::result::Result<T, MemReaderError<NoError>> {
     type R = std::result::Result<T, AnyInvalidDataError>;
     fn remove_no_error(self) -> Self::R {
         match self {
             Ok(value) => Ok(value),
-            Err(Error::BaseError(err)) => err.absurd(),
-            Err(Error::InvalidData(err)) => Err(err),
+            Err(MemReaderError::Base(err)) => err.absurd(),
+            Err(MemReaderError::InvalidData(err)) => Err(err),
         }
     }
 }
