@@ -6,6 +6,8 @@ pub mod prelude {
     pub(crate) use super::{OtherOptionExt as _, OtherResultExt as _};
 }
 
+pub(crate) use scidev_macros_internal::other_fn;
+
 pub(crate) use self::other::{OptionExt as OtherOptionExt, ResultExt as OtherResultExt};
 pub(crate) use invalid_data::{AnyInvalidDataError, BlockContext, InvalidDataError};
 pub use no_error::NoError;

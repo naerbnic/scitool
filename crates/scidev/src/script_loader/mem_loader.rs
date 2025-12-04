@@ -1,7 +1,7 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, SplittableBuffer as _},
-    errors::{AnyInvalidDataError, NoError, OtherError, prelude::*},
+    errors::{AnyInvalidDataError, NoError, OtherError},
     mem_reader::{self, BufferMemReader, MemReader},
 };
 
@@ -10,8 +10,8 @@ use bytes::BufMut;
 
 mod object;
 
+use crate::utils::errors::other_fn;
 pub use object::Object;
-
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -37,7 +37,9 @@ impl From<object::Error> for Error {
 impl From<mem_reader::MemReaderError<NoError>> for Error {
     fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
         match err {
-            mem_reader::MemReaderError::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
+            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
+                Self::InvalidData(invalid_data_err)
+            }
             mem_reader::MemReaderError::Base(err) => err.absurd(),
         }
     }
@@ -76,13 +78,12 @@ where
     Ok(())
 }
 
+#[other_fn]
 fn read_null_terminated_string<M: MemReader>(mut buffer: M) -> Result<String, OtherError> {
-    let string_data = buffer
-        .read_until::<u8>("null terminated string", |b| *b == 0)
-        .with_other_err()?;
+    let string_data = buffer.read_until::<u8>("null terminated string", |b| *b == 0)?;
     std::str::from_utf8(&string_data[..string_data.len() - 1])
         .map(ToString::to_string)
-        .with_other_err()
+        .map_err(Into::into)
 }
 
 pub(crate) struct Heap {

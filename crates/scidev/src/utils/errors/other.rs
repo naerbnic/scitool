@@ -31,13 +31,13 @@ enum OtherKind {
     Context,
 }
 
-pub struct OtherError {
+pub(crate) struct OtherError {
     kind: OtherKind,
     error: anyhow::Error,
 }
 
 impl OtherError {
-    pub fn new<E>(err: E) -> Self
+    pub(crate) fn new<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
     {
@@ -50,14 +50,14 @@ impl OtherError {
         }
     }
 
-    pub fn from_boxed(err: BoxError) -> Self {
+    pub(crate) fn from_boxed(err: BoxError) -> Self {
         OtherError {
             kind: OtherKind::Wrapped,
             error: anyhow::Error::from_boxed(err),
         }
     }
 
-    pub fn from_wrapper<W>(wrapper: W) -> Self
+    pub(crate) fn from_wrapper<W>(wrapper: W) -> Self
     where
         W: ErrWrapper,
     {
@@ -70,7 +70,7 @@ impl OtherError {
         }
     }
 
-    pub fn from_msg<M>(msg: M) -> Self
+    pub(crate) fn from_msg<M>(msg: M) -> Self
     where
         M: Display + Debug + Send + Sync + 'static,
     {
@@ -80,14 +80,14 @@ impl OtherError {
         }
     }
 
-    pub fn add_context(self, msg: String) -> Self {
+    pub(crate) fn add_context(self, msg: String) -> Self {
         OtherError {
             kind: OtherKind::Context,
             error: self.error.context(msg),
         }
     }
 
-    pub fn downcast<Target>(self) -> Result<Target, Self>
+    pub(crate) fn downcast<Target>(self) -> Result<Target, Self>
     where
         Target: Display + Debug + Send + Sync + 'static,
     {
@@ -113,6 +113,12 @@ impl From<io::Error> for OtherError {
     }
 }
 
+impl From<Box<dyn std::error::Error + Send + Sync>> for OtherError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        OtherError::from_boxed(err)
+    }
+}
+
 impl Display for OtherError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         Display::fmt(&self.error, f)
@@ -135,7 +141,7 @@ impl std::error::Error for OtherError {
 /// 
 /// These types can either have their own "primitive" error variants, or
 /// simply wrap another error without adding any context.
-pub trait ErrWrapper: std::error::Error + Send + Sync + 'static + Sized {
+pub(crate) trait ErrWrapper: std::error::Error + Send + Sync + 'static + Sized {
     /// Returns a reference to the inner wrapped error, if one is wrapped.
     fn wrapped_err(&self) -> Option<&DynError>;
 
