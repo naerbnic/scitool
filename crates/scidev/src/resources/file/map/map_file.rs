@@ -20,7 +20,7 @@ impl MapFile {
         let buffer = Arc::new(ReaderBuffer::new(reader)?);
         let locations = ResourceLocationSet::parse(&mut BufferMemReader::new(buffer.clone()))
             .map_err(|e| match e {
-                mem_reader::MemReaderError::Base(e) => e,
+                mem_reader::MemReaderError::Read(e) => e,
                 mem_reader::MemReaderError::InvalidData(err) => io::Error::other(err),
             })?;
         Ok(MapFile { locations })

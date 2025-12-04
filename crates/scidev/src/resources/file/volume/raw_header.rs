@@ -38,7 +38,7 @@ impl RawEntryHeader {
 }
 
 impl Parse for RawEntryHeader {
-    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let res_type = reader.read_u8()?;
         let res_number = reader.read_u16_le()?;
         let packed_size = reader.read_u16_le()?;

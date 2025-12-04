@@ -3,10 +3,7 @@ use crate::{
         mem_loader::read_null_terminated_string,
         selectors::{Selector, SelectorTable},
     },
-    utils::{
-        errors::{AnyInvalidDataError, NoError},
-        mem_reader::MemReader,
-    },
+    utils::mem_reader::MemReader,
 };
 
 use super::{
@@ -32,7 +29,7 @@ impl Object {
         obj_data: Vec<u16>,
     ) -> Result<Object, Error>
     where
-        M: MemReader<Error = NoError> + 'a,
+        M: MemReader + 'a,
     {
         // Read the standard properties.
         //
@@ -68,8 +65,7 @@ impl Object {
                     loaded_data.sub_reader_range("object name string data", name_ptr as usize..)?;
                 Some(
                     read_null_terminated_string(string_data)
-                        .map_err(|e| loaded_data.create_invalid_data_error(e))
-                        .map_err(AnyInvalidDataError::from)?
+                        .map_err(|e| loaded_data.create_invalid_data_error(e))?
                         .clone(),
                 )
             }

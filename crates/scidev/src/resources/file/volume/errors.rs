@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{
     resources::{ConversionError, ResourceId},
-    utils::errors::AnyInvalidDataError,
+    utils::errors::InvalidDataError,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -10,7 +10,7 @@ pub(crate) enum Error {
     #[error(transparent)]
     Io(io::Error),
     #[error(transparent)]
-    MemReader(#[from] AnyInvalidDataError),
+    MemReader(#[from] InvalidDataError),
     #[error(transparent)]
     Conversion(#[from] ConversionError),
     #[error("Invalid resource location {location:x}: {reason}")]

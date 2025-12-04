@@ -5,7 +5,7 @@ use crate::{
     utils::{
         buffer::Buffer,
         errors::{
-            AnyInvalidDataError, BoxError, CastChain, DynError, ErrWrapper, OtherError, prelude::*,
+            BoxError, CastChain, DynError, ErrWrapper, InvalidDataError, OtherError, prelude::*,
         },
         mem_reader::BufferMemReader,
     },
@@ -15,6 +15,7 @@ use mem_loader::LoadedScript;
 mod mem_loader;
 mod selectors;
 
+use crate::utils::errors::other_fn;
 pub use mem_loader::Object;
 
 const SELECTOR_TABLE_VOCAB_NUM: u16 = 997;
@@ -58,11 +59,11 @@ pub enum ScriptLoadError {
     Io(#[from] std::io::Error),
 
     #[error(transparent)]
-    InvalidData(#[from] AnyInvalidDataError),
+    InvalidData(#[from] InvalidDataError),
 
     #[doc(hidden)]
     #[error(transparent)]
-    Other(OtherError),
+    Other(#[from] BoxError),
 }
 
 impl From<OtherError> for ScriptLoadError {
@@ -71,13 +72,14 @@ impl From<OtherError> for ScriptLoadError {
             .register_wrapper::<io::Error>()
             .with_cast(ScriptLoadError::Io)
             .with_cast(ScriptLoadError::InvalidData)
-            .finish(ScriptLoadError::Other)
+            .finish_box(ScriptLoadError::Other)
     }
 }
 
 impl From<selectors::Error> for ScriptLoadError {
     fn from(err: selectors::Error) -> Self {
         match err {
+            selectors::Error::Read(err) => Self::Io(err),
             selectors::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
         }
     }
@@ -141,26 +143,23 @@ impl ScriptLoader {
 pub enum ClassDeclSetError {
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] OtherError),
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl ErrWrapper for ClassDeclSetError {
     fn wrap_box(err: BoxError) -> Self {
-        ClassDeclSetError::Other(OtherError::from_boxed(err))
+        ClassDeclSetError::Other(err)
     }
 
     fn wrapped_err(&self) -> Option<&DynError> {
         match self {
-            ClassDeclSetError::Other(other) => other.wrapped_err(),
+            ClassDeclSetError::Other(other) => Some(&**other),
         }
     }
 
     fn try_unwrap_box(self) -> Result<BoxError, Self> {
         match self {
-            ClassDeclSetError::Other(other) => match other.try_unwrap_box() {
-                Ok(boxed) => Ok(boxed),
-                Err(wrap) => Err(ClassDeclSetError::Other(wrap)),
-            },
+            ClassDeclSetError::Other(other) => Ok(other),
         }
     }
 }
@@ -170,8 +169,9 @@ pub struct ClassDeclSet {
 }
 
 impl ClassDeclSet {
+    #[other_fn]
     pub fn new(resources: &ResourceSet) -> Result<Self, ClassDeclSetError> {
-        let loader = ScriptLoader::load_from(resources).with_other_err()?;
+        let loader = ScriptLoader::load_from(resources)?;
         let mut classes = HashMap::new();
         for (script_id, loaded_script) in loader.loaded_scripts() {
             for object in loaded_script.objects() {

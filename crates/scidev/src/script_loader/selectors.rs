@@ -6,25 +6,30 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap, hash_map},
     fmt::Debug,
+    io,
     sync::Arc,
 };
 
 use crate::utils::{
-    errors::{AnyInvalidDataError, NoError},
-    mem_reader::{self, MemReader, NoErrorResultExt as _},
+    errors::InvalidDataError,
+    mem_reader::{self, MemReader},
 };
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error(transparent)]
-    InvalidData(#[from] AnyInvalidDataError),
+    Read(#[from] io::Error),
+    #[error(transparent)]
+    InvalidData(#[from] InvalidDataError),
 }
 
-impl From<mem_reader::MemReaderError<NoError>> for Error {
-    fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
+impl From<mem_reader::MemReaderError> for Error {
+    fn from(err: mem_reader::MemReaderError) -> Self {
         match err {
-            mem_reader::MemReaderError::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
-            mem_reader::MemReaderError::Base(err) => err.absurd(),
+            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
+                Self::InvalidData(invalid_data_err)
+            }
+            mem_reader::MemReaderError::Read(err) => Self::Read(err),
         }
     }
 }
@@ -100,7 +105,7 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub(crate) fn load_from<M: MemReader<Error = NoError>>(data: &M) -> Result<Self, Error> {
+    pub(crate) fn load_from<M: MemReader>(data: &M) -> Result<Self, Error> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
 
@@ -123,11 +128,8 @@ impl SelectorTable {
                     let string_length = entry_data.read_value::<u16>("Selector string length")?;
                     let mut entry_buffer = entry_data
                         .sub_reader_range("Selector string data", ..usize::from(string_length))?;
-                    let name =
-                        SharedString::from_utf8(entry_buffer.read_remaining().remove_no_error())
-                            .map_err(|e| {
-                                AnyInvalidDataError::from(entry_buffer.create_invalid_data_error(e))
-                            })?;
+                    let name = SharedString::from_utf8(entry_buffer.read_remaining()?)
+                        .map_err(|e| entry_buffer.create_invalid_data_error(e))?;
                     vacant_entry.insert(name).clone()
                 }
             };

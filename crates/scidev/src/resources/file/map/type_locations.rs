@@ -25,7 +25,7 @@ impl ResourceTypeLocations {
         type_id: ResourceType,
         start: u16,
         end: u16,
-    ) -> mem_reader::Result<ResourceTypeLocations, M::Error> {
+    ) -> mem_reader::Result<ResourceTypeLocations> {
         // Despite documentation to the contrary, SCI11 uses 5 byte entries in the resource map
         // file.
         if !(end - start).is_multiple_of(5) {
@@ -47,7 +47,7 @@ impl ResourceTypeLocations {
 }
 
 impl Parse for ResourceTypeLocations {
-    fn parse<M: MemReader>(_: &mut M) -> mem_reader::Result<Self, M::Error> {
+    fn parse<M: MemReader>(_: &mut M) -> mem_reader::Result<Self> {
         unimplemented!("ResourceTypeLocations cannot be parsed without additional context")
     }
 }

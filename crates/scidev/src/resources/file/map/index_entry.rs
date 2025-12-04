@@ -17,7 +17,7 @@ impl ResourceIndexEntry {
 }
 
 impl Parse for ResourceIndexEntry {
-    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let type_id = reader.read_u8()?;
         let file_offset = reader.read_u16_le()?;
         Ok(ResourceIndexEntry {

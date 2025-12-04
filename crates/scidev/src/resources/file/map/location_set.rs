@@ -47,7 +47,7 @@ impl ResourceLocationSet {
 }
 
 impl Parse for ResourceLocationSet {
-    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let index = ResourceIndex::parse(reader)?;
         let mut type_locations = Vec::new();
 

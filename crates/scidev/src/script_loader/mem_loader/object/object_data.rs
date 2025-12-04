@@ -1,9 +1,6 @@
 use crate::{
     script_loader::selectors::{Selector, SelectorTable},
-    utils::{
-        errors::NoError,
-        mem_reader::{FromFixedBytes, MemReader},
-    },
+    utils::mem_reader::{FromFixedBytes, MemReader},
 };
 
 use super::error::{Error, ObjectError};
@@ -38,7 +35,7 @@ impl ObjectData {
         obj_data: Vec<u16>,
     ) -> Result<Self, Error>
     where
-        M: MemReader<Error = NoError> + 'a,
+        M: MemReader + 'a,
     {
         let var_selector_offfset = obj_data[2];
         let method_record_offset = obj_data[3];
@@ -52,15 +49,16 @@ impl ObjectData {
             var_selector_offfset as usize..method_record_offset as usize,
         )?;
 
-        let property_ids = var_selectors.split_values::<u16>("Property IDs")?;
+        let property_ids = var_selectors
+            .split_values::<u16>("Property IDs")?;
 
         let mut method_record_remainder = loaded_data
             .sub_reader_range("Method record remainder", method_record_offset as usize..)?;
 
-        let mut method_records =
-            method_record_remainder.read_length_delimited_block("Method records", 4)?;
-
-        let method_records = method_records.split_values::<MethodRecord>("Method records")?;
+        let mut method_records = method_record_remainder
+            .read_length_delimited_block("Method records", 4)?;
+        let method_records = method_records
+            .split_values::<MethodRecord>("Method records")?;
 
         Ok(Self {
             selector_table: selector_table.clone(),

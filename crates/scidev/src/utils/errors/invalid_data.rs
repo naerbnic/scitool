@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use crate::utils::errors::OtherError;
+use crate::utils::errors::BoxError;
 
 /// A trait representing a "displayable" item that will be referenced from
 /// scopes.
@@ -129,7 +129,7 @@ impl BlockContext<'_> {
         })
     }
 
-    pub(crate) fn create_error<E>(&self, position: usize, message: E) -> InvalidDataError<E>
+    pub(crate) fn create_error<E>(&self, position: usize, message: E) -> InvalidDataError
     where
         E: std::error::Error + Send + Sync + 'static,
     {
@@ -137,7 +137,7 @@ impl BlockContext<'_> {
             backtrace: Backtrace::capture(),
             scope_info: self.0.make_scope_info(),
             position,
-            message,
+            message: message.into(),
         }
     }
 }
@@ -174,28 +174,14 @@ impl<'a> ContextLayer<'a> for ContextInner<'a> {
 }
 
 #[derive(Debug)]
-pub struct InvalidDataError<E> {
+pub struct InvalidDataError {
     backtrace: Backtrace,
     scope_info: ScopeInfo,
     position: usize,
-    message: E,
+    message: BoxError,
 }
 
-impl<E> InvalidDataError<E> {
-    pub fn map<F, R>(self, body: F) -> InvalidDataError<R>
-    where
-        F: FnOnce(E) -> R,
-    {
-        InvalidDataError {
-            backtrace: self.backtrace,
-            scope_info: self.scope_info,
-            position: self.position,
-            message: body(self.message),
-        }
-    }
-}
-
-impl<E: Display> Display for InvalidDataError<E> {
+impl Display for InvalidDataError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -211,32 +197,8 @@ impl<E: Display> Display for InvalidDataError<E> {
     }
 }
 
-impl<E: Error + 'static> Error for InvalidDataError<E> {
+impl Error for InvalidDataError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.message)
-    }
-}
-
-#[derive(Debug)]
-pub struct AnyInvalidDataError(InvalidDataError<OtherError>);
-
-impl<E> From<InvalidDataError<E>> for AnyInvalidDataError
-where
-    E: std::error::Error + Send + Sync + 'static,
-{
-    fn from(err: InvalidDataError<E>) -> Self {
-        Self(err.map(OtherError::new))
-    }
-}
-
-impl Display for AnyInvalidDataError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl Error for AnyInvalidDataError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Error::source(&self.0)
+        Some(&*self.message)
     }
 }

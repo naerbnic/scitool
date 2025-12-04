@@ -96,8 +96,7 @@ trait ChunkValue: Sized {
     fn into_block(self) -> Block;
     fn from_block<M>(block: M) -> io::Result<Self>
     where
-        M: MemReader,
-        M::Error: Into<io::Error>;
+        M: MemReader;
 }
 
 mod layer {
@@ -197,7 +196,6 @@ mod layer {
         fn from_block<M>(_reader: M) -> io::Result<Self>
         where
             M: MemReader,
-            M::Error: Into<io::Error>,
         {
             todo!()
         }

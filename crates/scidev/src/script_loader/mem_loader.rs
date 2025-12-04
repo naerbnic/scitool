@@ -1,7 +1,7 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, SplittableBuffer as _},
-    errors::{AnyInvalidDataError, NoError, OtherError},
+    errors::{BoxError, InvalidDataError, OtherError},
     mem_reader::{self, BufferMemReader, MemReader},
 };
 
@@ -16,13 +16,28 @@ pub use object::Object;
 #[non_exhaustive]
 pub enum Error {
     #[error(transparent)]
-    InvalidData(#[from] AnyInvalidDataError),
+    InvalidData(#[from] InvalidDataError),
 
     #[error(transparent)]
     Object(object::ObjectError),
 
     #[error("Script data size must be be 2-byte-aligned. Found size: {size:x}")]
     ScriptSizeNotAligned { size: usize },
+
+    #[error("Unexpected error: {0}")]
+    Unexpected(#[from] BoxError),
+}
+
+impl From<mem_reader::MemReaderError> for Error {
+    fn from(err: mem_reader::MemReaderError) -> Self {
+        match err {
+            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
+                Self::InvalidData(invalid_data_err)
+            }
+            // Since we specified NoError as the MemReader's error type, this arm should be unreachable.
+            mem_reader::MemReaderError::Read(io_err) => Self::Unexpected(Box::new(io_err)),
+        }
+    }
 }
 
 impl From<object::Error> for Error {
@@ -30,17 +45,7 @@ impl From<object::Error> for Error {
         match err {
             object::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
             object::Error::Object(err) => Self::Object(err),
-        }
-    }
-}
-
-impl From<mem_reader::MemReaderError<NoError>> for Error {
-    fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
-        match err {
-            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
-                Self::InvalidData(invalid_data_err)
-            }
-            mem_reader::MemReaderError::Base(err) => err.absurd(),
+            object::Error::Unexpected(boxed_err) => Self::Unexpected(boxed_err),
         }
     }
 }
@@ -59,17 +64,16 @@ fn apply_relocations<'a, M>(
     offset: u16,
 ) -> Result<(), Error>
 where
-    M: MemReader<Error = NoError> + 'a,
+    M: MemReader + 'a,
 {
     let relocation_entries =
         relocations.read_length_delimited_records::<u16>("Relocation Table Contents")?;
     if !relocations.is_empty() {
-        return Err(
-            AnyInvalidDataError::from(relocations.create_invalid_data_error(OtherError::from_msg(
+        return Err(relocations
+            .create_invalid_data_error(OtherError::from_msg(
                 "Relocation block size and length must match",
-            )))
-            .into(),
-        );
+            ))
+            .into());
     }
 
     for reloc_entry in relocation_entries {
@@ -101,7 +105,7 @@ impl Heap {
         resource_data: &mut M,
     ) -> Result<Heap, Error>
     where
-        M: MemReader<Error = NoError>,
+        M: MemReader,
     {
         let _ = resource_data.read_u16_le()?;
         let num_locals = resource_data.read_value::<u16>("Num locals")?;
@@ -122,12 +126,9 @@ impl Heap {
             }
 
             if magic != 0x1234u16 {
-                return Err(
-                    AnyInvalidDataError::from(resource_data.create_invalid_data_error(
-                        OtherError::from_msg("Invalid object magic number"),
-                    ))
-                    .into(),
-                );
+                return Err(resource_data
+                    .create_invalid_data_error(OtherError::from_msg("Invalid object magic number"))
+                    .into());
             }
             let num_object_fields = resource_data.read_value::<u16>("Num Object Fields")?;
 
@@ -135,7 +136,6 @@ impl Heap {
 
             let object_data =
                 resource_data.read_values("Object fields", num_object_fields.into())?;
-
             // The size is based from the very start of the object, so we reuse the curr_heap_data.
             let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
             objects.push(new_obj);
@@ -147,8 +147,7 @@ impl Heap {
             let mut string_data = resource_data.read_until::<u8>("string_obj", |b| *b == 0)?;
             string_data.pop(); // Remove the null terminator.
             let string = String::from_utf8(string_data)
-                .map_err(|e| resource_data.create_invalid_data_error(e))
-                .map_err(AnyInvalidDataError::from)?;
+                .map_err(|e| resource_data.create_invalid_data_error(e))?;
             strings.push(string);
         }
 
@@ -178,11 +177,9 @@ fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), Error> {
     let mut reader = BufferMemReader::new(cloned_data.as_fallible());
     let relocation_offset = reader.read_value::<u16>("Relocation offset")?;
     if relocation_offset as usize > cloned_data.size() {
-        return Err(AnyInvalidDataError::from(
-            reader
-                .create_invalid_data_error(OtherError::from_msg("Relocation offset out of bounds")),
-        )
-        .into());
+        return Err(reader
+            .create_invalid_data_error(OtherError::from_msg("Relocation offset out of bounds"))
+            .into());
     }
     Ok((
         relocation_offset,

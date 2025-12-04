@@ -17,10 +17,7 @@ use crate::{
     },
     utils::{
         block::{Block, MemBlockFromReaderError},
-        errors::{
-            AnyInvalidDataError, BoxError, DynError, ErrWrapper, NoError, OtherError, prelude::*,
-        },
-        mem_reader,
+        errors::{BoxError, DynError, ErrWrapper, InvalidDataError, OtherError, prelude::*},
     },
 };
 
@@ -37,7 +34,7 @@ pub(super) enum Error {
     #[error("I/O error during operation: {0}")]
     Io(io::Error),
     #[error("Malformed data: {0}")]
-    MalformedData(#[from] AnyInvalidDataError),
+    MalformedData(#[from] InvalidDataError),
     #[error(transparent)]
     Conversion(#[from] ConversionError),
     #[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
@@ -59,17 +56,6 @@ impl From<volume::Error> for Error {
             volume::Error::ResourceIdMismatch { expected, got } => {
                 Self::ResourceIdMismatch { expected, got }
             }
-        }
-    }
-}
-
-impl From<mem_reader::MemReaderError<NoError>> for Error {
-    fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
-        match err {
-            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
-                Self::MalformedData(invalid_data_err)
-            }
-            mem_reader::MemReaderError::Base(err) => err.absurd(),
         }
     }
 }

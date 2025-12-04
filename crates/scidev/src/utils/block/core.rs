@@ -28,7 +28,7 @@ use crate::utils::{
         },
     },
     buffer::{Buffer, SplittableBuffer as _},
-    mem_reader::{self, BufferMemReader, MemReader as _, NoErrorResultExt as _},
+    mem_reader::{self, BufferMemReader, MemReader as _},
     range::{BoundedRange, Range},
 };
 
@@ -414,7 +414,7 @@ pub trait FromBlock: mem_reader::Parse {
         let block = source.subblock(..Self::read_size() as u64).open_mem(..)?;
         let mut reader = BufferMemReader::new(block.as_fallible());
         let parse_result = Self::parse(&mut reader);
-        let value = parse_result.remove_no_error().map_err(io::Error::other)?;
+        let value = parse_result.map_err(io::Error::other)?;
         let rest = source.subblock(reader.tell() as u64..);
         Ok((value, rest))
     }

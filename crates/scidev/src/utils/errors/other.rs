@@ -138,7 +138,7 @@ impl std::error::Error for OtherError {
 }
 
 /// A trait for error types that can wrap other generic errors.
-/// 
+///
 /// These types can either have their own "primitive" error variants, or
 /// simply wrap another error without adding any context.
 pub(crate) trait ErrWrapper: std::error::Error + Send + Sync + 'static + Sized {
@@ -370,6 +370,15 @@ where
         match self.state {
             CastChainState::Registration { .. } => unreachable!(),
             CastChainState::HasWrap(wrap) => map(WrapErr2::wrap_box(wrap)),
+            CastChainState::ResolvedError(err) => err,
+        }
+    }
+
+    pub(crate) fn finish_box(mut self, map: impl FnOnce(BoxError) -> E) -> E {
+        self = self.resolve_registry();
+        match self.state {
+            CastChainState::Registration { .. } => unreachable!(),
+            CastChainState::HasWrap(wrap) => map(wrap),
             CastChainState::ResolvedError(err) => err,
         }
     }

@@ -6,7 +6,7 @@ use crate::resources::file::ResourceContents;
 use crate::resources::resource::{ExtraData, PatchSource};
 use crate::resources::{ResourceId, ResourceType};
 use crate::utils::block::Block;
-use crate::utils::errors::{BoxError, DynError, ErrWrapper, ensure_other};
+use crate::utils::errors::{BoxError, DynError, ErrWrapper, ensure_other, other_fn};
 use crate::utils::errors::{OtherError, prelude::*};
 
 use super::Resource;
@@ -43,28 +43,7 @@ impl ErrWrapper for TryPatchError {
 pub enum ResourcePatchError {
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] OtherError),
-}
-
-impl ErrWrapper for ResourcePatchError {
-    fn wrapped_err(&self) -> Option<&DynError> {
-        match self {
-            ResourcePatchError::Other(other) => other.wrapped_err(),
-        }
-    }
-
-    fn try_unwrap_box(self) -> Result<BoxError, Self> {
-        match self {
-            ResourcePatchError::Other(other) => match other.try_unwrap_box() {
-                Ok(boxed) => Ok(boxed),
-                Err(wrap) => Err(ResourcePatchError::Other(wrap)),
-            },
-        }
-    }
-
-    fn wrap_box(err: BoxError) -> Self {
-        ResourcePatchError::Other(OtherError::wrap_box(err))
-    }
+    Other(#[from] BoxError),
 }
 
 pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>, TryPatchError> {
@@ -140,13 +119,12 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
     )))
 }
 
+#[other_fn]
 pub(crate) fn write_resource_to_patch_file<W: Write>(
     resource: &Resource,
     mut writer: W,
 ) -> Result<(), ResourcePatchError> {
-    writer
-        .write_all(&[resource.id().type_id().into()])
-        .with_other_err()?;
+    writer.write_all(&[resource.id().type_id().into()])?;
     match &resource.contents().extra_data() {
         Some(ExtraData::Simple(data)) => {
             let data = data.open_mem(..).with_other_err()?;
@@ -155,16 +133,14 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
                 "Simple extra data too large: {} bytes",
                 data.len()
             );
-            writer
-                .write_all(&[data.len().try_into().unwrap()])
-                .with_other_err()?;
-            writer.write_all(&data).with_other_err()?;
+            writer.write_all(&[data.len().try_into().unwrap()])?;
+            writer.write_all(&data)?;
         }
         Some(ExtraData::Composite {
             ext_header,
             extra_data,
         }) => {
-            let ext_header = ext_header.open_mem(..).with_other_err()?;
+            let ext_header = ext_header.open_mem(..)?;
             ensure_other!(
                 ext_header.len() == 24,
                 "Extended header size incorrect: {} bytes",
@@ -173,18 +149,18 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
             writer
                 .write_all(&[128]) // Indicate extended header.
                 .with_other_err()?;
-            writer.write_all(&ext_header).with_other_err()?;
+            writer.write_all(&ext_header)?;
 
-            let extra_data = extra_data.open_mem(..).with_other_err()?;
-            writer.write_all(&extra_data).with_other_err()?;
+            let extra_data = extra_data.open_mem(..)?;
+            writer.write_all(&extra_data)?;
         }
         None => {
-            writer.write_all(&[0]).with_other_err()?; // No extra data.
+            writer.write_all(&[0])?; // No extra data.
         }
     }
 
-    let data = resource.data().open_mem(..).with_other_err()?;
-    writer.write_all(&data).with_other_err()?;
+    let data = resource.data().open_mem(..)?;
+    writer.write_all(&data)?;
 
     Ok(())
 }

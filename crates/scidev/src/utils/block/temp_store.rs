@@ -3,10 +3,12 @@ use std::{
     sync::Arc,
 };
 
+use scidev_macros_internal::other_fn;
+
 use crate::utils::{
     block::Block,
     buffer::{Buffer, BufferCursor},
-    errors::{OtherError, prelude::*},
+    errors::BoxError,
 };
 
 struct BlockPathHandle {
@@ -36,7 +38,7 @@ pub enum StoreError {
 
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] OtherError),
+    Other(#[from] BoxError),
 }
 
 pub struct TempStore {
@@ -70,13 +72,12 @@ impl TempStore {
         self.create_temp_block(buffer)
     }
 
+    #[other_fn]
     fn create_temp_block<B>(&self, buffer: B) -> Result<Block, StoreError>
     where
         B: Buffer,
     {
-        let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?
-            .keep()
-            .with_other_err()?;
+        let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?.keep()?;
         std::io::copy(&mut BufferCursor::new(buffer.into_fallible()), &mut file)?;
         drop(file);
         Ok(Block::from_path(BlockPathHandle {

@@ -1,5 +1,5 @@
 use crate::utils::{
-    errors::{AnyInvalidDataError, NoError},
+    errors::{BoxError, InvalidDataError},
     mem_reader,
 };
 
@@ -19,17 +19,23 @@ pub enum ObjectError {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    InvalidData(#[from] AnyInvalidDataError),
+    InvalidData(#[from] InvalidDataError),
 
     #[error(transparent)]
     Object(#[from] ObjectError),
+
+    #[error("Unexpected error: {0}")]
+    Unexpected(#[from] BoxError),
 }
 
-impl From<mem_reader::MemReaderError<NoError>> for Error {
-    fn from(err: mem_reader::MemReaderError<NoError>) -> Self {
+impl From<mem_reader::MemReaderError> for Error {
+    fn from(err: mem_reader::MemReaderError) -> Self {
         match err {
-            mem_reader::MemReaderError::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
-            mem_reader::MemReaderError::Base(err) => err.absurd(),
+            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
+                Self::InvalidData(invalid_data_err)
+            }
+            // Since we specified NoError as the MemReader's error type, this arm should be unreachable.
+            mem_reader::MemReaderError::Read(io_err) => Self::Unexpected(Box::new(io_err)),
         }
     }
 }

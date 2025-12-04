@@ -12,7 +12,7 @@ pub struct ViewHeader {
 }
 
 impl ViewHeader {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<ViewHeader, M::Error> {
+    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<ViewHeader> {
         let header_size = reader.read_u16_le()?;
         let mut header_data = reader.read_to_subreader("view_header", header_size.into())?;
         let loop_count = header_data.read_u8()?;
@@ -32,7 +32,7 @@ impl ViewHeader {
             cel_size,
             rest: header_data
                 .read_remaining()
-                .map_err(mem_reader::MemReaderError::Base)?,
+                .map_err(mem_reader::MemReaderError::Read)?,
         })
     }
 }
@@ -48,7 +48,7 @@ pub struct LoopEntry {
 }
 
 impl LoopEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<LoopEntry, M::Error> {
+    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<LoopEntry> {
         let seek_entry = reader.read_u8()?;
         let reserved1 = reader.read_u8()?;
         let cel_count = reader.read_u8()?;
@@ -63,7 +63,7 @@ impl LoopEntry {
             cel_offset,
             rest: reader
                 .read_remaining()
-                .map_err(mem_reader::MemReaderError::Base)?,
+                .map_err(mem_reader::MemReaderError::Read)?,
         })
     }
 }
@@ -82,7 +82,7 @@ pub struct CelEntry {
 }
 
 impl CelEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<CelEntry, M::Error> {
+    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<CelEntry> {
         let width = reader.read_u16_le()?;
         let height = reader.read_u16_le()?;
         let displace_x = reader.read_i16_le()?;
@@ -94,7 +94,7 @@ impl CelEntry {
         let literal_offset = reader.read_u32_le()?;
         let rest = reader
             .read_remaining()
-            .map_err(mem_reader::MemReaderError::Base)?;
+            .map_err(mem_reader::MemReaderError::Read)?;
         Ok(CelEntry {
             width,
             height,

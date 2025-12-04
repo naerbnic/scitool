@@ -19,7 +19,7 @@ impl ResourceIndex {
 }
 
 impl Parse for ResourceIndex {
-    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self, M::Error> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let mut entries: Vec<ResourceIndexEntry> = Vec::new();
         loop {
             let entry = ResourceIndexEntry::parse(reader)?;

@@ -8,11 +8,12 @@ use crate::{
     utils::{
         block::{Block, MemBlock},
         data_writer::{DataWriter, IoDataWriter},
-        errors::{OtherError, ensure_other, prelude::*},
+        errors::{BoxError, OtherError, ensure_other},
         mem_reader::{self, MemReader},
     },
 };
 use bytes::BufMut;
+use scidev_macros_internal::other_fn;
 
 use crate::resources::{Resource, ResourceId, ResourceType};
 
@@ -28,9 +29,7 @@ struct RawMapEntry {
 }
 
 impl RawMapEntry {
-    pub(crate) fn read_from<M: MemReader>(
-        reader: &mut M,
-    ) -> mem_reader::Result<RawMapEntry, M::Error> {
+    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<RawMapEntry> {
         let noun = reader.read_u8()?;
         let verb = reader.read_u8()?;
         let cond = reader.read_u8()?;
@@ -77,9 +76,7 @@ impl RawMapResource {
     }
 
     #[expect(dead_code)]
-    pub(crate) fn read_from<M: MemReader>(
-        reader: &mut M,
-    ) -> mem_reader::Result<RawMapResource, M::Error> {
+    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<RawMapResource> {
         let mut entries = Vec::new();
         loop {
             let entry = RawMapEntry::read_from(reader)?;
@@ -148,7 +145,7 @@ struct AudioVolumeBuilder {
 pub enum AudioVolumeBuilderError {
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] OtherError),
+    Other(#[from] BoxError),
 }
 
 impl AudioVolumeBuilder {
@@ -160,6 +157,7 @@ impl AudioVolumeBuilder {
         }
     }
 
+    #[other_fn]
     pub(crate) fn add_entry(
         &mut self,
         sample: &VoiceSample,
@@ -290,12 +288,12 @@ impl Audio36ResourceBuilder {
         Ok(())
     }
 
+    #[other_fn]
     pub fn build(self) -> Result<VoiceSampleResources, AudioVolumeBuilderError> {
         let mut map_resources = Vec::new();
         for (room, map) in self.maps {
             let mut map_data = Vec::new();
-            map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))
-                .with_other_err()?;
+            map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
                 ResourceContents::new(Block::from_mem_block(MemBlock::from_vec(map_data))),
