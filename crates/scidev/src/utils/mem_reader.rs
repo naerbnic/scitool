@@ -52,26 +52,40 @@ impl_fixed_bytes_for_num!(i8, i16, i32, i64, i128, isize);
 impl_fixed_bytes_for_num!(u8, u16, u32, u64, u128, usize);
 
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum BufferError {
-    #[error("Not enough data in buffer. Needed {required}, but only {available} available.")]
-    NotEnoughData { required: usize, available: usize },
-    #[error("Buffer size is not a multiple of {required}. Had overflow of {overflow} instead.")]
-    NotDivisible { required: usize, overflow: usize },
+#[error("Not enough data in buffer. Needed {required}, but only {available} available.")]
+struct NotEnoughData {
+    required: usize,
+    available: usize,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Buffer size is not a multiple of {required}. Had overflow of {overflow} instead.")]
+struct NotDivisible {
+    required: usize,
+    overflow: usize,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum MemReaderError {
     /// An error that occured while reading from the underlying buffer.
-    #[error("Underlying read error: {0}")]
+    #[error(transparent)]
     Read(io::Error),
-    #[error("Invalid data: {0}")]
+    #[error(transparent)]
     InvalidData(#[from] InvalidDataError),
 }
 
 impl From<io::Error> for MemReaderError {
     fn from(err: io::Error) -> Self {
         Self::Read(err)
+    }
+}
+
+impl From<MemReaderError> for OtherError {
+    fn from(err: MemReaderError) -> Self {
+        match err {
+            MemReaderError::Read(io_err) => OtherError::new(io_err),
+            MemReaderError::InvalidData(invalid_data_err) => OtherError::new(invalid_data_err),
+        }
     }
 }
 
@@ -344,7 +358,7 @@ where
     fn check_read_length(&self, len: usize) -> Result<()> {
         let remaining = self.end - self.start - self.position;
         if remaining < len {
-            return Err(self.err_with_context()(BufferError::NotEnoughData {
+            return Err(self.err_with_context()(NotEnoughData {
                 required: len,
                 available: remaining,
             }));
@@ -430,7 +444,7 @@ where
 
     fn seek_to(&mut self, offset: usize) -> Result<()> {
         if self.data_size() < offset {
-            return Err(self.err_with_context()(BufferError::NotEnoughData {
+            return Err(self.err_with_context()(NotEnoughData {
                 required: offset,
                 available: self.data_size(),
             }));
@@ -442,7 +456,7 @@ where
 
     fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
         if !self.remaining().is_multiple_of(T::SIZE) {
-            return Err(self.err_with_context()(BufferError::NotDivisible {
+            return Err(self.err_with_context()(NotDivisible {
                 required: T::SIZE,
                 overflow: self.remaining() % T::SIZE,
             }));
@@ -457,7 +471,7 @@ where
 
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         if self.remaining() < buf.len() {
-            return Err(self.err_with_context()(BufferError::NotEnoughData {
+            return Err(self.err_with_context()(NotEnoughData {
                 required: buf.len(),
                 available: self.remaining(),
             }));
@@ -536,7 +550,7 @@ where
         if start > end {
             // This must have been caused by an implicit range endpoint, so treat
             // it as an error, not a panic.
-            return Err(self.err_with_context()(BufferError::NotEnoughData {
+            return Err(self.err_with_context()(NotEnoughData {
                 required: start,
                 available: end,
             }));

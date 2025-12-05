@@ -1,9 +1,13 @@
 use crate::{
-    script_loader::selectors::{Selector, SelectorTable},
-    utils::mem_reader::{FromFixedBytes, MemReader},
+    script_loader::{
+        mem_loader::object::error::BadObjectPadding,
+        selectors::{Selector, SelectorTable},
+    },
+    utils::{
+        errors::OtherError,
+        mem_reader::{FromFixedBytes, MemReader},
+    },
 };
-
-use super::error::{Error, ObjectError};
 
 struct MethodRecord {
     selector_id: u16,
@@ -33,7 +37,7 @@ impl ObjectData {
         selector_table: &SelectorTable,
         loaded_data: &M,
         obj_data: Vec<u16>,
-    ) -> Result<Self, Error>
+    ) -> Result<Self, OtherError>
     where
         M: MemReader + 'a,
     {
@@ -41,7 +45,7 @@ impl ObjectData {
         let method_record_offset = obj_data[3];
         let padding = obj_data[4];
         if padding != 0 {
-            return Err(ObjectError::BadObjectPadding.into());
+            return Err(OtherError::new(BadObjectPadding));
         }
 
         let mut var_selectors = loaded_data.sub_reader_range(

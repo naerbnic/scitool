@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io};
+use std::{collections::HashMap};
 
 use crate::{
     resources::{ResourceId, ResourceSet, ResourceType},
@@ -69,7 +69,6 @@ pub enum ScriptLoadError {
 impl From<OtherError> for ScriptLoadError {
     fn from(err: OtherError) -> Self {
         CastChain::new(err)
-            .register_wrapper::<io::Error>()
             .with_cast(ScriptLoadError::Io)
             .with_cast(ScriptLoadError::InvalidData)
             .finish_box(ScriptLoadError::Other)

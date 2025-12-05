@@ -2,12 +2,12 @@
 #![allow(clippy::disallowed_types)] // Allow anyhow usage in this module only
 
 use std::any::Any;
-use std::any::TypeId;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::io;
+
+use crate::utils::errors::{BoxError, CastChain, DynError, ErrWrapper, once_registerer};
 
 fn try_downcast<Target: 'static, T: 'static>(value: T) -> Result<Target, T> {
     let value_ref: &dyn Any = &value;
@@ -23,8 +23,7 @@ fn try_downcast<Target: 'static, T: 'static>(value: T) -> Result<Target, T> {
     }
 }
 
-pub(crate) type DynError = dyn std::error::Error + Send + Sync + 'static;
-pub(crate) type BoxError = Box<DynError>;
+once_registerer!(fn register_other(OtherError));
 
 enum OtherKind {
     Wrapped,
@@ -41,6 +40,7 @@ impl OtherError {
     where
         E: std::error::Error + Send + Sync + 'static,
     {
+        register_other();
         match try_downcast::<OtherError, E>(err) {
             Ok(other) => other,
             Err(e) => OtherError {
@@ -51,22 +51,10 @@ impl OtherError {
     }
 
     pub(crate) fn from_boxed(err: BoxError) -> Self {
+        register_other();
         OtherError {
             kind: OtherKind::Wrapped,
             error: anyhow::Error::from_boxed(err),
-        }
-    }
-
-    pub(crate) fn from_wrapper<W>(wrapper: W) -> Self
-    where
-        W: ErrWrapper,
-    {
-        match wrapper.try_unwrap_box() {
-            Ok(other) => OtherError {
-                kind: OtherKind::Wrapped,
-                error: anyhow::Error::from_boxed(other),
-            },
-            Err(wrap) => OtherError::new(wrap),
         }
     }
 
@@ -74,32 +62,10 @@ impl OtherError {
     where
         M: Display + Debug + Send + Sync + 'static,
     {
+        register_other();
         OtherError {
             kind: OtherKind::Context,
             error: anyhow::Error::msg(msg),
-        }
-    }
-
-    pub(crate) fn add_context(self, msg: String) -> Self {
-        OtherError {
-            kind: OtherKind::Context,
-            error: self.error.context(msg),
-        }
-    }
-
-    pub(crate) fn downcast<Target>(self) -> Result<Target, Self>
-    where
-        Target: Display + Debug + Send + Sync + 'static,
-    {
-        if let OtherKind::Context = self.kind {
-            return Err(self);
-        }
-        match self.error.downcast::<Target>() {
-            Ok(downcasted) => Ok(downcasted),
-            Err(original) => Err(OtherError {
-                kind: OtherKind::Wrapped,
-                error: original,
-            }),
         }
     }
 }
@@ -107,7 +73,6 @@ impl OtherError {
 impl From<io::Error> for OtherError {
     fn from(err: io::Error) -> Self {
         CastChain::new(err)
-            .register_wrapper::<OtherError>()
             .with_cast(OtherError::new::<io::Error>)
             .finish(|e| e)
     }
@@ -137,93 +102,6 @@ impl std::error::Error for OtherError {
     }
 }
 
-/// A trait for error types that can wrap other generic errors.
-///
-/// These types can either have their own "primitive" error variants, or
-/// simply wrap another error without adding any context.
-pub(crate) trait ErrWrapper: std::error::Error + Send + Sync + 'static + Sized {
-    /// Returns a reference to the inner wrapped error, if one is wrapped.
-    fn wrapped_err(&self) -> Option<&DynError>;
-
-    /// Wraps the given error into this type. The resulting error should
-    /// return true from `is_wrapping()`.
-    fn wrap_box(err: BoxError) -> Self;
-
-    /// Attempts to unwrap this error into the inner wrapped error. If this
-    /// error is not wrapping another error, returns `Err(self)`.
-    ///
-    /// Should always return `Ok` for types where `is_wrapping()` returns true.
-    fn try_unwrap_box(self) -> Result<BoxError, Self>;
-
-    /// Returns true iff this type is wrapping another error without any
-    /// additional context.
-    ///
-    /// If this is true, there must exist some type `E` such that
-    /// `Self::wrap(E)` produces this error.
-    fn is_wrapping(&self) -> bool {
-        self.wrapped_err().is_some()
-    }
-
-    /// Returns the `TypeId` of the inner wrapped error, if one is wrapped.
-    fn wrapped_type_id(&self) -> Option<TypeId> {
-        self.wrapped_err().map(Any::type_id)
-    }
-
-    /// Wraps the given error into this type. The resulting error should
-    /// return true from `is_wrapping()`.
-    fn wrap<E>(err: E) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        Self::wrap_box(Box::new(err))
-    }
-
-    /// Attempts to downcast this error into the given target type. If this
-    /// error is wrapping another error, the inner error will be downcasted.
-    fn downcast<Target>(self) -> Result<Target, Self>
-    where
-        Target: std::error::Error + Send + Sync + 'static,
-    {
-        match self.try_unwrap_box() {
-            Ok(boxed) => match boxed.downcast::<Target>() {
-                Ok(downcasted) => Ok(*downcasted),
-                Err(original) => Err(Self::wrap_box(original)),
-            },
-            Err(wrap) => Err(wrap),
-        }
-    }
-}
-
-impl ErrWrapper for io::Error {
-    fn wrap_box(err: BoxError) -> Self {
-        io::Error::other(err)
-    }
-
-    fn wrapped_err(&self) -> Option<&DynError> {
-        if matches!(self.kind(), io::ErrorKind::Other) && self.get_ref().is_some() {
-            self.get_ref()
-        } else {
-            None
-        }
-    }
-
-    fn try_unwrap_box(self) -> Result<BoxError, Self> {
-        if self.is_wrapping() {
-            let boxed = self.into_inner().unwrap();
-            Ok(boxed)
-        } else {
-            Err(self)
-        }
-    }
-
-    fn downcast<Target>(self) -> Result<Target, Self>
-    where
-        Target: std::error::Error + Send + Sync + 'static,
-    {
-        self.downcast()
-    }
-}
-
 impl ErrWrapper for OtherError {
     fn wrapped_err(&self) -> Option<&DynError> {
         if let OtherKind::Wrapped = self.kind {
@@ -244,151 +122,6 @@ impl ErrWrapper for OtherError {
         } else {
             Err(self)
         }
-    }
-}
-
-trait WrapCastHandler {
-    fn unwrap_boxed(&self, err: BoxError) -> Result<BoxError, BoxError>;
-}
-
-#[derive(Default)]
-struct WrapCastHandlerImpl<W>(std::marker::PhantomData<W>);
-
-impl<W> WrapCastHandler for WrapCastHandlerImpl<W>
-where
-    W: ErrWrapper,
-{
-    fn unwrap_boxed(&self, err: BoxError) -> Result<BoxError, BoxError> {
-        match err.downcast::<W>() {
-            Ok(io_err) => match io_err.try_unwrap_box() {
-                Ok(inner) => Ok(inner),
-                Err(wrap) => Err(Box::new(wrap)),
-            },
-            Err(original) => Err(original),
-        }
-    }
-}
-
-struct WrapCastHandlerRegistry {
-    handlers: HashMap<TypeId, Box<dyn WrapCastHandler + Send + Sync>>,
-}
-
-impl WrapCastHandlerRegistry {
-    fn new() -> Self {
-        WrapCastHandlerRegistry {
-            handlers: HashMap::new(),
-        }
-    }
-
-    fn register<W>(&mut self)
-    where
-        W: ErrWrapper + Send + Sync + 'static,
-    {
-        self.handlers.insert(
-            TypeId::of::<W>(),
-            Box::new(WrapCastHandlerImpl::<W>(std::marker::PhantomData)),
-        );
-    }
-
-    fn resolve(&self, mut err: BoxError) -> BoxError {
-        loop {
-            let type_id = Any::type_id(&*err);
-            let Some(handler) = self.handlers.get(&type_id) else {
-                return err;
-            };
-            match handler.unwrap_boxed(err) {
-                Ok(unwrapped) => err = unwrapped,
-                Err(wrap) => return wrap,
-            }
-        }
-    }
-}
-
-enum CastChainState<WrapE, E> {
-    Registration {
-        registry: WrapCastHandlerRegistry,
-        wrap: WrapE,
-    },
-    HasWrap(BoxError),
-    ResolvedError(E),
-}
-
-pub(crate) struct CastChain<WrapE, E> {
-    state: CastChainState<WrapE, E>,
-}
-
-impl<WrapE, E> CastChain<WrapE, E>
-where
-    WrapE: ErrWrapper,
-    E: std::error::Error + Send + Sync + 'static,
-{
-    pub(crate) fn new(wrap: WrapE) -> Self {
-        let mut registry = WrapCastHandlerRegistry::new();
-        registry.register::<WrapE>();
-
-        CastChain {
-            state: CastChainState::Registration { registry, wrap },
-        }
-    }
-
-    pub(crate) fn register_wrapper<W>(mut self) -> Self
-    where
-        W: ErrWrapper,
-    {
-        match &mut self.state {
-            CastChainState::Registration { registry, .. } => {
-                registry.register::<W>();
-            }
-            _ => panic!("Cannot register new wrapper after calling with_cast"),
-        }
-        self
-    }
-
-    pub(crate) fn with_cast<E2>(mut self, map: impl FnOnce(E2) -> E) -> Self
-    where
-        E2: std::error::Error + Send + Sync + 'static,
-    {
-        self = self.resolve_registry();
-        match self.state {
-            CastChainState::Registration { .. } => unreachable!(),
-            CastChainState::HasWrap(other) => {
-                self.state = match other.downcast() {
-                    Ok(err) => CastChainState::ResolvedError(map(*err)),
-                    Err(wrap) => CastChainState::HasWrap(wrap),
-                }
-            }
-            CastChainState::ResolvedError(_) => {}
-        }
-        self
-    }
-
-    pub(crate) fn finish<WrapErr2>(mut self, map: impl FnOnce(WrapErr2) -> E) -> E
-    where
-        WrapErr2: ErrWrapper,
-    {
-        self = self.resolve_registry();
-        match self.state {
-            CastChainState::Registration { .. } => unreachable!(),
-            CastChainState::HasWrap(wrap) => map(WrapErr2::wrap_box(wrap)),
-            CastChainState::ResolvedError(err) => err,
-        }
-    }
-
-    pub(crate) fn finish_box(mut self, map: impl FnOnce(BoxError) -> E) -> E {
-        self = self.resolve_registry();
-        match self.state {
-            CastChainState::Registration { .. } => unreachable!(),
-            CastChainState::HasWrap(wrap) => map(wrap),
-            CastChainState::ResolvedError(err) => err,
-        }
-    }
-
-    fn resolve_registry(mut self) -> Self {
-        if let CastChainState::Registration { registry, wrap } = self.state {
-            let wrap = registry.resolve(Box::new(wrap));
-            self.state = CastChainState::HasWrap(wrap);
-        }
-        self
     }
 }
 

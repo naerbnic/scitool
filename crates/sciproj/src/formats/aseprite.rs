@@ -2,6 +2,7 @@
 //!
 //! Using the spec at: <https://github.com/aseprite/aseprite/blob/main/docs/ase-file-specs.md>
 
+#![expect(dead_code, clippy::todo)]
 use std::io;
 
 use bitflags::bitflags;

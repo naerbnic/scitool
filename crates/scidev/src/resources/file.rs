@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, btree_map},
-    error::Error as StdError,
     fs::File,
     io::{self},
     path::Path,
@@ -11,13 +10,12 @@ use volume::VolumeFile;
 use self::patch::try_patch_from_file;
 use crate::{
     resources::{
-        ConversionError,
         file::map::MapFile,
         resource::{Resource, ResourceContents, VolumeSource},
     },
     utils::{
-        block::{Block, MemBlockFromReaderError},
-        errors::{BoxError, DynError, ErrWrapper, InvalidDataError, OtherError, prelude::*},
+        block::Block,
+        errors::{BoxError, DynError, ErrWrapper, OtherError, prelude::*},
     },
 };
 
@@ -29,62 +27,11 @@ mod map;
 mod patch;
 mod volume;
 
-#[derive(Debug, thiserror::Error)]
-pub(super) enum Error {
-    #[error("I/O error during operation: {0}")]
-    Io(io::Error),
-    #[error("Malformed data: {0}")]
-    MalformedData(#[from] InvalidDataError),
-    #[error(transparent)]
-    Conversion(#[from] ConversionError),
-    #[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
-    ResourceIdMismatch {
-        expected: ResourceId,
-        got: ResourceId,
-    },
-    #[error(transparent)]
-    Other(Box<dyn StdError + Send + Sync>),
-}
-
-impl From<volume::Error> for Error {
-    fn from(err: volume::Error) -> Self {
-        match err {
-            volume::Error::Io(io_err) => Self::Io(io_err),
-            volume::Error::MemReader(mem_err) => Self::MalformedData(mem_err),
-            volume::Error::Conversion(err) => Self::Conversion(err),
-            e @ volume::Error::InvalidResourceLocation { .. } => Self::Other(Box::new(e)),
-            volume::Error::ResourceIdMismatch { expected, got } => {
-                Self::ResourceIdMismatch { expected, got }
-            }
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        match err.downcast() {
-            Ok(err) => err,
-            Err(err) => Self::Io(err),
-        }
-    }
-}
-
-impl From<MemBlockFromReaderError> for Error {
-    fn from(err: MemBlockFromReaderError) -> Self {
-        match err {
-            MemBlockFromReaderError::Io(io_err) => Self::Io(io_err),
-            MemBlockFromReaderError::Conversion(conv_err) => {
-                Self::Conversion(ConversionError::new(conv_err))
-            }
-        }
-    }
-}
-
 pub(super) fn read_resources(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource],
-) -> Result<ResourceSet, Error> {
+) -> Result<ResourceSet, OtherError> {
     let map_file = MapFile::from_read_seek(File::open(map_file)?)?;
     let data_file = VolumeFile::new(Block::from_path(data_file.to_path_buf())?);
 

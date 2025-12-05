@@ -1,6 +1,8 @@
+#![expect(dead_code)]
+
 use std::path::Path;
 
-pub fn validate_relative_path(path: &impl AsRef<Path>) -> bool {
+pub(super) fn validate_relative_path(path: &impl AsRef<Path>) -> bool {
     let path = path.as_ref();
     for component in path.components() {
         match component {
