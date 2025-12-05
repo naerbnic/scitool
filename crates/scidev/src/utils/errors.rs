@@ -1,6 +1,7 @@
 mod invalid_data;
 mod no_error;
 mod other;
+mod opaque;
 
 pub mod prelude {
     pub(crate) use super::{OtherOptionExt as _, OtherResultExt as _};
@@ -14,3 +15,4 @@ pub use no_error::NoError;
 pub(crate) use other::{
     BoxError, CastChain, DynError, ErrWrapper, OtherError, bail_other, ensure_other,
 };
+pub use opaque::OpaqueError;
