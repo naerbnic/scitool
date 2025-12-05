@@ -8,7 +8,7 @@ use crate::{
     utils::{
         block::{Block, MemBlock},
         data_writer::{DataWriter, IoDataWriter},
-        errors::{BoxError, OtherError, ensure_other},
+        errors::{BoxError, OpaqueError, OtherError, ensure_other},
         mem_reader::{self, MemReader},
     },
 };
@@ -145,7 +145,13 @@ struct AudioVolumeBuilder {
 pub enum AudioVolumeBuilderError {
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] BoxError),
+    Other(#[from] OpaqueError),
+}
+
+impl From<BoxError> for AudioVolumeBuilderError {
+    fn from(err: BoxError) -> Self {
+        AudioVolumeBuilderError::Other(OpaqueError::from_boxed(err))
+    }
 }
 
 impl AudioVolumeBuilder {

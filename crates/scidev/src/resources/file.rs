@@ -23,7 +23,7 @@ use crate::{
 
 use super::{ResourceId, ResourceType};
 
-pub(super) use self::patch::{ResourcePatchError, write_resource_to_patch_file};
+pub(super) use self::patch::write_resource_to_patch_file;
 
 mod map;
 mod patch;

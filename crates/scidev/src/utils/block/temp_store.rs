@@ -8,7 +8,7 @@ use scidev_macros_internal::other_fn;
 use crate::utils::{
     block::Block,
     buffer::{Buffer, BufferCursor},
-    errors::BoxError,
+    errors::{BoxError, OpaqueError},
 };
 
 struct BlockPathHandle {
@@ -38,7 +38,13 @@ pub enum StoreError {
 
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] BoxError),
+    Other(#[from] OpaqueError),
+}
+
+impl From<BoxError> for StoreError {
+    fn from(err: BoxError) -> Self {
+        StoreError::Other(OpaqueError::from_boxed(err))
+    }
 }
 
 pub struct TempStore {

@@ -6,47 +6,13 @@ use crate::resources::file::ResourceContents;
 use crate::resources::resource::{ExtraData, PatchSource};
 use crate::resources::{ResourceId, ResourceType};
 use crate::utils::block::Block;
-use crate::utils::errors::{BoxError, DynError, ErrWrapper, ensure_other, other_fn};
+use crate::utils::errors::{OpaqueError, ensure_other, other_fn};
 use crate::utils::errors::{OtherError, prelude::*};
 
 use super::Resource;
 
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum TryPatchError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OtherError),
-}
-
-impl ErrWrapper for TryPatchError {
-    fn wrapped_err(&self) -> Option<&DynError> {
-        match self {
-            TryPatchError::Other(other) => other.wrapped_err(),
-        }
-    }
-
-    fn try_unwrap_box(self) -> Result<BoxError, Self> {
-        match self {
-            TryPatchError::Other(other) => match other.try_unwrap_box() {
-                Ok(boxed) => Ok(boxed),
-                Err(wrap) => Err(TryPatchError::Other(wrap)),
-            },
-        }
-    }
-
-    fn wrap_box(err: BoxError) -> Self {
-        TryPatchError::Other(OtherError::wrap_box(err))
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ResourcePatchError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] BoxError),
-}
-
-pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>, TryPatchError> {
+#[other_fn]
+pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>, OpaqueError> {
     // Parse the filename to get the resource ID.
 
     // The stem of the file is the resource ID as an integer.
@@ -123,11 +89,11 @@ pub(crate) fn try_patch_from_file(patch_file: &Path) -> Result<Option<Resource>,
 pub(crate) fn write_resource_to_patch_file<W: Write>(
     resource: &Resource,
     mut writer: W,
-) -> Result<(), ResourcePatchError> {
+) -> Result<(), OpaqueError> {
     writer.write_all(&[resource.id().type_id().into()])?;
     match &resource.contents().extra_data() {
         Some(ExtraData::Simple(data)) => {
-            let data = data.open_mem(..).with_other_err()?;
+            let data = data.open_mem(..)?;
             ensure_other!(
                 data.len() <= 127,
                 "Simple extra data too large: {} bytes",
@@ -146,9 +112,7 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
                 "Extended header size incorrect: {} bytes",
                 ext_header.len()
             );
-            writer
-                .write_all(&[128]) // Indicate extended header.
-                .with_other_err()?;
+            writer.write_all(&[128])?;
             writer.write_all(&ext_header)?;
 
             let extra_data = extra_data.open_mem(..)?;

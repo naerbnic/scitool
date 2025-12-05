@@ -1,7 +1,7 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, SplittableBuffer as _},
-    errors::{BoxError, InvalidDataError, OtherError},
+    errors::{InvalidDataError, OpaqueError, OtherError},
     mem_reader::{self, BufferMemReader, MemReader},
 };
 
@@ -25,7 +25,7 @@ pub enum Error {
     ScriptSizeNotAligned { size: usize },
 
     #[error("Unexpected error: {0}")]
-    Unexpected(#[from] BoxError),
+    Unexpected(#[from] OpaqueError),
 }
 
 impl From<mem_reader::MemReaderError> for Error {
@@ -35,7 +35,7 @@ impl From<mem_reader::MemReaderError> for Error {
                 Self::InvalidData(invalid_data_err)
             }
             // Since we specified NoError as the MemReader's error type, this arm should be unreachable.
-            mem_reader::MemReaderError::Read(io_err) => Self::Unexpected(Box::new(io_err)),
+            mem_reader::MemReaderError::Read(io_err) => Self::Unexpected(OpaqueError::new(io_err)),
         }
     }
 }

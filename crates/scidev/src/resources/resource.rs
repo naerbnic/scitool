@@ -1,11 +1,8 @@
 use std::io;
 
 use crate::{
-    resources::{
-        ResourceId,
-        file::{ResourcePatchError, write_resource_to_patch_file},
-    },
-    utils::block::Block,
+    resources::{ResourceId, file::write_resource_to_patch_file},
+    utils::{block::Block, errors::OpaqueError},
 };
 
 #[derive(Debug, Clone)]
@@ -185,7 +182,7 @@ impl Resource {
         self.contents.source()
     }
 
-    pub fn write_patch<W: io::Write>(&self, writer: W) -> Result<(), ResourcePatchError> {
+    pub fn write_patch<W: io::Write>(&self, writer: W) -> Result<(), OpaqueError> {
         write_resource_to_patch_file(self, writer)
     }
 }

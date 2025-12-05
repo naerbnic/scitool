@@ -15,7 +15,8 @@ pub struct OpaqueError {
 }
 
 impl OpaqueError {
-    fn from_boxed(err: BoxError) -> Self {
+    #[must_use]
+    pub fn from_boxed(err: BoxError) -> Self {
         match err.downcast::<Self>() {
             Ok(opaque) => *opaque,
             Err(err) => Self {
