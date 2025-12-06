@@ -1,11 +1,12 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
     resources::{ResourceId, ResourceSet, ResourceType},
     utils::{
         buffer::Buffer,
         errors::{
-            BoxError, CastChain, DynError, ErrWrapper, InvalidDataError, OtherError, prelude::*,
+            BoxError, DynError, ErrWrapper, ErrorCastable as _, InvalidDataError, OpaqueError,
+            OtherError, impl_error_castable, prelude::*,
         },
         mem_reader::BufferMemReader,
     },
@@ -63,15 +64,19 @@ pub enum ScriptLoadError {
 
     #[doc(hidden)]
     #[error(transparent)]
-    Other(#[from] BoxError),
+    Other(OpaqueError),
 }
+
+impl_error_castable!(
+    ScriptLoadError,
+    ScriptLoadError::Other,
+    ScriptLoadError::Io,
+    ScriptLoadError::InvalidData
+);
 
 impl From<OtherError> for ScriptLoadError {
     fn from(err: OtherError) -> Self {
-        CastChain::new(err)
-            .with_cast(ScriptLoadError::Io)
-            .with_cast(ScriptLoadError::InvalidData)
-            .finish_box(ScriptLoadError::Other)
+        Self::error_cast().cast_err(err)
     }
 }
 

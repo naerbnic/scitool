@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::io;
 
-use crate::utils::errors::{BoxError, CastChain, DynError, ErrWrapper, once_registerer};
+use crate::utils::errors::{BoxError, DynError, ErrWrapper, once_registerer, resolve_error};
 
 fn try_downcast<Target: 'static, T: 'static>(value: T) -> Result<Target, T> {
     let value_ref: &dyn Any = &value;
@@ -72,9 +72,7 @@ impl OtherError {
 
 impl From<io::Error> for OtherError {
     fn from(err: io::Error) -> Self {
-        CastChain::new(err)
-            .with_cast(OtherError::new::<io::Error>)
-            .finish(|e| e)
+        OtherError::from_boxed(resolve_error(Box::new(err)))
     }
 }
 

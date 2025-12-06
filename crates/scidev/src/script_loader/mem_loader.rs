@@ -1,7 +1,9 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, SplittableBuffer as _},
-    errors::{BoxError, BoxedCastChain, InvalidDataError, OpaqueError, OtherError, OtherResultExt},
+    errors::{
+        BoxError, ErrorCastBuilder, InvalidDataError, OpaqueError, OtherError, OtherResultExt,
+    },
     mem_reader::{BufferMemReader, MemReader},
 };
 
@@ -171,10 +173,11 @@ pub enum LoadedScriptError {
 
 impl From<BoxError> for LoadedScriptError {
     fn from(err: BoxError) -> Self {
-        BoxedCastChain::new(err)
+        ErrorCastBuilder::new_from(LoadedScriptError::Other)
             .with_cast(Self::Io)
             .with_cast(Self::InvalidData)
-            .finish_box(|e| LoadedScriptError::Other(OpaqueError::from_boxed(e)))
+            .build()
+            .cast_boxed(err)
     }
 }
 
