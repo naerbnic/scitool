@@ -6,33 +6,12 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap, hash_map},
     fmt::Debug,
-    io,
     sync::Arc,
 };
 
-use crate::utils::{
-    errors::InvalidDataError,
-    mem_reader::{self, MemReader},
-};
+use scidev_macros_internal::other_fn;
 
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
-    #[error(transparent)]
-    Read(#[from] io::Error),
-    #[error(transparent)]
-    InvalidData(#[from] InvalidDataError),
-}
-
-impl From<mem_reader::MemReaderError> for Error {
-    fn from(err: mem_reader::MemReaderError) -> Self {
-        match err {
-            mem_reader::MemReaderError::InvalidData(invalid_data_err) => {
-                Self::InvalidData(invalid_data_err)
-            }
-            mem_reader::MemReaderError::Read(err) => Self::Read(err),
-        }
-    }
-}
+use crate::utils::{errors::OtherError, mem_reader::MemReader};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -105,7 +84,8 @@ struct SelectorTableInner {
 pub struct SelectorTable(Arc<SelectorTableInner>);
 
 impl SelectorTable {
-    pub(crate) fn load_from<M: MemReader>(data: &M) -> Result<Self, Error> {
+    #[other_fn]
+    pub(crate) fn load_from<M: MemReader>(data: &M) -> Result<Self, OtherError> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
 

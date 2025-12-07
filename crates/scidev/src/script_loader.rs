@@ -74,27 +74,13 @@ impl_error_castable!(
     ScriptLoadError::InvalidData
 );
 
-impl From<OtherError> for ScriptLoadError {
-    fn from(err: OtherError) -> Self {
-        Self::error_cast().cast_err(err)
-    }
-}
-
-impl From<selectors::Error> for ScriptLoadError {
-    fn from(err: selectors::Error) -> Self {
-        match err {
-            selectors::Error::Read(err) => Self::Io(err),
-            selectors::Error::InvalidData(invalid_data_err) => Self::InvalidData(invalid_data_err),
-        }
-    }
-}
-
 pub struct ScriptLoader {
     selectors: selectors::SelectorTable,
     loaded_scripts: HashMap<ScriptId, LoadedScript>,
 }
 
 impl ScriptLoader {
+    #[other_fn]
     pub fn load_from(resources: &ResourceSet) -> Result<Self, ScriptLoadError> {
         let selector_table_data = resources
             .get_resource(&ResourceId::new(

@@ -20,5 +20,8 @@ pub use no_error::NoError;
 pub use opaque::OpaqueError;
 pub(crate) use other::{OtherError, bail_other, ensure_other};
 
-pub(crate) use cast::{Builder as ErrorCastBuilder, ErrorCastable, ErrorCast, impl_error_castable};
-pub(crate) use unpack::{ErrWrapper, once_registerer, register_wrapper, resolve_error};
+pub(crate) use cast::{Builder as ErrorCastBuilder, ErrorCast, ErrorCastable, impl_error_castable};
+pub(crate) use unpack::{
+    ErrWrapper, UnpackableError, once_registerer, once_registerer_unpack, register_unpack,
+    register_wrapper, resolve_error,
+};

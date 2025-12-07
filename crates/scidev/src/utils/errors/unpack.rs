@@ -5,13 +5,18 @@ use std::{
     sync::{LazyLock, RwLock},
 };
 
-use crate::utils::errors::{BoxError, DynError};
+use crate::utils::{errors::{BoxError, DynError}, mem_reader};
 
 static WRAPPER_REGISTRY: LazyLock<RwLock<WrapCastHandlerRegistry>> = LazyLock::new(|| {
     let mut registry = WrapCastHandlerRegistry::new();
-    registry.register::<std::io::Error>();
+    registry.register_wrapper::<std::io::Error>();
+    registry.register_unpack::<mem_reader::MemReaderError>();
     RwLock::new(registry)
 });
+
+pub(crate) trait UnpackableError: std::error::Error + Send + Sync + 'static {
+    fn unpack_error(self) -> BoxError;
+}
 
 /// A trait for error types that can wrap other generic errors.
 ///
@@ -68,40 +73,39 @@ impl ErrWrapper for io::Error {
     }
 }
 
+type DynUnwrapFn = dyn Fn(BoxError) -> UnwrapResult + Send + Sync;
+type BoxUnwrapFn = Box<DynUnwrapFn>;
+
 struct UnwrapResult {
     error: BoxError,
     did_unwrap: bool,
 }
 
-trait WrapCastHandler {
-    fn unwrap_boxed(&self, err: BoxError) -> UnwrapResult;
-}
-
-struct WrapCastHandlerImpl<W>(std::marker::PhantomData<W>);
-
-impl<W> WrapCastHandler for WrapCastHandlerImpl<W>
-where
-    W: ErrWrapper,
-{
-    fn unwrap_boxed(&self, err: BoxError) -> UnwrapResult {
-        let mut did_unwrap = false;
-        let error = match err.downcast::<W>() {
-            Ok(io_err) => match io_err.try_unwrap_box() {
-                Ok(inner) => {
-                    did_unwrap = true;
-                    inner
-                }
-                Err(wrap) => Box::new(wrap),
-            },
-            Err(original) => original,
-        };
-
-        UnwrapResult { error, did_unwrap }
+fn cast_or_panic<T: std::error::Error + Send + Sync + 'static>(value: BoxError) -> T {
+    match value.downcast::<T>() {
+        Ok(boxed) => *boxed,
+        Err(_) => panic!("Failed to downcast boxed Any"),
     }
 }
 
+fn unwrap_boxed<W>(err: W) -> UnwrapResult
+where
+    W: ErrWrapper,
+{
+    let mut did_unwrap = false;
+    let error = match err.try_unwrap_box() {
+        Ok(inner) => {
+            did_unwrap = true;
+            inner
+        }
+        Err(wrap) => Box::new(wrap),
+    };
+
+    UnwrapResult { error, did_unwrap }
+}
+
 struct WrapCastHandlerRegistry {
-    handlers: HashMap<TypeId, Box<dyn WrapCastHandler + Send + Sync>>,
+    handlers: HashMap<TypeId, BoxUnwrapFn>,
 }
 
 impl WrapCastHandlerRegistry {
@@ -111,13 +115,25 @@ impl WrapCastHandlerRegistry {
         }
     }
 
-    fn register<W>(&mut self)
+    fn register_wrapper<W>(&mut self)
     where
         W: ErrWrapper + Send + Sync + 'static,
     {
         self.handlers
             .entry(TypeId::of::<W>())
-            .or_insert_with(|| Box::new(WrapCastHandlerImpl::<W>(std::marker::PhantomData)));
+            .or_insert_with(|| Box::new(|err| unwrap_boxed::<W>(cast_or_panic::<W>(err))));
+    }
+
+    fn register_unpack<E>(&mut self)
+    where
+        E: UnpackableError + Send + Sync + 'static,
+    {
+        self.handlers
+            .entry(TypeId::of::<E>())
+            .or_insert_with(|| Box::new(|err| UnwrapResult {
+                error: cast_or_panic::<E>(err).unpack_error(),
+                did_unwrap: true,
+            }));
     }
 
     fn resolve(&self, mut err: BoxError) -> BoxError {
@@ -126,7 +142,7 @@ impl WrapCastHandlerRegistry {
             let Some(handler) = self.handlers.get(&type_id) else {
                 return err;
             };
-            let UnwrapResult { error, did_unwrap } = handler.unwrap_boxed(err);
+            let UnwrapResult { error, did_unwrap } = handler(err);
             if !did_unwrap {
                 return error;
             }
@@ -142,7 +158,17 @@ where
     let mut registry = WRAPPER_REGISTRY
         .write()
         .expect("Failed to acquire write lock on wrapper registry");
-    registry.register::<W>();
+    registry.register_wrapper::<W>();
+}
+
+pub(crate) fn register_unpack<E>()
+where
+    E: UnpackableError + Send + Sync + 'static,
+{
+    let mut registry = WRAPPER_REGISTRY
+        .write()
+        .expect("Failed to acquire write lock on wrapper registry");
+    registry.register_unpack::<E>();
 }
 
 pub(crate) fn resolve_error(err: BoxError) -> BoxError {
@@ -154,6 +180,7 @@ pub(crate) fn resolve_error(err: BoxError) -> BoxError {
 
 macro_rules! once_registerer {
     ($(#[$m:meta])* $v:vis fn $name:ident($t:ty)) => {
+        #[inline(always)]
         $(#[$m])* $v fn $name() {
             static ONCE: std::sync::Once = std::sync::Once::new();
             ONCE.call_once(|| {
@@ -163,4 +190,17 @@ macro_rules! once_registerer {
     };
 }
 
+macro_rules! once_registerer_unpack {
+    ($(#[$m:meta])* $v:vis fn $name:ident($t:ty)) => {
+        #[inline(always)]
+        $(#[$m])* $v fn $name() {
+            static ONCE: std::sync::Once = std::sync::Once::new();
+            ONCE.call_once(|| {
+                $crate::utils::errors::unpack::register_unpack::<$t>();
+            });
+        }
+    };
+}
+
 pub(crate) use once_registerer;
+pub(crate) use once_registerer_unpack;

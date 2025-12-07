@@ -11,7 +11,7 @@ use bytes::BufMut;
 use crate::utils::{
     buffer::{FallibleBuffer, FallibleBufferRef},
     convert::convert_if_different,
-    errors::{BlockContext, InvalidDataError, NoError, OtherError},
+    errors::{BlockContext, BoxError, InvalidDataError, NoError, OtherError, UnpackableError},
 };
 
 pub trait ToFixedBytes {
@@ -69,14 +69,17 @@ struct NotDivisible {
 pub enum MemReaderError {
     /// An error that occured while reading from the underlying buffer.
     #[error(transparent)]
-    Read(io::Error),
+    Read(#[from] io::Error),
     #[error(transparent)]
     InvalidData(#[from] InvalidDataError),
 }
 
-impl From<io::Error> for MemReaderError {
-    fn from(err: io::Error) -> Self {
-        Self::Read(err)
+impl UnpackableError for MemReaderError {
+    fn unpack_error(self) -> BoxError {
+        match self {
+            MemReaderError::Read(io_err) => Box::new(io_err),
+            MemReaderError::InvalidData(invalid_data_err) => Box::new(invalid_data_err),
+        }
     }
 }
 
