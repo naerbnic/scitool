@@ -3,58 +3,63 @@
 Purpose: Enable AI coding agents to be productive in this mono-repo by knowing the architecture, workflows, and house rules. Keep changes small, compile often, and cite real paths/commands.
 
 ## Big picture
-- Workspace members: `crates/scidev` (core library), `crates/scitool-cli` (end-user CLI), `crates/scidub-cli` (VO/book/audio tooling), plus `fuzz/` targets. Cargo workspace is configured in `Cargo.toml` with shared lints.
-- Games use Sierra SCI 1.1 resource files. We read `RESOURCE.MAP`/`RESOURCE.000` and `MESSAGE.MAP`/`RESOURCE.MSG`, optionally overlaying `.SCR/.HEP` patch files in the game dir.
-- Data flow (core):
-  1) Parse resource map → type-specific location tables → resource entries (`scidev::resources::file::{map, data}`)
-  2) Read entry headers and lazy blocks → expose `ResourceSet` with `get_resource()`/iterators
-  3) Type parsers live in `scidev::resources::types` (e.g., `msg.rs`, `audio36.rs`)
-  4) CLIs consume `scidev` to list/extract/dump or to build artifacts (headers, audio)
+- **Workspace members**:
+  - `crates/scidev`: Core library (resource parsing, no side-effects).
+  - `crates/scitool-cli`: Synchronous CLI tool (binary `scitool`) for resource inspection/extraction.
+  - `crates/sciproj`: Project management library (dubbing, state, config).
+  - `crates/scidev-cli`: Async CLI tool (binary `scidev`, package `sciproj-cli`) for project workflows.
+  - `crates/crosslock` & `crates/atomic-dir`: Utilities for file system safety and locking.
+- **Data flow (core)**:
+  1. `ResourceSet::from_root_dir` (`scidev::resources::file`) loads `RESOURCE.MAP`/`000` and `MESSAGE.MAP`/`MSG`.
+  2. It automatically scans for and overlays patch files (e.g., `.SCR`, `.HEP`) from the game directory.
+  3. Resources are exposed via `ResourceSet` iterators.
+  4. Parsers live in `scidev::resources::types` (e.g., `msg.rs`, `audio36.rs`).
 
 ## Key crates and entry points
-- `crates/scidev` (no I/O side-effects other than resource reading):
-  - Resource I/O: `resources/file.rs`, `resources/file/data/*`, `resources/file/map/*`
-  - Resource identity: `resources::{ResourceId, ResourceType}`
-  - Message parsing: `resources/types/msg.rs` (MessageId, RoomMessageSet)
-  - Utilities: `utils/*` (buffer/mem_reader/compression/debug/validation)
-- `crates/scitool-cli` (sync CLI):
-  - Bin: `src/bin/scitool/main.rs` → `cli.rs`
-  - Categories: `resources` (list, extract-as-patch, dump), `messages` (print-talkers), `script` (gen-headers)
-  - Command impls: `src/commands/{resources.rs,messages.rs,scripts.rs}`
-- `crates/scidub-cli` (async CLI for VO/book):
-  - Bin: `src/bin/scidub/main.rs` → `cmds.rs`
-  - Subcommands: `compile-audio` (requires ffmpeg/ffprobe), `export-scannable`, `try-scan`, `generate-csv`, `book` (see `src/book/*`)
+- **`crates/scidev`**:
+  - Resource I/O: `resources/file.rs` (entry: `ResourceSet::from_root_dir`).
+  - Types: `resources/types/*`.
+  - Utils: `utils/mem_reader.rs` (parsing), `utils/block.rs` (lazy data access).
+  - **Rule**: No `anyhow` allowed here. Use `thiserror` and `crate::utils::errors`.
+- **`crates/scitool-cli`** (Sync CLI):
+  - Bin: `src/bin/scitool/main.rs`.
+  - Commands: `resources` (list, dump, extract), `messages` (talkers), `script`.
+  - Impls: `src/commands/*`.
+- **`crates/scidev-cli`** (Async CLI, package `sciproj-cli`):
+  - Bin: `src/main.rs` (binary name `scidev`).
+  - Commands: `compile-audio`, `book`, `project`, `export-scannable`.
+  - Uses `tokio` and `sciproj`.
 
 ## Build, run, test
-- Build workspace: cargo build
-- Run scitool help: cargo run -p scitool-cli --bin scitool -- --help
-- Example: list Message resources for a game dir: cargo run -p scitool-cli --bin scitool -- resources list /path/to/game --type msg
-- Dump a resource as hex: cargo run -p scitool-cli --bin scitool -- resources dump /path/to/game --type script 100
-- Extract as patch: cargo run -p scitool-cli --bin scitool -- resources extract /path/to/game --type heap 100 -o /tmp
-- Generate script headers: cargo run -p scitool-cli --bin scitool -- script gen-headers -d /path/to/game -o .
-- scidub examples: cargo run -p scidub-cli --bin scidub -- compile-audio -s samples/ -o out/  (needs ffmpeg/ffprobe in PATH)
-- Fuzz targets (optional): see `fuzz/Cargo.toml`; typical workflow uses cargo-fuzz, not configured here.
+- **Build workspace**: `cargo build`
+- **Run `scitool` (Resource tool)**:
+  - Help: `cargo run -p scitool-cli --bin scitool -- --help`
+  - List resources: `cargo run -p scitool-cli --bin scitool -- resources list /path/to/game`
+  - Dump resource: `cargo run -p scitool-cli --bin scitool -- resources dump /path/to/game --type script 100`
+- **Run `scidev` (Project tool)**:
+  - Help: `cargo run -p sciproj-cli --bin scidev -- --help`
+  - Compile audio: `cargo run -p sciproj-cli --bin scidev -- compile-audio ...`
+- **Test**: `cargo test` (Unit tests often use `datalit!` for binary blobs).
 
 ## House rules and patterns
-- Lints: Unsafe code is denied; clippy pedantic is enabled with selected denies in root `Cargo.toml`. Keep new code clippy-clean.
-- Error handling: Prefer `thiserror` and `crate::utils::errors::{ensure_other, bail_other, OtherError}` patterns. Wrap I/O/parse errors into crate-specific error types.
-- Parsing: Use `utils::mem_reader::{MemReader, Parse}`; implement `Parse` when possible. For context-dependent parsing, add explicit read functions (see `ResourceTypeLocations::read_from`).
-- Buffers/blocks: Work with `utils::block::{BlockSource, LazyBlock, MemBlock}` and avoid reading whole files eagerly unless needed; many APIs return lazy/open-on-demand blocks.
-- Resource overlay semantics: `open_game_resources(root)` loads MAP/000 + MESSAGE.MAP/RESOURCE.MSG, then overlays any patch files in `root` (e.g., `100.SCR`, `100.HEP`). When writing patches, preserve type byte and zero header.
-- Message model: SCI v4 messages parsed by `resources/types/msg.rs`. `MessageId` packs noun/verb/condition/sequence with defaults (verb=0, condition=0, sequence=1). Use `RoomMessageSet::messages()` to iterate.
-- Script headers: `scitool script gen-headers` builds `selectors.sh` and `classdef.sh` by scanning resources; `--dry-run` prints to stdout.
-- Audio (scidub): `resources::SampleDir` builds `VoiceSampleResources` via ffmpeg; uses `Ogg Vorbis` at 22.05kHz; concurrency via `buffer_unordered`. Outputs `resource.aud` and per-resource patch files named `<id>.<ext>`.
+- **Error Handling**:
+  - `scidev`: Strict error types. Use `utils::errors::{ensure_other, bail_other}`.
+  - CLIs/`sciproj`: `anyhow` is permitted.
+- **Parsing**:
+  - Use `utils::mem_reader::{MemReader, Parse}`.
+  - Avoid reading whole files eagerly; use `utils::block::{Block, LazyBlock}`.
+- **Resource Model**:
+  - `ResourceType` enum maps extensions (e.g., `.scr` -> `Script`).
+  - `ResourceId` combines type and number.
+  - `ResourceSet` is the central access point.
+- **Project Management (`sciproj`)**:
+  - Manages state in `sciproj.state.json` and config in `sciproj.toml`.
+  - Uses `crosslock` for safe concurrent access.
 
 ## Conventions and gotchas
-- Paths: Game root must contain `RESOURCE.MAP` and `RESOURCE.000`; messages live in `MESSAGE.MAP` and `RESOURCE.MSG`. Patch overlay searches the same directory for files with SCI extensions.
-- Map layout: SCI1.1 uses 5-byte location entries despite some docs; code enforces `(end-start) % 5 == 0` and computes offsets by `(u24 & 0x0FFF_FFFF) << 1`.
-- Resource ID check: When reading data entries, header IDs must match the map-provided ID; mismatches are treated as errors.
-- Platform tools: Some flows require `ffmpeg` and `ffprobe` on PATH. Use `LookupPath` helpers and surface clear errors if missing.
-- Testing style: Unit tests use `datalit!` to synthesize binary blobs; see tests in `resources/file/*` and `resources/types/msg.rs` for examples.
+- **Naming**: The async CLI package is `sciproj-cli` but the binary is `scidev`. The sync CLI is `scitool-cli` / `scitool`.
+- **Paths**: Game root must contain `RESOURCE.MAP` and `RESOURCE.000`.
+- **Map Layout**: SCI1.1 uses 5-byte location entries.
+- **Async**: `scidev-cli` and `sciproj` are async (`tokio`). `scitool-cli` and `scidev` core are sync.
 
-## Good first places to extend
-- Add new `ResourceType` parsers under `crates/scidev/src/resources/types/` with small unit tests.
-- Add `scitool` subcommands that compose `open_game_resources()` and `ResourceSet` iterators for targeted tasks (follow the pattern in `src/commands`).
-- Extend `scidub` CSV/Book tooling in `src/book/*`; keep IDs flowing through `common` types.
-
-When in doubt, cite concrete files and run `cargo build` locally before sending large diffs.
+When in doubt, check `Cargo.toml` for package names and dependencies.
