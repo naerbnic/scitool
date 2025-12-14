@@ -96,7 +96,7 @@ pub enum ResourceProvenance {
 }
 
 #[derive(Debug, Clone)]
-pub struct ResourceContents {
+pub(crate) struct ResourceContents {
     provenance: ResourceProvenance,
 
     /// The main data source for the resource.
@@ -121,7 +121,7 @@ impl ResourceContents {
     }
 
     #[must_use]
-    pub fn new(source: Block) -> Self {
+    pub(crate) fn new(source: Block) -> Self {
         ResourceContents {
             provenance: ResourceProvenance::New,
             source,
@@ -136,7 +136,7 @@ impl ResourceContents {
     }
 
     #[must_use]
-    pub fn compressed(&self) -> Option<&CompressedData> {
+    pub(crate) fn compressed(&self) -> Option<&CompressedData> {
         match &self.provenance {
             ResourceProvenance::Volume(volume) => volume.compressed_data.as_ref(),
             _ => None,
@@ -144,12 +144,12 @@ impl ResourceContents {
     }
 
     #[must_use]
-    pub fn provenance(&self) -> &ResourceProvenance {
+    pub(crate) fn provenance(&self) -> &ResourceProvenance {
         &self.provenance
     }
 
     #[must_use]
-    pub fn source(&self) -> &Block {
+    pub(crate) fn source(&self) -> &Block {
         &self.source
     }
 }
@@ -163,13 +163,28 @@ pub struct Resource {
 
 impl Resource {
     #[must_use]
-    pub fn new(id: ResourceId, contents: ResourceContents) -> Self {
+    pub(crate) fn new(id: ResourceId, contents: ResourceContents) -> Self {
         Resource { id, contents }
     }
 
     #[must_use]
-    pub fn contents(&self) -> &ResourceContents {
+    pub(crate) fn contents(&self) -> &ResourceContents {
         &self.contents
+    }
+
+    #[must_use]
+    pub fn provenance(&self) -> &ResourceProvenance {
+        self.contents.provenance()
+    }
+
+    #[must_use]
+    pub fn compressed(&self) -> Option<&CompressedData> {
+        self.contents.compressed()
+    }
+
+    #[must_use]
+    pub fn extra_data(&self) -> Option<&ExtraData> {
+        self.contents.extra_data()
     }
 
     #[must_use]

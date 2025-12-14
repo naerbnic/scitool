@@ -3,7 +3,7 @@ use std::ops::{Bound, RangeBounds};
 use num::NumCast;
 
 #[derive(Clone, Copy, Debug)]
-pub struct OffsetSize<T> {
+pub(crate) struct OffsetSize<T> {
     offset: T,
     size: T,
 }
@@ -12,11 +12,11 @@ impl<T> OffsetSize<T>
 where
     T: Copy,
 {
-    pub fn offset(&self) -> T {
+    pub(crate) fn offset(&self) -> T {
         self.offset
     }
 
-    pub fn size(&self) -> T {
+    pub(crate) fn size(&self) -> T {
         self.size
     }
 }

@@ -64,7 +64,7 @@ impl ResPack {
         let raw_buffer_info = BufferInfo::from_stream(raw_data.open_reader(..)?)?;
 
         // Get provenance info from the contents.
-        let source = match resource.contents().provenance() {
+        let source = match resource.provenance() {
             ResourceProvenance::Volume(volume_source) => {
                 Some(schema::SourceInfo::Volume(schema::VolumeSource::new(
                     volume_source.archive_num(),
@@ -97,7 +97,7 @@ impl ResPack {
         };
 
         let (compressed_info, compressed_data) =
-            if let Some(compressed) = resource.contents().compressed() {
+            if let Some(compressed) = resource.compressed() {
                 let block = compressed.compressed_block().clone();
                 let compressed_info = BufferInfo::from_stream(
                     block

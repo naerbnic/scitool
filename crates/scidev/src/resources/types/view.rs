@@ -1,7 +1,7 @@
 use crate::utils::mem_reader::{self, MemReader};
 
 #[derive(Debug)]
-pub struct ViewHeader {
+pub(crate) struct ViewHeader {
     pub loop_count: u8,
     pub flags: u8,
     pub reserved: [u8; 4],
@@ -12,7 +12,7 @@ pub struct ViewHeader {
 }
 
 impl ViewHeader {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<ViewHeader> {
+    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<ViewHeader> {
         let header_size = reader.read_u16_le()?;
         let mut header_data = reader.read_to_subreader("view_header", header_size.into())?;
         let loop_count = header_data.read_u8()?;
@@ -38,7 +38,7 @@ impl ViewHeader {
 }
 
 #[derive(Debug)]
-pub struct LoopEntry {
+pub(crate) struct LoopEntry {
     pub seek_entry: u8,
     pub reserved1: u8,
     pub cel_count: u8,
@@ -48,7 +48,7 @@ pub struct LoopEntry {
 }
 
 impl LoopEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<LoopEntry> {
+    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<LoopEntry> {
         let seek_entry = reader.read_u8()?;
         let reserved1 = reader.read_u8()?;
         let cel_count = reader.read_u8()?;

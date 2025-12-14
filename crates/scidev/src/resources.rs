@@ -6,7 +6,7 @@ pub mod types;
 
 pub use file::ResourceSet;
 pub use resource::{
-    ExtraData, PatchSource, Resource, ResourceContents, ResourceProvenance, VolumeSource,
+    ExtraData, PatchSource, Resource, ResourceProvenance, VolumeSource,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

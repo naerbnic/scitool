@@ -2,7 +2,7 @@ use std::io;
 
 use super::block::MemBlock;
 
-pub trait DataWriter {
+pub(crate) trait DataWriter {
     fn write_u8(&mut self, value: u8) -> io::Result<()>;
     fn write_u16_le(&mut self, value: u16) -> io::Result<()>;
     fn write_u32_le(&mut self, value: u32) -> io::Result<()>;
@@ -10,10 +10,10 @@ pub trait DataWriter {
     fn write_slice(&mut self, slice: &[u8]) -> io::Result<()>;
 }
 
-pub struct IoDataWriter<W>(W);
+pub(crate) struct IoDataWriter<W>(W);
 
 impl<W: io::Write + io::Seek> IoDataWriter<W> {
-    pub fn new(writer: W) -> IoDataWriter<W> {
+    pub(crate) fn new(writer: W) -> IoDataWriter<W> {
         IoDataWriter(writer)
     }
 }

@@ -1,13 +1,13 @@
 pub mod block;
 pub mod buffer;
 pub mod compression;
-pub mod continuation;
-pub mod convert;
-pub mod data_writer;
+pub(crate) mod continuation;
+pub(crate) mod convert;
+pub(crate) mod data_writer;
 pub mod debug;
 pub mod errors;
 pub mod mem_reader;
-pub mod range;
+pub(crate) mod range;
 pub mod validation;
 pub mod serde;
 

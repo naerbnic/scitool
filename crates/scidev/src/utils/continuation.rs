@@ -135,7 +135,7 @@ struct Inner<In, Out> {
 
 /// A channel that sends results and receives the next input for a continuation.
 #[derive(Debug, Clone)]
-pub struct Channel<In, Out> {
+pub(crate) struct Channel<In, Out> {
     /// Note that we explicitly reverse the direction of In and Out here, since
     /// from the perspective of the continuation, it is receiving Out and sending In.
     inner: Rc<RefCell<Inner<Out, In>>>,
@@ -149,7 +149,7 @@ impl<In, Out> Channel<In, Out> {
     ///
     /// You must await the returned future for correctness. Dropping it
     /// without awaiting will cause a panic within the async context.
-    pub fn yield_value(&mut self, value: In) -> ChannelYield<In, Out> {
+    pub(crate) fn yield_value(&mut self, value: In) -> ChannelYield<In, Out> {
         ChannelYield {
             inner: self.inner.clone(),
             input: Some(value),
@@ -160,7 +160,7 @@ impl<In, Out> Channel<In, Out> {
 
 #[derive(Debug)]
 /// A future that waits for a response from the channel.
-pub struct ChannelYield<In, Out> {
+pub(crate) struct ChannelYield<In, Out> {
     /// The channel context we are waiting on.
     inner: Rc<RefCell<Inner<Out, In>>>,
     input: Option<In>,
@@ -229,34 +229,34 @@ impl<In, Out> Drop for ChannelYield<In, Out> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ContinuationResult<Out, Result> {
+pub(crate) enum ContinuationResult<Out, Result> {
     Yield(Out),
     Complete(Result),
 }
 
 impl<Out, Result> ContinuationResult<Out, Result> {
-    pub fn as_complete(&self) -> Option<&Result> {
+    pub(crate) fn as_complete(&self) -> Option<&Result> {
         match self {
             ContinuationResult::Yield(_) => None,
             ContinuationResult::Complete(result) => Some(result),
         }
     }
 
-    pub fn into_complete(self) -> Option<Result> {
+    pub(crate) fn into_complete(self) -> Option<Result> {
         match self {
             ContinuationResult::Yield(_) => None,
             ContinuationResult::Complete(result) => Some(result),
         }
     }
 
-    pub fn as_yield(&self) -> Option<&Out> {
+    pub(crate) fn as_yield(&self) -> Option<&Out> {
         match self {
             ContinuationResult::Yield(value) => Some(value),
             ContinuationResult::Complete(_) => None,
         }
     }
 
-    pub fn into_yield(self) -> Option<Out> {
+    pub(crate) fn into_yield(self) -> Option<Out> {
         match self {
             ContinuationResult::Yield(value) => Some(value),
             ContinuationResult::Complete(_) => None,
@@ -269,7 +269,7 @@ enum ContinuationPoll<Out, Result> {
     Pending(WaitToken),
 }
 
-pub struct Continuation<'a, In, Out, Result> {
+pub(crate) struct Continuation<'a, In, Out, Result> {
     state: Rc<RefCell<Inner<In, Out>>>,
     curr_future: Option<Pin<Box<dyn Future<Output = Result> + 'a>>>,
 }
@@ -344,7 +344,7 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
         }
     }
 
-    pub fn pump_continuation(&mut self) -> Option<ContinuationResult<Out, Result>> {
+    pub(crate) fn pump_continuation(&mut self) -> Option<ContinuationResult<Out, Result>> {
         loop {
             match self.poll_continuation()? {
                 ContinuationPoll::Ready(poll) => return Some(poll),
@@ -356,7 +356,7 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
         }
     }
 
-    pub fn new<F, Fut>(future_fn: F) -> Self
+    pub(crate) fn new<F, Fut>(future_fn: F) -> Self
     where
         F: FnOnce(Channel<Out, In>) -> Fut,
         Fut: Future<Output = Result> + 'a,
@@ -378,12 +378,12 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
     }
 
     #[must_use]
-    pub fn has_started(&self) -> bool {
+    pub(crate) fn has_started(&self) -> bool {
         let guard = self.state.borrow();
         !matches!(guard.flow_state, FlowState::BeforeStarted)
     }
 
-    pub fn start(&mut self) -> ContinuationResult<Out, Result> {
+    pub(crate) fn start(&mut self) -> ContinuationResult<Out, Result> {
         {
             let mut guard = self.state.borrow_mut();
             assert!(
@@ -397,12 +397,12 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
     }
 
     #[must_use]
-    pub fn is_finished(&self) -> bool {
+    pub(crate) fn is_finished(&self) -> bool {
         let guard = self.state.borrow();
         matches!(guard.flow_state, FlowState::Finished)
     }
 
-    pub fn next(&mut self, input: In) -> ContinuationResult<Out, Result> {
+    pub(crate) fn next(&mut self, input: In) -> ContinuationResult<Out, Result> {
         {
             let mut guard = self.state.borrow_mut();
             let flow_state = &mut guard.flow_state;

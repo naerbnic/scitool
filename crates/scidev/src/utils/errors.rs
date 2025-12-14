@@ -15,7 +15,8 @@ pub(crate) type BoxError = Box<DynError>;
 pub(crate) use scidev_macros_internal::other_fn;
 
 pub(crate) use self::other::{OptionExt as OtherOptionExt, ResultExt as OtherResultExt};
-pub(crate) use invalid_data::{BlockContext, InvalidDataError};
+pub use invalid_data::InvalidDataError;
+pub(crate) use invalid_data::BlockContext;
 pub use no_error::NoError;
 pub use opaque::OpaqueError;
 pub(crate) use other::{OtherError, bail_other, ensure_other};
