@@ -234,6 +234,7 @@ pub(crate) enum ContinuationResult<Out, Result> {
     Complete(Result),
 }
 
+#[cfg(test)]
 impl<Out, Result> ContinuationResult<Out, Result> {
     pub(crate) fn as_complete(&self) -> Option<&Result> {
         match self {
@@ -246,13 +247,6 @@ impl<Out, Result> ContinuationResult<Out, Result> {
         match self {
             ContinuationResult::Yield(_) => None,
             ContinuationResult::Complete(result) => Some(result),
-        }
-    }
-
-    pub(crate) fn as_yield(&self) -> Option<&Out> {
-        match self {
-            ContinuationResult::Yield(value) => Some(value),
-            ContinuationResult::Complete(_) => None,
         }
     }
 

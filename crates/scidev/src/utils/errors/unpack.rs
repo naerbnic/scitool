@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::utils::{
-    errors::{other::OtherError, BoxError, DynError},
+    errors::{BoxError, DynError, other::OtherError},
     mem_reader,
 };
 
@@ -86,10 +86,7 @@ struct UnwrapResult {
 }
 
 fn cast_or_panic<T: std::error::Error + Send + Sync + 'static>(value: BoxError) -> T {
-    match value.downcast::<T>() {
-        Ok(boxed) => *boxed,
-        Err(_) => panic!("Failed to downcast boxed Any"),
-    }
+    *value.downcast::<T>().expect("Failed to downcast boxed Any")
 }
 
 fn unwrap_boxed<W>(err: W) -> UnwrapResult
@@ -132,12 +129,12 @@ impl WrapCastHandlerRegistry {
     where
         E: UnpackableError + Send + Sync + 'static,
     {
-        self.handlers
-            .entry(TypeId::of::<E>())
-            .or_insert_with(|| Box::new(|err| UnwrapResult {
+        self.handlers.entry(TypeId::of::<E>()).or_insert_with(|| {
+            Box::new(|err| UnwrapResult {
                 error: cast_or_panic::<E>(err).unpack_error(),
                 did_unwrap: true,
-            }));
+            })
+        });
     }
 
     fn resolve(&self, mut err: BoxError) -> BoxError {
@@ -155,56 +152,9 @@ impl WrapCastHandlerRegistry {
     }
 }
 
-pub(crate) fn register_wrapper<W>()
-where
-    W: ErrWrapper + Send + Sync + 'static,
-{
-    let mut registry = WRAPPER_REGISTRY
-        .write()
-        .expect("Failed to acquire write lock on wrapper registry");
-    registry.register_wrapper::<W>();
-}
-
-pub(crate) fn register_unpack<E>()
-where
-    E: UnpackableError + Send + Sync + 'static,
-{
-    let mut registry = WRAPPER_REGISTRY
-        .write()
-        .expect("Failed to acquire write lock on wrapper registry");
-    registry.register_unpack::<E>();
-}
-
 pub(crate) fn resolve_error(err: BoxError) -> BoxError {
     let registry = WRAPPER_REGISTRY
         .read()
         .expect("Failed to acquire read lock on wrapper registry");
     registry.resolve(err)
 }
-
-macro_rules! once_registerer {
-    ($(#[$m:meta])* $v:vis fn $name:ident($t:ty)) => {
-        #[inline(always)]
-        $(#[$m])* $v fn $name() {
-            static ONCE: std::sync::Once = std::sync::Once::new();
-            ONCE.call_once(|| {
-                $crate::utils::errors::unpack::register_wrapper::<$t>();
-            });
-        }
-    };
-}
-
-macro_rules! once_registerer_unpack {
-    ($(#[$m:meta])* $v:vis fn $name:ident($t:ty)) => {
-        #[inline(always)]
-        $(#[$m])* $v fn $name() {
-            static ONCE: std::sync::Once = std::sync::Once::new();
-            ONCE.call_once(|| {
-                $crate::utils::errors::unpack::register_unpack::<$t>();
-            });
-        }
-    };
-}
-
-pub(crate) use once_registerer;
-pub(crate) use once_registerer_unpack;

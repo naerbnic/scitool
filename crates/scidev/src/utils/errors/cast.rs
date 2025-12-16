@@ -14,13 +14,6 @@ impl<E> ErrorCast<E>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
-    pub(crate) fn cast_err<E2>(&self, err: E2) -> E
-    where
-        E2: std::error::Error + Send + Sync + 'static,
-    {
-        self.cast_boxed(Box::new(err))
-    }
-
     pub(crate) fn cast_boxed(&self, err: BoxError) -> E {
         let resolved_err = resolve_error(err);
         let type_id = Any::type_id(&*resolved_err);

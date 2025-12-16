@@ -1,3 +1,5 @@
+#![expect(dead_code, reason = "Views will be used in a near-future version.")]
+
 use crate::utils::mem_reader::{self, MemReader};
 
 #[derive(Debug)]

@@ -31,7 +31,7 @@ pub(crate) fn other_fn(
     let new_body_block: syn::Block =
         syn::parse2(new_body).expect("failed to parse new function body");
 
-    item_fn.block = Box::new(new_body_block);
+    *item_fn.block = new_body_block;
 
     Ok(quote! { #item_fn })
 }

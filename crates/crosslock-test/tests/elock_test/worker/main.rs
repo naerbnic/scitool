@@ -1,5 +1,3 @@
-#![expect(clippy::mod_module_files)]
-
 use crate::shared::msg::{
     ManagerMessage, WorkerMessage, create_message_sink, create_message_stream,
 };

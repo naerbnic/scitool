@@ -3,25 +3,6 @@ use std::ops::{Bound, RangeBounds};
 use num::NumCast;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct OffsetSize<T> {
-    offset: T,
-    size: T,
-}
-
-impl<T> OffsetSize<T>
-where
-    T: Copy,
-{
-    pub(crate) fn offset(&self) -> T {
-        self.offset
-    }
-
-    pub(crate) fn size(&self) -> T {
-        self.size
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
 pub struct Range<T>
 where
     T: num::PrimInt + num::Unsigned + 'static,

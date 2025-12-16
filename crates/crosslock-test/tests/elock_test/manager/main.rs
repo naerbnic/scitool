@@ -1,5 +1,3 @@
-#![expect(clippy::mod_module_files)]
-
 use std::{
     io::{Error as IoError, Result as IoResult},
     process::Stdio,
