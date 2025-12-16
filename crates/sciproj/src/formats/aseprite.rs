@@ -2,11 +2,13 @@
 //!
 //! Using the spec at: <https://github.com/aseprite/aseprite/blob/main/docs/ase-file-specs.md>
 
-#![expect(dead_code, clippy::todo)]
-use std::io;
+#![expect(dead_code)]
 
 use bitflags::bitflags;
-use scidev::utils::{block::Block, mem_reader::MemReader};
+use scidev::utils::{
+    block::Block,
+    mem_reader::{MemReader, Result as MemResult},
+};
 
 bitflags! {
     /// Flags for Aseprite frames.
@@ -95,7 +97,7 @@ trait ChunkValue: Sized {
     const CHUNK_TYPE: u16;
 
     fn into_block(self) -> Block;
-    fn from_block<M>(block: M) -> io::Result<Self>
+    fn from_block<M>(block: M) -> MemResult<Self>
     where
         M: MemReader;
 }
@@ -103,8 +105,10 @@ trait ChunkValue: Sized {
 mod layer {
     use bitflags::bitflags;
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -194,47 +198,217 @@ mod layer {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let flags = LayerFlags::from_bits_truncate(reader.read_u16_le()?);
+            let layer_type_val = reader.read_u16_le()?;
+            let child_level = reader.read_u16_le()?;
+            let _default_width = reader.read_u16_le()?;
+            let _default_height = reader.read_u16_le()?;
+            let blend_mode_val = reader.read_u16_le()?;
+            let opacity = reader.read_u8()?;
+            let _padding = reader.read_values::<u8>("padding", 3)?;
+            let name_len = reader.read_u16_le()?;
+            let layer_name =
+                String::from_utf8_lossy(&reader.read_values::<u8>("name", name_len as usize)?)
+                    .to_string();
+
+            let layer_type = match layer_type_val {
+                0 => LayerType::Normal,
+                1 => LayerType::Group,
+                2 => {
+                    let tileset_index = reader.read_u32_le()?;
+                    LayerType::Tilemap { tileset_index }
+                }
+                _ => {
+                    return Err(reader
+                        .create_invalid_data_error_msg("Invalid layer type")
+                        .into());
+                }
+            };
+
+            let blend_mode = match blend_mode_val {
+                0 => BlendMode::Normal,
+                1 => BlendMode::Multiply,
+                2 => BlendMode::Screen,
+                3 => BlendMode::Overlay,
+                4 => BlendMode::Darken,
+                5 => BlendMode::Lighten,
+                6 => BlendMode::ColorDodge,
+                7 => BlendMode::ColorBurn,
+                8 => BlendMode::HardLight,
+                9 => BlendMode::SoftLight,
+                10 => BlendMode::Difference,
+                11 => BlendMode::Exclusion,
+                12 => BlendMode::Hue,
+                13 => BlendMode::Saturation,
+                14 => BlendMode::Color,
+                15 => BlendMode::Luminosity,
+                16 => BlendMode::Addition,
+                17 => BlendMode::Subtraction,
+                18 => BlendMode::Divide,
+                _ => {
+                    return Err(reader
+                        .create_invalid_data_error_msg("Invalid blend mode")
+                        .into());
+                }
+            };
+
+            let uuid = if reader.remaining() >= 16 {
+                let mut uuid_bytes = [0u8; 16];
+                let bytes = reader.read_values::<u8>("uuid", 16)?;
+                uuid_bytes.copy_from_slice(&bytes);
+                Some(uuid_bytes)
+            } else {
+                None
+            };
+
+            Ok(LayerChunk {
+                flags,
+                layer_type,
+                child_level,
+                blend_mode,
+                opacity,
+                layer_name,
+                uuid,
+            })
         }
     }
 }
 
 mod cel {
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
     #[derive(Clone, Debug)]
+    pub(super) struct RawCel {
+        pub width: u16,
+        pub height: u16,
+        pub pixels: Vec<u8>,
+    }
+
+    impl RawCel {
+        fn write(&self, data: &mut Vec<u8>) {
+            data.put_u16_le(self.width);
+            data.put_u16_le(self.height);
+            data.extend_from_slice(&self.pixels);
+        }
+
+        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+            let width = reader.read_u16_le()?;
+            let height = reader.read_u16_le()?;
+            let pixels = reader.read_remaining()?;
+            Ok(Self {
+                width,
+                height,
+                pixels,
+            })
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub(super) struct LinkedCel {
+        pub frame_position: u16,
+    }
+
+    impl LinkedCel {
+        fn write(&self, data: &mut Vec<u8>) {
+            data.put_u16_le(self.frame_position);
+        }
+
+        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+            let frame_position = reader.read_u16_le()?;
+            Ok(Self { frame_position })
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub(super) struct CompressedCel {
+        pub width: u16,
+        pub height: u16,
+        pub data: Vec<u8>,
+    }
+
+    impl CompressedCel {
+        fn write(&self, data: &mut Vec<u8>) {
+            data.put_u16_le(self.width);
+            data.put_u16_le(self.height);
+            data.extend_from_slice(&self.data);
+        }
+
+        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+            let width = reader.read_u16_le()?;
+            let height = reader.read_u16_le()?;
+            let data = reader.read_remaining()?;
+            Ok(Self {
+                width,
+                height,
+                data,
+            })
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub(super) struct CompressedTilemapCel {
+        pub width: u16,
+        pub height: u16,
+        pub bits_per_tile: u16,
+        pub tile_id_bitmask: u32,
+        pub x_flip_bitmask: u32,
+        pub y_flip_bitmask: u32,
+        pub diagonal_flip_bitmask: u32,
+        pub tiles: Vec<u8>,
+    }
+
+    impl CompressedTilemapCel {
+        fn write(&self, data: &mut Vec<u8>) {
+            data.put_u16_le(self.width);
+            data.put_u16_le(self.height);
+            data.put_u16_le(self.bits_per_tile);
+            data.put_u32_le(self.tile_id_bitmask);
+            data.put_u32_le(self.x_flip_bitmask);
+            data.put_u32_le(self.y_flip_bitmask);
+            data.put_u32_le(self.diagonal_flip_bitmask);
+            data.put_bytes(0, 10);
+            data.extend_from_slice(&self.tiles);
+        }
+
+        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+            let width = reader.read_u16_le()?;
+            let height = reader.read_u16_le()?;
+            let bits_per_tile = reader.read_u16_le()?;
+            let bitmask_tile_id = reader.read_u32_le()?;
+            let x_flip_bitmask = reader.read_u32_le()?;
+            let y_flip_bitmask = reader.read_u32_le()?;
+            let bitmask_diagonal_flip = reader.read_u32_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 10)?;
+            let tiles = reader.read_remaining()?;
+            Ok(Self {
+                width,
+                height,
+                bits_per_tile,
+                tile_id_bitmask: bitmask_tile_id,
+                x_flip_bitmask,
+                y_flip_bitmask,
+                diagonal_flip_bitmask: bitmask_diagonal_flip,
+                tiles,
+            })
+        }
+    }
+
+    #[derive(Clone, Debug)]
     pub(super) enum CelType {
-        Raw {
-            width: u16,
-            height: u16,
-            pixels: Vec<u8>,
-        },
-        Linked {
-            frame_position: u16,
-        },
-        Compressed {
-            width: u16,
-            height: u16,
-            data: Vec<u8>,
-        },
-        CompressedTilemap {
-            width: u16,
-            height: u16,
-            bits_per_tile: u16,
-            bitmask_tile_id: u32,
-            bitmask_x_flip: u32,
-            bitmask_y_flip: u32,
-            bitmask_diagonal_flip: u32,
-            tiles: Vec<u8>,
-        },
+        Raw(RawCel),
+        Linked(LinkedCel),
+        Compressed(CompressedCel),
+        CompressedTilemap(CompressedTilemapCel),
     }
 
     #[derive(Clone, Debug)]
@@ -257,74 +431,66 @@ mod cel {
             data.put_i16_le(self.y);
             data.put_u8(self.opacity);
             let type_val = match &self.cel_type {
-                CelType::Raw { .. } => 0,
-                CelType::Linked { .. } => 1,
-                CelType::Compressed { .. } => 2,
-                CelType::CompressedTilemap { .. } => 3,
+                CelType::Raw(_) => 0,
+                CelType::Linked(_) => 1,
+                CelType::Compressed(_) => 2,
+                CelType::CompressedTilemap(_) => 3,
             };
             data.put_u16_le(type_val);
             data.put_i16_le(self.z_index);
             data.put_bytes(0, 5);
 
-            match self.cel_type {
-                CelType::Raw {
-                    width,
-                    height,
-                    pixels,
-                } => {
-                    data.put_u16_le(width);
-                    data.put_u16_le(height);
-                    data.extend_from_slice(&pixels);
-                }
-                CelType::Linked { frame_position } => {
-                    data.put_u16_le(frame_position);
-                }
-                CelType::Compressed {
-                    width,
-                    height,
-                    data: compressed_data,
-                } => {
-                    data.put_u16_le(width);
-                    data.put_u16_le(height);
-                    data.extend_from_slice(&compressed_data);
-                }
-                CelType::CompressedTilemap {
-                    width,
-                    height,
-                    bits_per_tile,
-                    bitmask_tile_id,
-                    bitmask_x_flip,
-                    bitmask_y_flip,
-                    bitmask_diagonal_flip,
-                    tiles,
-                } => {
-                    data.put_u16_le(width);
-                    data.put_u16_le(height);
-                    data.put_u16_le(bits_per_tile);
-                    data.put_u32_le(bitmask_tile_id);
-                    data.put_u32_le(bitmask_x_flip);
-                    data.put_u32_le(bitmask_y_flip);
-                    data.put_u32_le(bitmask_diagonal_flip);
-                    data.put_bytes(0, 10);
-                    data.extend_from_slice(&tiles);
-                }
+            match &self.cel_type {
+                CelType::Raw(cel) => cel.write(&mut data),
+                CelType::Linked(cel) => cel.write(&mut data),
+                CelType::Compressed(cel) => cel.write(&mut data),
+                CelType::CompressedTilemap(cel) => cel.write(&mut data),
             }
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let layer_index = reader.read_u16_le()?;
+            let x = reader.read_i16_le()?;
+            let y = reader.read_i16_le()?;
+            let opacity = reader.read_u8()?;
+            let cel_type_val = reader.read_u16_le()?;
+            let z_index = reader.read_i16_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 5)?;
+
+            let cel_type = match cel_type_val {
+                0 => CelType::Raw(RawCel::read(&mut reader)?),
+                1 => CelType::Linked(LinkedCel::read(&mut reader)?),
+                2 => CelType::Compressed(CompressedCel::read(&mut reader)?),
+                3 => CelType::CompressedTilemap(CompressedTilemapCel::read(&mut reader)?),
+                _ => {
+                    return Err(reader
+                        .create_invalid_data_error_msg("Invalid cel type")
+                        .into());
+                }
+            };
+
+            Ok(CelChunk {
+                layer_index,
+                x,
+                y,
+                opacity,
+                cel_type,
+                z_index,
+            })
         }
     }
 }
 
 mod cel_extra {
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -351,19 +517,34 @@ mod cel_extra {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let flags = reader.read_u32_le()?;
+            let precise_x = reader.read_value::<i32>("precise_x")?;
+            let precise_y = reader.read_value::<i32>("precise_y")?;
+            let width = reader.read_value::<i32>("width")?;
+            let height = reader.read_value::<i32>("height")?;
+            let _reserved = reader.read_values::<u8>("reserved", 16)?;
+
+            Ok(CelExtraChunk {
+                flags,
+                precise_x,
+                precise_y,
+                width,
+                height,
+            })
         }
     }
 }
 
 mod tags {
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -413,11 +594,49 @@ mod tags {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let num_tags = reader.read_u16_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 8)?;
+            let mut tags = Vec::with_capacity(num_tags as usize);
+
+            for _ in 0..num_tags {
+                let from_frame = reader.read_u16_le()?;
+                let to_frame = reader.read_u16_le()?;
+                let direction_val = reader.read_u8()?;
+                let repeat = reader.read_u16_le()?;
+                let _reserved_tag = reader.read_values::<u8>("reserved_tag", 6)?;
+                let _deprecated_color = reader.read_values::<u8>("deprecated_color", 3)?;
+                let _extra = reader.read_u8()?;
+                let name_len = reader.read_u16_le()?;
+                let name =
+                    String::from_utf8_lossy(&reader.read_values::<u8>("name", name_len as usize)?)
+                        .to_string();
+
+                let direction = match direction_val {
+                    0 => AnimationDirection::Forward,
+                    1 => AnimationDirection::Reverse,
+                    2 => AnimationDirection::PingPong,
+                    3 => AnimationDirection::PingPongReverse,
+                    _ => {
+                        return Err(reader
+                            .create_invalid_data_error_msg("Invalid animation direction")
+                            .into());
+                    }
+                };
+
+                tags.push(Tag {
+                    from_frame,
+                    to_frame,
+                    direction,
+                    repeat,
+                    name,
+                });
+            }
+
+            Ok(TagsChunk { tags })
         }
     }
 }
@@ -425,8 +644,10 @@ mod tags {
 mod palette {
     use bitflags::bitflags;
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -470,21 +691,64 @@ mod palette {
                 data.put_u8(entry.green);
                 data.put_u8(entry.blue);
                 data.put_u8(entry.alpha);
-                if entry.flags.contains(PaletteEntryFlags::HAS_NAME) {
-                    if let Some(name) = &entry.name {
-                        data.put_u16_le(name.len().try_into().unwrap());
-                        data.extend_from_slice(name.as_bytes());
-                    }
+                if entry.flags.contains(PaletteEntryFlags::HAS_NAME)
+                    && let Some(name) = &entry.name
+                {
+                    data.put_u16_le(name.len().try_into().unwrap());
+                    data.extend_from_slice(name.as_bytes());
                 }
             }
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let new_palette_size = reader.read_u32_le()?;
+            let first_color_index = reader.read_u32_le()?;
+            let last_color_index = reader.read_u32_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 8)?;
+
+            let count = (last_color_index - first_color_index + 1) as usize;
+            let mut entries = Vec::with_capacity(count);
+
+            for _ in 0..count {
+                let flags_val = reader.read_u16_le()?;
+                let flags = PaletteEntryFlags::from_bits_truncate(flags_val);
+                let red = reader.read_u8()?;
+                let green = reader.read_u8()?;
+                let blue = reader.read_u8()?;
+                let alpha = reader.read_u8()?;
+
+                let name = if flags.contains(PaletteEntryFlags::HAS_NAME) {
+                    let name_len = reader.read_u16_le()?;
+                    Some(
+                        String::from_utf8_lossy(
+                            &reader.read_values::<u8>("name", name_len as usize)?,
+                        )
+                        .to_string(),
+                    )
+                } else {
+                    None
+                };
+
+                entries.push(PaletteEntry {
+                    flags,
+                    red,
+                    green,
+                    blue,
+                    alpha,
+                    name,
+                });
+            }
+
+            Ok(PaletteChunk {
+                new_palette_size,
+                first_color_index,
+                last_color_index,
+                entries,
+            })
         }
     }
 }
@@ -492,8 +756,10 @@ mod palette {
 mod user_data {
     use bitflags::bitflags;
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -533,11 +799,55 @@ mod user_data {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let flags_val = reader.read_u32_le()?;
+            let flags = UserDataFlags::from_bits_truncate(flags_val);
+
+            let text = if flags.contains(UserDataFlags::HAS_TEXT) {
+                let len = reader.read_u16_le()?;
+                Some(
+                    String::from_utf8_lossy(&reader.read_values::<u8>("text", len as usize)?)
+                        .to_string(),
+                )
+            } else {
+                None
+            };
+
+            let color = if flags.contains(UserDataFlags::HAS_COLOR) {
+                let r = reader.read_u8()?;
+                let g = reader.read_u8()?;
+                let b = reader.read_u8()?;
+                let a = reader.read_u8()?;
+                Some([r, g, b, a])
+            } else {
+                None
+            };
+
+            let properties_data = if flags.contains(UserDataFlags::HAS_PROPERTIES) {
+                let size = reader.read_u32_le()?;
+                if size < 4 {
+                    return Err(reader
+                        .create_invalid_data_error_msg("Invalid properties size")
+                        .into());
+                }
+                let mut prop_vec = Vec::with_capacity(size as usize);
+                prop_vec.put_u32_le(size);
+                let content = reader.read_values::<u8>("properties", (size - 4) as usize)?;
+                prop_vec.extend_from_slice(&content);
+                Some(prop_vec)
+            } else {
+                None
+            };
+
+            Ok(UserDataChunk {
+                flags,
+                text,
+                color,
+                properties_data,
+            })
         }
     }
 }
@@ -545,8 +855,10 @@ mod user_data {
 mod slice {
     use bitflags::bitflags;
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -608,11 +920,62 @@ mod slice {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let num_keys = reader.read_u32_le()?;
+            let flags_val = reader.read_u32_le()?;
+            let flags = SliceFlags::from_bits_truncate(flags_val);
+            let _reserved = reader.read_u32_le()?;
+            let name_len = reader.read_u16_le()?;
+            let name =
+                String::from_utf8_lossy(&reader.read_values::<u8>("name", name_len as usize)?)
+                    .to_string();
+
+            let mut keys = Vec::with_capacity(num_keys as usize);
+            for _ in 0..num_keys {
+                let frame_number = reader.read_u32_le()?;
+                let x = reader.read_value::<i32>("x")?;
+                let y = reader.read_value::<i32>("y")?;
+                let width = reader.read_u32_le()?;
+                let height = reader.read_u32_le()?;
+
+                let center = if flags.contains(SliceFlags::IS_9_PATCHES) {
+                    let cx = reader.read_value::<i32>("cx")?;
+                    let cy = reader.read_value::<i32>("cy")?;
+                    let cw = reader.read_u32_le()?;
+                    let ch = reader.read_u32_le()?;
+                    Some((cx, cy, cw, ch))
+                } else {
+                    None
+                };
+
+                let pivot = if flags.contains(SliceFlags::HAS_PIVOT) {
+                    let px = reader.read_value::<i32>("px")?;
+                    let py = reader.read_value::<i32>("py")?;
+                    Some((px, py))
+                } else {
+                    None
+                };
+
+                keys.push(SliceKey {
+                    frame_number,
+                    x,
+                    y,
+                    width,
+                    height,
+                    center,
+                    pivot,
+                });
+            }
+
+            Ok(SliceChunk {
+                num_slice_keys: num_keys,
+                flags,
+                name,
+                keys,
+            })
         }
     }
 }
@@ -620,8 +983,10 @@ mod slice {
 mod tileset {
     use bitflags::bitflags;
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -680,11 +1045,49 @@ mod tileset {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let id = reader.read_u32_le()?;
+            let flags_val = reader.read_u32_le()?;
+            let flags = TilesetFlags::from_bits_truncate(flags_val);
+            let num_tiles = reader.read_u32_le()?;
+            let tile_width = reader.read_u16_le()?;
+            let tile_height = reader.read_u16_le()?;
+            let base_index = reader.read_i16_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 14)?;
+            let name_len = reader.read_u16_le()?;
+            let name =
+                String::from_utf8_lossy(&reader.read_values::<u8>("name", name_len as usize)?)
+                    .to_string();
+
+            let (external_file_id, external_tileset_id) =
+                if flags.contains(TilesetFlags::EXTERNAL_FILE) {
+                    (Some(reader.read_u32_le()?), Some(reader.read_u32_le()?))
+                } else {
+                    (None, None)
+                };
+
+            let compressed_data = if flags.contains(TilesetFlags::EMBEDDED) {
+                let len = reader.read_u32_le()?;
+                Some(reader.read_values::<u8>("compressed_data", len as usize)?)
+            } else {
+                None
+            };
+
+            Ok(TilesetChunk {
+                id,
+                flags,
+                num_tiles,
+                tile_width,
+                tile_height,
+                base_index,
+                name,
+                external_file_id,
+                external_tileset_id,
+                compressed_data,
+            })
         }
     }
 }
@@ -692,8 +1095,10 @@ mod tileset {
 mod color_profile {
     use bitflags::bitflags;
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -740,19 +1145,50 @@ mod color_profile {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let type_val = reader.read_u16_le()?;
+            let flags_val = reader.read_u16_le()?;
+            let flags = ColorProfileFlags::from_bits_truncate(flags_val);
+            let fixed_gamma = reader.read_u32_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 8)?;
+
+            let profile_type = match type_val {
+                0 => ColorProfileType::None,
+                1 => ColorProfileType::Srgb,
+                2 => ColorProfileType::Icc,
+                _ => {
+                    return Err(reader
+                        .create_invalid_data_error_msg("Invalid color profile type")
+                        .into());
+                }
+            };
+
+            let icc_profile = if profile_type == ColorProfileType::Icc {
+                let len = reader.read_u32_le()?;
+                Some(reader.read_values::<u8>("icc_profile", len as usize)?)
+            } else {
+                None
+            };
+
+            Ok(ColorProfileChunk {
+                profile_type,
+                flags,
+                fixed_gamma,
+                icc_profile,
+            })
         }
     }
 }
 
 mod external_files {
     use bytes::BufMut;
-    use scidev::utils::{block::Block, mem_reader::MemReader};
-    use std::io;
+    use scidev::utils::{
+        block::Block,
+        mem_reader::{MemReader, Result as MemResult},
+    };
 
     use super::ChunkValue;
 
@@ -794,11 +1230,43 @@ mod external_files {
             Block::from_vec(data)
         }
 
-        fn from_block<M>(_reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> MemResult<Self>
         where
             M: MemReader,
         {
-            todo!()
+            let num_entries = reader.read_u32_le()?;
+            let _reserved = reader.read_values::<u8>("reserved", 8)?;
+
+            let mut entries = Vec::with_capacity(num_entries as usize);
+            for _ in 0..num_entries {
+                let entry_id = reader.read_u32_le()?;
+                let type_val = reader.read_u8()?;
+                let _reserved_entry = reader.read_values::<u8>("reserved_entry", 7)?;
+                let name_len = reader.read_u16_le()?;
+                let file_name_or_id =
+                    String::from_utf8_lossy(&reader.read_values::<u8>("name", name_len as usize)?)
+                        .to_string();
+
+                let file_type = match type_val {
+                    0 => ExternalFileType::Palette,
+                    1 => ExternalFileType::Tileset,
+                    2 => ExternalFileType::ExtensionProperties,
+                    3 => ExternalFileType::ExtensionTileManagement,
+                    _ => {
+                        return Err(reader
+                            .create_invalid_data_error_msg("Invalid external file type")
+                            .into());
+                    }
+                };
+
+                entries.push(ExternalFileEntry {
+                    entry_id,
+                    file_type,
+                    file_name_or_id,
+                });
+            }
+
+            Ok(ExternalFilesChunk { entries })
         }
     }
 }
