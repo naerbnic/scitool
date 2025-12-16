@@ -5,11 +5,15 @@ use std::{
     sync::{LazyLock, RwLock},
 };
 
-use crate::utils::{errors::{BoxError, DynError}, mem_reader};
+use crate::utils::{
+    errors::{other::OtherError, BoxError, DynError},
+    mem_reader,
+};
 
 static WRAPPER_REGISTRY: LazyLock<RwLock<WrapCastHandlerRegistry>> = LazyLock::new(|| {
     let mut registry = WrapCastHandlerRegistry::new();
     registry.register_wrapper::<std::io::Error>();
+    registry.register_wrapper::<OtherError>();
     registry.register_unpack::<mem_reader::MemReaderError>();
     RwLock::new(registry)
 });

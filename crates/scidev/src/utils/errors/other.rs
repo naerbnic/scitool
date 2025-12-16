@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::io;
 
-use crate::utils::errors::{BoxError, DynError, ErrWrapper, once_registerer, resolve_error};
+use crate::utils::errors::{BoxError, DynError, ErrWrapper, resolve_error};
 
 fn try_downcast<Target: 'static, T: 'static>(value: T) -> Result<Target, T> {
     let value_ref: &dyn Any = &value;
@@ -22,8 +22,6 @@ fn try_downcast<Target: 'static, T: 'static>(value: T) -> Result<Target, T> {
         Err(value)
     }
 }
-
-once_registerer!(fn register_other(OtherError));
 
 enum OtherKind {
     Wrapped,
@@ -40,7 +38,6 @@ impl OtherError {
     where
         E: std::error::Error + Send + Sync + 'static,
     {
-        register_other();
         match try_downcast::<OtherError, E>(err) {
             Ok(other) => other,
             Err(e) => OtherError {
@@ -51,7 +48,6 @@ impl OtherError {
     }
 
     pub(crate) fn from_boxed(err: BoxError) -> Self {
-        register_other();
         OtherError {
             kind: OtherKind::Wrapped,
             error: anyhow::Error::from_boxed(err),
@@ -62,7 +58,6 @@ impl OtherError {
     where
         M: Display + Debug + Send + Sync + 'static,
     {
-        register_other();
         OtherError {
             kind: OtherKind::Context,
             error: anyhow::Error::msg(msg),
