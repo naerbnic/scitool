@@ -4,7 +4,10 @@
 
 #![expect(dead_code)]
 
+use std::sync::Arc;
+
 use bitflags::bitflags;
+use bytes::BufMut as _;
 use scidev::utils::{
     block::Block,
     mem_reader::{MemReader, Result as MemResult},
@@ -12,57 +15,85 @@ use scidev::utils::{
 
 bitflags! {
     /// Flags for Aseprite frames.
-    pub struct HeaderFlags: u16 {
+    pub struct HeaderFlags: u32 {
         const HAS_LAYER_OPACITY = 0x0001;
         const HAS_LAYER_GROUP_BLEND = 0x0002;
         const HAS_LAYER_UUIDS = 0x0004;
     }
 }
 
-struct Header {
-    file_size: u32,
+pub struct Header {
+    pub file_size: u32,
     // magic_number: u16 = 0xA5E0
-    frames_count: u16,
-    width: u16,
-    height: u16,
+    pub frames_count: u16,
+    pub width: u16,
+    pub height: u16,
 
     /// Color depth in bits per pixel.
-    color_depth: u16,
+    pub color_depth: u16,
 
     /// Flags for all layers in the file.
-    flags: HeaderFlags,
+    pub flags: HeaderFlags,
 
     // speed: u16 = 0 (deprecated)
     // reserved: [0u32; 2]
     /// The index of the transparent color if mode is indexed.
     ///
     /// Otherwise unused, set to 0
-    transparent_index: u8,
+    pub transparent_index: u8,
 
     // reserved: [0u8; 3] (fills out the dword alignment)
     /// Number of colors in the palette for indexed color mode.
-    num_indexed_colors: u16,
+    pub num_indexed_colors: u16,
 
     /// Pixel width (for non-square pixels). With [`pixel_height`], gives the pixel aspect ratio.
     ///
     /// If zero, pixels are square.
-    pixel_width: u8,
+    pub pixel_width: u8,
 
     /// Pixel width (for non-square pixels). With [`pixel_height`], gives the pixel aspect ratio.
     ///
     /// If zero, pixels are square.
-    pixel_height: u8,
+    pub pixel_height: u8,
     // Following are only used in the case of grids, which we shouldn't need to support.
-    // grid_x: i16,
-    // grid_y: i16,
-    // grid_width: u16,
-    // grid_height: u16,
+    pub grid_x: i16,
+    pub grid_y: i16,
+    pub grid_width: u16,
+    pub grid_height: u16,
 
     // padded to 128 bytes
-    // reserved: [0u8; 84],
+    pub reserved2: [u8; 84],
 }
 
-struct FrameHeader {
+impl Header {
+    #[must_use]
+    pub fn to_block(&self) -> Block {
+        let mut data: Vec<u8> = Vec::new();
+        data.put_u32_le(self.file_size);
+        data.put_u16_le(0xA5E0);
+        data.put_u16_le(self.frames_count);
+        data.put_u16_le(self.width);
+        data.put_u16_le(self.height);
+        data.put_u16_le(self.color_depth);
+        data.put_u32_le(self.flags.bits());
+        data.put_u16_le(0);
+        data.put_slice(&[0u8; 8]); // reserved
+        data.put_u8(self.transparent_index);
+        data.put_slice(&[0u8; 3]); // reserved
+        data.put_u16_le(self.num_indexed_colors);
+        data.put_u8(self.pixel_width);
+        data.put_u8(self.pixel_height);
+        data.put_i16(self.grid_x);
+        data.put_i16(self.grid_y);
+        data.put_u16(self.grid_width);
+        data.put_u16(self.grid_height);
+        data.put_slice(&[0u8; 84]);
+        Block::from_vec(data)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FrameHeader {
     /// Frame data size in bytes, including this header.
     frame_size: u32,
 
@@ -78,7 +109,50 @@ struct FrameHeader {
     num_chunks: u32,
 }
 
-struct ChunkHeader {
+impl FrameHeader {
+    #[must_use]
+    pub fn to_block(&self) -> Block {
+        let mut data: Vec<u8> = Vec::new();
+        data.put_u32_le(self.frame_size);
+        data.put_u16_le(0xF1FA);
+        // Old chunks count. Using the newer field instead.
+        let old_chunks = if self.num_chunks < 0xFFFF {
+            u16::try_from(self.num_chunks).unwrap()
+        } else {
+            0xFFFF
+        };
+        data.put_u16_le(old_chunks);
+        data.put_u16_le(self.duration_ms);
+        data.put_slice(&[0u8; 2]);
+        data.put_u32_le(if self.num_chunks < 0xFFFF {
+            0
+        } else {
+            self.num_chunks
+        });
+        assert!(data.len() == 16);
+        Block::from_vec(data)
+    }
+}
+
+pub fn build_frame_block(duration_ms: u16, chunks: impl IntoIterator<Item = ChunkBlock>) -> Block {
+    let chunk_blocks = chunks
+        .into_iter()
+        .map(|chunk| chunk.to_block())
+        .collect::<Vec<_>>();
+    let num_chunks = u32::try_from(chunk_blocks.len()).unwrap();
+    let frame_contents = Block::concat(chunk_blocks);
+    let frame_header = FrameHeader {
+        frame_size: u32::try_from(frame_contents.len() + 16).unwrap(),
+        duration_ms,
+        num_chunks,
+    };
+    let header_block = frame_header.to_block();
+
+    Block::concat([header_block, frame_contents])
+}
+
+#[derive(Debug, Clone)]
+pub struct ChunkHeader {
     /// Size of this chunk in bytes, including this header.
     chunk_size: u32,
 
@@ -86,23 +160,74 @@ struct ChunkHeader {
     chunk_type: u16,
 }
 
+impl ChunkHeader {
+    #[must_use]
+    pub fn to_block(&self) -> Block {
+        let mut data: Vec<u8> = Vec::new();
+        data.put_u32_le(self.chunk_size);
+        data.put_u16_le(self.chunk_type);
+        Block::from_vec(data)
+    }
+}
+
 #[derive(Debug, Clone)]
-struct ChunkBlock {
-    chunk_type: u16,
-    data: Block,
+pub struct ChunkBlock {
+    pub data: Arc<dyn ChunkValue>,
+}
+
+impl ChunkBlock {
+    pub fn from_value<V>(value: V) -> Self
+    where
+        V: ChunkValue + 'static,
+    {
+        Self {
+            data: Arc::new(value),
+        }
+    }
+
+    #[must_use]
+    pub fn to_block(&self) -> Block {
+        let chunk_block = self.data.to_block();
+        let chunk_header = ChunkHeader {
+            chunk_size: u32::try_from(chunk_block.len() + 6).unwrap(),
+            chunk_type: self.data.chunk_type(),
+        };
+        let header_block = chunk_header.to_block();
+
+        Block::concat([header_block, chunk_block])
+    }
 }
 
 /// Types that are
-trait ChunkValue: Sized {
+pub trait ChunkValue: std::fmt::Debug {
+    fn chunk_type(&self) -> u16;
+    fn to_block(&self) -> Block;
+}
+
+pub trait ChunkType: ChunkValue + Sized {
     const CHUNK_TYPE: u16;
 
-    fn into_block(self) -> Block;
+    fn to_block(&self) -> Block;
+
     fn from_block<M>(block: M) -> MemResult<Self>
     where
         M: MemReader;
 }
 
-mod layer {
+impl<T> ChunkValue for T
+where
+    T: ChunkType,
+{
+    fn chunk_type(&self) -> u16 {
+        Self::CHUNK_TYPE
+    }
+
+    fn to_block(&self) -> Block {
+        <Self as ChunkType>::to_block(self)
+    }
+}
+
+pub mod layer {
     use bitflags::bitflags;
     use bytes::BufMut;
     use scidev::utils::{
@@ -110,7 +235,7 @@ mod layer {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -126,7 +251,7 @@ mod layer {
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-    pub(super) enum LayerType {
+    pub enum LayerType {
         Normal,
         Group,
         Tilemap { tileset_index: u32 },
@@ -134,7 +259,7 @@ mod layer {
 
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     #[repr(u16)]
-    pub(super) enum BlendMode {
+    pub enum BlendMode {
         Normal = 0,
         Multiply = 1,
         Screen = 2,
@@ -157,23 +282,23 @@ mod layer {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct LayerChunk {
-        flags: LayerFlags,
-        layer_type: LayerType,
-        child_level: u16,
-        // default_width: u16 (ignored)
-        // default_height: u16 (ignored)
-        blend_mode: BlendMode,
-        opacity: u8,
+    pub struct LayerChunk {
+        pub flags: LayerFlags,
+        pub layer_type: LayerType,
+        pub child_level: u16,
+        pub default_width: u16,
+        pub default_height: u16,
+        pub blend_mode: BlendMode,
+        pub opacity: u8,
         // padding: [0u8; 3]
-        layer_name: String,
-        uuid: Option<[u8; 16]>,
+        pub layer_name: String,
+        pub uuid: Option<[u8; 16]>,
     }
 
-    impl ChunkValue for LayerChunk {
+    impl ChunkType for LayerChunk {
         const CHUNK_TYPE: u16 = 0x2004;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u16_le(self.flags.bits());
             data.put_u16_le(match &self.layer_type {
@@ -273,22 +398,24 @@ mod layer {
                 opacity,
                 layer_name,
                 uuid,
+                default_width: 0,
+                default_height: 0,
             })
         }
     }
 }
 
-mod cel {
+pub mod cel {
     use bytes::BufMut;
     use scidev::utils::{
         block::Block,
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     #[derive(Clone, Debug)]
-    pub(super) struct RawCel {
+    pub struct RawCel {
         pub width: u16,
         pub height: u16,
         pub pixels: Vec<u8>,
@@ -314,7 +441,7 @@ mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct LinkedCel {
+    pub struct LinkedCel {
         pub frame_position: u16,
     }
 
@@ -330,7 +457,7 @@ mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct CompressedCel {
+    pub struct CompressedCel {
         pub width: u16,
         pub height: u16,
         pub data: Vec<u8>,
@@ -356,7 +483,7 @@ mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct CompressedTilemapCel {
+    pub struct CompressedTilemapCel {
         pub width: u16,
         pub height: u16,
         pub bits_per_tile: u16,
@@ -404,7 +531,7 @@ mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) enum CelType {
+    pub enum CelType {
         Raw(RawCel),
         Linked(LinkedCel),
         Compressed(CompressedCel),
@@ -412,19 +539,20 @@ mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct CelChunk {
-        layer_index: u16,
-        x: i16,
-        y: i16,
-        opacity: u8,
-        cel_type: CelType,
-        z_index: i16,
+    pub struct CelChunk {
+        pub layer_index: u16,
+        pub x: i16,
+        pub y: i16,
+        pub opacity: u8,
+        pub cel_type: CelType,
+        pub z_index: i16,
+        pub reserved: [u8; 5],
     }
 
-    impl ChunkValue for CelChunk {
+    impl ChunkType for CelChunk {
         const CHUNK_TYPE: u16 = 0x2005;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u16_le(self.layer_index);
             data.put_i16_le(self.x);
@@ -480,6 +608,7 @@ mod cel {
                 opacity,
                 cel_type,
                 z_index,
+                reserved: [0; 5],
             })
         }
     }
@@ -492,7 +621,7 @@ mod cel_extra {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     #[derive(Clone, Debug)]
     pub(super) struct CelExtraChunk {
@@ -503,10 +632,10 @@ mod cel_extra {
         height: i32,    // FIXED 16.16
     }
 
-    impl ChunkValue for CelExtraChunk {
+    impl ChunkType for CelExtraChunk {
         const CHUNK_TYPE: u16 = 0x2006;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u32_le(self.flags);
             data.put_i32_le(self.precise_x);
@@ -539,18 +668,18 @@ mod cel_extra {
     }
 }
 
-mod tags {
+pub mod tags {
     use bytes::BufMut;
     use scidev::utils::{
         block::Block,
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     #[derive(Clone, Copy, Debug)]
     #[repr(u8)]
-    pub(super) enum AnimationDirection {
+    pub enum AnimationDirection {
         Forward = 0,
         Reverse = 1,
         PingPong = 2,
@@ -558,29 +687,29 @@ mod tags {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct Tag {
-        from_frame: u16,
-        to_frame: u16,
-        direction: AnimationDirection,
-        repeat: u16,
+    pub struct Tag {
+        pub from_frame: u16,
+        pub to_frame: u16,
+        pub direction: AnimationDirection,
+        pub repeat: u16,
         // tag color is deprecated, used only for backward compatibility
         // tag name
-        name: String,
+        pub name: String,
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct TagsChunk {
-        tags: Vec<Tag>,
+    pub struct TagsChunk {
+        pub tags: Vec<Tag>,
     }
 
-    impl ChunkValue for TagsChunk {
+    impl ChunkType for TagsChunk {
         const CHUNK_TYPE: u16 = 0x2018;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u16_le(self.tags.len().try_into().unwrap());
             data.put_bytes(0, 8);
-            for tag in self.tags {
+            for tag in &self.tags {
                 data.put_u16_le(tag.from_frame);
                 data.put_u16_le(tag.to_frame);
                 data.put_u8(tag.direction as u8);
@@ -641,7 +770,7 @@ mod tags {
     }
 }
 
-mod palette {
+pub mod palette {
     use bitflags::bitflags;
     use bytes::BufMut;
     use scidev::utils::{
@@ -649,7 +778,7 @@ mod palette {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     bitflags! {
         #[derive(Clone, Debug)]
@@ -659,33 +788,33 @@ mod palette {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct PaletteEntry {
-        flags: PaletteEntryFlags,
-        red: u8,
-        green: u8,
-        blue: u8,
-        alpha: u8,
-        name: Option<String>,
+    pub struct PaletteEntry {
+        pub flags: PaletteEntryFlags,
+        pub red: u8,
+        pub green: u8,
+        pub blue: u8,
+        pub alpha: u8,
+        pub name: Option<String>,
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct PaletteChunk {
-        new_palette_size: u32,
-        first_color_index: u32,
-        last_color_index: u32,
-        entries: Vec<PaletteEntry>,
+    pub struct PaletteChunk {
+        pub new_palette_size: u32,
+        pub first_color_index: u32,
+        pub last_color_index: u32,
+        pub entries: Vec<PaletteEntry>,
     }
 
-    impl ChunkValue for PaletteChunk {
+    impl ChunkType for PaletteChunk {
         const CHUNK_TYPE: u16 = 0x2019;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u32_le(self.new_palette_size);
             data.put_u32_le(self.first_color_index);
             data.put_u32_le(self.last_color_index);
             data.put_bytes(0, 8);
-            for entry in self.entries {
+            for entry in &self.entries {
                 data.put_u16_le(entry.flags.bits());
                 data.put_u8(entry.red);
                 data.put_u8(entry.green);
@@ -753,7 +882,7 @@ mod palette {
     }
 }
 
-mod user_data {
+pub mod user_data {
     use bitflags::bitflags;
     use bytes::BufMut;
     use scidev::utils::{
@@ -761,7 +890,7 @@ mod user_data {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     bitflags! {
         #[derive(Clone, Debug)]
@@ -773,17 +902,17 @@ mod user_data {
     }
 
     #[derive(Clone, Debug)]
-    pub(super) struct UserDataChunk {
+    pub struct UserDataChunk {
         flags: UserDataFlags,
         text: Option<String>,
         color: Option<[u8; 4]>, // RGBA
         properties_data: Option<Vec<u8>>,
     }
 
-    impl ChunkValue for UserDataChunk {
+    impl ChunkType for UserDataChunk {
         const CHUNK_TYPE: u16 = 0x2020;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u32_le(self.flags.bits());
             if let Some(text) = &self.text {
@@ -860,7 +989,7 @@ mod slice {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     bitflags! {
         #[derive(Clone, Debug)]
@@ -889,10 +1018,10 @@ mod slice {
         keys: Vec<SliceKey>,
     }
 
-    impl ChunkValue for SliceChunk {
+    impl ChunkType for SliceChunk {
         const CHUNK_TYPE: u16 = 0x2022;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u32_le(self.keys.len().try_into().unwrap());
             data.put_u32_le(self.flags.bits());
@@ -900,7 +1029,7 @@ mod slice {
             data.put_u16_le(self.name.len().try_into().unwrap());
             data.extend_from_slice(self.name.as_bytes());
 
-            for key in self.keys {
+            for key in &self.keys {
                 data.put_u32_le(key.frame_number);
                 data.put_i32_le(key.x);
                 data.put_i32_le(key.y);
@@ -988,7 +1117,7 @@ mod tileset {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     bitflags! {
         #[derive(Clone, Debug)]
@@ -1016,10 +1145,10 @@ mod tileset {
         compressed_data: Option<Vec<u8>>,
     }
 
-    impl ChunkValue for TilesetChunk {
+    impl ChunkType for TilesetChunk {
         const CHUNK_TYPE: u16 = 0x2023;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u32_le(self.id);
             data.put_u32_le(self.flags.bits());
@@ -1100,7 +1229,7 @@ mod color_profile {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[repr(u16)]
@@ -1125,10 +1254,10 @@ mod color_profile {
         icc_profile: Option<Vec<u8>>,
     }
 
-    impl ChunkValue for ColorProfileChunk {
+    impl ChunkType for ColorProfileChunk {
         const CHUNK_TYPE: u16 = 0x2007;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u16_le(self.profile_type as u16);
             data.put_u16_le(self.flags.bits());
@@ -1190,7 +1319,7 @@ mod external_files {
         mem_reader::{MemReader, Result as MemResult},
     };
 
-    use super::ChunkValue;
+    use crate::formats::aseprite::ChunkType;
 
     #[derive(Clone, Copy, Debug)]
     #[repr(u8)]
@@ -1213,14 +1342,14 @@ mod external_files {
         entries: Vec<ExternalFileEntry>,
     }
 
-    impl ChunkValue for ExternalFilesChunk {
+    impl ChunkType for ExternalFilesChunk {
         const CHUNK_TYPE: u16 = 0x2008;
 
-        fn into_block(self) -> Block {
+        fn to_block(&self) -> Block {
             let mut data: Vec<u8> = Vec::new();
             data.put_u32_le(self.entries.len().try_into().unwrap());
             data.put_bytes(0, 8);
-            for entry in self.entries {
+            for entry in &self.entries {
                 data.put_u32_le(entry.entry_id);
                 data.put_u8(entry.file_type as u8);
                 data.put_bytes(0, 7);

@@ -1164,6 +1164,7 @@ dependencies = [
  "anyhow",
  "bitflags",
  "bytes",
+ "clap",
  "futures",
  "itertools",
  "log",

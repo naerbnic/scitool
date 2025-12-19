@@ -7,6 +7,7 @@ use std::{
 use crate::utils::{
     convert::convert_if_different,
     errors::NoError,
+    mem_reader::FromFixedBytes,
     range::{BoundedRange, Range},
 };
 
@@ -133,9 +134,22 @@ pub trait FallibleBuffer {
     fn size(&self) -> usize;
 }
 
+impl FallibleBuffer for [u8] {
+    type Error = NoError;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        buf.copy_from_slice(&self[offset..][..buf.len()]);
+        Ok(())
+    }
+
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
 impl<T> FallibleBuffer for &T
 where
-    T: FallibleBuffer,
+    T: FallibleBuffer + ?Sized,
 {
     type Error = T::Error;
 
@@ -150,7 +164,7 @@ where
 
 impl<T> FallibleBuffer for &mut T
 where
-    T: FallibleBuffer,
+    T: FallibleBuffer + ?Sized,
 {
     type Error = T::Error;
 
@@ -222,37 +236,6 @@ where
     }
 }
 
-/// All buffers are fallible buffers that never fail.
-// impl<T> FallibleBuffer for T
-// where
-//     T: Buffer,
-// {
-//     /// The error type is `NoError`, which can never be constructed.
-//     type Error = NoError;
-
-//     fn read_slice(&self, offset: usize, mut buf: &mut [u8]) -> Result<(), Self::Error> {
-//         assert!(
-//             offset + buf.len() <= self.size(),
-//             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
-//             buf.len(),
-//             self.size()
-//         );
-//         let mut curr_offset = offset;
-//         while !buf.is_empty() {
-//             let slice = self.read_slice_at(curr_offset);
-//             let to_copy = std::cmp::min(slice.len(), buf.len());
-//             buf[..to_copy].copy_from_slice(&slice[..to_copy]);
-//             curr_offset += to_copy;
-//             buf = &mut buf[to_copy..];
-//         }
-//         Ok(())
-//     }
-
-//     fn size(&self) -> usize {
-//         self.size()
-//     }
-// }
-
 #[derive(Debug)]
 pub struct ReaderBuffer<R> {
     reader: Mutex<R>,
@@ -306,7 +289,9 @@ where
     }
 }
 
-pub struct FallibleBufferRef<'a, T>(&'a T);
+pub struct FallibleBufferRef<'a, T>(&'a T)
+where
+    T: ?Sized;
 impl<'a, T> From<&'a T> for FallibleBufferRef<'a, T> {
     fn from(value: &'a T) -> Self {
         FallibleBufferRef(value)
@@ -411,3 +396,24 @@ impl<B: Buffer> bytes::Buf for BufferCursor<B> {
         self.position += cnt;
     }
 }
+
+pub trait BufferExt: Buffer {
+    fn read_at<T: FromFixedBytes>(&self, offset: usize) -> T {
+        assert!(offset + T::SIZE <= self.size());
+        let read_slice = self.read_slice_at(offset);
+        if read_slice.len() < T::SIZE {
+            // The bytes are not contiguous, so we need to copy them
+            let mut buf = Vec::with_capacity(T::SIZE);
+            buf.extend_from_slice(read_slice);
+            while buf.len() < T::SIZE {
+                let next_slice = self.read_slice_at(offset + buf.len());
+                buf.extend_from_slice(&next_slice[..(T::SIZE - buf.len())]);
+            }
+            T::parse(&*buf)
+        } else {
+            T::parse(&read_slice[..T::SIZE])
+        }
+    }
+}
+
+impl<B: Buffer> BufferExt for B {}

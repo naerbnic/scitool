@@ -166,10 +166,10 @@ macro_rules! ensure_other {
 
 macro_rules! bail_other {
     ($msg:literal, $($arg:expr),*) => {
-        return Err(OtherError::from_msg(format!($msg, $($arg),*)).into())
+        return Err($crate::utils::errors::OtherError::from_msg(format!($msg, $($arg),*)).into())
     };
     ($msg:literal) => {
-        return Err(OtherError::from_msg($msg).into())
+        return Err($crate::utils::errors::OtherError::from_msg($msg).into())
     };
 }
 
