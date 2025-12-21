@@ -1,6 +1,10 @@
-#![expect(dead_code, reason = "Views will be used in a near-future version.")]
+use std::{collections::BTreeMap, sync::Arc};
 
-use crate::utils::mem_reader::{self, MemReader};
+use crate::utils::{
+    block::Block,
+    buffer::{Buffer, ReaderBuffer},
+    mem_reader::{self, BufferMemReader, MemReader},
+};
 
 fn encode_ascii_bytes(bytes: &[u8]) -> String {
     bytes
@@ -9,6 +13,7 @@ fn encode_ascii_bytes(bytes: &[u8]) -> String {
         .collect::<String>()
 }
 
+/// Helper data structure to make easy-to-print data blocks for fixed sizes.
 pub struct RawSizedData<const N: usize>([u8; N]);
 
 impl<const N: usize> std::fmt::Debug for RawSizedData<N> {
@@ -25,6 +30,7 @@ impl<const N: usize> From<[u8; N]> for RawSizedData<N> {
     }
 }
 
+/// Helper data structure to make easy-to-print data blocks for dynamic sizes.
 pub struct RawData(Vec<u8>);
 
 impl std::fmt::Debug for RawData {
@@ -149,5 +155,90 @@ impl CelEntry {
             literal_offset,
             rest: rest.into(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct RangeId {
+    id: u32,
+}
+
+struct RangeComputer<T> {
+    next_range_id: u32,
+    block_size: T,
+    range_starts: BTreeMap<T, RangeId>,
+}
+
+impl<T> RangeComputer<T>
+where
+    T: Ord + Copy,
+{
+    pub fn with_block_size(block_size: T) -> Self {
+        Self {
+            next_range_id: 0,
+            block_size,
+            range_starts: BTreeMap::new(),
+        }
+    }
+
+    pub fn add_range_start(&mut self, start: T) -> RangeId {
+        let id = RangeId {
+            id: self.next_range_id,
+        };
+        self.next_range_id += 1;
+        self.range_starts.insert(start, id);
+        id
+    }
+
+    /// Assuming all blocks have been marked, defines a mapping from a range ID
+    /// to ranges of the form [start, end)
+    ///
+    /// All ranges are assumed to be non-overlapping.
+    pub fn get_ranges(&self) -> BTreeMap<RangeId, (T, T)> {
+        let mut ranges = BTreeMap::new();
+        let mut prev_start = None;
+        let mut prev_id = None;
+        for (&start, &id) in &self.range_starts {
+            if let Some(prev_start) = prev_start {
+                ranges.insert(prev_id.unwrap(), (prev_start, start));
+            }
+            prev_start = Some(start);
+            prev_id = Some(id);
+        }
+        ranges
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Cel {
+    width: u16,
+    height: u16,
+    displace_x: i16,
+    displace_y: i16,
+    clear_key: u8,
+    rle_block: Block,
+    literal_block: Option<Block>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoopData {
+    cels: Vec<Cel>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Loop {
+    mirrored: bool,
+    loop_data: Arc<LoopData>,
+}
+
+pub struct View {
+    flags: u8,
+    palette_block: Block,
+    loops: Vec<Loop>,
+}
+
+impl View {
+    pub fn from_resource(resource_data: Block) -> mem_reader::Result<View> {
+        todo!()
     }
 }

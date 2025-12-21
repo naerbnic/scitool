@@ -335,6 +335,8 @@ where
 
 /// A buffer that can be split and can fail when reading.
 pub trait SplittableFallibleBuffer: FallibleBuffer + Sized + Clone {
+    // TODO: Have Splittable be a distinct trait from Buffer/FallibleBuffer.
+    // Needs to be sizable regardless of either mode.
     fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error>;
     fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Result<Self, Self::Error>
     where

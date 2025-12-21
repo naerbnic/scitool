@@ -10,6 +10,7 @@ mod seq_impl;
 use std::{
     fmt::Debug,
     io::{self, Read as _, Seek as _},
+    num::TryFromIntError,
     ops::RangeBounds,
     path::Path,
     sync::Arc,
@@ -27,7 +28,7 @@ use crate::utils::{
             read_seek_impl::ReadSeekImpl, seq_impl::SequenceBlockImpl,
         },
     },
-    buffer::{Buffer, SplittableBuffer as _},
+    buffer::{Buffer, FallibleBuffer, SplittableBuffer as _, SplittableFallibleBuffer},
     mem_reader::{self, BufferMemReader, MemReader as _},
     range::{BoundedRange, Range},
 };
@@ -293,6 +294,42 @@ impl Block {
             at
         );
         (self.clone().subblock(..at), self.subblock(at..))
+    }
+
+    pub fn to_buffer(&self) -> Result<BlockBuffer, TryFromIntError> {
+        usize::try_from(self.len())?;
+        Ok(BlockBuffer(self.clone()))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockBuffer(Block);
+
+impl BlockBuffer {
+    pub fn into_block(self) -> Block {
+        self.0
+    }
+}
+
+impl FallibleBuffer for BlockBuffer {
+    type Error = io::Error;
+
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        let offset = u64::try_from(offset).expect("sizeof(usize) <= sizeof(u64)");
+        let range = Range::from_range(offset..offset + buf.len() as u64);
+        let mem_block = self.0.open_mem(range)?;
+        buf.copy_from_slice(&mem_block);
+        Ok(())
+    }
+
+    fn size(&self) -> usize {
+        usize::try_from(self.0.len()).expect("Validated at creation")
+    }
+}
+
+impl SplittableFallibleBuffer for BlockBuffer {
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
+        Ok(BlockBuffer(self.0.subblock(range.cast_to::<u64>())))
     }
 }
 

@@ -260,6 +260,7 @@ fn main() -> Result<()> {
         let mut file = File::create(&args.output_file)?;
         std::io::copy(&mut file_block.open_reader(..)?, &mut file)?;
     }
+
     println!("Written to {}", args.output_file.display());
 
     Ok(())
