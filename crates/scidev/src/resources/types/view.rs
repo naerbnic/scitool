@@ -1,9 +1,17 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, btree_map},
+    sync::Arc,
+};
 
-use crate::utils::{
-    block::Block,
-    buffer::{Buffer, ReaderBuffer},
-    mem_reader::{self, BufferMemReader, MemReader},
+use bytes::{Buf as _, BufMut as _};
+
+use crate::{
+    resources::types::palette::Palette,
+    utils::{
+        block::Block,
+        mem_reader::{self, BufferMemReader, MemReader},
+        range::BoundedRange,
+    },
 };
 
 fn encode_ascii_bytes(bytes: &[u8]) -> String {
@@ -165,59 +173,159 @@ struct RangeId {
 
 struct RangeComputer<T> {
     next_range_id: u32,
-    block_size: T,
     range_starts: BTreeMap<T, RangeId>,
 }
 
 impl<T> RangeComputer<T>
 where
-    T: Ord + Copy,
+    T: Ord + Copy + num::PrimInt + num::Unsigned + std::fmt::Debug,
 {
-    pub fn with_block_size(block_size: T) -> Self {
+    fn new() -> Self {
         Self {
             next_range_id: 0,
-            block_size,
             range_starts: BTreeMap::new(),
         }
     }
 
-    pub fn add_range_start(&mut self, start: T) -> RangeId {
-        let id = RangeId {
-            id: self.next_range_id,
-        };
-        self.next_range_id += 1;
-        self.range_starts.insert(start, id);
-        id
+    fn add_range_start(&mut self, start: T) -> RangeId {
+        match self.range_starts.entry(start) {
+            btree_map::Entry::Vacant(vac) => {
+                let id = RangeId {
+                    id: self.next_range_id,
+                };
+                self.next_range_id += 1;
+                vac.insert(id);
+                id
+            }
+            btree_map::Entry::Occupied(occ) => *occ.get(),
+        }
     }
 
     /// Assuming all blocks have been marked, defines a mapping from a range ID
     /// to ranges of the form [start, end)
     ///
     /// All ranges are assumed to be non-overlapping.
-    pub fn get_ranges(&self) -> BTreeMap<RangeId, (T, T)> {
+    fn get_ranges(&self, range_end: T) -> BTreeMap<RangeId, BoundedRange<T>> {
         let mut ranges = BTreeMap::new();
-        let mut prev_start = None;
-        let mut prev_id = None;
+        let mut prev = None;
         for (&start, &id) in &self.range_starts {
-            if let Some(prev_start) = prev_start {
-                ranges.insert(prev_id.unwrap(), (prev_start, start));
+            if let Some((prev_start, prev_id)) = prev {
+                let range = BoundedRange::from_range(prev_start..start);
+                ranges.insert(prev_id, range);
             }
-            prev_start = Some(start);
-            prev_id = Some(id);
+            prev = Some((start, id));
+        }
+        if let Some((start, id)) = prev {
+            ranges.insert(id, BoundedRange::from_range(start..range_end));
         }
         ranges
     }
 }
 
+/// Data that is shared between cel representations
 #[derive(Debug, Clone)]
-pub struct Cel {
+struct CelData {
     width: u16,
     height: u16,
     displace_x: i16,
     displace_y: i16,
     clear_key: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct Cel {
+    data: CelData,
     rle_block: Block,
     literal_block: Option<Block>,
+}
+
+impl Cel {
+    #[must_use]
+    pub fn height(&self) -> u16 {
+        self.data.height
+    }
+
+    #[must_use]
+    pub fn width(&self) -> u16 {
+        self.data.width
+    }
+
+    #[must_use]
+    pub fn displace_x(&self) -> i16 {
+        self.data.displace_x
+    }
+
+    #[must_use]
+    pub fn displace_y(&self) -> i16 {
+        self.data.displace_y
+    }
+
+    #[must_use]
+    pub fn clear_key(&self) -> u8 {
+        self.data.clear_key
+    }
+
+    pub fn decode_pixels(&self) -> mem_reader::Result<Vec<u8>> {
+        let num_pixels = usize::from(self.width()) * usize::from(self.height());
+        let mut pixels = bytes::BytesMut::with_capacity(num_pixels).limit(num_pixels); // Initialize with transparent
+        // SCI1.1 RLE decoder
+        //
+        // We potentially have to track two different pieces of data: The RLE stream and the literal stream.
+        // If there is no literal stream, the literal data is encoded in the RLE stream.
+        let rle_data = self.rle_block.open_mem(..).unwrap();
+        let literal_data = self
+            .literal_block
+            .as_ref()
+            .map(|block| block.open_mem(..).unwrap());
+
+        // Given that we're only reading raw bytes, it's easier to use byte slices for parsing here.
+        let mut rle_data = &rle_data[..];
+        let mut literal_data = literal_data.as_ref().map(|d| &d[..]);
+
+        while pixels.has_remaining_mut() {
+            assert!(
+                rle_data.has_remaining(),
+                "RLE data has run out. Remaining pixels: {}. Cel: {self:#?}",
+                pixels.remaining_mut()
+            );
+            let code = rle_data.get_u8();
+            let has_high_bit = code & 0x80 != 0;
+            if !has_high_bit {
+                // Copy
+                // The first 7 bits are the run length for copy operations. Since
+                // the first bit is zero, we can just use the code as the run length.
+                let run_length = usize::from(code);
+                let mut src = if let Some(literal_data) = literal_data.as_mut() {
+                    literal_data
+                } else {
+                    &mut rle_data
+                };
+
+                let copy_bytes = bytes::Buf::take(&mut src, run_length);
+                pixels.put(copy_bytes);
+                continue;
+            }
+
+            // This is some flavor of RLE.
+            let action = code & 0x40;
+            let run_length = usize::from(code & 0x3F);
+
+            let color = if action == 0 {
+                // Fill operation. Take fill color from available data.
+                if let Some(literal_data) = literal_data.as_mut() {
+                    literal_data.get_u8()
+                } else {
+                    rle_data.get_u8()
+                }
+            } else {
+                // Skip (Transparent). Use the clear key.
+                self.data.clear_key
+            };
+            pixels.put_bytes(color, run_length);
+        }
+
+        Ok(pixels.into_inner().into())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -231,14 +339,185 @@ pub struct Loop {
     loop_data: Arc<LoopData>,
 }
 
+impl Loop {
+    #[must_use]
+    pub fn cels(&self) -> &[Cel] {
+        &self.loop_data.cels
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct View {
     flags: u8,
-    palette_block: Block,
+    palette: Option<Palette>,
     loops: Vec<Loop>,
 }
 
+#[derive(Debug)]
+struct CelState {
+    data: CelData,
+    rle: RangeId,
+    literal: Option<RangeId>,
+}
+
+/// Intermediate loop decoding state during parsing.
+#[derive(Debug)]
+struct LoopState {
+    entry: LoopEntry,
+    cels: Vec<CelState>,
+}
+
+impl LoopState {
+    fn from_reader<M>(
+        resource_block: &Block,
+        header: &ViewHeader,
+        loop_reader: &mut M,
+        ranges: &mut RangeComputer<u32>,
+    ) -> mem_reader::Result<Self>
+    where
+        M: MemReader,
+    {
+        let loop_entry = LoopEntry::read_from(loop_reader)?;
+
+        // The cel data is indexed from the start of the loop data
+        ranges.add_range_start(loop_entry.cel_offset);
+        let cel_count = u64::from(loop_entry.cel_count);
+        let cel_size = u64::from(header.cel_size);
+        let cel_offset = u64::from(loop_entry.cel_offset);
+        let cel_data = resource_block
+            .subblock(cel_offset..)
+            .subblock(..cel_count * cel_size);
+        let mut cel_reader = BufferMemReader::new(cel_data.to_buffer().unwrap());
+
+        let mut cels = Vec::with_capacity(usize::from(loop_entry.cel_count));
+        for i in 0..cel_count {
+            let entry = CelEntry::read_from(
+                &mut cel_reader.read_to_subreader(format!("{i}"), usize::from(header.cel_size))?,
+            )?;
+            cels.push(CelState {
+                data: CelData {
+                    width: entry.width,
+                    height: entry.height,
+                    displace_x: entry.displace_x,
+                    displace_y: entry.displace_y,
+                    clear_key: entry.clear_key,
+                },
+                rle: ranges.add_range_start(entry.rle_offset),
+                literal: if entry.literal_offset != 0 {
+                    Some(ranges.add_range_start(entry.literal_offset))
+                } else {
+                    None
+                },
+            });
+        }
+        Ok(LoopState {
+            entry: loop_entry,
+            cels,
+        })
+    }
+}
+
 impl View {
-    pub fn from_resource(resource_data: Block) -> mem_reader::Result<View> {
-        todo!()
+    #[must_use]
+    pub fn palette(&self) -> Option<&Palette> {
+        self.palette.as_ref()
+    }
+
+    #[must_use]
+    pub fn loops(&self) -> &[Loop] {
+        &self.loops
+    }
+
+    pub fn from_resource(resource_data: &Block) -> mem_reader::Result<View> {
+        // Keep track of ranges of data in the view
+        let mut ranges = RangeComputer::<u32>::new();
+        ranges.add_range_start(0);
+        let buffer = resource_data.to_buffer().unwrap();
+        let mut reader = BufferMemReader::new(buffer.clone());
+        let header = ViewHeader::read_from(&mut reader)?;
+        let loop_count = usize::from(header.loop_count);
+        let loop_size = usize::from(header.loop_size);
+        let mut loop_reader = reader.read_to_subreader("loop_data", loop_count * loop_size)?;
+        let palette_range = if header.pal_offset != 0 {
+            Some(ranges.add_range_start(header.pal_offset))
+        } else {
+            None
+        };
+
+        let mut loop_states = Vec::with_capacity(loop_count);
+        for i in 0..loop_count {
+            let loop_state = LoopState::from_reader(
+                resource_data,
+                &header,
+                &mut loop_reader.read_to_subreader(format!("{i}"), loop_size)?,
+                &mut ranges,
+            )?;
+            loop_states.push(loop_state);
+        }
+
+        let ranges = ranges.get_ranges(resource_data.len().try_into().unwrap());
+
+        let palette = palette_range
+            .map(|range| {
+                Palette::from_data(
+                    resource_data
+                        .subblock(ranges.get(&range).unwrap().cast_to::<u64>())
+                        .open_mem(..)
+                        .unwrap(),
+                )
+            })
+            .transpose()
+            .unwrap();
+
+        let loop_data = loop_states
+            .iter()
+            .map(|loop_state| {
+                let cels = loop_state
+                    .cels
+                    .iter()
+                    .map(|cel_state| {
+                        let rle_block = resource_data
+                            .subblock(ranges.get(&cel_state.rle).unwrap().cast_to::<u64>());
+                        let literal_block = cel_state.literal.map(|range| {
+                            resource_data.subblock(ranges.get(&range).unwrap().cast_to::<u64>())
+                        });
+                        Cel {
+                            data: cel_state.data.clone(),
+                            rle_block,
+                            literal_block,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Arc::new(LoopData { cels })
+            })
+            .collect::<Vec<_>>();
+
+        let loops = loop_states
+            .into_iter()
+            .enumerate()
+            .map(|(i, loop_state)| {
+                let (mirrored, loop_data) = if loop_state.entry.seek_entry == 255 {
+                    (false, loop_data.get(i).unwrap().clone())
+                } else {
+                    (
+                        true,
+                        loop_data
+                            .get(usize::from(loop_state.entry.seek_entry))
+                            .unwrap()
+                            .clone(),
+                    )
+                };
+                Loop {
+                    mirrored,
+                    loop_data,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Ok(Self {
+            flags: header.flags,
+            palette,
+            loops,
+        })
     }
 }

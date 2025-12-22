@@ -143,6 +143,25 @@ impl<T> BoundedRange<T>
 where
     T: num::PrimInt + num::Unsigned + 'static,
 {
+    pub fn from_range<R>(range: R) -> Self
+    where
+        R: RangeBounds<T>,
+    {
+        let start = match range.start_bound() {
+            Bound::Included(v) => *v,
+            Bound::Excluded(v) => *v + T::one(),
+            Bound::Unbounded => T::zero(),
+        };
+
+        let end = match range.end_bound() {
+            Bound::Included(v) => *v + T::one(),
+            Bound::Excluded(v) => *v,
+            Bound::Unbounded => panic!("Bounded range must have a range end."),
+        };
+
+        Self { start, end }
+    }
+
     pub fn from_size(size: T) -> Self {
         Self {
             start: T::zero(),

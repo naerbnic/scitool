@@ -14,7 +14,7 @@ enum PaletteFormat {
     Constant,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PaletteEntry {
     r: u8,
     g: u8,
@@ -43,7 +43,7 @@ impl PaletteEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Palette {
     mapping: BTreeMap<u8, PaletteEntry>,
     first_color: u8,

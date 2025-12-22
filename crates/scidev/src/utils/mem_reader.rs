@@ -9,7 +9,7 @@ use std::{
 use bytes::BufMut;
 
 use crate::utils::{
-    buffer::{FallibleBuffer, FallibleBufferRef},
+    buffer::{FallibleBuffer, FallibleBufferRef, Splittable},
     convert::convert_if_different,
     errors::{BlockContext, BoxError, InvalidDataError, NoError, OtherError, UnpackableError},
 };
@@ -421,6 +421,15 @@ where
             position: 0,
             context: BlockContext::new_root(buf_len),
         }
+    }
+}
+
+impl<B> BufferMemReader<'_, B>
+where
+    B: Splittable,
+{
+    pub fn into_remaining_buffer(self) -> B {
+        self.buffer.sub_buffer(self.position..self.end)
     }
 }
 
