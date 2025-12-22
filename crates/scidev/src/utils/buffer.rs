@@ -11,19 +11,63 @@ use crate::utils::{
     range::{BoundedRange, Range},
 };
 
+pub trait SizedData {
+    /// Returns the size of the buffer in bytes.
+    fn size(&self) -> usize;
+}
+
+impl<B> SizedData for &B
+where
+    B: SizedData + ?Sized,
+{
+    fn size(&self) -> usize {
+        (*self).size()
+    }
+}
+
+impl<B> SizedData for &mut B
+where
+    B: SizedData + ?Sized,
+{
+    fn size(&self) -> usize {
+        (**self).size()
+    }
+}
+
+impl<B> SizedData for Arc<B>
+where
+    B: SizedData,
+{
+    fn size(&self) -> usize {
+        (**self).size()
+    }
+}
+
+impl<B> SizedData for Mutex<B>
+where
+    B: SizedData,
+{
+    fn size(&self) -> usize {
+        self.lock().unwrap().size()
+    }
+}
+
+impl SizedData for [u8] {
+    fn size(&self) -> usize {
+        self.len()
+    }
+}
+
 /// An abstraction over types that contain a buffer of bytes.
 ///
 /// Allows values to be read from arbitrary offsets.
-pub trait Buffer {
+pub trait Buffer: SizedData {
     /// Reads a slice starting at the given offset.
     ///
     /// This slice can be of any non-zero length.
     ///
     /// Panics if `offset` is greater than the size of the buffer.
     fn read_slice_at(&self, offset: usize) -> &[u8];
-
-    /// Returns the size of the buffer in bytes.
-    fn size(&self) -> usize;
 
     fn into_fallible(self) -> FallibleBufWrap<Self>
     where
@@ -47,14 +91,9 @@ where
     fn read_slice_at(&self, offset: usize) -> &[u8] {
         (*self).read_slice_at(offset)
     }
-
-    fn size(&self) -> usize {
-        (*self).size()
-    }
 }
 
-/// A buffer whose contents can be extracted as an independent sub-buffer.
-pub trait SplittableBuffer: Buffer + Sized + Clone {
+pub trait Splittable: SizedData + Sized {
     /// Returns a sub-buffer containing the bytes in the given range.
     ///
     /// This will be of the same type as the source object.
@@ -73,14 +112,15 @@ pub trait SplittableBuffer: Buffer + Sized + Clone {
     }
 }
 
+/// A buffer whose contents can be extracted as an independent sub-buffer.
+pub trait SplittableBuffer: Splittable + Buffer {}
+
+impl<B> SplittableBuffer for B where B: Splittable + Buffer {}
+
 impl Buffer for &[u8] {
     fn read_slice_at(&self, offset: usize) -> &[u8] {
         assert!(offset <= self.len());
         &self[offset..]
-    }
-
-    fn size(&self) -> usize {
-        self.len()
     }
 }
 
@@ -101,6 +141,15 @@ impl<T> Clone for BufferRef<'_, T> {
 
 impl<T> Copy for BufferRef<'_, T> {}
 
+impl<T> SizedData for BufferRef<'_, T>
+where
+    T: SizedData,
+{
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+}
+
 impl<T> Buffer for BufferRef<'_, T>
 where
     T: Buffer,
@@ -108,20 +157,16 @@ where
     fn read_slice_at(&self, offset: usize) -> &[u8] {
         self.0.read_slice_at(offset)
     }
-
-    fn size(&self) -> usize {
-        self.0.size()
-    }
 }
 
-impl SplittableBuffer for &[u8] {
+impl Splittable for &[u8] {
     fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self {
         &self[range.start()..range.end()]
     }
 }
 
 /// A buffer that can fail when reading.
-pub trait FallibleBuffer {
+pub trait FallibleBuffer: SizedData {
     type Error: std::error::Error + Send + Sync + 'static;
     /// Reads a slice starting at the given offset into the provided buffer.
     ///
@@ -129,9 +174,6 @@ pub trait FallibleBuffer {
     ///
     /// Panics if the end of the read region would be beyond the end of the buffer.
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error>;
-
-    /// Returns the size of the buffer in bytes.
-    fn size(&self) -> usize;
 }
 
 impl FallibleBuffer for [u8] {
@@ -140,10 +182,6 @@ impl FallibleBuffer for [u8] {
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         buf.copy_from_slice(&self[offset..][..buf.len()]);
         Ok(())
-    }
-
-    fn size(&self) -> usize {
-        self.len()
     }
 }
 
@@ -156,10 +194,6 @@ where
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         (*self).read_slice(offset, buf)
     }
-
-    fn size(&self) -> usize {
-        (*self).size()
-    }
 }
 
 impl<T> FallibleBuffer for &mut T
@@ -170,10 +204,6 @@ where
 
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         (**self).read_slice(offset, buf)
-    }
-
-    fn size(&self) -> usize {
-        (**self).size()
     }
 }
 
@@ -186,15 +216,20 @@ where
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         (**self).read_slice(offset, buf)
     }
-
-    fn size(&self) -> usize {
-        (**self).size()
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct FallibleBufWrap<B> {
     buffer: B,
+}
+
+impl<B> SizedData for FallibleBufWrap<B>
+where
+    B: SizedData,
+{
+    fn size(&self) -> usize {
+        self.buffer.size()
+    }
 }
 
 impl<B> FallibleBuffer for FallibleBufWrap<B>
@@ -221,18 +256,14 @@ where
         }
         Ok(())
     }
-
-    fn size(&self) -> usize {
-        self.buffer.size()
-    }
 }
 
-impl<B> SplittableFallibleBuffer for FallibleBufWrap<B>
+impl<B> Splittable for FallibleBufWrap<B>
 where
-    B: SplittableBuffer,
+    B: SplittableBuffer + Clone,
 {
-    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
-        Ok(self.buffer.sub_buffer_from_range(range).into_fallible())
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self {
+        self.buffer.sub_buffer_from_range(range).into_fallible()
     }
 }
 
@@ -265,6 +296,15 @@ where
     }
 }
 
+impl<R> SizedData for ReaderBuffer<R>
+where
+    R: io::Read + io::Seek,
+{
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
 impl<R> FallibleBuffer for ReaderBuffer<R>
 where
     R: io::Read + io::Seek,
@@ -282,10 +322,6 @@ where
         reader.seek(io::SeekFrom::Start(offset as u64))?;
         reader.read_exact(buf)?;
         Ok(())
-    }
-
-    fn size(&self) -> usize {
-        self.size
     }
 }
 
@@ -305,14 +341,19 @@ impl<T> Clone for FallibleBufferRef<'_, T> {
 
 impl<T> Copy for FallibleBufferRef<'_, T> {}
 
-impl<T> Buffer for FallibleBufferRef<'_, T>
+impl<T> SizedData for FallibleBufferRef<'_, T>
 where
-    T: Buffer,
+    T: SizedData,
 {
     fn size(&self) -> usize {
         self.0.size()
     }
+}
 
+impl<T> Buffer for FallibleBufferRef<'_, T>
+where
+    T: Buffer,
+{
     fn read_slice_at(&self, offset: usize) -> &[u8] {
         self.0.read_slice_at(offset)
     }
@@ -327,36 +368,11 @@ where
     fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         self.0.read_slice(offset, buf)
     }
-
-    fn size(&self) -> usize {
-        self.0.size()
-    }
 }
 
 /// A buffer that can be split and can fail when reading.
-pub trait SplittableFallibleBuffer: FallibleBuffer + Sized + Clone {
-    // TODO: Have Splittable be a distinct trait from Buffer/FallibleBuffer.
-    // Needs to be sizable regardless of either mode.
-    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error>;
-    fn sub_buffer<T, R: RangeBounds<T>>(&self, range: R) -> Result<Self, Self::Error>
-    where
-        T: num::PrimInt + num::Unsigned + Into<usize> + 'static,
-    {
-        let range = Range::from_range(range);
-        let self_range = BoundedRange::from_size(self.size()).new_relative(range.coerce_to());
-
-        self.sub_buffer_from_range(self_range)
-    }
-}
-
-impl<T> SplittableFallibleBuffer for T
-where
-    T: SplittableBuffer + FallibleBuffer,
-{
-    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
-        Ok(self.sub_buffer_from_range(range))
-    }
-}
+pub trait SplittableFallibleBuffer: Splittable + FallibleBuffer {}
+impl<T> SplittableFallibleBuffer for T where T: Splittable + FallibleBuffer {}
 
 /// A wrapper that implements [`std::io::Read`] and [`bytes::Buf`] for any Buffer.
 pub struct BufferCursor<B> {

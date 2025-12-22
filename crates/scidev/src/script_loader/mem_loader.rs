@@ -1,6 +1,6 @@
 use crate::utils::{
     block::MemBlock,
-    buffer::{Buffer, SplittableBuffer as _},
+    buffer::{Buffer, Splittable as _},
     errors::{
         BoxError, ErrorCastBuilder, InvalidDataError, OpaqueError, OtherError, OtherResultExt,
     },

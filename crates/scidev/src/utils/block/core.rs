@@ -28,7 +28,7 @@ use crate::utils::{
             read_seek_impl::ReadSeekImpl, seq_impl::SequenceBlockImpl,
         },
     },
-    buffer::{Buffer, FallibleBuffer, SplittableBuffer as _, SplittableFallibleBuffer},
+    buffer::{Buffer, FallibleBuffer, SizedData, Splittable},
     mem_reader::{self, BufferMemReader, MemReader as _},
     range::{BoundedRange, Range},
 };
@@ -311,6 +311,12 @@ impl BlockBuffer {
     }
 }
 
+impl SizedData for BlockBuffer {
+    fn size(&self) -> usize {
+        usize::try_from(self.0.len()).expect("Validated at creation")
+    }
+}
+
 impl FallibleBuffer for BlockBuffer {
     type Error = io::Error;
 
@@ -321,15 +327,11 @@ impl FallibleBuffer for BlockBuffer {
         buf.copy_from_slice(&mem_block);
         Ok(())
     }
-
-    fn size(&self) -> usize {
-        usize::try_from(self.0.len()).expect("Validated at creation")
-    }
 }
 
-impl SplittableFallibleBuffer for BlockBuffer {
-    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Result<Self, Self::Error> {
-        Ok(BlockBuffer(self.0.subblock(range.cast_to::<u64>())))
+impl Splittable for BlockBuffer {
+    fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self {
+        BlockBuffer(self.0.subblock(range.cast_to::<u64>()))
     }
 }
 

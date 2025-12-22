@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, io};
+use std::collections::BTreeMap;
 
 use scidev_macros_internal::other_fn;
 

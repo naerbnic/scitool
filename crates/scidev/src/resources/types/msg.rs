@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::utils::{
     block::MemBlock,
-    buffer::{Buffer, BufferRef, SplittableBuffer as _},
+    buffer::{Buffer, BufferRef, Splittable as _},
     errors::{OtherError, bail_other, ensure_other, prelude::*},
     mem_reader::{BufferMemReader, MemReader},
 };

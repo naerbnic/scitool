@@ -3,7 +3,7 @@ use std::{io, sync::Arc};
 use bytes::BufMut;
 
 use crate::utils::{
-    buffer::{Buffer, SplittableBuffer},
+    buffer::{Buffer, SizedData, Splittable},
     range::BoundedRange,
 };
 
@@ -117,18 +117,20 @@ impl AsRef<[u8]> for MemBlock {
     }
 }
 
-impl Buffer for MemBlock {
-    fn read_slice_at(&self, offset: usize) -> &[u8] {
-        assert!(offset <= self.range.size());
-        &self[offset..]
-    }
-
+impl SizedData for MemBlock {
     fn size(&self) -> usize {
         self.range.size()
     }
 }
 
-impl SplittableBuffer for MemBlock {
+impl Buffer for MemBlock {
+    fn read_slice_at(&self, offset: usize) -> &[u8] {
+        assert!(offset <= self.range.size());
+        &self[offset..]
+    }
+}
+
+impl Splittable for MemBlock {
     fn sub_buffer_from_range(&self, range: BoundedRange<usize>) -> Self {
         Self {
             range: self.range.new_relative(range),

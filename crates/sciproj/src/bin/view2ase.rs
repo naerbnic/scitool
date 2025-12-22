@@ -11,7 +11,7 @@ use scidev::{
     },
     utils::{
         block::{Block, MemBlock},
-        buffer::SplittableBuffer,
+        buffer::{Splittable as _, SplittableBuffer},
         mem_reader::{BufferMemReader, MemReader},
     },
 };
@@ -46,7 +46,7 @@ struct ViewMetadata {
 impl ViewMetadata {
     fn from_data<B>(data: &B) -> Result<Self>
     where
-        B: SplittableBuffer,
+        B: SplittableBuffer + Clone,
     {
         let mut reader = BufferMemReader::new(data.as_fallible());
         let header = ViewHeader::read_from(&mut reader)?;
