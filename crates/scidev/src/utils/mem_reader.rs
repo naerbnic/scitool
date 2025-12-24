@@ -98,6 +98,16 @@ impl MemReaderError {
     }
 }
 
+macro_rules! impl_read_int {
+    ($name:ident, $ty:ty) => {
+        fn $name(&mut self) -> Result<$ty> {
+            let mut buf = [0u8; std::mem::size_of::<$ty>()];
+            self.read_exact(&mut buf)?;
+            Ok(<$ty>::from_le_bytes(buf))
+        }
+    };
+}
+
 pub type Result<T> = std::result::Result<T, MemReaderError>;
 
 pub trait MemReader {
@@ -237,34 +247,21 @@ pub trait MemReader {
         self.read_values::<T>(&format!("{context}(values)"), num_records as usize)
     }
 
-    fn read_u8(&mut self) -> Result<u8> {
-        let mut buf = [0u8; 1];
-        self.read_exact(&mut buf)?;
-        Ok(buf[0])
-    }
-
-    fn read_u16_le(&mut self) -> Result<u16> {
-        let mut buf = [0u8; 2];
-        self.read_exact(&mut buf)?;
-        Ok(u16::from_le_bytes(buf))
-    }
-
-    fn read_i16_le(&mut self) -> Result<i16> {
-        let mut buf = [0u8; 2];
-        self.read_exact(&mut buf)?;
-        Ok(i16::from_le_bytes(buf))
-    }
+    impl_read_int!(read_u8, u8);
+    impl_read_int!(read_i8, i8);
+    impl_read_int!(read_u16_le, u16);
+    impl_read_int!(read_i16_le, i16);
+    impl_read_int!(read_u32_le, u32);
+    impl_read_int!(read_i32_le, i32);
+    impl_read_int!(read_u64_le, u64);
+    impl_read_int!(read_i64_le, i64);
+    impl_read_int!(read_f32_le, f32);
+    impl_read_int!(read_f64_le, f64);
 
     fn read_u24_le(&mut self) -> Result<u32> {
         let mut buf = [0u8; 3];
         self.read_exact(&mut buf)?;
         Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], 0]))
-    }
-
-    fn read_u32_le(&mut self) -> Result<u32> {
-        let mut buf = [0u8; 4];
-        self.read_exact(&mut buf)?;
-        Ok(u32::from_le_bytes(buf))
     }
 }
 

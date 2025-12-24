@@ -1168,6 +1168,7 @@ dependencies = [
  "futures",
  "itertools",
  "log",
+ "num",
  "rayon",
  "schemars",
  "scidev",

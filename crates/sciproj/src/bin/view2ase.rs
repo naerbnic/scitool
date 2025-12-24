@@ -109,7 +109,7 @@ fn main() -> Result<()> {
                     child_level: 0,
                     blend_mode: BlendMode::Normal,
                     opacity: 255,
-                    layer_name: "Wheee 1".to_string(),
+                    layer_name: "Layer 1".to_string(),
                     uuid: None,
                     default_width: 0,
                     default_height: 0,

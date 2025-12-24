@@ -21,6 +21,7 @@ tempfile = "3.19.1"
 toml = "0.9.8"
 bitflags = "2.10.0"
 bytes = "1.10.1"
+num = "0.4.3"
 
 [lints]
 workspace = true
