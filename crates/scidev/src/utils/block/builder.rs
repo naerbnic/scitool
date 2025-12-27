@@ -128,7 +128,6 @@ impl BlockBuilderFactory {
         (self.factory)()
     }
 
-    #[must_use]
     pub fn concat(
         &self,
         blocks: impl IntoIterator<Item = impl Borrow<Block>>,

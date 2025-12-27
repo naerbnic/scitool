@@ -1,4 +1,7 @@
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, Mutex, Weak},
+};
 
 use bytes::BufMut;
 
@@ -101,6 +104,14 @@ impl MemBlock {
         assert!(self.range.contains(contained_block.range));
         contained_block.range.start() - self.range.start()
     }
+
+    #[must_use]
+    fn downgrade(&self) -> WeakMemBlock {
+        WeakMemBlock {
+            range: self.range,
+            data: Arc::downgrade(&self.data),
+        }
+    }
 }
 
 impl std::ops::Deref for MemBlock {
@@ -142,5 +153,71 @@ impl Splittable for MemBlock {
 impl std::fmt::Debug for MemBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_tuple("Block").field(&&self[..]).finish()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct WeakMemBlock {
+    range: BoundedRange<usize>,
+    data: Weak<dyn AsRef<[u8]> + Send + Sync>,
+}
+
+impl WeakMemBlock {
+    #[must_use]
+    fn upgrade(&self) -> Option<MemBlock> {
+        self.data.upgrade().map(|data| MemBlock {
+            range: self.range,
+            data,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedMemBlock {
+    store: Arc<Mutex<Option<WeakMemBlock>>>,
+}
+
+impl CachedMemBlock {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            store: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    #[must_use]
+    pub fn get(&self) -> Option<MemBlock> {
+        let mut cached_store = self.store.lock().unwrap();
+        if let Some(weak_block) = cached_store.as_ref()
+            && let Some(block) = weak_block.upgrade()
+        {
+            return Some(block);
+        }
+
+        // The value has been dropped, so we can't return it.
+        *cached_store = None;
+        None
+    }
+
+    pub fn get_or_else(
+        &self,
+        factory: impl FnOnce() -> io::Result<MemBlock>,
+    ) -> io::Result<MemBlock> {
+        let mut cached_store = self.store.lock().unwrap();
+        if let Some(weak_block) = cached_store.as_ref()
+            && let Some(block) = weak_block.upgrade()
+        {
+            return Ok(block);
+        }
+
+        let block = factory()?;
+        *cached_store = Some(block.downgrade());
+        Ok(block)
+    }
+}
+
+impl Default for CachedMemBlock {
+    fn default() -> Self {
+        Self::new()
     }
 }

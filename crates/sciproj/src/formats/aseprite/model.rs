@@ -1,9 +1,13 @@
+use std::marker::PhantomData;
 use std::ops::Range;
+use std::{io, mem};
 
 use crate::formats::aseprite::{
-    BlendMode, CelIndex, Color, ColorDepth, Point, Properties,
-    backing::{CelContents, CelData, CelPixels, SpriteContents},
+    BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point, Properties,
+    backing::{CelContents, CelData, CelPixelData, SpriteContents},
 };
+
+use scidev::utils::block::MemBlock;
 
 pub struct Sprite {
     pub(super) contents: SpriteContents,
@@ -346,7 +350,10 @@ impl<'a> CelView<'a> {
 
     fn resolve_image(&self, contents: &'a CelContents) -> CelImage<'a> {
         match &contents.contents {
-            CelData::Pixels(pixels) => CelImage::RawPixels(RawPixels { inner: pixels }),
+            CelData::Pixels(pixels) => CelImage::RawPixels(CelPixels {
+                inner: pixels,
+                color_depth: self.sprite.contents.color_depth,
+            }),
             CelData::Linked(frame_idx) => {
                 // Safety: Aseprite validity rules ensure no cycles and valid references.
                 self.sprite
@@ -430,20 +437,17 @@ impl PaletteView<'_> {
 }
 
 pub enum CelImage<'a> {
-    RawPixels(RawPixels<'a>),
+    RawPixels(CelPixels<'a>),
     Tilemap,
 }
 
 #[derive(Clone, Copy)]
-pub struct RawPixels<'a> {
-    inner: &'a CelPixels,
+pub struct CelPixels<'a> {
+    inner: &'a CelPixelData,
+    color_depth: ColorDepth,
 }
 
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "Keep by reference in case we need to add more data to the base type later."
-)]
-impl RawPixels<'_> {
+impl CelPixels<'_> {
     #[must_use]
     pub fn width(&self) -> u16 {
         self.inner.width
@@ -454,6 +458,208 @@ impl RawPixels<'_> {
         self.inner.height
     }
 
-    // Stub for pixel data access
-    // pub fn data(&self) -> ...
+    #[must_use]
+    pub fn color_mode(&self) -> ColorDepth {
+        self.color_depth
+    }
+
+    fn raw_bytes(&self) -> io::Result<MemBlock> {
+        self.inner
+            .cached_data
+            .get_or_else(|| self.inner.data.open_mem(..))
+    }
+
+    pub fn as_rgba(&self) -> io::Result<PixelSlice<Color>> {
+        if matches!(self.color_depth, ColorDepth::Rgba) {
+            PixelSlice::new(self.raw_bytes()?)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Cel is not RGBA",
+            ))
+        }
+    }
+
+    pub fn as_indexed(&self) -> io::Result<PixelSlice<u8>> {
+        if matches!(self.color_depth, ColorDepth::Indexed(_)) {
+            PixelSlice::new(self.raw_bytes()?)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Cel is not Indexed",
+            ))
+        }
+    }
+
+    /// Returns a typed view of the pixel data based on the color depth.
+    pub fn as_pixels(&self) -> io::Result<TypedPixels> {
+        // We open the block as a MemBlock (loading it into memory if needed).
+        // Since we are creating a view, we need to ensure we have the data.
+        // raw_bytes() returns a MemBlock which is RefCounted, so cloning it is cheap.
+        let block = self.raw_bytes()?;
+
+        match self.color_depth {
+            ColorDepth::Rgba => Ok(TypedPixels::Rgba(PixelSlice::new(block)?)),
+            ColorDepth::Grayscale => Ok(TypedPixels::Grayscale(PixelSlice::new(block)?)),
+            ColorDepth::Indexed(_) => Ok(TypedPixels::Indexed(PixelSlice::new(block)?)),
+        }
+    }
+}
+
+/// An enumeration of typed pixel views corresponding to the image's color mode.
+#[derive(Debug)]
+pub enum TypedPixels {
+    Rgba(PixelSlice<Color>),
+    Grayscale(PixelSlice<GrayscaleColor>),
+    Indexed(PixelSlice<u8>),
+}
+
+/// A typed view of pixel data.
+///
+/// This type behaves like a slice `&[T]` via [`Deref`], providing safe, strongly-typed
+/// access to the underlying pixels.
+#[derive(Debug)]
+pub struct PixelSlice<T> {
+    block: MemBlock,
+    _marker: PhantomData<T>,
+}
+
+impl<T> PixelSlice<T> {
+    /// Creates a new `PixelSlice` from a `MemBlock`.
+    ///
+    /// Returns an error if:
+    /// - The type `T` has an alignment greater than 1.
+    /// - The block's size is not a multiple of `size_of::<T>()`.
+    fn new(block: MemBlock) -> io::Result<Self> {
+        if mem::align_of::<T>() != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "PixelSlice only supports types with alignment 1, but {} has alignment {}",
+                    std::any::type_name::<T>(),
+                    mem::align_of::<T>()
+                ),
+            ));
+        }
+
+        if !block.len().is_multiple_of(mem::size_of::<T>()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Block size {} is not a multiple of pixel size {}",
+                    block.len(),
+                    mem::size_of::<T>()
+                ),
+            ));
+        }
+
+        Ok(Self {
+            block,
+            _marker: PhantomData,
+        })
+    }
+}
+
+impl<T> std::ops::Deref for PixelSlice<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        let len = self.block.len() / mem::size_of::<T>();
+        // SAFETY:
+        // 1. We checked in `new` that `T` has alignment 1, so any `u8` pointer is correctly aligned for `T`.
+        // 2. We checked in `new` that the block length is a multiple of `size_of::<T>()`.
+        // 3. `MemBlock` (usually) provides a valid pointer and length.
+        // 4. The lifetime of the slice is tied to `&self`, which owns the `MemBlock`, ensuring the data remains valid.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::slice::from_raw_parts(self.block.as_ptr().cast::<T>(), len)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pixel_slice_rgba() {
+        let colors = [
+            Color::from_rgba(255, 0, 0, 255),
+            Color::from_rgba(0, 255, 0, 255),
+            Color::from_rgba(0, 0, 255, 255),
+        ];
+
+        // Ensure Color size is 4
+        assert_eq!(mem::size_of::<Color>(), 4);
+        assert_eq!(mem::align_of::<Color>(), 1);
+
+        let mut bytes = Vec::new();
+        for c in colors {
+            bytes.push(c.red());
+            bytes.push(c.green());
+            bytes.push(c.blue());
+            bytes.push(c.alpha());
+        }
+
+        let block = MemBlock::from_vec(bytes);
+        let slice = PixelSlice::<Color>::new(block).expect("Should create PixelSlice");
+
+        assert_eq!(slice.len(), 3);
+        assert_eq!(slice[0], colors[0]);
+        assert_eq!(slice[1], colors[1]);
+        assert_eq!(slice[2], colors[2]);
+    }
+
+    #[test]
+    fn test_pixel_slice_grayscale() {
+        // GrayscaleColor { gray: u8, alpha: u8 }
+        // size: 2, align: 1
+        assert_eq!(mem::size_of::<GrayscaleColor>(), 2);
+        assert_eq!(mem::align_of::<GrayscaleColor>(), 1);
+
+        let data: Vec<u8> = vec![
+            128, 255, // Gray, Alpha
+            0, 255, // Black, Alpha
+            255, 0, // White, Transparent
+        ];
+
+        let block = MemBlock::from_vec(data);
+        let slice = PixelSlice::<GrayscaleColor>::new(block).expect("Should create PixelSlice");
+
+        assert_eq!(slice.len(), 3);
+        assert_eq!(slice[0], GrayscaleColor::new(128, 255));
+        assert_eq!(slice[1], GrayscaleColor::new(0, 255));
+        assert_eq!(slice[2], GrayscaleColor::new(255, 0));
+    }
+
+    #[test]
+    fn test_pixel_slice_indexed() {
+        let data: Vec<u8> = vec![0, 1, 2, 3, 4, 255];
+        let block = MemBlock::from_vec(data.clone());
+        let slice = PixelSlice::<u8>::new(block).expect("Should create PixelSlice");
+
+        assert_eq!(slice.len(), 6);
+        assert_eq!(slice[0], 0);
+        assert_eq!(slice[5], 255);
+    }
+
+    #[test]
+    fn test_pixel_slice_size_mismatch() {
+        // Color is 4 bytes. Provide 5 bytes.
+        let data: Vec<u8> = vec![0, 0, 0, 0, 1];
+        let block = MemBlock::from_vec(data);
+        let result = PixelSlice::<Color>::new(block);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pixel_slice_alignment_check() {
+        // We need a type with alignment > 1.
+        // u16 has alignment 2.
+        let data: Vec<u8> = vec![0, 0, 0, 0];
+        let block = MemBlock::from_vec(data);
+        let result = PixelSlice::<u16>::new(block);
+        // Expect error because align_of::<u16>() == 2 != 1
+        assert!(result.is_err());
+    }
 }

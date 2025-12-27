@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use scidev::utils::block::Block;
+use scidev::utils::block::{Block, CachedMemBlock};
 
 use super::{
     AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, LayerFlags, LayerType, Point,
@@ -36,15 +36,16 @@ pub(super) struct LayerContents {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct CelPixels {
+pub(super) struct CelPixelData {
     pub(super) width: u16,
     pub(super) height: u16,
     pub(super) data: Block,
+    pub(super) cached_data: CachedMemBlock,
 }
 
 #[derive(Debug, Clone)]
 pub(super) enum CelData {
-    Pixels(CelPixels),
+    Pixels(CelPixelData),
     Linked(u16),
     Tilemap, // Reserved for future use
 }

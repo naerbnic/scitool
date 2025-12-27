@@ -70,7 +70,8 @@ pub enum ColorDepth {
     Indexed(u16),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct Color {
     r: u8,
     g: u8,
@@ -79,31 +80,54 @@ pub struct Color {
 }
 
 impl Color {
+    #[must_use]
     pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
 
+    #[must_use]
     pub fn red(&self) -> u8 {
         self.r
     }
 
+    #[must_use]
     pub fn green(&self) -> u8 {
         self.g
     }
 
+    #[must_use]
     pub fn blue(&self) -> u8 {
         self.b
     }
 
+    #[must_use]
     pub fn alpha(&self) -> u8 {
         self.a
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct GrayscaleColor {
     gray: u8,
     alpha: u8,
+}
+
+impl GrayscaleColor {
+    #[must_use]
+    pub fn new(gray: u8, alpha: u8) -> Self {
+        Self { gray, alpha }
+    }
+
+    #[must_use]
+    pub fn gray(&self) -> u8 {
+        self.gray
+    }
+
+    #[must_use]
+    pub fn alpha(&self) -> u8 {
+        self.alpha
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

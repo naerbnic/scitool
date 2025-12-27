@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, btree_map};
 
-use scidev::utils::block::Block;
+use scidev::utils::block::{Block, CachedMemBlock};
 
 use crate::formats::aseprite::{
     BlendMode, CelIndex, ColorDepth, LayerFlags, LayerType, Point, Size,
     backing::{
-        self, CelContents, CelData, CelPixels, ColorProfile, FrameContents, LayerContents,
+        self, CelContents, CelData, CelPixelData, ColorProfile, FrameContents, LayerContents,
         PaletteContents, SpriteContents, UserData,
     },
 };
@@ -84,10 +84,11 @@ impl SpriteBuilder {
             btree_map::Entry::Vacant(vac) => vac.insert(CelContents {
                 position: Point { x: 0, y: 0 },
                 opacity: 255,
-                contents: CelData::Pixels(CelPixels {
+                contents: CelData::Pixels(CelPixelData {
                     width: 0,
                     height: 0,
                     data: Block::from_vec(Vec::new()),
+                    cached_data: CachedMemBlock::new(),
                 }),
                 user_data: UserData::default(),
                 precise_position: Point { x: 0, y: 0 },
