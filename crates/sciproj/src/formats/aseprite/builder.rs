@@ -6,7 +6,7 @@ use crate::formats::aseprite::{
     BlendMode, CelIndex, ColorDepth, LayerFlags, LayerType, Point, Size,
     backing::{
         self, CelContents, CelData, CelPixels, ColorProfile, FrameContents, LayerContents,
-        SpriteContents, UserData,
+        PaletteContents, SpriteContents, UserData,
     },
 };
 
@@ -43,6 +43,9 @@ impl SpriteBuilder {
                 tags: Vec::new(),
                 cels: BTreeMap::new(),
                 color_profile: ColorProfile::None,
+                palette: PaletteContents {
+                    entries: Vec::new(),
+                },
                 user_data: UserData::default(),
             },
         }
@@ -50,10 +53,7 @@ impl SpriteBuilder {
 
     pub fn add_frame(&mut self) -> FrameBuilder {
         let frame_index = self.contents.frames.len();
-        let frame = FrameContents {
-            duration_ms: 0,
-            user_data: UserData::default(),
-        };
+        let frame = FrameContents { duration_ms: 0 };
         self.contents.frames.push(frame);
         FrameBuilder {
             index: u32::try_from(frame_index).unwrap(),
@@ -78,7 +78,7 @@ impl SpriteBuilder {
         }
     }
 
-    pub fn add_cel(&mut self, layer: u32, frame: u32) -> CelBuilder {
+    pub fn add_cel(&mut self, layer: u16, frame: u16) -> CelBuilder {
         let index = CelIndex { layer, frame };
         let cel_ref = match self.contents.cels.entry(index) {
             btree_map::Entry::Vacant(vac) => vac.insert(CelContents {

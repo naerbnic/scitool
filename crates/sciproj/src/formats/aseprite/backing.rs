@@ -63,7 +63,6 @@ pub(super) struct CelContents {
 #[derive(Debug, Clone)]
 pub(super) struct FrameContents {
     pub(super) duration_ms: u16,
-    pub(super) user_data: UserData,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +78,17 @@ pub(super) enum ColorProfile {
 }
 
 #[derive(Debug, Clone)]
+pub(super) struct PaletteEntry {
+    pub(super) color: Color,
+    pub(super) name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct PaletteContents {
+    pub(super) entries: Vec<PaletteEntry>,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct SpriteContents {
     pub(super) color_depth: ColorDepth,
     pub(super) width: u16,
@@ -91,5 +101,6 @@ pub(super) struct SpriteContents {
     pub(super) tags: Vec<TagContents>,
     pub(super) cels: BTreeMap<CelIndex, CelContents>,
     pub(super) color_profile: ColorProfile,
+    pub(super) palette: PaletteContents,
     pub(super) user_data: UserData,
 }

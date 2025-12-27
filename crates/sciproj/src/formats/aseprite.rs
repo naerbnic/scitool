@@ -60,6 +60,9 @@ mod builder;
 mod model;
 mod raw;
 
+// Export model types for public use
+pub use self::model::{CelView, FrameView, LayerView, Sprite};
+
 #[derive(Debug, Clone, Copy)]
 pub enum ColorDepth {
     Rgba,
@@ -241,7 +244,7 @@ enum UserDataPropsKey {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum AnimationDirection {
+pub enum AnimationDirection {
     Forward,
     Backward,
     PingPong,
@@ -253,7 +256,7 @@ enum AnimationDirection {
 /// This consists of the layer and frame indicies. Both must be less than the
 /// number of layers and frames in the sprite, respectively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct CelIndex {
-    layer: u32,
-    frame: u32,
+pub struct CelIndex {
+    pub layer: u16,
+    pub frame: u16,
 }
