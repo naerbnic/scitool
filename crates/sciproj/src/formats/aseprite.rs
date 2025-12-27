@@ -240,13 +240,6 @@ enum UserDataPropsKey {
     ForExtension(NonZeroU32),
 }
 
-#[derive(Debug, Clone, Default)]
-struct UserData {
-    text: Option<String>,
-    color: Option<Color>,
-    props: BTreeMap<UserDataPropsKey, Properties>,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum AnimationDirection {
     Forward,

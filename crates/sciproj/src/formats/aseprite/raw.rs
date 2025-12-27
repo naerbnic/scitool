@@ -886,10 +886,10 @@ pub mod user_data {
 
     #[derive(Clone, Debug)]
     pub struct UserDataChunk {
-        flags: UserDataFlags,
-        text: Option<String>,
-        color: Option<[u8; 4]>, // RGBA
-        properties_data: Option<Vec<u8>>,
+        pub flags: UserDataFlags,
+        pub text: Option<String>,
+        pub color: Option<[u8; 4]>, // RGBA
+        pub properties_data: Option<Vec<u8>>,
     }
 
     impl ChunkType for UserDataChunk {
@@ -1231,10 +1231,10 @@ mod color_profile {
 
     #[derive(Clone, Debug)]
     pub(super) struct ColorProfileChunk {
-        profile_type: ColorProfileType,
-        flags: ColorProfileFlags,
-        fixed_gamma: u32, // FIXED 16.16
-        icc_profile: Option<Vec<u8>>,
+        pub profile_type: ColorProfileType,
+        pub flags: ColorProfileFlags,
+        pub fixed_gamma: u32, // FIXED 16.16
+        pub icc_profile: Option<Vec<u8>>,
     }
 
     impl ChunkType for ColorProfileChunk {
@@ -1315,14 +1315,14 @@ mod external_files {
 
     #[derive(Clone, Debug)]
     pub(super) struct ExternalFileEntry {
-        entry_id: u32,
-        file_type: ExternalFileType,
-        file_name_or_id: String,
+        pub entry_id: u32,
+        pub file_type: ExternalFileType,
+        pub file_name_or_id: String,
     }
 
     #[derive(Clone, Debug)]
     pub(super) struct ExternalFilesChunk {
-        entries: Vec<ExternalFileEntry>,
+        pub entries: Vec<ExternalFileEntry>,
     }
 
     impl ChunkType for ExternalFilesChunk {

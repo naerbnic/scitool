@@ -1,8 +1,13 @@
 use std::collections::{BTreeMap, btree_map};
 
+use scidev::utils::block::Block;
+
 use crate::formats::aseprite::{
-    BlendMode, CelIndex, ColorDepth, LayerFlags, LayerType, UserData,
-    backing::{CelContents, FrameContents, LayerContents, SpriteContents},
+    BlendMode, CelIndex, ColorDepth, LayerFlags, LayerType, Point, Size,
+    backing::{
+        self, CelContents, CelData, CelPixels, ColorProfile, FrameContents, LayerContents,
+        SpriteContents, UserData,
+    },
 };
 
 pub struct FrameBuilder<'a> {
@@ -37,7 +42,8 @@ impl SpriteBuilder {
                 layers: Vec::new(),
                 tags: Vec::new(),
                 cels: BTreeMap::new(),
-                external_files: Vec::new(),
+                color_profile: ColorProfile::None,
+                user_data: UserData::default(),
             },
         }
     }
@@ -46,7 +52,7 @@ impl SpriteBuilder {
         let frame_index = self.contents.frames.len();
         let frame = FrameContents {
             duration_ms: 0,
-            palette: None,
+            user_data: UserData::default(),
         };
         self.contents.frames.push(frame);
         FrameBuilder {
@@ -76,12 +82,19 @@ impl SpriteBuilder {
         let index = CelIndex { layer, frame };
         let cel_ref = match self.contents.cels.entry(index) {
             btree_map::Entry::Vacant(vac) => vac.insert(CelContents {
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-                pixel_data: Vec::new(),
+                position: Point { x: 0, y: 0 },
+                opacity: 255,
+                contents: CelData::Pixels(CelPixels {
+                    width: 0,
+                    height: 0,
+                    data: Block::from_vec(Vec::new()),
+                }),
                 user_data: UserData::default(),
+                precise_position: Point { x: 0, y: 0 },
+                precise_size: Size {
+                    width: 0,
+                    height: 0,
+                },
             }),
             btree_map::Entry::Occupied(occ) => occ.into_mut(),
         };
