@@ -4,7 +4,9 @@ use std::{io, mem};
 
 use crate::formats::aseprite::{
     BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point, Properties,
-    backing::{CelContents, CelData, CelPixelData, SpriteContents},
+    backing::{
+        CelContents, CelData, CelPixelData, SpriteContents, ValidationError, validate_sprite,
+    },
 };
 
 use scidev::utils::block::MemBlock;
@@ -14,9 +16,9 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    pub(super) fn new(contents: SpriteContents) -> Self {
-        // TODO: Verification logic
-        Self { contents }
+    pub(super) fn new(contents: SpriteContents) -> Result<Self, ValidationError> {
+        validate_sprite(&contents)?;
+        Ok(Self { contents })
     }
 
     #[must_use]

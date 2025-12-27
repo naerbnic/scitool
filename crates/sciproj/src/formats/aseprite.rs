@@ -62,6 +62,8 @@ mod raw;
 
 // Export model types for public use
 pub use self::model::{CelView, FrameView, LayerView, Sprite};
+// Export builder types for public use
+pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ColorDepth {
@@ -103,6 +105,29 @@ impl Color {
     #[must_use]
     pub fn alpha(&self) -> u8 {
         self.a
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PaletteEntry {
+    color: Color,
+    name: Option<String>,
+}
+
+impl PaletteEntry {
+    #[must_use]
+    pub fn new(color: Color, name: Option<String>) -> Self {
+        Self { color, name }
+    }
+
+    #[must_use]
+    pub fn color(&self) -> Color {
+        self.color
+    }
+
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 }
 
