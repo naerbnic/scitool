@@ -7,7 +7,6 @@
 use std::{collections::BTreeMap, io, sync::Arc};
 
 use bitflags::bitflags;
-use bytes::BufMut as _;
 use scidev::utils::{
     block::{Block, BlockBuilder, BlockBuilderFactory},
     mem_reader::{self, MemReader, Result as MemResult},
@@ -89,28 +88,28 @@ pub struct Header {
 
 impl Header {
     #[must_use]
-    pub fn to_block(&self) -> Block {
-        let mut data: Vec<u8> = Vec::new();
-        data.put_u32_le(self.file_size);
-        data.put_u16_le(0xA5E0);
-        data.put_u16_le(self.frames_count);
-        data.put_u16_le(self.width);
-        data.put_u16_le(self.height);
-        data.put_u16_le(self.color_depth);
-        data.put_u32_le(self.flags.bits());
-        data.put_u16_le(0);
-        data.put_slice(&[0u8; 8]); // reserved
-        data.put_u8(self.transparent_index);
-        data.put_slice(&[0u8; 3]); // reserved
-        data.put_u16_le(self.num_indexed_colors);
-        data.put_u8(self.pixel_width);
-        data.put_u8(self.pixel_height);
-        data.put_i16(self.grid_x);
-        data.put_i16(self.grid_y);
-        data.put_u16(self.grid_width);
-        data.put_u16(self.grid_height);
-        data.put_slice(&[0u8; 84]);
-        Block::from_vec(data)
+    pub fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+        let mut builder = factory.create();
+        builder.write_u32_le(self.file_size)?;
+        builder.write_u16_le(0xA5E0)?;
+        builder.write_u16_le(self.frames_count)?;
+        builder.write_u16_le(self.width)?;
+        builder.write_u16_le(self.height)?;
+        builder.write_u16_le(self.color_depth)?;
+        builder.write_u32_le(self.flags.bits())?;
+        builder.write_u16_le(0)?;
+        builder.write_bytes(&[0u8; 8])?; // reserved
+        builder.write_u8(self.transparent_index)?;
+        builder.write_bytes(&[0u8; 3])?; // reserved
+        builder.write_u16_le(self.num_indexed_colors)?;
+        builder.write_u8(self.pixel_width)?;
+        builder.write_u8(self.pixel_height)?;
+        builder.write_i16_le(self.grid_x)?;
+        builder.write_i16_le(self.grid_y)?;
+        builder.write_u16_le(self.grid_width)?;
+        builder.write_u16_le(self.grid_height)?;
+        builder.write_bytes(&[0u8; 84])?;
+        builder.build()
     }
 }
 
@@ -133,26 +132,25 @@ pub struct FrameHeader {
 
 impl FrameHeader {
     #[must_use]
-    pub fn to_block(&self) -> Block {
-        let mut data: Vec<u8> = Vec::new();
-        data.put_u32_le(self.frame_size);
-        data.put_u16_le(0xF1FA);
+    pub fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+        let mut builder = factory.create();
+        builder.write_u32_le(self.frame_size)?;
+        builder.write_u16_le(0xF1FA)?;
         // Old chunks count. Using the newer field instead.
         let old_chunks = if self.num_chunks < 0xFFFF {
             u16::try_from(self.num_chunks).unwrap()
         } else {
             0xFFFF
         };
-        data.put_u16_le(old_chunks);
-        data.put_u16_le(self.duration_ms);
-        data.put_slice(&[0u8; 2]);
-        data.put_u32_le(if self.num_chunks < 0xFFFF {
+        builder.write_u16_le(old_chunks)?;
+        builder.write_u16_le(self.duration_ms)?;
+        builder.write_bytes(&[0u8; 2])?;
+        builder.write_u32_le(if self.num_chunks < 0xFFFF {
             0
         } else {
             self.num_chunks
-        });
-        assert!(data.len() == 16);
-        Block::from_vec(data)
+        })?;
+        builder.build()
     }
 }
 
@@ -172,7 +170,7 @@ pub fn build_frame_block(
         duration_ms,
         num_chunks,
     };
-    let header_block = frame_header.to_block();
+    let header_block = frame_header.to_block(block_factory)?;
 
     block_factory.concat([header_block, frame_contents])
 }
@@ -188,11 +186,11 @@ pub struct ChunkHeader {
 
 impl ChunkHeader {
     #[must_use]
-    pub fn to_block(&self) -> Block {
-        let mut data: Vec<u8> = Vec::new();
-        data.put_u32_le(self.chunk_size);
-        data.put_u16_le(self.chunk_type);
-        Block::from_vec(data)
+    pub fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+        let mut builder = factory.create();
+        builder.write_u32_le(self.chunk_size)?;
+        builder.write_u16_le(self.chunk_type)?;
+        builder.build()
     }
 }
 
@@ -213,12 +211,12 @@ impl ChunkBlock {
 
     #[must_use]
     pub fn to_block(&self, block_factory: &BlockBuilderFactory) -> io::Result<Block> {
-        let chunk_block = self.data.to_block();
+        let chunk_block = self.data.to_block(block_factory)?;
         let chunk_header = ChunkHeader {
             chunk_size: u32::try_from(chunk_block.len() + 6).unwrap(),
             chunk_type: self.data.chunk_type(),
         };
-        let header_block = chunk_header.to_block();
+        let header_block = chunk_header.to_block(block_factory)?;
 
         block_factory.concat([header_block, chunk_block])
     }
@@ -227,13 +225,13 @@ impl ChunkBlock {
 /// Types that are
 pub trait ChunkValue: std::fmt::Debug {
     fn chunk_type(&self) -> u16;
-    fn to_block(&self) -> Block;
+    fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block>;
 }
 
 pub trait ChunkType: ChunkValue + Sized {
     const CHUNK_TYPE: u16;
 
-    fn to_block(&self) -> Block;
+    fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block>;
 
     fn from_block<M>(block: M) -> MemResult<Self>
     where
@@ -248,17 +246,17 @@ where
         Self::CHUNK_TYPE
     }
 
-    fn to_block(&self) -> Block {
-        <Self as ChunkType>::to_block(self)
+    fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+        <Self as ChunkType>::to_block(self, factory)
     }
 }
 
 pub mod layer {
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use crate::formats::aseprite::{BlendMode, LayerFlags, LayerType};
 
@@ -281,29 +279,30 @@ pub mod layer {
     impl ChunkType for LayerChunk {
         const CHUNK_TYPE: u16 = 0x2004;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u16_le(self.flags.bits());
-            data.put_u16_le(match &self.layer_type {
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u16_le(self.flags.bits())?;
+            builder.write_u16_le(match &self.layer_type {
                 LayerType::Normal => 0,
                 LayerType::Group => 1,
                 LayerType::Tilemap { .. } => 2,
-            });
-            data.put_u16_le(self.child_level);
-            data.put_u16_le(0); // default_width
-            data.put_u16_le(0); // default_height
-            data.put_u16_le(self.blend_mode as u16);
-            data.put_u8(self.opacity);
-            data.put_bytes(0u8, 3);
-            data.put_u16_le(self.layer_name.len().try_into().unwrap());
-            data.extend_from_slice(self.layer_name.as_bytes());
+            })?;
+            builder.write_u16_le(self.child_level)?;
+            builder.write_u16_le(0)?; // default_width
+            builder.write_u16_le(0)?; // default_height
+            builder.write_u16_le(self.blend_mode as u16)?;
+            builder.write_u8(self.opacity)?;
+            builder.write_bytes(&[0u8; 3])?;
+            let name_len = u16::try_from(self.layer_name.len()).unwrap_or(u16::MAX);
+            builder.write_u16_le(name_len)?;
+            builder.write_bytes(self.layer_name.as_bytes())?;
             if let LayerType::Tilemap { tileset_index } = &self.layer_type {
-                data.put_u32_le(*tileset_index);
+                builder.write_u32_le(*tileset_index)?;
             }
             if let Some(uuid) = &self.uuid {
-                data.extend_from_slice(uuid);
+                builder.write_bytes(uuid)?;
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -389,11 +388,11 @@ pub mod layer {
 }
 
 pub mod cel {
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilder, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -405,10 +404,11 @@ pub mod cel {
     }
 
     impl RawCel {
-        fn write(&self, data: &mut Vec<u8>) {
-            data.put_u16_le(self.width);
-            data.put_u16_le(self.height);
-            data.extend_from_slice(&self.pixels);
+        fn write(&self, builder: &mut BlockBuilder) -> io::Result<()> {
+            builder.write_u16_le(self.width)?;
+            builder.write_u16_le(self.height)?;
+            builder.write_bytes(&self.pixels)?;
+            Ok(())
         }
 
         fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
@@ -429,8 +429,9 @@ pub mod cel {
     }
 
     impl LinkedCel {
-        fn write(&self, data: &mut Vec<u8>) {
-            data.put_u16_le(self.frame_position);
+        fn write(&self, builder: &mut BlockBuilder) -> io::Result<()> {
+            builder.write_u16_le(self.frame_position)?;
+            Ok(())
         }
 
         fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
@@ -447,10 +448,11 @@ pub mod cel {
     }
 
     impl CompressedCel {
-        fn write(&self, data: &mut Vec<u8>) {
-            data.put_u16_le(self.width);
-            data.put_u16_le(self.height);
-            data.extend_from_slice(&self.data);
+        fn write(&self, builder: &mut BlockBuilder) -> io::Result<()> {
+            builder.write_u16_le(self.width)?;
+            builder.write_u16_le(self.height)?;
+            builder.write_bytes(&self.data)?;
+            Ok(())
         }
 
         fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
@@ -478,16 +480,17 @@ pub mod cel {
     }
 
     impl CompressedTilemapCel {
-        fn write(&self, data: &mut Vec<u8>) {
-            data.put_u16_le(self.width);
-            data.put_u16_le(self.height);
-            data.put_u16_le(self.bits_per_tile);
-            data.put_u32_le(self.tile_id_bitmask);
-            data.put_u32_le(self.x_flip_bitmask);
-            data.put_u32_le(self.y_flip_bitmask);
-            data.put_u32_le(self.diagonal_flip_bitmask);
-            data.put_bytes(0, 10);
-            data.extend_from_slice(&self.tiles);
+        fn write(&self, builder: &mut BlockBuilder) -> io::Result<()> {
+            builder.write_u16_le(self.width)?;
+            builder.write_u16_le(self.height)?;
+            builder.write_u16_le(self.bits_per_tile)?;
+            builder.write_u32_le(self.tile_id_bitmask)?;
+            builder.write_u32_le(self.x_flip_bitmask)?;
+            builder.write_u32_le(self.y_flip_bitmask)?;
+            builder.write_u32_le(self.diagonal_flip_bitmask)?;
+            builder.write_bytes(&[0; 10])?;
+            builder.write_bytes(&self.tiles)?;
+            Ok(())
         }
 
         fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
@@ -535,29 +538,29 @@ pub mod cel {
     impl ChunkType for CelChunk {
         const CHUNK_TYPE: u16 = 0x2005;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u16_le(self.layer_index);
-            data.put_i16_le(self.x);
-            data.put_i16_le(self.y);
-            data.put_u8(self.opacity);
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u16_le(self.layer_index)?;
+            builder.write_i16_le(self.x)?;
+            builder.write_i16_le(self.y)?;
+            builder.write_u8(self.opacity)?;
             let type_val = match &self.cel_type {
                 CelType::Raw(_) => 0,
                 CelType::Linked(_) => 1,
                 CelType::Compressed(_) => 2,
                 CelType::CompressedTilemap(_) => 3,
             };
-            data.put_u16_le(type_val);
-            data.put_i16_le(self.z_index);
-            data.put_bytes(0, 5);
+            builder.write_u16_le(type_val)?;
+            builder.write_i16_le(self.z_index)?;
+            builder.write_bytes(&[0; 5])?;
 
             match &self.cel_type {
-                CelType::Raw(cel) => cel.write(&mut data),
-                CelType::Linked(cel) => cel.write(&mut data),
-                CelType::Compressed(cel) => cel.write(&mut data),
-                CelType::CompressedTilemap(cel) => cel.write(&mut data),
+                CelType::Raw(cel) => cel.write(&mut builder)?,
+                CelType::Linked(cel) => cel.write(&mut builder)?,
+                CelType::Compressed(cel) => cel.write(&mut builder)?,
+                CelType::CompressedTilemap(cel) => cel.write(&mut builder)?,
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -598,11 +601,11 @@ pub mod cel {
 }
 
 mod cel_extra {
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -618,15 +621,15 @@ mod cel_extra {
     impl ChunkType for CelExtraChunk {
         const CHUNK_TYPE: u16 = 0x2006;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u32_le(self.flags);
-            data.put_i32_le(self.precise_x);
-            data.put_i32_le(self.precise_y);
-            data.put_i32_le(self.width);
-            data.put_i32_le(self.height);
-            data.put_bytes(0, 16);
-            Block::from_vec(data)
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u32_le(self.flags)?;
+            builder.write_i32_le(self.precise_x)?;
+            builder.write_i32_le(self.precise_y)?;
+            builder.write_i32_le(self.width)?;
+            builder.write_i32_le(self.height)?;
+            builder.write_bytes(&[0; 16])?;
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -652,11 +655,11 @@ mod cel_extra {
 }
 
 pub mod tags {
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -688,22 +691,23 @@ pub mod tags {
     impl ChunkType for TagsChunk {
         const CHUNK_TYPE: u16 = 0x2018;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u16_le(self.tags.len().try_into().unwrap());
-            data.put_bytes(0, 8);
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u16_le(self.tags.len().try_into().unwrap())?;
+            builder.write_bytes(&[0; 8])?;
             for tag in &self.tags {
-                data.put_u16_le(tag.from_frame);
-                data.put_u16_le(tag.to_frame);
-                data.put_u8(tag.direction as u8);
-                data.put_u16_le(tag.repeat);
-                data.put_bytes(0, 6);
-                data.put_bytes(0, 3); // deprecated color
-                data.put_u8(0); // extra byte
-                data.put_u16_le(tag.name.len().try_into().unwrap());
-                data.extend_from_slice(tag.name.as_bytes());
+                builder.write_u16_le(tag.from_frame)?;
+                builder.write_u16_le(tag.to_frame)?;
+                builder.write_u8(tag.direction as u8)?;
+                builder.write_u16_le(tag.repeat)?;
+                builder.write_bytes(&[0; 6])?;
+                builder.write_bytes(&[0; 3])?; // deprecated color
+                builder.write_u8(0)?; // extra byte
+                let name_len = u16::try_from(tag.name.len()).unwrap_or(u16::MAX);
+                builder.write_u16_le(name_len)?;
+                builder.write_bytes(tag.name.as_bytes())?;
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -755,11 +759,11 @@ pub mod tags {
 
 pub mod palette {
     use bitflags::bitflags;
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -791,26 +795,29 @@ pub mod palette {
     impl ChunkType for PaletteChunk {
         const CHUNK_TYPE: u16 = 0x2019;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u32_le(self.new_palette_size);
-            data.put_u32_le(self.first_color_index);
-            data.put_u32_le(self.last_color_index);
-            data.put_bytes(0, 8);
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u32_le(self.new_palette_size)?;
+            builder.write_u32_le(self.first_color_index)?;
+            builder.write_u32_le(self.last_color_index)?;
+            builder.write_bytes(&[0; 8])?;
             for entry in &self.entries {
-                data.put_u16_le(entry.flags.bits());
-                data.put_u8(entry.red);
-                data.put_u8(entry.green);
-                data.put_u8(entry.blue);
-                data.put_u8(entry.alpha);
-                if entry.flags.contains(PaletteEntryFlags::HAS_NAME)
-                    && let Some(name) = &entry.name
-                {
-                    data.put_u16_le(name.len().try_into().unwrap());
-                    data.extend_from_slice(name.as_bytes());
+                builder.write_u16_le(entry.flags.bits())?;
+                builder.write_u8(entry.red)?;
+                builder.write_u8(entry.green)?;
+                builder.write_u8(entry.blue)?;
+                builder.write_u8(entry.alpha)?;
+                if entry.flags.contains(PaletteEntryFlags::HAS_NAME) {
+                    if let Some(name) = &entry.name {
+                        let name_len = u16::try_from(name.len()).unwrap_or(u16::MAX);
+                        builder.write_u16_le(name_len)?;
+                        builder.write_bytes(name.as_bytes())?;
+                    } else {
+                        builder.write_u16_le(0)?;
+                    }
                 }
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -869,9 +876,10 @@ pub mod user_data {
     use bitflags::bitflags;
     use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -886,29 +894,29 @@ pub mod user_data {
 
     #[derive(Clone, Debug)]
     pub struct UserDataChunk {
-        pub flags: UserDataFlags,
-        pub text: Option<String>,
-        pub color: Option<[u8; 4]>, // RGBA
-        pub properties_data: Option<Vec<u8>>,
+        flags: UserDataFlags,
+        text: Option<String>,
+        color: Option<[u8; 4]>, // RGBA
+        properties_data: Option<Vec<u8>>,
     }
 
     impl ChunkType for UserDataChunk {
         const CHUNK_TYPE: u16 = 0x2020;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u32_le(self.flags.bits());
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u32_le(self.flags.bits())?;
             if let Some(text) = &self.text {
-                data.put_u16_le(text.len().try_into().unwrap());
-                data.extend_from_slice(text.as_bytes());
+                builder.write_u16_le(text.len().try_into().unwrap())?;
+                builder.write_bytes(text.as_bytes())?;
             }
             if let Some(color) = self.color {
-                data.extend_from_slice(&color);
+                builder.write_bytes(&color)?;
             }
             if let Some(properties) = &self.properties_data {
-                data.extend_from_slice(properties);
+                builder.write_bytes(properties)?;
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -966,11 +974,11 @@ pub mod user_data {
 
 mod slice {
     use bitflags::bitflags;
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -1004,32 +1012,32 @@ mod slice {
     impl ChunkType for SliceChunk {
         const CHUNK_TYPE: u16 = 0x2022;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u32_le(self.keys.len().try_into().unwrap());
-            data.put_u32_le(self.flags.bits());
-            data.put_u32_le(0); // reserved
-            data.put_u16_le(self.name.len().try_into().unwrap());
-            data.extend_from_slice(self.name.as_bytes());
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u32_le(self.keys.len().try_into().unwrap())?;
+            builder.write_u32_le(self.flags.bits())?;
+            builder.write_u32_le(0)?; // reserved
+            builder.write_u16_le(self.name.len().try_into().unwrap())?;
+            builder.write_bytes(self.name.as_bytes())?;
 
             for key in &self.keys {
-                data.put_u32_le(key.frame_number);
-                data.put_i32_le(key.x);
-                data.put_i32_le(key.y);
-                data.put_u32_le(key.width);
-                data.put_u32_le(key.height);
+                builder.write_u32_le(key.frame_number)?;
+                builder.write_i32_le(key.x)?;
+                builder.write_i32_le(key.y)?;
+                builder.write_u32_le(key.width)?;
+                builder.write_u32_le(key.height)?;
                 if let Some((cx, cy, cw, ch)) = key.center {
-                    data.put_i32_le(cx);
-                    data.put_i32_le(cy);
-                    data.put_u32_le(cw);
-                    data.put_u32_le(ch);
+                    builder.write_i32_le(cx)?;
+                    builder.write_i32_le(cy)?;
+                    builder.write_u32_le(cw)?;
+                    builder.write_u32_le(ch)?;
                 }
                 if let Some((px, py)) = key.pivot {
-                    data.put_i32_le(px);
-                    data.put_i32_le(py);
+                    builder.write_i32_le(px)?;
+                    builder.write_i32_le(py)?;
                 }
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -1094,11 +1102,11 @@ mod slice {
 
 mod tileset {
     use bitflags::bitflags;
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -1131,30 +1139,30 @@ mod tileset {
     impl ChunkType for TilesetChunk {
         const CHUNK_TYPE: u16 = 0x2023;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u32_le(self.id);
-            data.put_u32_le(self.flags.bits());
-            data.put_u32_le(self.num_tiles);
-            data.put_u16_le(self.tile_width);
-            data.put_u16_le(self.tile_height);
-            data.put_i16_le(self.base_index);
-            data.put_bytes(0, 14);
-            data.put_u16_le(self.name.len().try_into().unwrap());
-            data.extend_from_slice(self.name.as_bytes());
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u32_le(self.id)?;
+            builder.write_u32_le(self.flags.bits())?;
+            builder.write_u32_le(self.num_tiles)?;
+            builder.write_u16_le(self.tile_width)?;
+            builder.write_u16_le(self.tile_height)?;
+            builder.write_i16_le(self.base_index)?;
+            builder.write_bytes(&[0; 14])?;
+            builder.write_u16_le(self.name.len().try_into().unwrap())?;
+            builder.write_bytes(self.name.as_bytes())?;
             if self.flags.contains(TilesetFlags::EXTERNAL_FILE) {
-                data.put_u32_le(self.external_file_id.unwrap_or(0));
-                data.put_u32_le(self.external_tileset_id.unwrap_or(0));
+                builder.write_u32_le(self.external_file_id.unwrap_or(0))?;
+                builder.write_u32_le(self.external_tileset_id.unwrap_or(0))?;
             }
             if self.flags.contains(TilesetFlags::EMBEDDED) {
                 if let Some(compressed) = &self.compressed_data {
-                    data.put_u32_le(compressed.len().try_into().unwrap());
-                    data.extend_from_slice(compressed);
+                    builder.write_u32_le(compressed.len().try_into().unwrap())?;
+                    builder.write_bytes(compressed)?;
                 } else {
-                    data.put_u32_le(0);
+                    builder.write_u32_le(0)?;
                 }
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -1206,11 +1214,11 @@ mod tileset {
 
 mod color_profile {
     use bitflags::bitflags;
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -1240,21 +1248,21 @@ mod color_profile {
     impl ChunkType for ColorProfileChunk {
         const CHUNK_TYPE: u16 = 0x2007;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u16_le(self.profile_type as u16);
-            data.put_u16_le(self.flags.bits());
-            data.put_u32_le(self.fixed_gamma);
-            data.put_bytes(0, 8);
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u16_le(self.profile_type as u16)?;
+            builder.write_u16_le(self.flags.bits())?;
+            builder.write_u32_le(self.fixed_gamma)?;
+            builder.write_bytes(&[0; 8])?;
             if self.profile_type == ColorProfileType::Icc {
                 if let Some(icc) = &self.icc_profile {
-                    data.put_u32_le(icc.len().try_into().unwrap());
-                    data.extend_from_slice(icc);
+                    builder.write_u32_le(icc.len().try_into().unwrap())?;
+                    builder.write_bytes(icc)?;
                 } else {
-                    data.put_u32_le(0);
+                    builder.write_u32_le(0)?;
                 }
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -1296,11 +1304,11 @@ mod color_profile {
 }
 
 mod external_files {
-    use bytes::BufMut;
     use scidev::utils::{
-        block::Block,
+        block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
+    use std::io;
 
     use super::ChunkType;
 
@@ -1328,18 +1336,18 @@ mod external_files {
     impl ChunkType for ExternalFilesChunk {
         const CHUNK_TYPE: u16 = 0x2008;
 
-        fn to_block(&self) -> Block {
-            let mut data: Vec<u8> = Vec::new();
-            data.put_u32_le(self.entries.len().try_into().unwrap());
-            data.put_bytes(0, 8);
+        fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+            let mut builder = factory.create();
+            builder.write_u32_le(self.entries.len().try_into().unwrap())?;
+            builder.write_bytes(&[0; 8])?;
             for entry in &self.entries {
-                data.put_u32_le(entry.entry_id);
-                data.put_u8(entry.file_type as u8);
-                data.put_bytes(0, 7);
-                data.put_u16_le(entry.file_name_or_id.len().try_into().unwrap());
-                data.extend_from_slice(entry.file_name_or_id.as_bytes());
+                builder.write_u32_le(entry.entry_id)?;
+                builder.write_u8(entry.file_type as u8)?;
+                builder.write_bytes(&[0; 7])?;
+                builder.write_u16_le(entry.file_name_or_id.len().try_into().unwrap())?;
+                builder.write_bytes(entry.file_name_or_id.as_bytes())?;
             }
-            Block::from_vec(data)
+            builder.build()
         }
 
         fn from_block<M>(mut reader: M) -> MemResult<Self>
@@ -1402,40 +1410,14 @@ impl super::model::Sprite {
             ColorDepth::Rgba => (0, 32),
         };
 
-        let header = Header {
-            file_size: 0,
-            frames_count: u16::try_from(self.contents.frames.len()).unwrap(),
-            flags: HeaderFlags::empty()
-                | if layers_have_opacity {
-                    HeaderFlags::HAS_LAYER_OPACITY
-                } else {
-                    HeaderFlags::empty()
-                }
-                | if layers_have_uuids {
-                    HeaderFlags::HAS_LAYER_UUIDS
-                } else {
-                    HeaderFlags::empty()
-                },
-            color_depth,
-            width: self.contents.width,
-            height: self.contents.height,
-            transparent_index: self.contents.transparent_color,
-            pixel_width: self.contents.pixel_width,
-            pixel_height: self.contents.pixel_height,
-            num_indexed_colors,
-            grid_x: 0,
-            grid_y: 0,
-            grid_width: 0,
-            grid_height: 0,
-            reserved2: [0u8; _],
-        };
+        // let header = Header { ... }; // Removed unused initial header
 
         let mut frames = Vec::new();
 
         for frame in &self.contents.frames {
             let is_initial_frame = frames.is_empty();
 
-            let mut chunks: Vec<ChunkBlock> = Vec::new();
+            let chunks: Vec<ChunkBlock> = Vec::new();
 
             if is_initial_frame {
                 // Write chunks if needed:
@@ -1489,7 +1471,7 @@ impl super::model::Sprite {
             reserved2: [0u8; _],
         };
 
-        let header_block = header.to_block();
+        let header_block = header.to_block(builder)?;
         builder.concat([header_block, frames_block])
     }
 }
