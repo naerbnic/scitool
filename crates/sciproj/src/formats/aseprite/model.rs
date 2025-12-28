@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::{io, mem};
 
 use crate::formats::aseprite::{
-    BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point, Properties,
+    BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point16, Properties,
     backing::{
         CelContents, CelData, CelPixelData, SpriteContents, ValidationError, validate_sprite,
     },
@@ -327,7 +327,7 @@ impl<'a> CelView<'a> {
     }
 
     #[must_use]
-    pub fn position(&self) -> Point {
+    pub fn position(&self) -> Point16 {
         self.contents.position
     }
 

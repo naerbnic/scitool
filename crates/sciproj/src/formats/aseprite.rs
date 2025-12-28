@@ -59,6 +59,7 @@ mod backing;
 mod builder;
 mod model;
 mod raw;
+mod tests;
 
 // Export model types for public use
 pub use self::model::{CelView, FrameView, LayerView, Sprite};
@@ -165,6 +166,29 @@ pub struct FixedPoint {
 pub struct Point {
     x: i32,
     y: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Point16 {
+    x: i16,
+    y: i16,
+}
+
+impl Point16 {
+    #[must_use]
+    pub fn new(x: i16, y: i16) -> Self {
+        Self { x, y }
+    }
+
+    #[must_use]
+    pub fn x(&self) -> i16 {
+        self.x
+    }
+
+    #[must_use]
+    pub fn y(&self) -> i16 {
+        self.y
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use scidev::utils::block::{Block, CachedMemBlock};
 
+use crate::formats::aseprite::Point16;
+
 use super::{
     AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, LayerFlags, LayerType,
     PaletteEntry, Point, Properties, Size,
@@ -53,7 +55,7 @@ pub(super) enum CelData {
 /// The contents of a cel.
 #[derive(Debug, Clone)]
 pub(super) struct CelContents {
-    pub(super) position: Point,
+    pub(super) position: Point16,
     pub(super) opacity: u8,
     pub(super) contents: CelData,
     pub(super) user_data: UserData,

@@ -12,7 +12,12 @@ use scidev::utils::{
     mem_reader::{self, MemReader, Result as MemResult},
 };
 
-use crate::formats::aseprite::{ColorDepth, FixedPoint, Point, Rect, Size};
+use crate::formats::aseprite::{
+    AnimationDirection, CelIndex, ColorDepth, FixedPoint, Point, Rect, Size,
+    backing::{
+        CelContents, CelData, ColorProfile, LayerContents, PaletteContents, TagContents, UserData,
+    },
+};
 
 fn read_string_type<M>(reader: &mut M) -> mem_reader::Result<String>
 where
@@ -43,7 +48,7 @@ bitflags! {
     }
 }
 
-pub struct Header {
+struct Header {
     pub file_size: u32,
     // magic_number: u16 = 0xA5E0
     pub frames_count: u16,
@@ -87,8 +92,7 @@ pub struct Header {
 }
 
 impl Header {
-    #[must_use]
-    pub fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+    fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
         let mut builder = factory.create();
         builder.write_u32_le(self.file_size)?;
         builder.write_u16_le(0xA5E0)?;
@@ -114,7 +118,7 @@ impl Header {
 }
 
 #[derive(Debug, Clone)]
-pub struct FrameHeader {
+pub(super) struct FrameHeader {
     /// Frame data size in bytes, including this header.
     frame_size: u32,
 
@@ -131,8 +135,7 @@ pub struct FrameHeader {
 }
 
 impl FrameHeader {
-    #[must_use]
-    pub fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+    fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
         let mut builder = factory.create();
         builder.write_u32_le(self.frame_size)?;
         builder.write_u16_le(0xF1FA)?;
@@ -154,7 +157,7 @@ impl FrameHeader {
     }
 }
 
-pub fn build_frame_block(
+pub(super) fn build_frame_block(
     block_factory: &BlockBuilderFactory,
     duration_ms: u16,
     chunks: impl IntoIterator<Item = ChunkBlock>,
@@ -176,7 +179,7 @@ pub fn build_frame_block(
 }
 
 #[derive(Debug, Clone)]
-pub struct ChunkHeader {
+struct ChunkHeader {
     /// Size of this chunk in bytes, including this header.
     chunk_size: u32,
 
@@ -185,8 +188,7 @@ pub struct ChunkHeader {
 }
 
 impl ChunkHeader {
-    #[must_use]
-    pub fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
+    fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
         let mut builder = factory.create();
         builder.write_u32_le(self.chunk_size)?;
         builder.write_u16_le(self.chunk_type)?;
@@ -195,12 +197,12 @@ impl ChunkHeader {
 }
 
 #[derive(Debug, Clone)]
-pub struct ChunkBlock {
-    pub data: Arc<dyn ChunkValue>,
+pub(super) struct ChunkBlock {
+    data: Arc<dyn ChunkValue>,
 }
 
 impl ChunkBlock {
-    pub fn from_value<V>(value: V) -> Self
+    fn from_value<V>(value: V) -> Self
     where
         V: ChunkValue + 'static,
     {
@@ -209,8 +211,7 @@ impl ChunkBlock {
         }
     }
 
-    #[must_use]
-    pub fn to_block(&self, block_factory: &BlockBuilderFactory) -> io::Result<Block> {
+    fn to_block(&self, block_factory: &BlockBuilderFactory) -> io::Result<Block> {
         let chunk_block = self.data.to_block(block_factory)?;
         let chunk_header = ChunkHeader {
             chunk_size: u32::try_from(chunk_block.len() + 6).unwrap(),
@@ -223,12 +224,12 @@ impl ChunkBlock {
 }
 
 /// Types that are
-pub trait ChunkValue: std::fmt::Debug {
+trait ChunkValue: std::fmt::Debug {
     fn chunk_type(&self) -> u16;
     fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block>;
 }
 
-pub trait ChunkType: ChunkValue + Sized {
+trait ChunkType: ChunkValue + Sized {
     const CHUNK_TYPE: u16;
 
     fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block>;
@@ -251,7 +252,7 @@ where
     }
 }
 
-pub mod layer {
+mod layer {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
@@ -263,7 +264,7 @@ pub mod layer {
     use super::ChunkType;
 
     #[derive(Clone, Debug)]
-    pub struct LayerChunk {
+    pub(super) struct LayerChunk {
         pub flags: LayerFlags,
         pub layer_type: LayerType,
         pub child_level: u16,
@@ -387,7 +388,7 @@ pub mod layer {
     }
 }
 
-pub mod cel {
+mod cel {
     use scidev::utils::{
         block::{Block, BlockBuilder, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
@@ -397,7 +398,7 @@ pub mod cel {
     use super::ChunkType;
 
     #[derive(Clone, Debug)]
-    pub struct RawCel {
+    pub(super) struct RawCel {
         pub width: u16,
         pub height: u16,
         pub pixels: Vec<u8>,
@@ -424,7 +425,7 @@ pub mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub struct LinkedCel {
+    pub(super) struct LinkedCel {
         pub frame_position: u16,
     }
 
@@ -441,7 +442,7 @@ pub mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub struct CompressedCel {
+    pub(super) struct CompressedCel {
         pub width: u16,
         pub height: u16,
         pub data: Vec<u8>,
@@ -468,7 +469,7 @@ pub mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub struct CompressedTilemapCel {
+    pub(super) struct CompressedTilemapCel {
         pub width: u16,
         pub height: u16,
         pub bits_per_tile: u16,
@@ -517,7 +518,7 @@ pub mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub enum CelType {
+    pub(super) enum CelType {
         Raw(RawCel),
         Linked(LinkedCel),
         Compressed(CompressedCel),
@@ -525,7 +526,7 @@ pub mod cel {
     }
 
     #[derive(Clone, Debug)]
-    pub struct CelChunk {
+    pub(super) struct CelChunk {
         pub layer_index: u16,
         pub x: i16,
         pub y: i16,
@@ -654,7 +655,7 @@ mod cel_extra {
     }
 }
 
-pub mod tags {
+mod tags {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
@@ -665,7 +666,7 @@ pub mod tags {
 
     #[derive(Clone, Copy, Debug)]
     #[repr(u8)]
-    pub enum AnimationDirection {
+    pub(super) enum AnimationDirection {
         Forward = 0,
         Reverse = 1,
         PingPong = 2,
@@ -673,7 +674,7 @@ pub mod tags {
     }
 
     #[derive(Clone, Debug)]
-    pub struct Tag {
+    pub(super) struct Tag {
         pub from_frame: u16,
         pub to_frame: u16,
         pub direction: AnimationDirection,
@@ -684,7 +685,7 @@ pub mod tags {
     }
 
     #[derive(Clone, Debug)]
-    pub struct TagsChunk {
+    pub(super) struct TagsChunk {
         pub tags: Vec<Tag>,
     }
 
@@ -757,7 +758,7 @@ pub mod tags {
     }
 }
 
-pub mod palette {
+mod palette {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
@@ -775,7 +776,7 @@ pub mod palette {
     }
 
     #[derive(Clone, Debug)]
-    pub struct PaletteEntry {
+    pub(super) struct PaletteEntry {
         pub flags: PaletteEntryFlags,
         pub red: u8,
         pub green: u8,
@@ -785,7 +786,7 @@ pub mod palette {
     }
 
     #[derive(Clone, Debug)]
-    pub struct PaletteChunk {
+    pub(super) struct PaletteChunk {
         pub new_palette_size: u32,
         pub first_color_index: u32,
         pub last_color_index: u32,
@@ -872,7 +873,7 @@ pub mod palette {
     }
 }
 
-pub mod user_data {
+pub(super) mod user_data {
     use bitflags::bitflags;
     use bytes::BufMut;
     use scidev::utils::{
@@ -893,11 +894,59 @@ pub mod user_data {
     }
 
     #[derive(Clone, Debug)]
-    pub struct UserDataChunk {
-        flags: UserDataFlags,
-        text: Option<String>,
-        color: Option<[u8; 4]>, // RGBA
-        properties_data: Option<Vec<u8>>,
+    pub(super) struct UserDataChunk {
+        pub flags: UserDataFlags,
+        pub text: Option<String>,
+        pub color: Option<[u8; 4]>, // RGBA
+        pub properties_data: Option<Vec<u8>>,
+    }
+
+    impl UserDataChunk {
+        pub(super) fn from_backing(
+            user_data: &crate::formats::aseprite::backing::UserData,
+        ) -> Option<Self> {
+            let mut flags = UserDataFlags::empty();
+            let mut has_content = false;
+
+            let text = if let Some(t) = &user_data.text {
+                flags |= UserDataFlags::HAS_TEXT;
+                has_content = true;
+                Some(t.clone())
+            } else {
+                None
+            };
+
+            let color = if let Some(c) = &user_data.color {
+                flags |= UserDataFlags::HAS_COLOR;
+                has_content = true;
+                Some([c.red(), c.green(), c.blue(), c.alpha()])
+            } else {
+                None
+            };
+
+            // TODO: Serialize properties map to properties_data
+            let properties_data = None;
+
+            if has_content {
+                Some(Self {
+                    flags,
+                    text,
+                    color,
+                    properties_data,
+                })
+            } else {
+                None
+            }
+        }
+
+        pub(super) fn empty() -> Self {
+            Self {
+                flags: UserDataFlags::empty(),
+                text: None,
+                color: None,
+                properties_data: None,
+            }
+        }
     }
 
     impl ChunkType for UserDataChunk {
@@ -1405,47 +1454,65 @@ impl super::model::Sprite {
             .any(|layer| layer.uuid.is_some());
 
         let (num_indexed_colors, color_depth) = match self.contents.color_depth {
-            ColorDepth::Indexed(num_colors) => (num_colors, num_colors),
+            ColorDepth::Indexed(num_colors) => (num_colors, 8),
             ColorDepth::Grayscale => (0, 16),
             ColorDepth::Rgba => (0, 32),
         };
 
-        // let header = Header { ... }; // Removed unused initial header
-
         let mut frames = Vec::new();
 
-        for frame in &self.contents.frames {
-            let is_initial_frame = frames.is_empty();
-
-            let chunks: Vec<ChunkBlock> = Vec::new();
+        for (frame_idx, frame) in self.contents.frames.iter().enumerate() {
+            let is_initial_frame = frame_idx == 0;
+            let mut chunks: Vec<ChunkBlock> = Vec::new();
 
             if is_initial_frame {
                 // Write chunks if needed:
-                // - ExternalFilesChunk
+                // - ExternalFilesChunk (Skipped for now)
+
                 // - ColorProfileChunk
+                if let Some(chunk) = make_color_profile_chunk(&self.contents.color_profile) {
+                    chunks.push(chunk);
+                }
             }
 
-            // Write palette, if changed.
+            // Write palette, if changed (always write on frame 0)
+            if is_initial_frame && let Some(chunk) = make_palette_chunk(&self.contents.palette) {
+                chunks.push(chunk);
+            }
 
             if is_initial_frame {
                 // Write:
                 // - UserDataChunk (for Sprite)
+                if let Some(chunk) = make_user_data_chunk(&self.contents.user_data) {
+                    chunks.push(chunk);
+                }
+
                 // - TilesetsChunk (not used)
+
                 // - Write TagsChunk (and associated user data)
+                chunks.extend(make_tags_chunks(&self.contents.tags));
+
                 // - Write LayerChunks (and associated user data)
+                chunks.extend(make_layers_chunks(&self.contents.layers));
+
                 // - Write SliceChunks (not used)
             }
 
             // Write cels
+            chunks.extend(make_cels_chunks(&self.contents.cels, frame_idx)?);
 
-            frames.push(build_frame_block(builder, frame.duration_ms, chunks)?)
+            frames.push(build_frame_block(builder, frame.duration_ms, chunks)?);
         }
 
         let frames_block = builder.concat(frames)?;
 
+        // Final Header with size
         let header = Header {
-            file_size: u32::try_from(frames_block.len() + 128).unwrap(),
-            frames_count: u16::try_from(self.contents.frames.len()).unwrap(),
+            file_size: u32::try_from(frames_block.len()).unwrap_or(0) + 128,
+            frames_count: u16::try_from(self.contents.frames.len()).unwrap_or(u16::MAX),
+            width: self.contents.width,
+            height: self.contents.height,
+            color_depth,
             flags: HeaderFlags::empty()
                 | if layers_have_opacity {
                     HeaderFlags::HAS_LAYER_OPACITY
@@ -1457,23 +1524,192 @@ impl super::model::Sprite {
                 } else {
                     HeaderFlags::empty()
                 },
-            color_depth,
-            width: self.contents.width,
-            height: self.contents.height,
             transparent_index: self.contents.transparent_color,
+            num_indexed_colors,
             pixel_width: self.contents.pixel_width,
             pixel_height: self.contents.pixel_height,
-            num_indexed_colors,
             grid_x: 0,
             grid_y: 0,
-            grid_width: 0,
-            grid_height: 0,
-            reserved2: [0u8; _],
+            grid_width: 16,
+            grid_height: 16,
+            reserved2: [0; 84],
         };
 
         let header_block = header.to_block(builder)?;
         builder.concat([header_block, frames_block])
     }
+}
+
+// Helper functions for chunk creation
+
+fn make_color_profile_chunk(profile: &ColorProfile) -> Option<ChunkBlock> {
+    match profile {
+        ColorProfile::Srgb => Some(ChunkBlock::from_value(color_profile::ColorProfileChunk {
+            profile_type: color_profile::ColorProfileType::Srgb,
+            flags: color_profile::ColorProfileFlags::empty(),
+            fixed_gamma: 0,
+            icc_profile: None,
+        })),
+        ColorProfile::Icc(data) => Some(ChunkBlock::from_value(color_profile::ColorProfileChunk {
+            profile_type: color_profile::ColorProfileType::Icc,
+            flags: color_profile::ColorProfileFlags::empty(),
+            fixed_gamma: 0,
+            icc_profile: Some(data.data.clone()),
+        })),
+        ColorProfile::None => None,
+    }
+}
+
+fn make_palette_chunk(palette: &PaletteContents) -> Option<ChunkBlock> {
+    if palette.entries.is_empty() {
+        return None;
+    }
+
+    let entries = palette
+        .entries
+        .iter()
+        .map(|e| {
+            let mut flags = palette::PaletteEntryFlags::empty();
+            if e.name().is_some() {
+                flags |= palette::PaletteEntryFlags::HAS_NAME;
+            }
+            palette::PaletteEntry {
+                flags,
+                red: e.color().red(),
+                green: e.color().green(),
+                blue: e.color().blue(),
+                alpha: e.color().alpha(),
+                name: e.name().map(ToString::to_string),
+            }
+        })
+        .collect();
+
+    Some(ChunkBlock::from_value(palette::PaletteChunk {
+        new_palette_size: u32::try_from(palette.entries.len()).unwrap_or(0),
+        first_color_index: 0,
+        last_color_index: u32::try_from(palette.entries.len().saturating_sub(1)).unwrap_or(0),
+        entries,
+    }))
+}
+
+fn make_user_data_chunk(user_data: &UserData) -> Option<ChunkBlock> {
+    user_data::UserDataChunk::from_backing(user_data).map(ChunkBlock::from_value)
+}
+
+fn make_tags_chunks(tags: &[TagContents]) -> Vec<ChunkBlock> {
+    let mut chunks = Vec::new();
+    if tags.is_empty() {
+        return chunks;
+    }
+
+    let tags_vec: Vec<tags::Tag> = tags
+        .iter()
+        .map(|t| {
+            let direction = match t.direction {
+                AnimationDirection::Forward => tags::AnimationDirection::Forward,
+                AnimationDirection::Backward => tags::AnimationDirection::Reverse,
+                AnimationDirection::PingPong => tags::AnimationDirection::PingPong,
+                AnimationDirection::PingPongReverse => tags::AnimationDirection::PingPongReverse,
+            };
+
+            tags::Tag {
+                from_frame: u16::try_from(t.from_frame).unwrap_or(0),
+                to_frame: u16::try_from(t.to_frame).unwrap_or(0),
+                direction,
+                repeat: 0,
+                name: t.name.clone(),
+            }
+        })
+        .collect();
+
+    chunks.push(ChunkBlock::from_value(tags::TagsChunk { tags: tags_vec }));
+
+    // Strict 1:1 Tag User Data
+    for t in tags {
+        let ud_chunk = user_data::UserDataChunk::from_backing(&t.user_data)
+            .unwrap_or_else(user_data::UserDataChunk::empty);
+        chunks.push(ChunkBlock::from_value(ud_chunk));
+    }
+
+    chunks
+}
+
+fn make_layers_chunks(layers: &[LayerContents]) -> Vec<ChunkBlock> {
+    let mut chunks = Vec::new();
+    for layer in layers {
+        chunks.push(ChunkBlock::from_value(layer::LayerChunk {
+            flags: layer.flags,
+            layer_type: layer.layer_type,
+            child_level: 0,
+            default_width: 0,
+            default_height: 0,
+            blend_mode: layer.blend_mode,
+            opacity: layer.opacity,
+            layer_name: layer.name.clone(),
+            uuid: layer.uuid,
+        }));
+
+        if let Some(chunk) = make_user_data_chunk(&layer.user_data) {
+            chunks.push(chunk);
+        }
+    }
+    chunks
+}
+
+fn make_cels_chunks(
+    cels: &std::collections::BTreeMap<CelIndex, CelContents>,
+    frame_idx: usize,
+) -> io::Result<Vec<ChunkBlock>> {
+    let mut chunks = Vec::new();
+
+    for (index, cel) in cels {
+        if index.frame as usize == frame_idx {
+            let chunk = match &cel.contents {
+                CelData::Pixels(pixels) => {
+                    use std::io::Read;
+                    let mut data = Vec::with_capacity(usize::try_from(pixels.data.len()).unwrap());
+                    // Handle open_reader error properly
+                    pixels
+                        .data
+                        .open_reader(..)
+                        .map_err(|e| io::Error::other(e.to_string()))?
+                        .read_to_end(&mut data)?;
+
+                    cel::CelChunk {
+                        layer_index: index.layer,
+                        x: cel.position.x,
+                        y: cel.position.y,
+                        opacity: cel.opacity,
+                        cel_type: cel::CelType::Raw(cel::RawCel {
+                            width: pixels.width,
+                            height: pixels.height,
+                            pixels: data,
+                        }),
+                        z_index: 0,
+                        reserved: [0; 5],
+                    }
+                }
+                CelData::Linked(linked_frame_idx) => cel::CelChunk {
+                    layer_index: index.layer,
+                    x: cel.position.x,
+                    y: cel.position.y,
+                    opacity: cel.opacity,
+                    cel_type: cel::CelType::Linked(cel::LinkedCel {
+                        frame_position: *linked_frame_idx,
+                    }),
+                    z_index: 0,
+                    reserved: [0; 5],
+                },
+                CelData::Tilemap => continue,
+            };
+            chunks.push(ChunkBlock::from_value(chunk));
+
+            if let Some(chunk) = make_user_data_chunk(&cel.user_data) {
+                chunks.push(chunk);
+            }
+        }
+    }
+    Ok(chunks)
 }
 
 impl super::Property {
@@ -1558,7 +1794,7 @@ impl super::Property {
 
     pub fn write_untyped_to(&self, builder: &mut BlockBuilder) -> io::Result<()> {
         match self {
-            Self::Bool(value) => builder.write_u8(*value as u8)?,
+            Self::Bool(value) => builder.write_u8(u8::from(*value))?,
             Self::I8(value) => builder.write_i8(*value)?,
             Self::U8(value) => builder.write_u8(*value)?,
             Self::I16(value) => builder.write_i16_le(*value)?,

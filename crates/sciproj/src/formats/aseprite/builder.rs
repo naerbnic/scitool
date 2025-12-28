@@ -4,7 +4,7 @@ use scidev::utils::block::{Block, CachedMemBlock};
 
 use crate::formats::aseprite::{
     AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, LayerFlags, LayerType,
-    PaletteEntry, Point, Size,
+    PaletteEntry, Point, Point16, Size,
     backing::{
         CelContents, CelData, CelPixelData, ColorProfile, FrameContents, LayerContents,
         PaletteContents, SpriteContents, TagContents, UserData, ValidationError,
@@ -13,13 +13,13 @@ use crate::formats::aseprite::{
 };
 
 pub struct FrameBuilder<'a> {
-    index: u32,
+    index: u16,
     contents: &'a mut FrameContents,
 }
 
 impl FrameBuilder<'_> {
     #[must_use]
-    pub fn index(&self) -> u32 {
+    pub fn index(&self) -> u16 {
         self.index
     }
 
@@ -29,10 +29,16 @@ impl FrameBuilder<'_> {
 }
 
 pub struct LayerBuilder<'a> {
+    index: u16,
     contents: &'a mut LayerContents,
 }
 
 impl LayerBuilder<'_> {
+    #[must_use]
+    pub fn index(&self) -> u16 {
+        self.index
+    }
+
     pub fn set_name(&mut self, name: impl Into<String>) {
         self.contents.name = name.into();
     }
@@ -66,8 +72,8 @@ impl CelBuilder<'_> {
         self.index
     }
 
-    pub fn set_position(&mut self, x: i32, y: i32) {
-        self.contents.position = Point { x, y };
+    pub fn set_position(&mut self, x: i16, y: i16) {
+        self.contents.position = Point16 { x, y };
     }
 
     pub fn set_opacity(&mut self, opacity: u8) {
@@ -123,7 +129,7 @@ impl SpriteBuilder {
         let frame = FrameContents { duration_ms: 0 };
         self.contents.frames.push(frame);
         FrameBuilder {
-            index: u32::try_from(frame_index).unwrap(),
+            index: u16::try_from(frame_index).unwrap(),
             contents: &mut self.contents.frames[frame_index],
         }
     }
@@ -141,6 +147,7 @@ impl SpriteBuilder {
         };
         self.contents.layers.push(layer);
         LayerBuilder {
+            index: u16::try_from(layer_index).unwrap(),
             contents: &mut self.contents.layers[layer_index],
         }
     }
@@ -149,7 +156,7 @@ impl SpriteBuilder {
         let index = CelIndex { layer, frame };
         let cel_ref = match self.contents.cels.entry(index) {
             btree_map::Entry::Vacant(vac) => vac.insert(CelContents {
-                position: Point { x: 0, y: 0 },
+                position: Point16 { x: 0, y: 0 },
                 opacity: 255,
                 contents: CelData::Pixels(CelPixelData {
                     width: 0,
