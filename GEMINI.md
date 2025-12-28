@@ -47,3 +47,10 @@ cargo run -- resources list /path/to/game
 *   **Command-Line Interface**: The CLIs are built using the `clap` crate, which is the standard for creating robust and user-friendly command-line applications in Rust.
 *   **Error Handling**: The project uses the `anyhow` and `thiserror` crates for error handling, which is a common pattern for ergonomic and informative error management in Rust applications.
 *   **Linting**: The project has `clippy.toml` and workspace lint configurations in `Cargo.toml` to enforce code quality and style.
+
+## Rust Conventions
+
+*   **Encapsulation**
+    -   Structs should almost never have public fields, either global or otherwise. THIS APPLIES TO ALL TYPES, MODULE INTERNAL AND EXTERNAL.
+    -   Factory functions and accessor methods should be used only when it would be appropriate for clients of the struct to have access to the values in the fields.
+    -   Type definitions should be limited to only the scope needed for the module. Any variances from this must be documented.

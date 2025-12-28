@@ -4,7 +4,12 @@
 
 #![expect(dead_code)]
 
-use std::{collections::BTreeMap, io, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map},
+    io,
+    num::NonZeroU32,
+    sync::Arc,
+};
 
 use bitflags::bitflags;
 use scidev::utils::{
@@ -13,11 +18,14 @@ use scidev::utils::{
 };
 
 use crate::formats::aseprite::{
-    AnimationDirection, CelIndex, ColorDepth, FixedPoint, Point, Rect, Size,
-    backing::{
-        CelContents, CelData, ColorProfile, LayerContents, PaletteContents, TagContents, UserData,
-    },
+    ColorDepth, FixedPoint, Point, Rect, Size, backing::SpriteContents,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum UserDataPropsKey {
+    General,
+    ForExtension(NonZeroU32),
+}
 
 fn read_string_type<M>(reader: &mut M) -> mem_reader::Result<String>
 where
@@ -37,6 +45,48 @@ fn write_string_to(string: &str, builder: &mut BlockBuilder) -> io::Result<()> {
     builder.write_u16_le(byte_count)?;
     builder.write_bytes(string.as_bytes())?;
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(super) struct ExtensionId(u32);
+
+impl ExtensionId {
+    pub(super) fn to_u32(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct ExtensionContext {
+    name_mapping: BTreeMap<String, ExtensionId>,
+}
+
+impl ExtensionContext {
+    pub(super) fn from_sprite(sprite: &SpriteContents) -> Self {
+        // Visit all UserData values in sprite and its children to collect
+        // extension uses.
+        let mut extension_set = BTreeSet::new();
+        sprite.visit_user_data(|ud| {
+            extension_set.extend(ud.extension_names());
+        });
+
+        let mut curr_id = 1;
+        let mut name_mapping = BTreeMap::new();
+
+        for name in extension_set {
+            if let btree_map::Entry::Vacant(v) = name_mapping.entry(name.to_string()) {
+                let entry_id = curr_id;
+                curr_id += 1;
+                v.insert(ExtensionId(entry_id));
+            }
+        }
+
+        ExtensionContext { name_mapping }
+    }
+
+    pub(super) fn extension_mappings(&self) -> impl Iterator<Item = (&String, &ExtensionId)> {
+        self.name_mapping.iter()
+    }
 }
 
 bitflags! {
@@ -157,7 +207,7 @@ impl FrameHeader {
     }
 }
 
-pub(super) fn build_frame_block(
+fn build_frame_block(
     block_factory: &BlockBuilderFactory,
     duration_ms: u16,
     chunks: impl IntoIterator<Item = ChunkBlock>,
@@ -197,7 +247,7 @@ impl ChunkHeader {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ChunkBlock {
+struct ChunkBlock {
     data: Arc<dyn ChunkValue>,
 }
 
@@ -251,7 +301,6 @@ where
         <Self as ChunkType>::to_block(self, factory)
     }
 }
-
 mod layer {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
@@ -259,7 +308,11 @@ mod layer {
     };
     use std::io;
 
-    use crate::formats::aseprite::{BlendMode, LayerFlags, LayerType};
+    use crate::formats::aseprite::{
+        BlendMode, LayerFlags, LayerType,
+        backing::LayerContents,
+        raw::{ExtensionContext, user_data::UserDataChunk},
+    };
 
     use super::ChunkType;
 
@@ -386,6 +439,35 @@ mod layer {
             })
         }
     }
+
+    impl LayerChunk {
+        pub(super) fn from_backing(
+            ext_context: &ExtensionContext,
+            layers: &[LayerContents],
+        ) -> Vec<super::ChunkBlock> {
+            let mut chunks = Vec::new();
+            for layer in layers {
+                chunks.push(super::ChunkBlock::from_value(LayerChunk {
+                    flags: layer.flags,
+                    layer_type: layer.layer_type,
+                    child_level: 0,
+                    default_width: 0,
+                    default_height: 0,
+                    blend_mode: layer.blend_mode,
+                    opacity: layer.opacity,
+                    layer_name: layer.name.clone(),
+                    uuid: layer.uuid,
+                }));
+
+                if let Some(chunk) = UserDataChunk::from_backing(ext_context, &layer.user_data)
+                    .map(super::ChunkBlock::from_value)
+                {
+                    chunks.push(chunk);
+                }
+            }
+            chunks
+        }
+    }
 }
 
 mod cel {
@@ -395,13 +477,19 @@ mod cel {
     };
     use std::io;
 
+    use crate::formats::aseprite::{
+        CelIndex,
+        backing::{CelContents, CelData},
+        raw::{ExtensionContext, user_data::UserDataChunk},
+    };
+
     use super::ChunkType;
 
     #[derive(Clone, Debug)]
     pub(super) struct RawCel {
-        pub width: u16,
-        pub height: u16,
-        pub pixels: Vec<u8>,
+        width: u16,
+        height: u16,
+        pixels: Vec<u8>,
     }
 
     impl RawCel {
@@ -527,13 +615,13 @@ mod cel {
 
     #[derive(Clone, Debug)]
     pub(super) struct CelChunk {
-        pub layer_index: u16,
-        pub x: i16,
-        pub y: i16,
-        pub opacity: u8,
-        pub cel_type: CelType,
-        pub z_index: i16,
-        pub reserved: [u8; 5],
+        layer_index: u16,
+        x: i16,
+        y: i16,
+        opacity: u8,
+        cel_type: CelType,
+        z_index: i16,
+        reserved: [u8; 5],
     }
 
     impl ChunkType for CelChunk {
@@ -599,6 +687,68 @@ mod cel {
             })
         }
     }
+
+    impl CelChunk {
+        pub(super) fn create_chunks(
+            ext_context: &ExtensionContext,
+            cels: &std::collections::BTreeMap<CelIndex, CelContents>,
+            frame_idx: usize,
+        ) -> io::Result<Vec<super::ChunkBlock>> {
+            let mut chunks = Vec::new();
+
+            for (index, cel) in cels {
+                if index.frame as usize == frame_idx {
+                    let chunk = match &cel.contents {
+                        CelData::Pixels(pixels) => {
+                            use std::io::Read;
+                            let mut data =
+                                Vec::with_capacity(usize::try_from(pixels.data.len()).unwrap());
+                            // Handle open_reader error properly
+                            pixels
+                                .data
+                                .open_reader(..)
+                                .map_err(|e| io::Error::other(e.to_string()))?
+                                .read_to_end(&mut data)?;
+
+                            CelChunk {
+                                layer_index: index.layer,
+                                x: cel.position.x,
+                                y: cel.position.y,
+                                opacity: cel.opacity,
+                                cel_type: CelType::Raw(RawCel {
+                                    width: pixels.width,
+                                    height: pixels.height,
+                                    pixels: data,
+                                }),
+                                z_index: 0,
+                                reserved: [0; 5],
+                            }
+                        }
+                        CelData::Linked(linked_frame_idx) => CelChunk {
+                            layer_index: index.layer,
+                            x: cel.position.x,
+                            y: cel.position.y,
+                            opacity: cel.opacity,
+                            cel_type: CelType::Linked(LinkedCel {
+                                frame_position: *linked_frame_idx,
+                            }),
+                            z_index: 0,
+                            reserved: [0; 5],
+                        },
+                        CelData::Tilemap => continue,
+                    };
+                    chunks.push(super::ChunkBlock::from_value(chunk));
+
+                    if let Some(chunk) = UserDataChunk::from_backing(ext_context, &cel.user_data)
+                        .map(super::ChunkBlock::from_value)
+                    {
+                        chunks.push(chunk);
+                    }
+                }
+            }
+            Ok(chunks)
+        }
+    }
 }
 
 mod cel_extra {
@@ -662,6 +812,8 @@ mod tags {
     };
     use std::io;
 
+    use crate::formats::aseprite::raw::ExtensionContext;
+
     use super::ChunkType;
 
     #[derive(Clone, Copy, Debug)]
@@ -675,18 +827,42 @@ mod tags {
 
     #[derive(Clone, Debug)]
     pub(super) struct Tag {
-        pub from_frame: u16,
-        pub to_frame: u16,
-        pub direction: AnimationDirection,
-        pub repeat: u16,
+        from_frame: u16,
+        to_frame: u16,
+        direction: AnimationDirection,
+        repeat: u16,
         // tag color is deprecated, used only for backward compatibility
         // tag name
-        pub name: String,
+        name: String,
+    }
+
+    impl Tag {
+        pub(super) fn new(
+            from_frame: u16,
+            to_frame: u16,
+            direction: AnimationDirection,
+            repeat: u16,
+            name: String,
+        ) -> Self {
+            Self {
+                from_frame,
+                to_frame,
+                direction,
+                repeat,
+                name,
+            }
+        }
     }
 
     #[derive(Clone, Debug)]
     pub(super) struct TagsChunk {
-        pub tags: Vec<Tag>,
+        tags: Vec<Tag>,
+    }
+
+    impl TagsChunk {
+        pub(super) fn new(tags: Vec<Tag>) -> Self {
+            Self { tags }
+        }
     }
 
     impl ChunkType for TagsChunk {
@@ -756,6 +932,52 @@ mod tags {
             Ok(TagsChunk { tags })
         }
     }
+
+    impl TagsChunk {
+        pub(super) fn from_backing(
+            ext_context: &ExtensionContext,
+            tags: &[crate::formats::aseprite::backing::TagContents],
+        ) -> Vec<super::ChunkBlock> {
+            use crate::formats::aseprite::AnimationDirection as BackingDir;
+            use crate::formats::aseprite::raw::user_data::UserDataChunk;
+
+            let mut chunks = Vec::new();
+            if tags.is_empty() {
+                return chunks;
+            }
+
+            let tags_vec: Vec<Tag> = tags
+                .iter()
+                .map(|t| {
+                    let direction = match t.direction {
+                        BackingDir::Forward => AnimationDirection::Forward,
+                        BackingDir::Backward => AnimationDirection::Reverse,
+                        BackingDir::PingPong => AnimationDirection::PingPong,
+                        BackingDir::PingPongReverse => AnimationDirection::PingPongReverse,
+                    };
+
+                    Tag {
+                        from_frame: u16::try_from(t.from_frame).unwrap_or(0),
+                        to_frame: u16::try_from(t.to_frame).unwrap_or(0),
+                        direction,
+                        repeat: 0,
+                        name: t.name.clone(),
+                    }
+                })
+                .collect();
+
+            chunks.push(super::ChunkBlock::from_value(TagsChunk { tags: tags_vec }));
+
+            // Strict 1:1 Tag User Data
+            for t in tags {
+                let ud_chunk = UserDataChunk::from_backing(ext_context, &t.user_data)
+                    .unwrap_or_else(UserDataChunk::empty);
+                chunks.push(super::ChunkBlock::from_value(ud_chunk));
+            }
+
+            chunks
+        }
+    }
 }
 
 mod palette {
@@ -777,20 +999,20 @@ mod palette {
 
     #[derive(Clone, Debug)]
     pub(super) struct PaletteEntry {
-        pub flags: PaletteEntryFlags,
-        pub red: u8,
-        pub green: u8,
-        pub blue: u8,
-        pub alpha: u8,
-        pub name: Option<String>,
+        flags: PaletteEntryFlags,
+        red: u8,
+        green: u8,
+        blue: u8,
+        alpha: u8,
+        name: Option<String>,
     }
 
     #[derive(Clone, Debug)]
     pub(super) struct PaletteChunk {
-        pub new_palette_size: u32,
-        pub first_color_index: u32,
-        pub last_color_index: u32,
-        pub entries: Vec<PaletteEntry>,
+        new_palette_size: u32,
+        first_color_index: u32,
+        last_color_index: u32,
+        entries: Vec<PaletteEntry>,
     }
 
     impl ChunkType for PaletteChunk {
@@ -830,17 +1052,14 @@ mod palette {
             let last_color_index = reader.read_u32_le()?;
             let _reserved = reader.read_values::<u8>("reserved", 8)?;
 
-            let count = (last_color_index - first_color_index + 1) as usize;
-            let mut entries = Vec::with_capacity(count);
-
-            for _ in 0..count {
+            let mut entries = Vec::with_capacity(new_palette_size as usize);
+            for _ in 0..new_palette_size {
                 let flags_val = reader.read_u16_le()?;
                 let flags = PaletteEntryFlags::from_bits_truncate(flags_val);
                 let red = reader.read_u8()?;
                 let green = reader.read_u8()?;
                 let blue = reader.read_u8()?;
                 let alpha = reader.read_u8()?;
-
                 let name = if flags.contains(PaletteEntryFlags::HAS_NAME) {
                     let name_len = reader.read_u16_le()?;
                     Some(
@@ -852,7 +1071,6 @@ mod palette {
                 } else {
                     None
                 };
-
                 entries.push(PaletteEntry {
                     flags,
                     red,
@@ -871,16 +1089,59 @@ mod palette {
             })
         }
     }
+
+    impl PaletteChunk {
+        pub(super) fn from_backing(
+            palette: &crate::formats::aseprite::backing::PaletteContents,
+        ) -> Option<super::ChunkBlock> {
+            if palette.entries.is_empty() {
+                return None;
+            }
+
+            let entries = palette
+                .entries
+                .iter()
+                .map(|e| {
+                    let mut flags = PaletteEntryFlags::empty();
+                    if e.name().is_some() {
+                        flags |= PaletteEntryFlags::HAS_NAME;
+                    }
+                    PaletteEntry {
+                        flags,
+                        red: e.color().red(),
+                        green: e.color().green(),
+                        blue: e.color().blue(),
+                        alpha: e.color().alpha(),
+                        name: e.name().map(ToString::to_string),
+                    }
+                })
+                .collect();
+
+            Some(super::ChunkBlock::from_value(PaletteChunk {
+                new_palette_size: u32::try_from(palette.entries.len()).unwrap_or(0),
+                first_color_index: 0,
+                last_color_index: u32::try_from(palette.entries.len().saturating_sub(1))
+                    .unwrap_or(0),
+                entries,
+            }))
+        }
+    }
 }
 
 pub(super) mod user_data {
     use bitflags::bitflags;
-    use bytes::BufMut;
+
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
         mem_reader::{MemReader, Result as MemResult},
     };
-    use std::io;
+    use std::{collections::BTreeMap, io, num::NonZeroU32};
+
+    use crate::formats::aseprite::{
+        Properties,
+        backing::{self, UserData},
+        raw::{ExtensionContext, UserDataPropsKey},
+    };
 
     use super::ChunkType;
 
@@ -895,15 +1156,16 @@ pub(super) mod user_data {
 
     #[derive(Clone, Debug)]
     pub(super) struct UserDataChunk {
-        pub flags: UserDataFlags,
-        pub text: Option<String>,
-        pub color: Option<[u8; 4]>, // RGBA
-        pub properties_data: Option<Vec<u8>>,
+        flags: UserDataFlags,
+        text: Option<String>,
+        color: Option<[u8; 4]>, // RGBA
+        properties_data: BTreeMap<UserDataPropsKey, Properties>,
     }
 
     impl UserDataChunk {
         pub(super) fn from_backing(
-            user_data: &crate::formats::aseprite::backing::UserData,
+            ext_context: &ExtensionContext,
+            user_data: &UserData,
         ) -> Option<Self> {
             let mut flags = UserDataFlags::empty();
             let mut has_content = false;
@@ -924,8 +1186,23 @@ pub(super) mod user_data {
                 None
             };
 
-            // TODO: Serialize properties map to properties_data
-            let properties_data = None;
+            let mut properties_data = BTreeMap::new();
+            if !user_data.properties.is_empty() {
+                flags |= UserDataFlags::HAS_PROPERTIES;
+                has_content = true;
+                for (key, props) in &user_data.properties {
+                    let new_key = match key {
+                        backing::UserDataPropsKey::General => UserDataPropsKey::General,
+                        backing::UserDataPropsKey::Extension(name) => {
+                            let Some(id) = ext_context.name_mapping.get(name) else {
+                                panic!("Extension {name} not found in context");
+                            };
+                            UserDataPropsKey::ForExtension(NonZeroU32::new(id.to_u32()).unwrap())
+                        }
+                    };
+                    properties_data.insert(new_key, props.clone());
+                }
+            }
 
             if has_content {
                 Some(Self {
@@ -944,7 +1221,7 @@ pub(super) mod user_data {
                 flags: UserDataFlags::empty(),
                 text: None,
                 color: None,
-                properties_data: None,
+                properties_data: BTreeMap::new(),
             }
         }
     }
@@ -962,8 +1239,27 @@ pub(super) mod user_data {
             if let Some(color) = self.color {
                 builder.write_bytes(&color)?;
             }
-            if let Some(properties) = &self.properties_data {
-                builder.write_bytes(properties)?;
+            if !self.properties_data.is_empty() {
+                let mut props_builder = factory.create();
+                let num_maps = u32::try_from(self.properties_data.len()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Too many property maps")
+                })?;
+                props_builder.write_u32_le(num_maps)?;
+
+                for (key, props) in &self.properties_data {
+                    let key_val = match key {
+                        UserDataPropsKey::General => 0,
+                        UserDataPropsKey::ForExtension(id) => id.get(),
+                    };
+                    props_builder.write_u32_le(key_val)?;
+                    props.write_to(&mut props_builder)?;
+                }
+
+                let props_block = props_builder.build()?;
+                // Size includes the 4 bytes for the count and 4 bytes for the size field itself.
+                // props_block contains count + maps.
+                builder.write_u32_le(u32::try_from(props_block.len()).unwrap() + 4)?;
+                builder.write_block(&props_block)?;
             }
             builder.build()
         }
@@ -997,18 +1293,29 @@ pub(super) mod user_data {
 
             let properties_data = if flags.contains(UserDataFlags::HAS_PROPERTIES) {
                 let size = reader.read_u32_le()?;
-                if size < 4 {
+                // Sanity check size. Spec says >= 8 bytes (4 for size + 4 for count)
+                if size < 8 {
                     return Err(reader
                         .create_invalid_data_error_msg("Invalid properties size")
                         .into());
                 }
-                let mut prop_vec = Vec::with_capacity(size as usize);
-                prop_vec.put_u32_le(size);
-                let content = reader.read_values::<u8>("properties", (size - 4) as usize)?;
-                prop_vec.extend_from_slice(&content);
-                Some(prop_vec)
+                let count = reader.read_u32_le()?;
+                let mut map = BTreeMap::new();
+                for _ in 0..count {
+                    let key_val = reader.read_u32_le()?;
+                    let key = if key_val == 0 {
+                        UserDataPropsKey::General
+                    } else {
+                        UserDataPropsKey::ForExtension(NonZeroU32::new(key_val).ok_or_else(
+                            || reader.create_invalid_data_error_msg("Invalid extension ID 0"),
+                        )?)
+                    };
+                    let props = Properties::read_from(&mut reader)?;
+                    map.insert(key, props);
+                }
+                map
             } else {
-                None
+                BTreeMap::new()
             };
 
             Ok(UserDataChunk {
@@ -1269,6 +1576,8 @@ mod color_profile {
     };
     use std::io;
 
+    use crate::formats::aseprite::backing::ColorProfile;
+
     use super::ChunkType;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1292,6 +1601,26 @@ mod color_profile {
         pub flags: ColorProfileFlags,
         pub fixed_gamma: u32, // FIXED 16.16
         pub icc_profile: Option<Vec<u8>>,
+    }
+
+    impl ColorProfileChunk {
+        pub(super) fn from_backing(profile: &ColorProfile) -> Option<super::ChunkBlock> {
+            match profile {
+                ColorProfile::Srgb => Some(super::ChunkBlock::from_value(ColorProfileChunk {
+                    profile_type: ColorProfileType::Srgb,
+                    flags: ColorProfileFlags::empty(),
+                    fixed_gamma: 0,
+                    icc_profile: None,
+                })),
+                ColorProfile::Icc(data) => Some(super::ChunkBlock::from_value(ColorProfileChunk {
+                    profile_type: ColorProfileType::Icc,
+                    flags: ColorProfileFlags::empty(),
+                    fixed_gamma: 0,
+                    icc_profile: Some(data.data.clone()),
+                })),
+                ColorProfile::None => None,
+            }
+        }
     }
 
     impl ChunkType for ColorProfileChunk {
@@ -1359,6 +1688,8 @@ mod external_files {
     };
     use std::io;
 
+    use crate::formats::aseprite::raw::ExtensionContext;
+
     use super::ChunkType;
 
     #[derive(Clone, Copy, Debug)]
@@ -1372,14 +1703,35 @@ mod external_files {
 
     #[derive(Clone, Debug)]
     pub(super) struct ExternalFileEntry {
-        pub entry_id: u32,
-        pub file_type: ExternalFileType,
-        pub file_name_or_id: String,
+        entry_id: u32,
+        file_type: ExternalFileType,
+        file_name_or_id: String,
     }
 
     #[derive(Clone, Debug)]
     pub(super) struct ExternalFilesChunk {
-        pub entries: Vec<ExternalFileEntry>,
+        entries: Vec<ExternalFileEntry>,
+    }
+
+    impl ExternalFilesChunk {
+        pub(super) fn from_context(ext_context: &ExtensionContext) -> Option<super::ChunkBlock> {
+            let entries: Vec<_> = ext_context
+                .extension_mappings()
+                .map(|(name, id)| ExternalFileEntry {
+                    entry_id: id.to_u32(),
+                    file_type: ExternalFileType::ExtensionProperties,
+                    file_name_or_id: name.clone(),
+                })
+                .collect();
+
+            if entries.is_empty() {
+                return None;
+            }
+
+            Some(super::ChunkBlock::from_value(ExternalFilesChunk {
+                entries,
+            }))
+        }
     }
 
     impl ChunkType for ExternalFilesChunk {
@@ -1459,6 +1811,10 @@ impl super::model::Sprite {
             ColorDepth::Rgba => (0, 32),
         };
 
+        let ext_context = ExtensionContext::from_sprite(&self.contents);
+
+        // let header = Header { ... }; // Removed unused initial header
+
         let mut frames = Vec::new();
 
         for (frame_idx, frame) in self.contents.frames.iter().enumerate() {
@@ -1467,46 +1823,53 @@ impl super::model::Sprite {
 
             if is_initial_frame {
                 // Write chunks if needed:
-                // - ExternalFilesChunk (Skipped for now)
+                // - ExternalFilesChunk
+                if let Some(chunk) = external_files::ExternalFilesChunk::from_context(&ext_context)
+                {
+                    chunks.push(chunk);
+                }
 
                 // - ColorProfileChunk
-                if let Some(chunk) = make_color_profile_chunk(&self.contents.color_profile) {
-                    chunks.push(chunk);
-                }
-            }
-
-            // Write palette, if changed (always write on frame 0)
-            if is_initial_frame && let Some(chunk) = make_palette_chunk(&self.contents.palette) {
-                chunks.push(chunk);
-            }
-
-            if is_initial_frame {
-                // Write:
-                // - UserDataChunk (for Sprite)
-                if let Some(chunk) = make_user_data_chunk(&self.contents.user_data) {
+                if let Some(chunk) =
+                    color_profile::ColorProfileChunk::from_backing(&self.contents.color_profile)
+                {
                     chunks.push(chunk);
                 }
 
-                // - TilesetsChunk (not used)
+                // Write palette, if changed (always write on frame 0)
+                if let Some(chunk) = palette::PaletteChunk::from_backing(&self.contents.palette) {
+                    chunks.push(chunk);
+                }
 
-                // - Write TagsChunk (and associated user data)
-                chunks.extend(make_tags_chunks(&self.contents.tags));
+                // Write user data for sprite (only on frame 0?) - Spec says UserData for Sprite is usually before Tags
+                if let Some(chunk) =
+                    user_data::UserDataChunk::from_backing(&ext_context, &self.contents.user_data)
+                        .map(ChunkBlock::from_value)
+                {
+                    chunks.push(chunk);
+                }
 
-                // - Write LayerChunks (and associated user data)
-                chunks.extend(make_layers_chunks(&self.contents.layers));
-
-                // - Write SliceChunks (not used)
+                chunks.extend(tags::TagsChunk::from_backing(
+                    &ext_context,
+                    &self.contents.tags,
+                ));
+                chunks.extend(layer::LayerChunk::from_backing(
+                    &ext_context,
+                    &self.contents.layers,
+                ));
             }
 
-            // Write cels
-            chunks.extend(make_cels_chunks(&self.contents.cels, frame_idx)?);
+            chunks.extend(cel::CelChunk::create_chunks(
+                &ext_context,
+                &self.contents.cels,
+                frame_idx,
+            )?);
 
             frames.push(build_frame_block(builder, frame.duration_ms, chunks)?);
         }
 
         let frames_block = builder.concat(frames)?;
 
-        // Final Header with size
         let header = Header {
             file_size: u32::try_from(frames_block.len()).unwrap_or(0) + 128,
             frames_count: u16::try_from(self.contents.frames.len()).unwrap_or(u16::MAX),
@@ -1532,184 +1895,12 @@ impl super::model::Sprite {
             grid_y: 0,
             grid_width: 16,
             grid_height: 16,
-            reserved2: [0; 84],
+            reserved2: [0; _],
         };
 
         let header_block = header.to_block(builder)?;
         builder.concat([header_block, frames_block])
     }
-}
-
-// Helper functions for chunk creation
-
-fn make_color_profile_chunk(profile: &ColorProfile) -> Option<ChunkBlock> {
-    match profile {
-        ColorProfile::Srgb => Some(ChunkBlock::from_value(color_profile::ColorProfileChunk {
-            profile_type: color_profile::ColorProfileType::Srgb,
-            flags: color_profile::ColorProfileFlags::empty(),
-            fixed_gamma: 0,
-            icc_profile: None,
-        })),
-        ColorProfile::Icc(data) => Some(ChunkBlock::from_value(color_profile::ColorProfileChunk {
-            profile_type: color_profile::ColorProfileType::Icc,
-            flags: color_profile::ColorProfileFlags::empty(),
-            fixed_gamma: 0,
-            icc_profile: Some(data.data.clone()),
-        })),
-        ColorProfile::None => None,
-    }
-}
-
-fn make_palette_chunk(palette: &PaletteContents) -> Option<ChunkBlock> {
-    if palette.entries.is_empty() {
-        return None;
-    }
-
-    let entries = palette
-        .entries
-        .iter()
-        .map(|e| {
-            let mut flags = palette::PaletteEntryFlags::empty();
-            if e.name().is_some() {
-                flags |= palette::PaletteEntryFlags::HAS_NAME;
-            }
-            palette::PaletteEntry {
-                flags,
-                red: e.color().red(),
-                green: e.color().green(),
-                blue: e.color().blue(),
-                alpha: e.color().alpha(),
-                name: e.name().map(ToString::to_string),
-            }
-        })
-        .collect();
-
-    Some(ChunkBlock::from_value(palette::PaletteChunk {
-        new_palette_size: u32::try_from(palette.entries.len()).unwrap_or(0),
-        first_color_index: 0,
-        last_color_index: u32::try_from(palette.entries.len().saturating_sub(1)).unwrap_or(0),
-        entries,
-    }))
-}
-
-fn make_user_data_chunk(user_data: &UserData) -> Option<ChunkBlock> {
-    user_data::UserDataChunk::from_backing(user_data).map(ChunkBlock::from_value)
-}
-
-fn make_tags_chunks(tags: &[TagContents]) -> Vec<ChunkBlock> {
-    let mut chunks = Vec::new();
-    if tags.is_empty() {
-        return chunks;
-    }
-
-    let tags_vec: Vec<tags::Tag> = tags
-        .iter()
-        .map(|t| {
-            let direction = match t.direction {
-                AnimationDirection::Forward => tags::AnimationDirection::Forward,
-                AnimationDirection::Backward => tags::AnimationDirection::Reverse,
-                AnimationDirection::PingPong => tags::AnimationDirection::PingPong,
-                AnimationDirection::PingPongReverse => tags::AnimationDirection::PingPongReverse,
-            };
-
-            tags::Tag {
-                from_frame: u16::try_from(t.from_frame).unwrap_or(0),
-                to_frame: u16::try_from(t.to_frame).unwrap_or(0),
-                direction,
-                repeat: 0,
-                name: t.name.clone(),
-            }
-        })
-        .collect();
-
-    chunks.push(ChunkBlock::from_value(tags::TagsChunk { tags: tags_vec }));
-
-    // Strict 1:1 Tag User Data
-    for t in tags {
-        let ud_chunk = user_data::UserDataChunk::from_backing(&t.user_data)
-            .unwrap_or_else(user_data::UserDataChunk::empty);
-        chunks.push(ChunkBlock::from_value(ud_chunk));
-    }
-
-    chunks
-}
-
-fn make_layers_chunks(layers: &[LayerContents]) -> Vec<ChunkBlock> {
-    let mut chunks = Vec::new();
-    for layer in layers {
-        chunks.push(ChunkBlock::from_value(layer::LayerChunk {
-            flags: layer.flags,
-            layer_type: layer.layer_type,
-            child_level: 0,
-            default_width: 0,
-            default_height: 0,
-            blend_mode: layer.blend_mode,
-            opacity: layer.opacity,
-            layer_name: layer.name.clone(),
-            uuid: layer.uuid,
-        }));
-
-        if let Some(chunk) = make_user_data_chunk(&layer.user_data) {
-            chunks.push(chunk);
-        }
-    }
-    chunks
-}
-
-fn make_cels_chunks(
-    cels: &std::collections::BTreeMap<CelIndex, CelContents>,
-    frame_idx: usize,
-) -> io::Result<Vec<ChunkBlock>> {
-    let mut chunks = Vec::new();
-
-    for (index, cel) in cels {
-        if index.frame as usize == frame_idx {
-            let chunk = match &cel.contents {
-                CelData::Pixels(pixels) => {
-                    use std::io::Read;
-                    let mut data = Vec::with_capacity(usize::try_from(pixels.data.len()).unwrap());
-                    // Handle open_reader error properly
-                    pixels
-                        .data
-                        .open_reader(..)
-                        .map_err(|e| io::Error::other(e.to_string()))?
-                        .read_to_end(&mut data)?;
-
-                    cel::CelChunk {
-                        layer_index: index.layer,
-                        x: cel.position.x,
-                        y: cel.position.y,
-                        opacity: cel.opacity,
-                        cel_type: cel::CelType::Raw(cel::RawCel {
-                            width: pixels.width,
-                            height: pixels.height,
-                            pixels: data,
-                        }),
-                        z_index: 0,
-                        reserved: [0; 5],
-                    }
-                }
-                CelData::Linked(linked_frame_idx) => cel::CelChunk {
-                    layer_index: index.layer,
-                    x: cel.position.x,
-                    y: cel.position.y,
-                    opacity: cel.opacity,
-                    cel_type: cel::CelType::Linked(cel::LinkedCel {
-                        frame_position: *linked_frame_idx,
-                    }),
-                    z_index: 0,
-                    reserved: [0; 5],
-                },
-                CelData::Tilemap => continue,
-            };
-            chunks.push(ChunkBlock::from_value(chunk));
-
-            if let Some(chunk) = make_user_data_chunk(&cel.user_data) {
-                chunks.push(chunk);
-            }
-        }
-    }
-    Ok(chunks)
 }
 
 impl super::Property {
@@ -1873,7 +2064,7 @@ impl super::Properties {
         builder.write_u32_le(count)?;
         for (key, value) in &self.properties {
             write_string_to(key, builder)?;
-            value.write_untyped_to(builder)?;
+            value.write_typed_to(builder)?;
         }
         Ok(())
     }

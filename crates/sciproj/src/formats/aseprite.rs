@@ -4,31 +4,12 @@
 
 #![expect(dead_code)]
 
-use std::{collections::BTreeMap, num::NonZeroU32};
+use std::collections::BTreeMap;
 
 use bitflags::bitflags;
 
 // Conceptually, we separate the implementations of the Aseprite processor
 // into several layers:
-//
-// - Logical: The types that represent the logical structure of the data in
-//   an ase file. We try to preserve the relationship between pieces of data
-//   rather than require a specific structure. These should be plain data
-//   structures that do not have any lifetimes.
-//
-// - Model types: The API provided within the program. This should maximize
-//   the readability of the code that operates on the data. This should contain
-//   and/or reference the logical types.
-//
-// - Builder types: The API used to modify and/or create new ase files.
-//
-// - Structural types: The types that represent the actual file structure of
-//   an ase file. This should be as close to the actual file format as possible.
-//
-// Decoding a file should first parse into the structural types, then convert
-// them into the logical types. Encoding should do the opposite.
-//
-// --- Refined Architecture ---
 //
 // - Structural Layer (`raw_format`):
 //   Represents the physical file layout (Headers, Chunks, Bytes).
@@ -278,7 +259,7 @@ pub enum Property {
 }
 
 impl Property {
-    fn type_id(&self) -> u16 {
+    pub(crate) fn type_id(&self) -> u16 {
         match self {
             Property::Bool(_) => 1,
             Property::I8(_) => 2,
@@ -309,12 +290,6 @@ pub struct Properties {
 }
 
 impl Properties {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum UserDataPropsKey {
-    General,
-    ForExtension(NonZeroU32),
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum AnimationDirection {

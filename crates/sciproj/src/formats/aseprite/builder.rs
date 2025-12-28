@@ -94,6 +94,44 @@ impl CelBuilder<'_> {
     pub fn set_linked(&mut self, frame_index: u16) {
         self.contents.contents = CelData::Linked(frame_index);
     }
+
+    pub fn set_user_data(&mut self, text: Option<String>, color: Option<Color>) {
+        self.contents.user_data.text = text;
+        self.contents.user_data.color = color;
+    }
+
+    pub fn set_extension_property(
+        &mut self,
+        extension_id: &str,
+        key: &str,
+        value: crate::formats::aseprite::Property,
+    ) {
+        let entry = self
+            .contents
+            .user_data
+            .properties
+            .entry(
+                crate::formats::aseprite::backing::UserDataPropsKey::Extension(
+                    extension_id.to_string(),
+                ),
+            )
+            .or_insert_with(|| crate::formats::aseprite::Properties {
+                properties: std::collections::BTreeMap::new(),
+            });
+        entry.properties.insert(key.to_string(), value);
+    }
+
+    pub fn set_general_property(&mut self, key: &str, value: crate::formats::aseprite::Property) {
+        let entry = self
+            .contents
+            .user_data
+            .properties
+            .entry(crate::formats::aseprite::backing::UserDataPropsKey::General)
+            .or_insert_with(|| crate::formats::aseprite::Properties {
+                properties: std::collections::BTreeMap::new(),
+            });
+        entry.properties.insert(key.to_string(), value);
+    }
 }
 
 pub struct SpriteBuilder {

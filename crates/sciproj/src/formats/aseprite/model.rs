@@ -5,7 +5,8 @@ use std::{io, mem};
 use crate::formats::aseprite::{
     BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point16, Properties,
     backing::{
-        CelContents, CelData, CelPixelData, SpriteContents, ValidationError, validate_sprite,
+        CelContents, CelData, CelPixelData, SpriteContents, UserDataPropsKey, ValidationError,
+        validate_sprite,
     },
 };
 
@@ -143,12 +144,20 @@ impl Sprite {
         self.contents.user_data.text.as_deref()
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = (&str, &Properties)> {
+    #[must_use]
+    pub fn properties(&self) -> Option<&Properties> {
         self.contents
             .user_data
             .properties
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
+            .get(&UserDataPropsKey::General)
+    }
+
+    #[must_use]
+    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+        self.contents
+            .user_data
+            .properties
+            .get(&UserDataPropsKey::Extension(extension.to_string()))
     }
 }
 
@@ -251,12 +260,20 @@ impl<'a> LayerView<'a> {
             .as_deref()
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = (&str, &Properties)> {
+    #[must_use]
+    pub fn properties(&self) -> Option<&Properties> {
         self.sprite.contents.layers[self.index as usize]
             .user_data
             .properties
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
+            .get(&UserDataPropsKey::General)
+    }
+
+    #[must_use]
+    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+        self.sprite.contents.layers[self.index as usize]
+            .user_data
+            .properties
+            .get(&UserDataPropsKey::Extension(extension.to_string()))
     }
 }
 
@@ -304,12 +321,18 @@ impl<'a> TagView<'a> {
             .as_deref()
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = (&str, &Properties)> {
+    pub fn properties(&self) -> Option<&Properties> {
         self.sprite.contents.tags[self.index]
             .user_data
             .properties
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
+            .get(&UserDataPropsKey::General)
+    }
+
+    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+        self.sprite.contents.tags[self.index]
+            .user_data
+            .properties
+            .get(&UserDataPropsKey::Extension(extension.to_string()))
     }
 }
 
@@ -398,12 +421,20 @@ impl<'a> CelView<'a> {
         self.contents.user_data.text.as_deref()
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = (&str, &Properties)> {
+    #[must_use]
+    pub fn properties(&self) -> Option<&Properties> {
         self.contents
             .user_data
             .properties
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
+            .get(&UserDataPropsKey::General)
+    }
+
+    #[must_use]
+    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+        self.contents
+            .user_data
+            .properties
+            .get(&UserDataPropsKey::Extension(extension.to_string()))
     }
 }
 

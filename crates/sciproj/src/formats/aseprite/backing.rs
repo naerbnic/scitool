@@ -9,11 +9,26 @@ use super::{
     PaletteEntry, Point, Properties, Size,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum UserDataPropsKey {
+    General,
+    Extension(String),
+}
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct UserData {
     pub(super) text: Option<String>,
     pub(super) color: Option<Color>,
-    pub(super) properties: BTreeMap<String, Properties>,
+    pub(super) properties: BTreeMap<UserDataPropsKey, Properties>,
+}
+
+impl UserData {
+    pub(super) fn extension_names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.properties.keys().filter_map(|k| match k {
+            UserDataPropsKey::Extension(s) => Some(s.as_str()),
+            UserDataPropsKey::General => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -244,4 +259,113 @@ pub(super) fn validate_sprite(c: &SpriteContents) -> Result<(), ValidationError>
     }
 
     Ok(())
+}
+
+impl SpriteContents {
+    pub(super) fn visit_user_data<'a, F>(&'a self, mut f: F)
+    where
+        F: FnMut(&'a UserData),
+    {
+        f(&self.user_data);
+        for layer in &self.layers {
+            f(&layer.user_data);
+        }
+        for tag in &self.tags {
+            f(&tag.user_data);
+        }
+        for cel in self.cels.values() {
+            f(&cel.user_data);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_visit_user_data() {
+        let mut sprite = SpriteContents {
+            color_depth: ColorDepth::Rgba,
+            width: 10,
+            height: 10,
+            pixel_width: 1,
+            pixel_height: 1,
+            transparent_color: 0,
+            frames: vec![],
+            layers: vec![],
+            tags: vec![],
+            cels: BTreeMap::new(),
+            color_profile: ColorProfile::None,
+            palette: PaletteContents { entries: vec![] },
+            user_data: UserData {
+                text: Some("Sprite".to_string()),
+                color: None,
+                properties: BTreeMap::new(),
+            },
+        };
+
+        // Add a layer
+        sprite.layers.push(LayerContents {
+            name: "L1".to_string(),
+            flags: LayerFlags::empty(),
+            layer_type: LayerType::Normal,
+            blend_mode: BlendMode::Normal,
+            opacity: 255,
+            uuid: None,
+            user_data: UserData {
+                text: Some("Layer".to_string()),
+                color: None,
+                properties: BTreeMap::new(),
+            },
+        });
+
+        // Add a tag
+        sprite.tags.push(TagContents {
+            from_frame: 0,
+            to_frame: 1,
+            name: "T1".to_string(),
+            color: Color::from_rgba(0, 0, 0, 0),
+            direction: AnimationDirection::Forward,
+            user_data: UserData {
+                text: Some("Tag".to_string()),
+                color: None,
+                properties: BTreeMap::new(),
+            },
+        });
+
+        // Add a cel
+        let cel_idx = CelIndex { layer: 0, frame: 0 };
+        sprite.cels.insert(
+            cel_idx,
+            CelContents {
+                position: Point16 { x: 0, y: 0 },
+                opacity: 255,
+                contents: CelData::Tilemap, // Dummy
+                precise_position: Point { x: 0, y: 0 },
+                precise_size: Size {
+                    width: 0,
+                    height: 0,
+                },
+                user_data: UserData {
+                    text: Some("Cel".to_string()),
+                    color: None,
+                    properties: BTreeMap::new(),
+                },
+            },
+        );
+
+        let mut visited = Vec::new();
+        sprite.visit_user_data(|ud| {
+            if let Some(txt) = &ud.text {
+                visited.push(txt.clone());
+            }
+        });
+
+        assert!(visited.contains(&"Sprite".to_string()));
+        assert!(visited.contains(&"Layer".to_string()));
+        assert!(visited.contains(&"Tag".to_string()));
+        assert!(visited.contains(&"Cel".to_string()));
+        assert_eq!(visited.len(), 4);
+    }
 }

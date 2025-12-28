@@ -1,21 +1,16 @@
+// IGNORE THIS FILE UNTIL THE ASEPRITE REWRITE IS COMPLETED
+
 use anyhow::Result;
 use clap::Parser;
 use scidev::{
     resources::{
         ResourceId, ResourceSet, ResourceType,
-        types::{
-            palette::{self},
-            view::{Loop, View},
-        },
+        types::view::{Loop, View},
     },
-    utils::block::Block,
+    utils::block::{Block, BlockBuilderFactory},
 };
 use sciproj::formats::aseprite::{
-    ChunkBlock, Header, HeaderFlags, build_frame_block,
-    cel::{CelChunk, CelType, RawCel},
-    layer::{BlendMode, LayerChunk, LayerFlags, LayerType},
-    palette::{PaletteChunk, PaletteEntry, PaletteEntryFlags},
-    tags::{AnimationDirection, Tag, TagsChunk},
+    AnimationDirection, Color, ColorDepth, LayerFlags, PaletteEntry, SpriteBuilder,
 };
 use std::fs::File;
 use std::path::PathBuf;
@@ -48,7 +43,6 @@ fn main() -> Result<()> {
     println!("View data size: {}", data.len());
 
     let view = View::from_resource(data)?;
-    // let view = View::from_resource(&Block::from_mem_block(data.open_mem(..).unwrap()))?;
 
     let palette = view.palette();
 
@@ -69,27 +63,18 @@ fn main() -> Result<()> {
 
     println!("Max size: {max_width}x{max_height}, Total frames: {total_frames}");
 
-    let mut ase_header = Header {
-        file_size: 0, // Will be filled later
-        frames_count: u16::try_from(total_frames).unwrap(),
-        width: max_width,
-        height: max_height,
-        color_depth: 8, // Indexed
-        flags: HeaderFlags::HAS_LAYER_OPACITY,
-        transparent_index: 255,
-        num_indexed_colors: 256,
-        pixel_width: 1,
-        pixel_height: 1,
-        grid_x: 0,
-        grid_y: 0,
-        grid_width: 16,
-        grid_height: 16,
-        reserved2: [0; 84],
-    };
+    let mut builder = SpriteBuilder::new(ColorDepth::Indexed(256));
+    builder.set_transparent_color(255);
+    builder.set_width(max_width);
+    builder.set_height(max_height);
 
-    let mut frames_data = Vec::new();
+    // Create a single layer for the view
+    let mut layer_builder = builder.add_layer();
+    layer_builder.set_name("Layer 1");
+    layer_builder.set_flags(LayerFlags::VISIBLE | LayerFlags::EDITABLE);
+    let layer_index = layer_builder.index();
+
     let mut frame_cursor = 0;
-    let mut tags = Vec::new();
 
     for (loop_idx, loop_metadata) in view.loops().iter().enumerate() {
         let start_frame = frame_cursor;
@@ -98,100 +83,82 @@ fn main() -> Result<()> {
             // Decode the pixels
             let pixels = cel.decode_pixels()?;
 
-            // Create Frame
-            let mut chunks = Vec::new();
+            // Add Frame
+            let mut frame_builder = builder.add_frame();
+            frame_builder.set_duration(100); // Default duration?
+            let frame_index = frame_builder.index();
 
-            if frame_cursor == 0 {
-                // Define Layer
-                chunks.push(ChunkBlock::from_value(LayerChunk {
-                    flags: LayerFlags::VISIBLE | LayerFlags::EDITABLE,
-                    layer_type: LayerType::Normal,
-                    child_level: 0,
-                    blend_mode: BlendMode::Normal,
-                    opacity: 255,
-                    layer_name: "Layer 1".to_string(),
-                    uuid: None,
-                    default_width: 0,
-                    default_height: 0,
-                }));
+            // Add Cel to Layer 1
+            let mut cel_builder = builder.add_cel(layer_index, frame_index);
+            // Default position to (0,0) or center? View cels usually have displacement.
+            // For now, let's just put them at 0,0, but we might want to use displacement x/y later if available in Cel
+            cel_builder.set_position(0, 0);
 
-                // Add Palette
-                if let Some(palette) = &palette
-                    && !palette.is_empty()
-                {
-                    let mut pal_entries = Vec::new();
+            // We need to convert pixels to Block or similar for set_image
+            // set_image takes (width, height, Into<Block>)
 
-                    let num_entries = palette.len();
-                    let default_entry = palette::PaletteEntry::new(0, 0, 0);
-                    for i in palette.range() {
-                        let entry = palette.get(i).unwrap_or(&default_entry);
-                        pal_entries.push(PaletteEntry {
-                            flags: PaletteEntryFlags::empty(),
-                            red: entry.red(),
-                            green: entry.green(),
-                            blue: entry.blue(),
-                            alpha: 255,
-                            name: None,
-                        });
-                    }
-                    chunks.push(ChunkBlock::from_value(PaletteChunk {
-                        new_palette_size: u32::try_from(num_entries).unwrap(),
-                        first_color_index: u32::from(palette.first_color()),
-                        last_color_index: u32::from(palette.last_color()),
-                        entries: pal_entries,
-                    }));
+            // Pixel Remapping for Round-Trip Transparency
+            // Swap 'clear_key' with 255 (Global Transparent)
+            let mut remapped_pixels = pixels.clone();
+            let clear_key = cel.clear_key();
+            let global_transparent = 255u8;
+
+            for pixel in &mut remapped_pixels {
+                if *pixel == clear_key {
+                    *pixel = global_transparent;
+                } else if *pixel == global_transparent {
+                    *pixel = clear_key;
                 }
             }
 
-            // Cel Chunk
-            chunks.push(ChunkBlock::from_value(CelChunk {
-                layer_index: 0,
-                x: 0, // Should be based on displacement
-                y: 0,
-                opacity: 255,
-                cel_type: CelType::Raw(RawCel {
-                    width: cel.width(),
-                    height: cel.height(),
-                    pixels: pixels.clone(),
-                }),
-                z_index: 0,
-                reserved: [0; 5],
-            }));
+            cel_builder.set_image(cel.width(), cel.height(), Block::from_vec(remapped_pixels));
 
-            frames_data.push(chunks);
+            // Store original transparency key in UserData
+            cel_builder.set_extension_property(
+                "scidev/scitool",
+                "transparency_key",
+                sciproj::formats::aseprite::Property::U8(clear_key),
+            );
+
             frame_cursor += 1;
         }
 
-        tags.push(Tag {
-            from_frame: u16::try_from(start_frame).unwrap(),
-            to_frame: u16::try_from(frame_cursor - 1).unwrap(),
-            direction: AnimationDirection::Forward,
-            repeat: 0,
-            name: format!("Loop {loop_idx}"),
-        });
+        // Add Tag for the loop
+        builder.add_tag(
+            u32::try_from(start_frame).unwrap(),
+            u32::try_from(frame_cursor - 1).unwrap(),
+            format!("Loop {loop_idx}"),
+            AnimationDirection::Forward,
+        );
     }
 
-    // Insert Tags chunk into Frame 0
-    frames_data[0].push(ChunkBlock::from_value(TagsChunk { tags }));
+    // Set Palette
+    if let Some(palette) = &palette
+        && !palette.is_empty()
+    {
+        let mut pal_entries = Vec::new();
+        let default_entry = scidev::resources::types::palette::PaletteEntry::new(0, 0, 0);
 
-    let frames_blocks = Block::concat(
-        frames_data
-            .into_iter()
-            .map(|chunks| build_frame_block(100, chunks))
-            .collect::<Vec<_>>(),
-    );
+        for i in palette.range() {
+            let entry = palette.get(i).unwrap_or(&default_entry);
+            pal_entries.push(PaletteEntry::new(
+                Color::from_rgba(entry.red(), entry.green(), entry.blue(), 255),
+                None,
+            ));
+        }
 
-    // Rewrite Main Header
-    ase_header.file_size = u32::try_from(frames_blocks.len() + 128).unwrap();
+        builder.set_palette(pal_entries);
+    }
 
-    let header_block = ase_header.to_block();
-
-    let file_block = Block::concat([header_block, frames_blocks]);
+    let sprite = builder.build()?;
 
     // Write to file
+    let factory = BlockBuilderFactory::new_in_memory();
+    let file_block = sprite.to_block(&factory)?;
+
     {
         let mut file = File::create(&args.output_file)?;
-        std::io::copy(&mut file_block.open_reader(..)?, &mut file)?;
+        std::io::copy(&mut file_block.open_reader(..).unwrap(), &mut file)?;
     }
 
     println!("Written to {}", args.output_file.display());
