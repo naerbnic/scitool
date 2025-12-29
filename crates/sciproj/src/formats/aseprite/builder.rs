@@ -251,6 +251,26 @@ impl SpriteBuilder {
         self.contents.width = width;
     }
 
+    pub fn set_extension_property(
+        &mut self,
+        extension_id: &str,
+        key: &str,
+        value: crate::formats::aseprite::Property,
+    ) {
+        let entry = self
+            .contents
+            .user_data
+            .properties
+            .entry(
+                crate::formats::aseprite::backing::UserDataPropsKey::Extension(
+                    extension_id.to_string(),
+                ),
+            )
+            .or_insert_with(|| crate::formats::aseprite::Properties {
+                properties: std::collections::BTreeMap::new(),
+            });
+        entry.properties.insert(key.to_string(), value);
+    }
     pub fn set_height(&mut self, height: u16) {
         self.contents.height = height;
     }

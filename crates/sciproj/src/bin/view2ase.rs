@@ -5,12 +5,13 @@ use clap::Parser;
 use scidev::{
     resources::{
         ResourceId, ResourceSet, ResourceType,
+        types::palette::PaletteEntry as SciPaletteEntry,
         types::view::{Loop, View},
     },
     utils::block::{Block, BlockBuilderFactory},
 };
 use sciproj::formats::aseprite::{
-    AnimationDirection, Color, ColorDepth, LayerFlags, PaletteEntry, SpriteBuilder,
+    AnimationDirection, Color, ColorDepth, LayerFlags, PaletteEntry, Property, SpriteBuilder,
 };
 use std::fs::File;
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ struct Args {
     output_file: PathBuf,
 }
 
+#[expect(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -47,26 +49,59 @@ fn main() -> Result<()> {
     let palette = view.palette();
 
     // 4. Construct Aseprite file
-    let mut max_width = 0;
-    let mut max_height = 0;
+    // First pass: Calculate bounding box of all cels
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
     let mut total_frames = 0;
 
     for cel in view.loops().iter().flat_map(Loop::cels) {
-        if cel.width() > max_width {
-            max_width = cel.width();
-        }
-        if cel.height() > max_height {
-            max_height = cel.height();
-        }
+        println!(
+            "Cel dims: {}x{}, Displace: {}x{}",
+            cel.width(),
+            cel.height(),
+            cel.displace_x(),
+            cel.displace_y()
+        );
+        let x = i32::from(cel.displace_x());
+        let y = i32::from(cel.displace_y());
+        let w = i32::from(cel.width());
+        let h = i32::from(cel.height());
+
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x + w);
+        max_y = max_y.max(y + h);
+
         total_frames += 1;
     }
 
-    println!("Max size: {max_width}x{max_height}, Total frames: {total_frames}");
+    // Aseprite doesn't strictly support negative coordinates for the sprite canvas itself
+    // (though cels can be off-canvas). To be safe and user-friendly, we shift everything
+    // to positive coordinates.
+    let origin_x = -min_x;
+    let origin_y = -min_y;
+
+    let sprite_width = u16::try_from(max_x - min_x).unwrap();
+    let sprite_height = u16::try_from(max_y - min_y).unwrap();
+
+    println!("Sprite bounding box: ({min_x}, {min_y}) to ({max_x}, {max_y})");
+    println!("Sprite Size: {sprite_width}x{sprite_height}");
+    println!("Origin shift: ({origin_x}, {origin_y})");
+    println!("Total frames: {total_frames}");
 
     let mut builder = SpriteBuilder::new(ColorDepth::Indexed(256));
     builder.set_transparent_color(255);
-    builder.set_width(max_width);
-    builder.set_height(max_height);
+    builder.set_width(sprite_width);
+    builder.set_height(sprite_height);
+
+    // Store the coordinate origin shift in the sprite metadata.
+    // This allows exact round-tripping of original coordinates.
+    // Aseprite X = Original X + origin_x
+    // Original X = Aseprite X - origin_x
+    builder.set_extension_property("scidev/scitool", "origin_x", Property::I32(origin_x));
+    builder.set_extension_property("scidev/scitool", "origin_y", Property::I32(origin_y));
 
     // Create a single layer for the view
     let mut layer_builder = builder.add_layer();
@@ -92,7 +127,11 @@ fn main() -> Result<()> {
             let mut cel_builder = builder.add_cel(layer_index, frame_index);
             // Default position to (0,0) or center? View cels usually have displacement.
             // For now, let's just put them at 0,0, but we might want to use displacement x/y later if available in Cel
-            cel_builder.set_position(0, 0);
+            // Set Position relative to new origin
+            cel_builder.set_position(
+                i16::try_from(i32::from(cel.displace_x()) + origin_x).unwrap(),
+                i16::try_from(i32::from(cel.displace_y()) + origin_y).unwrap(),
+            );
 
             // We need to convert pixels to Block or similar for set_image
             // set_image takes (width, height, Into<Block>)
@@ -117,7 +156,7 @@ fn main() -> Result<()> {
             cel_builder.set_extension_property(
                 "scidev/scitool",
                 "transparency_key",
-                sciproj::formats::aseprite::Property::U8(clear_key),
+                Property::U8(clear_key),
             );
 
             frame_cursor += 1;
@@ -137,7 +176,7 @@ fn main() -> Result<()> {
         && !palette.is_empty()
     {
         let mut pal_entries = Vec::new();
-        let default_entry = scidev::resources::types::palette::PaletteEntry::new(0, 0, 0);
+        let default_entry = SciPaletteEntry::new(0, 0, 0);
 
         for i in palette.range() {
             let entry = palette.get(i).unwrap_or(&default_entry);
