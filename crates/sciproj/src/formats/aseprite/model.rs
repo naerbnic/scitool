@@ -12,6 +12,9 @@ use crate::formats::aseprite::{
 
 use scidev::utils::block::MemBlock;
 
+/// A readonly view of an Aseprite sprite.
+///
+/// This is the main entry point for inspecting Aseprite data.
 pub struct Sprite {
     pub(super) contents: SpriteContents,
 }
@@ -22,31 +25,41 @@ impl Sprite {
         Ok(Self { contents })
     }
 
+    /// Returns the width of the sprite in pixels.
     #[must_use]
     pub fn width(&self) -> u16 {
         self.contents.width
     }
 
+    /// Returns the height of the sprite in pixels.
     #[must_use]
     pub fn height(&self) -> u16 {
         self.contents.height
     }
 
+    /// Returns the pixel aspect ratio width.
+    ///
+    /// If 0 or 1, pixels are square.
     #[must_use]
     pub fn pixel_width(&self) -> u8 {
         self.contents.pixel_width
     }
 
+    /// Returns the pixel aspect ratio height.
+    ///
+    /// If 0 or 1, pixels are square.
     #[must_use]
     pub fn pixel_height(&self) -> u8 {
         self.contents.pixel_height
     }
 
+    /// Returns the color depth of the sprite.
     #[must_use]
     pub fn color_depth(&self) -> ColorDepth {
         self.contents.color_depth
     }
 
+    /// Returns an iterator over all frames in the sprite.
     pub fn frames(&self) -> impl Iterator<Item = FrameView<'_>> {
         self.contents
             .frames
@@ -58,6 +71,7 @@ impl Sprite {
             })
     }
 
+    /// Returns the frame at the given index, if it exists.
     #[must_use]
     pub fn frame(&self, index: usize) -> Option<FrameView<'_>> {
         if index < self.contents.frames.len() {
@@ -70,6 +84,7 @@ impl Sprite {
         }
     }
 
+    /// Returns an iterator over all layers in the sprite.
     pub fn layers(&self) -> impl Iterator<Item = LayerView<'_>> {
         self.contents
             .layers
@@ -81,6 +96,7 @@ impl Sprite {
             })
     }
 
+    /// Returns the layer at the given index, if it exists.
     #[must_use]
     pub fn layer(&self, index: usize) -> Option<LayerView<'_>> {
         if index < self.contents.layers.len() {
@@ -93,6 +109,7 @@ impl Sprite {
         }
     }
 
+    /// Returns an iterator over all animation tags in the sprite.
     pub fn tags(&self) -> impl Iterator<Item = TagView<'_>> {
         self.contents
             .tags
@@ -104,6 +121,7 @@ impl Sprite {
             })
     }
 
+    /// Returns an iterator over all cels in the sprite.
     pub fn cels(&self) -> impl Iterator<Item = CelView<'_>> {
         self.contents.cels.iter().map(|(&index, contents)| CelView {
             sprite: self,
@@ -112,6 +130,7 @@ impl Sprite {
         })
     }
 
+    /// Returns the cel at the specified layer and frame, if it exists.
     #[must_use]
     pub fn cel(&self, layer: u16, frame: u16) -> Option<CelView<'_>> {
         let index = CelIndex { layer, frame };
@@ -126,6 +145,7 @@ impl Sprite {
         }
     }
 
+    /// Returns the color palette of the sprite, if in indexed mode.
     #[must_use]
     pub fn palette(&self) -> Option<PaletteView<'_>> {
         match self.contents.color_depth {
@@ -134,16 +154,19 @@ impl Sprite {
         }
     }
 
+    /// Returns the user data color, if set.
     #[must_use]
     pub fn color(&self) -> Option<Color> {
         self.contents.user_data.color
     }
 
+    /// Returns the user data text, if set.
     #[must_use]
     pub fn data(&self) -> Option<&str> {
         self.contents.user_data.text.as_deref()
     }
 
+    /// Returns the general user data properties.
     #[must_use]
     pub fn properties(&self) -> Option<&Properties> {
         self.contents
@@ -152,6 +175,7 @@ impl Sprite {
             .get(&UserDataPropsKey::General)
     }
 
+    /// Returns the user data properties for a specific extension.
     #[must_use]
     pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
         self.contents
@@ -161,6 +185,7 @@ impl Sprite {
     }
 }
 
+/// A readonly view of a frame in a sprite.
 #[derive(Clone, Copy)]
 pub struct FrameView<'a> {
     sprite: &'a Sprite,
@@ -168,33 +193,39 @@ pub struct FrameView<'a> {
 }
 
 impl<'a> FrameView<'a> {
+    /// Returns the index of this frame.
     #[must_use]
     pub fn index(&self) -> u16 {
         self.index
     }
 
+    /// Returns the duration of this frame in milliseconds.
     #[must_use]
     pub fn duration(&self) -> u16 {
         self.sprite.contents.frames[self.index as usize].duration_ms
     }
 
+    /// Returns an iterator over all cels in this frame.
     pub fn cels(&self) -> impl Iterator<Item = CelView<'a>> {
         self.sprite
             .cels()
             .filter(|cel| cel.index().frame == self.index)
     }
 
+    /// Returns the cel in this frame on a specific layer, if it exists.
     #[must_use]
     pub fn cel(&self, layer_index: u16) -> Option<CelView<'a>> {
         self.sprite.cel(layer_index, self.index)
     }
 
+    /// Returns the sprite containing this frame.
     #[must_use]
     pub fn sprite(&self) -> &'a Sprite {
         self.sprite
     }
 }
 
+/// A readonly view of a layer in a sprite.
 #[derive(Clone, Copy)]
 pub struct LayerView<'a> {
     sprite: &'a Sprite,
@@ -202,16 +233,19 @@ pub struct LayerView<'a> {
 }
 
 impl<'a> LayerView<'a> {
+    /// Returns the index of this layer.
     #[must_use]
     pub fn index(&self) -> u16 {
         self.index
     }
 
+    /// Returns the name of this layer.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.sprite.contents.layers[self.index as usize].name
     }
 
+    /// Returns true if the layer is visible.
     #[must_use]
     pub fn is_visible(&self) -> bool {
         self.sprite.contents.layers[self.index as usize]
@@ -219,32 +253,38 @@ impl<'a> LayerView<'a> {
             .contains(crate::formats::aseprite::LayerFlags::VISIBLE)
     }
 
+    /// Returns the opacity of the layer (0-255).
     #[must_use]
     pub fn opacity(&self) -> u8 {
         self.sprite.contents.layers[self.index as usize].opacity
     }
 
+    /// Returns the blend mode of the layer.
     #[must_use]
     pub fn blend_mode(&self) -> BlendMode {
         self.sprite.contents.layers[self.index as usize].blend_mode
     }
 
+    /// Returns an iterator over all cels in this layer.
     pub fn cels(&self) -> impl Iterator<Item = CelView<'a>> {
         self.sprite
             .cels()
             .filter(|cel| cel.index().layer == self.index)
     }
 
+    /// Returns the cel in this layer at the specified frame index, if it exists.
     #[must_use]
     pub fn cel(&self, frame_index: u16) -> Option<CelView<'a>> {
         self.sprite.cel(self.index, frame_index)
     }
 
+    /// Returns the sprite containing this layer.
     #[must_use]
     pub fn sprite(&self) -> &'a Sprite {
         self.sprite
     }
 
+    /// Returns the user data color, if set.
     #[must_use]
     pub fn color(&self) -> Option<Color> {
         self.sprite.contents.layers[self.index as usize]
@@ -252,6 +292,7 @@ impl<'a> LayerView<'a> {
             .color
     }
 
+    /// Returns the user data text, if set.
     #[must_use]
     pub fn data(&self) -> Option<&str> {
         self.sprite.contents.layers[self.index as usize]
@@ -260,6 +301,7 @@ impl<'a> LayerView<'a> {
             .as_deref()
     }
 
+    /// Returns the general user data properties.
     #[must_use]
     pub fn properties(&self) -> Option<&Properties> {
         self.sprite.contents.layers[self.index as usize]
@@ -268,6 +310,7 @@ impl<'a> LayerView<'a> {
             .get(&UserDataPropsKey::General)
     }
 
+    /// Returns the user data properties for a specific extension.
     #[must_use]
     pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
         self.sprite.contents.layers[self.index as usize]
@@ -277,6 +320,7 @@ impl<'a> LayerView<'a> {
     }
 }
 
+/// A readonly view of an animation tag in a sprite.
 #[derive(Clone, Copy)]
 pub struct TagView<'a> {
     sprite: &'a Sprite,
@@ -284,22 +328,26 @@ pub struct TagView<'a> {
 }
 
 impl<'a> TagView<'a> {
+    /// Returns the name of this tag.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.sprite.contents.tags[self.index].name
     }
 
+    /// Returns the frame range covered by this tag (inclusive of start, exclusive of end).
     #[must_use]
     pub fn range(&self) -> Range<usize> {
         let tag = &self.sprite.contents.tags[self.index];
         (tag.from_frame as usize)..(tag.to_frame as usize + 1)
     }
 
+    /// Returns the animation direction of this tag.
     #[must_use]
     pub fn direction(&self) -> crate::formats::aseprite::AnimationDirection {
         self.sprite.contents.tags[self.index].direction
     }
 
+    /// Returns an iterator over the frames in this tag.
     pub fn frames(&self) -> impl Iterator<Item = FrameView<'a>> {
         let range = self.range();
         range.map(|i| FrameView {
@@ -308,11 +356,13 @@ impl<'a> TagView<'a> {
         })
     }
 
+    /// Returns the user data color, if set.
     #[must_use]
     pub fn color(&self) -> Option<Color> {
         self.sprite.contents.tags[self.index].user_data.color
     }
 
+    /// Returns the user data text, if set.
     #[must_use]
     pub fn data(&self) -> Option<&str> {
         self.sprite.contents.tags[self.index]
@@ -321,6 +371,8 @@ impl<'a> TagView<'a> {
             .as_deref()
     }
 
+    /// Returns the general user data properties.
+    #[must_use]
     pub fn properties(&self) -> Option<&Properties> {
         self.sprite.contents.tags[self.index]
             .user_data
@@ -328,6 +380,8 @@ impl<'a> TagView<'a> {
             .get(&UserDataPropsKey::General)
     }
 
+    /// Returns the user data properties for a specific extension.
+    #[must_use]
     pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
         self.sprite.contents.tags[self.index]
             .user_data
@@ -336,6 +390,7 @@ impl<'a> TagView<'a> {
     }
 }
 
+/// A readonly view of a cel in a sprite.
 #[derive(Clone, Copy)]
 pub struct CelView<'a> {
     sprite: &'a Sprite,
@@ -344,21 +399,25 @@ pub struct CelView<'a> {
 }
 
 impl<'a> CelView<'a> {
+    /// Returns the index (layer and frame) of this cel.
     #[must_use]
     pub fn index(&self) -> CelIndex {
         self.index
     }
 
+    /// Returns the position of this cel on the canvas.
     #[must_use]
     pub fn position(&self) -> Point16 {
         self.contents.position
     }
 
+    /// Returns the opacity of this cel (0-255).
     #[must_use]
     pub fn opacity(&self) -> u8 {
         self.contents.opacity
     }
 
+    /// If this cel is linked to another frame, returns the view of that cel.
     #[must_use]
     pub fn linked_cel(&self) -> Option<CelView<'a>> {
         if let CelData::Linked(frame_index) = &self.contents.contents {
@@ -368,6 +427,9 @@ impl<'a> CelView<'a> {
         }
     }
 
+    /// Returns the image data for this cel.
+    ///
+    /// If this is a linked cel, follows the link to the source image.
     #[must_use]
     pub fn image(&self) -> CelImage<'a> {
         self.resolve_image(self.contents)
@@ -390,6 +452,7 @@ impl<'a> CelView<'a> {
         }
     }
 
+    /// Returns the layer containing this cel.
     #[must_use]
     pub fn layer(&self) -> LayerView<'a> {
         LayerView {
@@ -398,6 +461,7 @@ impl<'a> CelView<'a> {
         }
     }
 
+    /// Returns the frame containing this cel.
     #[must_use]
     pub fn frame(&self) -> FrameView<'a> {
         FrameView {
@@ -406,21 +470,25 @@ impl<'a> CelView<'a> {
         }
     }
 
+    /// Returns the sprite containing this cel.
     #[must_use]
     pub fn sprite(&self) -> &'a Sprite {
         self.sprite
     }
 
+    /// Returns the user data color, if set.
     #[must_use]
     pub fn color(&self) -> Option<Color> {
         self.contents.user_data.color
     }
 
+    /// Returns the user data text, if set.
     #[must_use]
     pub fn data(&self) -> Option<&str> {
         self.contents.user_data.text.as_deref()
     }
 
+    /// Returns the general user data properties.
     #[must_use]
     pub fn properties(&self) -> Option<&Properties> {
         self.contents
@@ -438,26 +506,26 @@ impl<'a> CelView<'a> {
     }
 }
 
+/// A readonly view of the palette in a sprite.
 #[derive(Clone, Copy)]
 pub struct PaletteView<'a> {
     sprite: &'a Sprite,
 }
 
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "Keep by reference in case we need to add data later"
-)]
 impl PaletteView<'_> {
+    /// Returns the number of entries in the palette.
     #[must_use]
     pub fn len(&self) -> usize {
         self.sprite.contents.palette.entries.len()
     }
 
+    /// Returns true if the palette is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.sprite.contents.palette.entries.is_empty()
     }
 
+    /// Returns the color at the given index, if it exists.
     #[must_use]
     pub fn color(&self, index: usize) -> Option<Color> {
         self.sprite
@@ -469,11 +537,15 @@ impl PaletteView<'_> {
     }
 }
 
+/// Image data for a cel.
 pub enum CelImage<'a> {
+    /// Raw pixel data.
     RawPixels(CelPixels<'a>),
+    /// Tilemap data (not yet fully supported).
     Tilemap,
 }
 
+/// Raw pixel access for a cel.
 #[derive(Clone, Copy)]
 pub struct CelPixels<'a> {
     inner: &'a CelPixelData,
@@ -481,16 +553,19 @@ pub struct CelPixels<'a> {
 }
 
 impl CelPixels<'_> {
+    /// Returns the width of the image data in pixels.
     #[must_use]
     pub fn width(&self) -> u16 {
         self.inner.width
     }
 
+    /// Returns the height of the image data in pixels.
     #[must_use]
     pub fn height(&self) -> u16 {
         self.inner.height
     }
 
+    /// Returns the color mode of the pixel data.
     #[must_use]
     pub fn color_mode(&self) -> ColorDepth {
         self.color_depth
@@ -502,6 +577,7 @@ impl CelPixels<'_> {
             .get_or_else(|| self.inner.data.open_mem(..))
     }
 
+    /// Returns the pixels as an RGBA slice, if the color mode matches.
     pub fn as_rgba(&self) -> io::Result<PixelSlice<Color>> {
         if matches!(self.color_depth, ColorDepth::Rgba) {
             PixelSlice::new(self.raw_bytes()?)
@@ -513,6 +589,7 @@ impl CelPixels<'_> {
         }
     }
 
+    /// Returns the pixels as an indexed slice, if the color mode matches.
     pub fn as_indexed(&self) -> io::Result<PixelSlice<u8>> {
         if matches!(self.color_depth, ColorDepth::Indexed(_)) {
             PixelSlice::new(self.raw_bytes()?)
@@ -542,8 +619,11 @@ impl CelPixels<'_> {
 /// An enumeration of typed pixel views corresponding to the image's color mode.
 #[derive(Debug)]
 pub enum TypedPixels {
+    /// RGBA pixels.
     Rgba(PixelSlice<Color>),
+    /// Grayscale pixels.
     Grayscale(PixelSlice<GrayscaleColor>),
+    /// Indexed pixels.
     Indexed(PixelSlice<u8>),
 }
 

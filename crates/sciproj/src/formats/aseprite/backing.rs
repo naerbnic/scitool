@@ -9,12 +9,16 @@ use super::{
     PaletteEntry, Point, Properties, Size,
 };
 
+/// Keys for user data properties.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum UserDataPropsKey {
+    /// General properties not associated with a specific extension.
     General,
+    /// Properties associated with a specific extension.
     Extension(String),
 }
 
+/// User data associated with various Aseprite elements.
 #[derive(Debug, Clone, Default)]
 pub(super) struct UserData {
     pub(super) text: Option<String>,
@@ -31,6 +35,7 @@ impl UserData {
     }
 }
 
+/// The backing data for an animation tag.
 #[derive(Debug, Clone)]
 pub(super) struct TagContents {
     pub(super) from_frame: u32,
@@ -41,6 +46,7 @@ pub(super) struct TagContents {
     pub(super) user_data: UserData,
 }
 
+/// The backing data for a layer.
 #[derive(Debug, Clone)]
 pub(super) struct LayerContents {
     pub(super) name: String,
@@ -52,6 +58,7 @@ pub(super) struct LayerContents {
     pub(super) user_data: UserData,
 }
 
+/// Raw pixel data for a cel, including potential on-disk caching.
 #[derive(Debug, Clone)]
 pub(super) struct CelPixelData {
     pub(super) width: u16,
@@ -60,10 +67,14 @@ pub(super) struct CelPixelData {
     pub(super) cached_data: CachedMemBlock,
 }
 
+/// The type of data contained in a cel.
 #[derive(Debug, Clone)]
 pub(super) enum CelData {
+    /// Raw pixel data.
     Pixels(CelPixelData),
+    /// A link to another frame's cel on the same layer.
     Linked(u16),
+    /// Tilemap data (reserved for future use).
     Tilemap, // Reserved for future use
 }
 
@@ -78,28 +89,36 @@ pub(super) struct CelContents {
     pub(super) precise_size: Size,
 }
 
+/// The backing data for a frame.
 #[derive(Debug, Clone)]
 pub(super) struct FrameContents {
     pub(super) duration_ms: u16,
 }
 
+/// An ICC color profile.
 #[derive(Debug, Clone)]
 pub(super) struct IccProfile {
     pub(super) data: Vec<u8>,
 }
 
+/// The color profile of the sprite.
 #[derive(Debug, Clone)]
 pub(super) enum ColorProfile {
+    /// No color profile.
     None,
+    /// sRGB color profile.
     Srgb,
+    /// Embedded ICC profile.
     Icc(IccProfile),
 }
 
+/// The backing data for the palette.
 #[derive(Debug, Clone)]
 pub(super) struct PaletteContents {
     pub(super) entries: Vec<PaletteEntry>,
 }
 
+/// The authoritative in-memory representation of an Aseprite sprite.
 #[derive(Debug, Clone)]
 pub(super) struct SpriteContents {
     pub(super) color_depth: ColorDepth,
@@ -117,12 +136,16 @@ pub(super) struct SpriteContents {
     pub(super) user_data: UserData,
 }
 
+/// Errors that can occur during sprite validation.
 #[derive(Debug, thiserror::Error)]
 pub enum ValidationError {
+    /// The sprite has invalid dimensions.
     #[error("Sprite dimensions must be positive, got {width}x{height}")]
     InvalidDimensions { width: u16, height: u16 },
+    /// The sprite has an invalid pixel ratio.
     #[error("Pixel ratio must be positive, got {width}x{height}")]
     InvalidPixelRatio { width: u8, height: u8 },
+    /// A tag references an invalid frame range.
     #[error(
         "Tag {index} references invalid frame range {from}..={to} (frame count: {frame_count})"
     )]
@@ -132,26 +155,31 @@ pub enum ValidationError {
         to: u32,
         frame_count: usize,
     },
+    /// A cel references an invalid layer.
     #[error("Cel at {index:?} references invalid layer {layer} (layer count: {layer_count})")]
     InvalidCelLayer {
         index: CelIndex,
         layer: usize,
         layer_count: usize,
     },
+    /// A cel references an invalid frame.
     #[error("Cel at {index:?} references invalid frame {frame} (frame count: {frame_count})")]
     InvalidCelFrame {
         index: CelIndex,
         frame: usize,
         frame_count: usize,
     },
+    /// A cel is assigned to a group layer.
     #[error("Cel at {index:?} refers to a Group layer")]
     CelOnGroupLayer { index: CelIndex },
+    /// A cel has content type incompatible with its layer type.
     #[error("Cel at {index:?} has {cel_type} content but layer is {layer_type}")]
     CelLayerTypeMismatch {
         index: CelIndex,
         cel_type: &'static str,
         layer_type: &'static str,
     },
+    /// A linked cel references an invalid target frame.
     #[error(
         "Linked cel at {index:?} references invalid frame {target} (frame count: {frame_count})"
     )]
@@ -160,6 +188,7 @@ pub enum ValidationError {
         target: u16,
         frame_count: usize,
     },
+    /// A linked cel references itself.
     #[error("Linked cel at {index:?} references itself")]
     LinkedCelSelfReference { index: CelIndex },
 }

@@ -47,6 +47,7 @@ fn write_string_to(string: &str, builder: &mut BlockBuilder) -> io::Result<()> {
     Ok(())
 }
 
+/// An identifier for an extension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) struct ExtensionId(u32);
 
@@ -56,6 +57,7 @@ impl ExtensionId {
     }
 }
 
+/// Context for mapping extension names to IDs during serialization.
 #[derive(Debug)]
 pub(super) struct ExtensionContext {
     name_mapping: BTreeMap<String, ExtensionId>,
@@ -92,8 +94,11 @@ impl ExtensionContext {
 bitflags! {
     /// Flags for Aseprite frames.
     pub struct HeaderFlags: u32 {
+        /// Layer opacity is valid.
         const HAS_LAYER_OPACITY = 0x0001;
+        /// Layer group blend mode is valid.
         const HAS_LAYER_GROUP_BLEND = 0x0002;
+        /// Layers have UUIDs.
         const HAS_LAYER_UUIDS = 0x0004;
     }
 }
@@ -316,6 +321,7 @@ mod layer {
 
     use super::ChunkType;
 
+    /// A chunk describing a layer.
     #[derive(Clone, Debug)]
     pub(super) struct LayerChunk {
         pub flags: LayerFlags,
@@ -485,6 +491,7 @@ mod cel {
 
     use super::ChunkType;
 
+    /// A raw pixel cel (uncompressed).
     #[derive(Clone, Debug)]
     pub(super) struct RawCel {
         width: u16,
@@ -512,6 +519,7 @@ mod cel {
         }
     }
 
+    /// A cel that links to another frame.
     #[derive(Clone, Debug)]
     pub(super) struct LinkedCel {
         pub frame_position: u16,
@@ -529,6 +537,7 @@ mod cel {
         }
     }
 
+    /// A compressed pixel cel.
     #[derive(Clone, Debug)]
     pub(super) struct CompressedCel {
         pub width: u16,
@@ -556,6 +565,7 @@ mod cel {
         }
     }
 
+    /// A compressed tilemap cel.
     #[derive(Clone, Debug)]
     pub(super) struct CompressedTilemapCel {
         pub width: u16,
@@ -605,6 +615,7 @@ mod cel {
         }
     }
 
+    /// The specific data within a cel chunk.
     #[derive(Clone, Debug)]
     pub(super) enum CelType {
         Raw(RawCel),
@@ -613,6 +624,7 @@ mod cel {
         CompressedTilemap(CompressedTilemapCel),
     }
 
+    /// A chunk describing a cel.
     #[derive(Clone, Debug)]
     pub(super) struct CelChunk {
         layer_index: u16,
@@ -760,6 +772,7 @@ mod cel_extra {
 
     use super::ChunkType;
 
+    /// Extra chunk for precise cel positioning.
     #[derive(Clone, Debug)]
     pub(super) struct CelExtraChunk {
         flags: u32,     // 1 = precise bounds are set
@@ -816,6 +829,7 @@ mod tags {
 
     use super::ChunkType;
 
+    /// Direction of animation for a tag.
     #[derive(Clone, Copy, Debug)]
     #[repr(u8)]
     pub(super) enum AnimationDirection {
@@ -825,6 +839,7 @@ mod tags {
         PingPongReverse = 3,
     }
 
+    /// A single animation tag.
     #[derive(Clone, Debug)]
     pub(super) struct Tag {
         from_frame: u16,
@@ -854,6 +869,7 @@ mod tags {
         }
     }
 
+    /// A chunk containing a list of tags.
     #[derive(Clone, Debug)]
     pub(super) struct TagsChunk {
         tags: Vec<Tag>,
@@ -991,12 +1007,15 @@ mod palette {
     use super::ChunkType;
 
     bitflags! {
+        /// Flags for a palette entry.
         #[derive(Clone, Debug)]
         pub struct PaletteEntryFlags: u16 {
+            /// The entry has a name.
             const HAS_NAME = 0x0001;
         }
     }
 
+    /// A single entry in the palette.
     #[derive(Clone, Debug)]
     pub(super) struct PaletteEntry {
         flags: PaletteEntryFlags,
@@ -1007,6 +1026,7 @@ mod palette {
         name: Option<String>,
     }
 
+    /// A chunk describing the palette.
     #[derive(Clone, Debug)]
     pub(super) struct PaletteChunk {
         new_palette_size: u32,
@@ -1146,14 +1166,19 @@ pub(super) mod user_data {
     use super::ChunkType;
 
     bitflags! {
+        /// Flags for user data.
         #[derive(Clone, Debug)]
         pub struct UserDataFlags: u32 {
+            /// User data has text.
             const HAS_TEXT = 0x0001;
+            /// User data has color.
             const HAS_COLOR = 0x0002;
+            /// User data has properties.
             const HAS_PROPERTIES = 0x0004;
         }
     }
 
+    /// A chunk containing user data.
     #[derive(Clone, Debug)]
     pub(super) struct UserDataChunk {
         flags: UserDataFlags,
@@ -1339,13 +1364,17 @@ mod slice {
     use super::ChunkType;
 
     bitflags! {
+        /// Flags for slice keys.
         #[derive(Clone, Debug)]
         pub struct SliceFlags: u32 {
+            /// It's a 9-patches slice.
             const IS_9_PATCHES = 0x0001;
+            /// Has pivot information.
             const HAS_PIVOT = 0x0002;
         }
     }
 
+    /// A keyframe for a slice.
     #[derive(Clone, Debug)]
     pub(super) struct SliceKey {
         frame_number: u32,
@@ -1357,6 +1386,7 @@ mod slice {
         pivot: Option<(i32, i32)>,            // x, y
     }
 
+    /// A chunk describing a slice.
     #[derive(Clone, Debug)]
     pub(super) struct SliceChunk {
         num_slice_keys: u32,
@@ -1467,17 +1497,25 @@ mod tileset {
     use super::ChunkType;
 
     bitflags! {
+        /// Flags for a tileset.
         #[derive(Clone, Debug)]
         pub struct TilesetFlags: u32 {
+            /// Includes link to external file.
             const EXTERNAL_FILE = 0x0001;
+            /// Includes tiles inside this file.
             const EMBEDDED = 0x0002;
+            /// Tile 0 is empty.
             const ZERO_IS_EMPTY = 0x0004;
+            /// Match X-flip.
             const MATCH_X_FLIP = 0x0008;
+            /// Match Y-flip.
             const MATCH_Y_FLIP = 0x0010;
+            /// Match Diagonal-flip.
             const MATCH_D_FLIP = 0x0020;
         }
     }
 
+    /// A chunk describing a tileset.
     #[derive(Clone, Debug)]
     pub(super) struct TilesetChunk {
         id: u32,
@@ -1580,6 +1618,7 @@ mod color_profile {
 
     use super::ChunkType;
 
+    /// The type of color profile.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[repr(u16)]
     pub(super) enum ColorProfileType {
@@ -1589,12 +1628,15 @@ mod color_profile {
     }
 
     bitflags! {
+        /// Flags for color profile.
         #[derive(Clone, Debug)]
         pub struct ColorProfileFlags: u16 {
+            /// Use fixed gamma.
             const FIXED_GAMMA = 0x0001;
         }
     }
 
+    /// A chunk describing the color profile.
     #[derive(Clone, Debug)]
     pub(super) struct ColorProfileChunk {
         pub profile_type: ColorProfileType,

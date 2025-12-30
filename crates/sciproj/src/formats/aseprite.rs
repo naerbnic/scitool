@@ -43,17 +43,27 @@ mod raw;
 mod tests;
 
 // Export model types for public use
-pub use self::model::{CelView, FrameView, LayerView, Sprite};
+pub use self::model::{
+    CelImage, CelPixels, CelView, FrameView, LayerView, PaletteView, PixelSlice, Sprite, TagView,
+    TypedPixels,
+};
 // Export builder types for public use
 pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder};
 
+/// The color depth (bits per pixel) of the image.
 #[derive(Debug, Clone, Copy)]
 pub enum ColorDepth {
+    /// 32-bit RGBA (Red, Green, Blue, Alpha).
     Rgba,
+    /// 16-bit Grayscale (Gray, Alpha).
     Grayscale,
+    /// Indexed color (8-bit index into a palette).
+    ///
+    /// The associated `u16` is the number of colors in the palette (usually 256).
     Indexed(u16),
 }
 
+/// An RGBA color value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct Color {
@@ -64,32 +74,38 @@ pub struct Color {
 }
 
 impl Color {
+    /// Creates a new `Color` from RGBA components.
     #[must_use]
     pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
 
+    /// Returns the red component.
     #[must_use]
     pub fn red(&self) -> u8 {
         self.r
     }
 
+    /// Returns the green component.
     #[must_use]
     pub fn green(&self) -> u8 {
         self.g
     }
 
+    /// Returns the blue component.
     #[must_use]
     pub fn blue(&self) -> u8 {
         self.b
     }
 
+    /// Returns the alpha component.
     #[must_use]
     pub fn alpha(&self) -> u8 {
         self.a
     }
 }
 
+/// An entry in a color palette.
 #[derive(Debug, Clone)]
 pub struct PaletteEntry {
     color: Color,
@@ -97,22 +113,26 @@ pub struct PaletteEntry {
 }
 
 impl PaletteEntry {
+    /// Creates a new palette entry.
     #[must_use]
     pub fn new(color: Color, name: Option<String>) -> Self {
         Self { color, name }
     }
 
+    /// Returns the color of this entry.
     #[must_use]
     pub fn color(&self) -> Color {
         self.color
     }
 
+    /// Returns the name of this entry, if it has one.
     #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 }
 
+/// A grayscale color value with alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct GrayscaleColor {
@@ -121,34 +141,40 @@ pub struct GrayscaleColor {
 }
 
 impl GrayscaleColor {
+    /// Creates a new `GrayscaleColor`.
     #[must_use]
     pub fn new(gray: u8, alpha: u8) -> Self {
         Self { gray, alpha }
     }
 
+    /// Returns the gray component.
     #[must_use]
     pub fn gray(&self) -> u8 {
         self.gray
     }
 
+    /// Returns the alpha component.
     #[must_use]
     pub fn alpha(&self) -> u8 {
         self.alpha
     }
 }
 
+/// A fixed-point number (16.16).
 #[derive(Debug, Clone, Copy)]
 pub struct FixedPoint {
     /// Fixed point value. (16.16)
     value: i32,
 }
 
+/// A 2D point with integer coordinates.
 #[derive(Debug, Clone, Copy)]
 pub struct Point {
     x: i32,
     y: i32,
 }
 
+/// A 2D point with 16-bit integer coordinates.
 #[derive(Debug, Clone, Copy)]
 pub struct Point16 {
     x: i16,
@@ -156,61 +182,86 @@ pub struct Point16 {
 }
 
 impl Point16 {
+    /// Creates a new `Point16`.
     #[must_use]
     pub fn new(x: i16, y: i16) -> Self {
         Self { x, y }
     }
 
+    /// Returns the x-coordinate.
     #[must_use]
     pub fn x(&self) -> i16 {
         self.x
     }
 
+    /// Returns the y-coordinate.
     #[must_use]
     pub fn y(&self) -> i16 {
         self.y
     }
 }
 
+/// A 2D size with integer width and height.
 #[derive(Debug, Clone, Copy)]
 pub struct Size {
     width: i32,
     height: i32,
 }
 
+/// A rectangle defined by a top-left point and a size.
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
     point: Point,
     size: Size,
 }
 
+/// A single pixel value.
 #[derive(Debug, Clone, Copy)]
 pub enum Pixel {
+    /// RGBA pixel.
     Rgba(Color),
+    /// Grayscale pixel.
     Grayscale(GrayscaleColor),
+    /// Indexed pixel.
     Indexed(u8),
 }
 
 bitflags! {
+    /// Flags for a layer.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub struct LayerFlags: u16 {
+        /// The layer is visible.
         const VISIBLE = 0x0001;
+        /// The layer is editable.
         const EDITABLE = 0x0002;
+        /// Movement on this layer is locked.
         const LOCK_MOVEMENT = 0x0004;
+        /// This is the background layer.
         const BACKGROUND = 0x0008;
+        /// Prefer linked cels when creating new frames (not typically used for reading).
         const PREFER_LINKED_CELS = 0x0010;
+        /// The layer group should be displayed collapsed in the UI.
         const DISPLAY_COLLAPSED = 0x0020;
+        /// This is a reference layer.
         const REFERENCE_LAYER = 0x0040;
     }
 }
 
+/// The type of a layer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LayerType {
+    /// A normal image layer.
     Normal,
+    /// A group layer that contains other layers.
     Group,
-    Tilemap { tileset_index: u32 },
+    /// A tilemap layer.
+    Tilemap {
+        /// The index of the tileset used by this layer.
+        tileset_index: u32,
+    },
 }
 
+/// The blend mode for a layer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u16)]
 pub enum BlendMode {
@@ -235,6 +286,7 @@ pub enum BlendMode {
     Divide = 18,
 }
 
+/// A user data property value.
 #[derive(Debug, Clone)]
 pub enum Property {
     Bool(bool),
@@ -284,6 +336,7 @@ impl Property {
     }
 }
 
+/// A collection of user-defined properties.
 #[derive(Debug, Clone)]
 pub struct Properties {
     properties: BTreeMap<String, Property>,
@@ -291,6 +344,7 @@ pub struct Properties {
 
 impl Properties {}
 
+/// The direction of an animation tag.
 #[derive(Debug, Clone, Copy)]
 pub enum AnimationDirection {
     Forward,
