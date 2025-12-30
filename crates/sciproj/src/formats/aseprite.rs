@@ -162,16 +162,36 @@ impl GrayscaleColor {
 
 /// A fixed-point number (16.16).
 #[derive(Debug, Clone, Copy)]
-pub struct FixedPoint {
+pub struct FixedI16 {
     /// Fixed point value. (16.16)
     value: i32,
 }
 
 /// A 2D point with integer coordinates.
 #[derive(Debug, Clone, Copy)]
-pub struct Point {
+pub struct Point32 {
     x: i32,
     y: i32,
+}
+
+impl Point32 {
+    /// Creates a new `Point32`.
+    #[must_use]
+    pub fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    /// Returns the x-coordinate.
+    #[must_use]
+    pub fn x(&self) -> i32 {
+        self.x
+    }
+
+    /// Returns the y-coordinate.
+    #[must_use]
+    pub fn y(&self) -> i32 {
+        self.y
+    }
 }
 
 /// A 2D point with 16-bit integer coordinates.
@@ -203,16 +223,16 @@ impl Point16 {
 
 /// A 2D size with integer width and height.
 #[derive(Debug, Clone, Copy)]
-pub struct Size {
+pub struct Size32 {
     width: i32,
     height: i32,
 }
 
 /// A rectangle defined by a top-left point and a size.
 #[derive(Debug, Clone, Copy)]
-pub struct Rect {
-    point: Point,
-    size: Size,
+pub struct Rect32 {
+    point: Point32,
+    size: Size32,
 }
 
 /// A single pixel value.
@@ -300,11 +320,11 @@ pub enum Property {
     U64(u64),
     F32(f32),
     F64(f64),
-    FixedPoint(FixedPoint),
+    FixedPoint(FixedI16),
     String(String),
-    Point(Point),
-    Size(Size),
-    Rect(Rect),
+    Point(Point32),
+    Size(Size32),
+    Rect(Rect32),
     Vec(Vec<Property>),
     Map(Properties),
     Uuid([u8; 16]),
@@ -353,12 +373,63 @@ pub enum AnimationDirection {
     PingPongReverse,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayerIndex(u16);
+
+impl LayerIndex {
+    fn from_u16(value: u16) -> Self {
+        Self(value)
+    }
+
+    fn as_usize(self) -> usize {
+        usize::from(self.0)
+    }
+
+    fn as_u16(self) -> u16 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FrameIndex(u16);
+
+impl FrameIndex {
+    fn from_u16(value: u16) -> Self {
+        Self(value)
+    }
+
+    fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+
+    fn as_u16(self) -> u16 {
+        self.0
+    }
+}
+
 /// The index of a cel within a sprite.
 ///
 /// This consists of the layer and frame indicies. Both must be less than the
 /// number of layers and frames in the sprite, respectively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CelIndex {
-    pub layer: u16,
-    pub frame: u16,
+    layer: LayerIndex,
+    frame: FrameIndex,
+}
+
+impl CelIndex {
+    #[must_use]
+    pub fn new(layer: LayerIndex, frame: FrameIndex) -> Self {
+        Self { layer, frame }
+    }
+
+    #[must_use]
+    pub fn layer(&self) -> LayerIndex {
+        self.layer
+    }
+
+    #[must_use]
+    pub fn frame(&self) -> FrameIndex {
+        self.frame
+    }
 }

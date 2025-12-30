@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::{io, mem};
 
+use crate::formats::aseprite::backing::LayerContents;
 use crate::formats::aseprite::{
     BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point16, Properties,
     backing::{
@@ -9,6 +10,7 @@ use crate::formats::aseprite::{
         validate_sprite,
     },
 };
+use crate::formats::aseprite::{FrameIndex, LayerFlags, LayerIndex};
 
 use scidev::utils::block::MemBlock;
 
@@ -67,7 +69,7 @@ impl Sprite {
             .enumerate()
             .map(|(index, _)| FrameView {
                 sprite: self,
-                index: u16::try_from(index).unwrap(),
+                index: FrameIndex::from_u16(u16::try_from(index).unwrap()),
             })
     }
 
@@ -77,7 +79,7 @@ impl Sprite {
         if index < self.contents.frames.len() {
             Some(FrameView {
                 sprite: self,
-                index: u16::try_from(index).unwrap(),
+                index: FrameIndex::from_u16(u16::try_from(index).unwrap()),
             })
         } else {
             None
@@ -92,7 +94,7 @@ impl Sprite {
             .enumerate()
             .map(|(index, _)| LayerView {
                 sprite: self,
-                index: u16::try_from(index).unwrap(),
+                index: LayerIndex::from_u16(u16::try_from(index).unwrap()),
             })
     }
 
@@ -102,7 +104,7 @@ impl Sprite {
         if index < self.contents.layers.len() {
             Some(LayerView {
                 sprite: self,
-                index: u16::try_from(index).unwrap(),
+                index: LayerIndex::from_u16(u16::try_from(index).unwrap()),
             })
         } else {
             None
@@ -132,7 +134,7 @@ impl Sprite {
 
     /// Returns the cel at the specified layer and frame, if it exists.
     #[must_use]
-    pub fn cel(&self, layer: u16, frame: u16) -> Option<CelView<'_>> {
+    pub fn cel(&self, layer: LayerIndex, frame: FrameIndex) -> Option<CelView<'_>> {
         let index = CelIndex { layer, frame };
         if self.contents.cels.contains_key(&index) {
             Some(CelView {
@@ -189,20 +191,20 @@ impl Sprite {
 #[derive(Clone, Copy)]
 pub struct FrameView<'a> {
     sprite: &'a Sprite,
-    index: u16,
+    index: FrameIndex,
 }
 
 impl<'a> FrameView<'a> {
     /// Returns the index of this frame.
     #[must_use]
-    pub fn index(&self) -> u16 {
+    pub fn index(&self) -> FrameIndex {
         self.index
     }
 
     /// Returns the duration of this frame in milliseconds.
     #[must_use]
     pub fn duration(&self) -> u16 {
-        self.sprite.contents.frames[self.index as usize].duration_ms
+        self.sprite.contents.frames[self.index.as_usize()].duration_ms
     }
 
     /// Returns an iterator over all cels in this frame.
@@ -214,7 +216,7 @@ impl<'a> FrameView<'a> {
 
     /// Returns the cel in this frame on a specific layer, if it exists.
     #[must_use]
-    pub fn cel(&self, layer_index: u16) -> Option<CelView<'a>> {
+    pub fn cel(&self, layer_index: LayerIndex) -> Option<CelView<'a>> {
         self.sprite.cel(layer_index, self.index)
     }
 
@@ -229,40 +231,42 @@ impl<'a> FrameView<'a> {
 #[derive(Clone, Copy)]
 pub struct LayerView<'a> {
     sprite: &'a Sprite,
-    index: u16,
+    index: LayerIndex,
 }
 
 impl<'a> LayerView<'a> {
     /// Returns the index of this layer.
     #[must_use]
-    pub fn index(&self) -> u16 {
+    pub fn index(&self) -> LayerIndex {
         self.index
+    }
+
+    fn contents(&self) -> &LayerContents {
+        &self.sprite.contents.layers[self.index.as_usize()]
     }
 
     /// Returns the name of this layer.
     #[must_use]
     pub fn name(&self) -> &str {
-        &self.sprite.contents.layers[self.index as usize].name
+        &self.contents().name
     }
 
     /// Returns true if the layer is visible.
     #[must_use]
     pub fn is_visible(&self) -> bool {
-        self.sprite.contents.layers[self.index as usize]
-            .flags
-            .contains(crate::formats::aseprite::LayerFlags::VISIBLE)
+        self.contents().flags.contains(LayerFlags::VISIBLE)
     }
 
     /// Returns the opacity of the layer (0-255).
     #[must_use]
     pub fn opacity(&self) -> u8 {
-        self.sprite.contents.layers[self.index as usize].opacity
+        self.contents().opacity
     }
 
     /// Returns the blend mode of the layer.
     #[must_use]
     pub fn blend_mode(&self) -> BlendMode {
-        self.sprite.contents.layers[self.index as usize].blend_mode
+        self.contents().blend_mode
     }
 
     /// Returns an iterator over all cels in this layer.
@@ -274,7 +278,7 @@ impl<'a> LayerView<'a> {
 
     /// Returns the cel in this layer at the specified frame index, if it exists.
     #[must_use]
-    pub fn cel(&self, frame_index: u16) -> Option<CelView<'a>> {
+    pub fn cel(&self, frame_index: FrameIndex) -> Option<CelView<'a>> {
         self.sprite.cel(self.index, frame_index)
     }
 
@@ -287,24 +291,19 @@ impl<'a> LayerView<'a> {
     /// Returns the user data color, if set.
     #[must_use]
     pub fn color(&self) -> Option<Color> {
-        self.sprite.contents.layers[self.index as usize]
-            .user_data
-            .color
+        self.contents().user_data.color
     }
 
     /// Returns the user data text, if set.
     #[must_use]
     pub fn data(&self) -> Option<&str> {
-        self.sprite.contents.layers[self.index as usize]
-            .user_data
-            .text
-            .as_deref()
+        self.contents().user_data.text.as_deref()
     }
 
     /// Returns the general user data properties.
     #[must_use]
     pub fn properties(&self) -> Option<&Properties> {
-        self.sprite.contents.layers[self.index as usize]
+        self.contents()
             .user_data
             .properties
             .get(&UserDataPropsKey::General)
@@ -313,7 +312,7 @@ impl<'a> LayerView<'a> {
     /// Returns the user data properties for a specific extension.
     #[must_use]
     pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
-        self.sprite.contents.layers[self.index as usize]
+        self.contents()
             .user_data
             .properties
             .get(&UserDataPropsKey::Extension(extension.to_string()))
@@ -352,7 +351,7 @@ impl<'a> TagView<'a> {
         let range = self.range();
         range.map(|i| FrameView {
             sprite: self.sprite,
-            index: u16::try_from(i).unwrap(),
+            index: FrameIndex::from_u16(u16::try_from(i).unwrap()),
         })
     }
 

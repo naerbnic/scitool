@@ -18,7 +18,7 @@ use scidev::utils::{
 };
 
 use crate::formats::aseprite::{
-    ColorDepth, FixedPoint, Point, Rect, Size, backing::SpriteContents,
+    ColorDepth, FixedI16, Point32, Rect32, Size32, backing::SpriteContents,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -484,7 +484,7 @@ mod cel {
     use std::io;
 
     use crate::formats::aseprite::{
-        CelIndex,
+        CelIndex, FrameIndex, LayerIndex,
         backing::{CelContents, CelData},
         raw::{ExtensionContext, user_data::UserDataChunk},
     };
@@ -522,17 +522,17 @@ mod cel {
     /// A cel that links to another frame.
     #[derive(Clone, Debug)]
     pub(super) struct LinkedCel {
-        pub frame_position: u16,
+        frame_position: FrameIndex,
     }
 
     impl LinkedCel {
         fn write(&self, builder: &mut BlockBuilder) -> io::Result<()> {
-            builder.write_u16_le(self.frame_position)?;
+            builder.write_u16_le(self.frame_position.as_u16())?;
             Ok(())
         }
 
         fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
-            let frame_position = reader.read_u16_le()?;
+            let frame_position = FrameIndex::from_u16(reader.read_u16_le()?);
             Ok(Self { frame_position })
         }
     }
@@ -627,7 +627,7 @@ mod cel {
     /// A chunk describing a cel.
     #[derive(Clone, Debug)]
     pub(super) struct CelChunk {
-        layer_index: u16,
+        layer_index: LayerIndex,
         x: i16,
         y: i16,
         opacity: u8,
@@ -641,7 +641,7 @@ mod cel {
 
         fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block> {
             let mut builder = factory.create();
-            builder.write_u16_le(self.layer_index)?;
+            builder.write_u16_le(self.layer_index.as_u16())?;
             builder.write_i16_le(self.x)?;
             builder.write_i16_le(self.y)?;
             builder.write_u8(self.opacity)?;
@@ -668,7 +668,7 @@ mod cel {
         where
             M: MemReader,
         {
-            let layer_index = reader.read_u16_le()?;
+            let layer_index = LayerIndex::from_u16(reader.read_u16_le()?);
             let x = reader.read_i16_le()?;
             let y = reader.read_i16_le()?;
             let opacity = reader.read_u8()?;
@@ -709,7 +709,7 @@ mod cel {
             let mut chunks = Vec::new();
 
             for (index, cel) in cels {
-                if index.frame as usize == frame_idx {
+                if index.frame.as_usize() == frame_idx {
                     let chunk = match &cel.contents {
                         CelData::Pixels(pixels) => {
                             use std::io::Read;
@@ -1968,7 +1968,7 @@ impl super::Property {
             7 => Self::U32(reader.read_u32_le()?),
             8 => Self::I64(reader.read_i64_le()?),
             9 => Self::U64(reader.read_u64_le()?),
-            10 => Self::FixedPoint(FixedPoint {
+            10 => Self::FixedPoint(FixedI16 {
                 value: reader.read_i32_le()?,
             }),
             11 => Self::F32(reader.read_f32_le()?),
@@ -1977,21 +1977,21 @@ impl super::Property {
             14 => {
                 let x = reader.read_i32_le()?;
                 let y = reader.read_i32_le()?;
-                Self::Point(Point { x, y })
+                Self::Point(Point32 { x, y })
             }
             15 => {
                 let width = reader.read_i32_le()?;
                 let height = reader.read_i32_le()?;
-                Self::Size(Size { width, height })
+                Self::Size(Size32 { width, height })
             }
             16 => {
                 let x = reader.read_i32_le()?;
                 let y = reader.read_i32_le()?;
                 let width = reader.read_i32_le()?;
                 let height = reader.read_i32_le()?;
-                Self::Rect(Rect {
-                    point: Point { x, y },
-                    size: Size { width, height },
+                Self::Rect(Rect32 {
+                    point: Point32 { x, y },
+                    size: Size32 { width, height },
                 })
             }
             17 => {

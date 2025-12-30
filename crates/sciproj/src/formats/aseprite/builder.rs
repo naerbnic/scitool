@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, btree_map};
 use scidev::utils::block::{Block, CachedMemBlock};
 
 use crate::formats::aseprite::{
-    AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, LayerFlags, LayerType,
-    PaletteEntry, Point, Point16, Size,
+    AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, FrameIndex, LayerFlags, LayerIndex,
+    LayerType, PaletteEntry, Point16, Point32, Size32,
     backing::{
         CelContents, CelData, CelPixelData, ColorProfile, FrameContents, LayerContents,
         PaletteContents, SpriteContents, TagContents, UserData, ValidationError,
@@ -13,13 +13,13 @@ use crate::formats::aseprite::{
 };
 
 pub struct FrameBuilder<'a> {
-    index: u16,
+    index: FrameIndex,
     contents: &'a mut FrameContents,
 }
 
 impl FrameBuilder<'_> {
     #[must_use]
-    pub fn index(&self) -> u16 {
+    pub fn index(&self) -> FrameIndex {
         self.index
     }
 
@@ -29,13 +29,13 @@ impl FrameBuilder<'_> {
 }
 
 pub struct LayerBuilder<'a> {
-    index: u16,
+    index: LayerIndex,
     contents: &'a mut LayerContents,
 }
 
 impl LayerBuilder<'_> {
     #[must_use]
-    pub fn index(&self) -> u16 {
+    pub fn index(&self) -> LayerIndex {
         self.index
     }
 
@@ -91,7 +91,7 @@ impl CelBuilder<'_> {
     }
 
     /// Sets the cel content to be a link to another frame.
-    pub fn set_linked(&mut self, frame_index: u16) {
+    pub fn set_linked(&mut self, frame_index: FrameIndex) {
         self.contents.contents = CelData::Linked(frame_index);
     }
 
@@ -167,7 +167,7 @@ impl SpriteBuilder {
         let frame = FrameContents { duration_ms: 0 };
         self.contents.frames.push(frame);
         FrameBuilder {
-            index: u16::try_from(frame_index).unwrap(),
+            index: FrameIndex::from_u16(u16::try_from(frame_index).unwrap()),
             contents: &mut self.contents.frames[frame_index],
         }
     }
@@ -185,12 +185,12 @@ impl SpriteBuilder {
         };
         self.contents.layers.push(layer);
         LayerBuilder {
-            index: u16::try_from(layer_index).unwrap(),
+            index: LayerIndex::from_u16(u16::try_from(layer_index).unwrap()),
             contents: &mut self.contents.layers[layer_index],
         }
     }
 
-    pub fn add_cel(&mut self, layer: u16, frame: u16) -> CelBuilder<'_> {
+    pub fn add_cel(&mut self, layer: LayerIndex, frame: FrameIndex) -> CelBuilder<'_> {
         let index = CelIndex { layer, frame };
         let cel_ref = match self.contents.cels.entry(index) {
             btree_map::Entry::Vacant(vac) => vac.insert(CelContents {
@@ -203,8 +203,8 @@ impl SpriteBuilder {
                     cached_data: CachedMemBlock::new(),
                 }),
                 user_data: UserData::default(),
-                precise_position: Point { x: 0, y: 0 },
-                precise_size: Size {
+                precise_position: Point32 { x: 0, y: 0 },
+                precise_size: Size32 {
                     width: 0,
                     height: 0,
                 },
@@ -298,7 +298,7 @@ mod tests {
         layer.set_name("Layer 1");
         layer.set_opacity(128);
 
-        let mut cel = builder.add_cel(0, 0);
+        let mut cel = builder.add_cel(LayerIndex::from_u16(0), FrameIndex::from_u16(0));
         cel.set_opacity(200);
         cel.set_image(32, 32, Block::from_vec(vec![0u8; 32 * 32 * 4]));
 
@@ -357,12 +357,12 @@ mod tests {
 
         // Add a pixel cel to Group layer (invalid)
         // add_cel(layer, frame)
-        builder.add_cel(0, 0);
+        builder.add_cel(LayerIndex::from_u16(0), FrameIndex::from_u16(0));
 
         match builder.build() {
             Err(ValidationError::CelOnGroupLayer { index }) => {
-                assert_eq!(index.layer, 0);
-                assert_eq!(index.frame, 0);
+                assert_eq!(index.layer, LayerIndex::from_u16(0));
+                assert_eq!(index.frame, FrameIndex::from_u16(0));
             }
             _ => panic!("Expected CelOnGroupLayer error"),
         }

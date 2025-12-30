@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use scidev::utils::block::{Block, CachedMemBlock};
 
-use crate::formats::aseprite::Point16;
+use crate::formats::aseprite::{FrameIndex, LayerIndex, Point16};
 
 use super::{
     AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, LayerFlags, LayerType,
-    PaletteEntry, Point, Properties, Size,
+    PaletteEntry, Point32, Properties, Size32,
 };
 
 /// Keys for user data properties.
@@ -73,7 +73,7 @@ pub(super) enum CelData {
     /// Raw pixel data.
     Pixels(CelPixelData),
     /// A link to another frame's cel on the same layer.
-    Linked(u16),
+    Linked(FrameIndex),
     /// Tilemap data (reserved for future use).
     Tilemap, // Reserved for future use
 }
@@ -85,8 +85,8 @@ pub(super) struct CelContents {
     pub(super) opacity: u8,
     pub(super) contents: CelData,
     pub(super) user_data: UserData,
-    pub(super) precise_position: Point,
-    pub(super) precise_size: Size,
+    pub(super) precise_position: Point32,
+    pub(super) precise_size: Size32,
 }
 
 /// The backing data for a frame.
@@ -156,17 +156,17 @@ pub enum ValidationError {
         frame_count: usize,
     },
     /// A cel references an invalid layer.
-    #[error("Cel at {index:?} references invalid layer {layer} (layer count: {layer_count})")]
+    #[error("Cel at {index:?} references invalid layer {layer:?} (layer count: {layer_count})")]
     InvalidCelLayer {
         index: CelIndex,
-        layer: usize,
+        layer: LayerIndex,
         layer_count: usize,
     },
     /// A cel references an invalid frame.
-    #[error("Cel at {index:?} references invalid frame {frame} (frame count: {frame_count})")]
+    #[error("Cel at {index:?} references invalid frame {frame:?} (frame count: {frame_count})")]
     InvalidCelFrame {
         index: CelIndex,
-        frame: usize,
+        frame: FrameIndex,
         frame_count: usize,
     },
     /// A cel is assigned to a group layer.
@@ -181,11 +181,11 @@ pub enum ValidationError {
     },
     /// A linked cel references an invalid target frame.
     #[error(
-        "Linked cel at {index:?} references invalid frame {target} (frame count: {frame_count})"
+        "Linked cel at {index:?} references invalid frame {target:?} (frame count: {frame_count})"
     )]
     InvalidLinkedCelTarget {
         index: CelIndex,
-        target: u16,
+        target: FrameIndex,
         frame_count: usize,
     },
     /// A linked cel references itself.
@@ -225,22 +225,22 @@ pub(super) fn validate_sprite(c: &SpriteContents) -> Result<(), ValidationError>
 
     // 3. Cels
     for (index, cel) in &c.cels {
-        if index.layer as usize >= c.layers.len() {
+        if index.layer.as_usize() >= c.layers.len() {
             return Err(ValidationError::InvalidCelLayer {
                 index: *index,
-                layer: index.layer as usize,
+                layer: index.layer,
                 layer_count: c.layers.len(),
             });
         }
-        if index.frame as usize >= c.frames.len() {
+        if index.frame.as_usize() >= c.frames.len() {
             return Err(ValidationError::InvalidCelFrame {
                 index: *index,
-                frame: index.frame as usize,
+                frame: index.frame,
                 frame_count: c.frames.len(),
             });
         }
 
-        let layer = &c.layers[index.layer as usize];
+        let layer = &c.layers[index.layer.as_usize()];
         match layer.layer_type {
             LayerType::Group => {
                 return Err(ValidationError::CelOnGroupLayer { index: *index });
@@ -274,7 +274,7 @@ pub(super) fn validate_sprite(c: &SpriteContents) -> Result<(), ValidationError>
         }
 
         if let CelData::Linked(target_frame) = cel.contents {
-            if target_frame as usize >= c.frames.len() {
+            if target_frame.as_usize() >= c.frames.len() {
                 return Err(ValidationError::InvalidLinkedCelTarget {
                     index: *index,
                     target: target_frame,
@@ -364,15 +364,18 @@ mod tests {
         });
 
         // Add a cel
-        let cel_idx = CelIndex { layer: 0, frame: 0 };
+        let cel_idx = CelIndex {
+            layer: LayerIndex::from_u16(0),
+            frame: FrameIndex::from_u16(0),
+        };
         sprite.cels.insert(
             cel_idx,
             CelContents {
                 position: Point16 { x: 0, y: 0 },
                 opacity: 255,
                 contents: CelData::Tilemap, // Dummy
-                precise_position: Point { x: 0, y: 0 },
-                precise_size: Size {
+                precise_position: Point32 { x: 0, y: 0 },
+                precise_size: Size32 {
                     width: 0,
                     height: 0,
                 },
