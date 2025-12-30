@@ -434,6 +434,16 @@ mod inv_writer {
                     self.yield_op = None;
                 }
 
+                {
+                    let inner = self.inner.borrow();
+                    if inner.closed {
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::BrokenPipe,
+                            "Writer attempted to flush to closed reader",
+                        )));
+                    }
+                }
+
                 let capacity = {
                     let inner = self.inner.borrow();
                     if inner.buffer.is_empty() {
