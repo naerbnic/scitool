@@ -14,7 +14,7 @@ use std::{
 use bitflags::bitflags;
 use scidev::utils::{
     block::{Block, BlockBuilder, BlockBuilderFactory},
-    mem_reader::{self, MemReader, Result as MemResult},
+    mem_reader::MemReader,
 };
 
 use crate::formats::aseprite::{
@@ -27,7 +27,7 @@ enum UserDataPropsKey {
     ForExtension(NonZeroU32),
 }
 
-fn read_string_type<M>(reader: &mut M) -> mem_reader::Result<String>
+fn read_string_type<M>(reader: &mut M) -> io::Result<String>
 where
     M: MemReader,
 {
@@ -289,7 +289,7 @@ trait ChunkType: ChunkValue + Sized {
 
     fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block>;
 
-    fn from_block<M>(block: M) -> MemResult<Self>
+    fn from_block<M>(block: M) -> io::Result<Self>
     where
         M: MemReader;
 }
@@ -309,7 +309,7 @@ where
 mod layer {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -365,7 +365,7 @@ mod layer {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -479,7 +479,7 @@ mod layer {
 mod cel {
     use scidev::utils::{
         block::{Block, BlockBuilder, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -507,7 +507,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
             let width = reader.read_u16_le()?;
             let height = reader.read_u16_le()?;
             let pixels = reader.read_remaining()?;
@@ -531,7 +531,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
             let frame_position = FrameIndex::from_u16(reader.read_u16_le()?);
             Ok(Self { frame_position })
         }
@@ -553,7 +553,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
             let width = reader.read_u16_le()?;
             let height = reader.read_u16_le()?;
             let data = reader.read_remaining()?;
@@ -592,7 +592,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> MemResult<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
             let width = reader.read_u16_le()?;
             let height = reader.read_u16_le()?;
             let bits_per_tile = reader.read_u16_le()?;
@@ -664,7 +664,7 @@ mod cel {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -766,7 +766,7 @@ mod cel {
 mod cel_extra {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -796,7 +796,7 @@ mod cel_extra {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -821,7 +821,7 @@ mod cel_extra {
 mod tags {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -903,7 +903,7 @@ mod tags {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1000,7 +1000,7 @@ mod palette {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -1063,7 +1063,7 @@ mod palette {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1153,7 +1153,7 @@ pub(super) mod user_data {
 
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::{collections::BTreeMap, io, num::NonZeroU32};
 
@@ -1289,7 +1289,7 @@ pub(super) mod user_data {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1357,7 +1357,7 @@ mod slice {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -1426,7 +1426,7 @@ mod slice {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1490,7 +1490,7 @@ mod tileset {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -1559,7 +1559,7 @@ mod tileset {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1610,7 +1610,7 @@ mod color_profile {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -1685,7 +1685,7 @@ mod color_profile {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1726,7 +1726,7 @@ mod color_profile {
 mod external_files {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::{MemReader, Result as MemResult},
+        mem_reader::MemReader,
     };
     use std::io;
 
@@ -1793,7 +1793,7 @@ mod external_files {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> MemResult<Self>
+        fn from_block<M>(mut reader: M) -> io::Result<Self>
         where
             M: MemReader,
         {
@@ -1946,7 +1946,7 @@ impl super::model::Sprite {
 }
 
 impl super::Property {
-    fn read_from<M>(reader: &mut M) -> mem_reader::Result<Self>
+    fn read_from<M>(reader: &mut M) -> io::Result<Self>
     where
         M: MemReader,
     {
@@ -1954,7 +1954,7 @@ impl super::Property {
         Self::read_type_from(type_id, reader)
     }
 
-    fn read_type_from<M>(type_id: u16, reader: &mut M) -> mem_reader::Result<Self>
+    fn read_type_from<M>(type_id: u16, reader: &mut M) -> io::Result<Self>
     where
         M: MemReader,
     {
@@ -2084,7 +2084,7 @@ impl super::Property {
 }
 
 impl super::Properties {
-    pub fn read_from<M>(reader: &mut M) -> mem_reader::Result<Self>
+    pub fn read_from<M>(reader: &mut M) -> io::Result<Self>
     where
         M: MemReader,
     {

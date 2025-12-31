@@ -1,6 +1,8 @@
+use std::io;
+
 use crate::{
     resources::ResourceId,
-    utils::mem_reader::{self, MemReader, Parse},
+    utils::mem_reader::{MemReader, Parse},
 };
 
 use super::{
@@ -47,7 +49,7 @@ impl ResourceLocationSet {
 }
 
 impl Parse for ResourceLocationSet {
-    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
+    fn parse<M: MemReader>(reader: &mut M) -> io::Result<Self> {
         let index = ResourceIndex::parse(reader)?;
         let mut type_locations = Vec::new();
 

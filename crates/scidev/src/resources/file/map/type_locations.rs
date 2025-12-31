@@ -1,6 +1,8 @@
+use std::io;
+
 use crate::{
     resources::ResourceType,
-    utils::mem_reader::{self, MemReader, Parse},
+    utils::mem_reader::{MemReader, Parse},
 };
 
 use super::location_entry::ResourceLocationEntry;
@@ -25,7 +27,7 @@ impl ResourceTypeLocations {
         type_id: ResourceType,
         start: u16,
         end: u16,
-    ) -> mem_reader::Result<ResourceTypeLocations> {
+    ) -> io::Result<ResourceTypeLocations> {
         // Despite documentation to the contrary, SCI11 uses 5 byte entries in the resource map
         // file.
         if !(end - start).is_multiple_of(5) {
@@ -47,7 +49,7 @@ impl ResourceTypeLocations {
 }
 
 impl Parse for ResourceTypeLocations {
-    fn parse<M: MemReader>(_: &mut M) -> mem_reader::Result<Self> {
+    fn parse<M: MemReader>(_: &mut M) -> io::Result<Self> {
         unimplemented!("ResourceTypeLocations cannot be parsed without additional context")
     }
 }

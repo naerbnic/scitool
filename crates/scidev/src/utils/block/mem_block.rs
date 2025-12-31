@@ -72,12 +72,16 @@ impl MemBlock {
     }
 
     /// Read the entirety of a reader into a block.
-    pub fn from_reader<R>(mut reader: R) -> Result<Self, FromReaderError>
+    pub fn from_reader<R>(mut reader: R) -> io::Result<Self>
     where
         R: io::Read + io::Seek,
     {
         let size = reader.seek(io::SeekFrom::End(0))?;
-        let mut data = vec![0; size.try_into()?];
+        let mut data = vec![
+            0;
+            size.try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        ];
         reader.seek(io::SeekFrom::Start(0))?;
         reader.read_exact(&mut data)?;
         Ok(Self::from_vec(data))

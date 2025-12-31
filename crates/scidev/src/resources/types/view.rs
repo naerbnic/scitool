@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, btree_map},
+    io,
     sync::Arc,
 };
 
@@ -9,7 +10,7 @@ use crate::{
     resources::types::palette::Palette,
     utils::{
         block::Block,
-        mem_reader::{self, BufferMemReader, MemReader},
+        mem_reader::{BufferMemReader, MemReader},
         range::BoundedRange,
     },
 };
@@ -67,7 +68,7 @@ pub struct ViewHeader {
 }
 
 impl ViewHeader {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<ViewHeader> {
+    pub fn read_from<M: MemReader>(reader: &mut M) -> io::Result<ViewHeader> {
         let header_size = reader.read_u16_le()?;
         let mut header_data = reader.read_to_subreader("view_header", header_size.into())?;
         let loop_count = header_data.read_u8()?;
@@ -85,10 +86,7 @@ impl ViewHeader {
             pal_offset,
             loop_size,
             cel_size,
-            rest: header_data
-                .read_remaining()
-                .map_err(mem_reader::MemReaderError::Read)?
-                .into(),
+            rest: header_data.read_remaining()?.into(),
         })
     }
 }
@@ -104,7 +102,7 @@ pub struct LoopEntry {
 }
 
 impl LoopEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<LoopEntry> {
+    pub fn read_from<M: MemReader>(reader: &mut M) -> io::Result<LoopEntry> {
         let seek_entry = reader.read_u8()?;
         let reserved1 = reader.read_u8()?;
         let cel_count = reader.read_u8()?;
@@ -117,10 +115,7 @@ impl LoopEntry {
             cel_count,
             reserved2: reserved2.into(),
             cel_offset,
-            rest: reader
-                .read_remaining()
-                .map_err(mem_reader::MemReaderError::Read)?
-                .into(),
+            rest: reader.read_remaining()?.into(),
         })
     }
 }
@@ -139,7 +134,7 @@ pub struct CelEntry {
 }
 
 impl CelEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<CelEntry> {
+    pub fn read_from<M: MemReader>(reader: &mut M) -> io::Result<CelEntry> {
         let width = reader.read_u16_le()?;
         let height = reader.read_u16_le()?;
         let displace_x = reader.read_i16_le()?;
@@ -149,9 +144,7 @@ impl CelEntry {
         reader.read_exact(&mut reserved1)?;
         let rle_offset = reader.read_u32_le()?;
         let literal_offset = reader.read_u32_le()?;
-        let rest = reader
-            .read_remaining()
-            .map_err(mem_reader::MemReaderError::Read)?;
+        let rest = reader.read_remaining()?;
         Ok(CelEntry {
             width,
             height,
@@ -265,7 +258,7 @@ impl Cel {
         self.data.clear_key
     }
 
-    pub fn decode_pixels(&self) -> mem_reader::Result<Vec<u8>> {
+    pub fn decode_pixels(&self) -> io::Result<Vec<u8>> {
         let num_pixels = usize::from(self.width()) * usize::from(self.height());
         let mut pixels = bytes::BytesMut::with_capacity(num_pixels).limit(num_pixels); // Initialize with transparent
         // SCI1.1 RLE decoder
@@ -335,6 +328,7 @@ pub struct LoopData {
 
 #[derive(Debug, Clone)]
 pub struct Loop {
+    #[expect(dead_code, reason = "Not used yet.")]
     mirrored: bool,
     loop_data: Arc<LoopData>,
 }
@@ -348,6 +342,7 @@ impl Loop {
 
 #[derive(Debug, Clone)]
 pub struct View {
+    #[expect(dead_code, reason = "Not used yet.")]
     flags: u8,
     palette: Option<Palette>,
     loops: Vec<Loop>,
@@ -373,7 +368,7 @@ impl LoopState {
         header: &ViewHeader,
         loop_reader: &mut M,
         ranges: &mut RangeComputer<u32>,
-    ) -> mem_reader::Result<Self>
+    ) -> io::Result<Self>
     where
         M: MemReader,
     {
@@ -428,7 +423,7 @@ impl View {
         &self.loops
     }
 
-    pub fn from_resource(resource_data: &Block) -> mem_reader::Result<View> {
+    pub fn from_resource(resource_data: &Block) -> io::Result<View> {
         // Keep track of ranges of data in the view
         let mut ranges = RangeComputer::<u32>::new();
         ranges.add_range_start(0);

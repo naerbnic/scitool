@@ -1,4 +1,6 @@
-use crate::utils::mem_reader::{self, MemReader, Parse};
+use std::io;
+
+use crate::utils::mem_reader::{MemReader, Parse};
 
 #[derive(Debug)]
 pub(super) struct ResourceIndexEntry {
@@ -17,7 +19,7 @@ impl ResourceIndexEntry {
 }
 
 impl Parse for ResourceIndexEntry {
-    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
+    fn parse<M: MemReader>(reader: &mut M) -> io::Result<Self> {
         let type_id = reader.read_u8()?;
         let file_offset = reader.read_u16_le()?;
         Ok(ResourceIndexEntry {

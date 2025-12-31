@@ -4,7 +4,7 @@ use crate::{
     resources::file::map::{ResourceLocation, ResourceLocationSet},
     utils::{
         buffer::ReaderBuffer,
-        mem_reader::{self, BufferMemReader, Parse as _},
+        mem_reader::{BufferMemReader, Parse as _},
     },
 };
 
@@ -13,16 +13,12 @@ pub(crate) struct MapFile {
 }
 
 impl MapFile {
-    pub(crate) fn from_read_seek<R>(reader: R) -> std::io::Result<Self>
+    pub(crate) fn from_read_seek<R>(reader: R) -> io::Result<Self>
     where
         R: std::io::Read + std::io::Seek,
     {
         let buffer = Arc::new(ReaderBuffer::new(reader)?);
-        let locations = ResourceLocationSet::parse(&mut BufferMemReader::new(buffer.clone()))
-            .map_err(|e| match e {
-                mem_reader::MemReaderError::Read(e) => e,
-                mem_reader::MemReaderError::InvalidData(err) => io::Error::other(err),
-            })?;
+        let locations = ResourceLocationSet::parse(&mut BufferMemReader::new(buffer.clone()))?;
         Ok(MapFile { locations })
     }
 

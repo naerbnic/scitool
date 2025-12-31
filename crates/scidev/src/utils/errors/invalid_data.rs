@@ -1,6 +1,7 @@
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::io;
 use std::sync::Arc;
 
 use crate::utils::errors::BoxError;
@@ -200,5 +201,11 @@ impl Display for InvalidDataError {
 impl Error for InvalidDataError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&*self.message)
+    }
+}
+
+impl From<InvalidDataError> for io::Error {
+    fn from(err: InvalidDataError) -> Self {
+        io::Error::new(io::ErrorKind::InvalidData, err)
     }
 }
