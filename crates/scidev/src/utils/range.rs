@@ -143,6 +143,12 @@ impl<T> BoundedRange<T>
 where
     T: num::PrimInt + num::Unsigned + 'static,
 {
+    /// Creates a bounded range from any type that implements [`RangeBounds`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is unbounded at the end. Unbounded at the start is
+    /// interpreted as starting at 0.
     pub fn from_range<R>(range: R) -> Self
     where
         R: RangeBounds<T>,
@@ -162,6 +168,7 @@ where
         Self { start, end }
     }
 
+    /// Creates a bounded range of the given size, starting at 0.
     pub fn from_size(size: T) -> Self {
         Self {
             start: T::zero(),
@@ -169,18 +176,22 @@ where
         }
     }
 
+    /// Returns the start index of the range.
     pub fn start(&self) -> T {
         self.start
     }
 
+    /// Returns the end index of the range.
     pub fn end(&self) -> T {
         self.end
     }
 
+    /// Returns the number of elements in the range.
     pub fn size(&self) -> T {
         self.end - self.start
     }
 
+    /// Returns the range as a Range<T>.
     pub fn as_range(&self) -> Range<T> {
         Range {
             start: self.start,
@@ -219,10 +230,12 @@ where
         }
     }
 
+    /// Returns true if this range contains the given range.
     pub fn contains(&self, other: BoundedRange<T>) -> bool {
         self.start <= other.start && other.end <= self.end
     }
 
+    /// Creates a new range by selecting a sub-range from this range.
     #[must_use]
     pub fn new_relative<R>(&self, inner: R) -> BoundedRange<T>
     where
@@ -241,6 +254,11 @@ where
         BoundedRange { start, end }
     }
 
+    /// Casts the range to a different index type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cast fails.
     pub fn cast_to<T2>(&self) -> BoundedRange<T2>
     where
         T2: num::PrimInt + num::Unsigned + 'static,

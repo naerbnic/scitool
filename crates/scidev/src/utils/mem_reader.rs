@@ -12,6 +12,7 @@ use crate::utils::{
     buffer::{FallibleBuffer, FallibleBufferRef, Splittable},
     convert::convert_if_different,
     errors::{BlockContext, BoxError, InvalidDataError, NoError, OtherError, UnpackableError},
+    range::BoundedRange,
 };
 
 pub trait ToFixedBytes {
@@ -335,8 +336,7 @@ where
 #[derive(Clone)]
 pub struct BufferMemReader<'a, B> {
     buffer: B,
-    start: usize,
-    end: usize,
+    range: BoundedRange<usize>,
     position: usize,
     context: BlockContext<'a>,
 }
@@ -344,8 +344,7 @@ pub struct BufferMemReader<'a, B> {
 impl<B> Debug for BufferMemReader<'_, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemReader")
-            .field("start", &self.start)
-            .field("end", &self.end)
+            .field("range", &self.range)
             .field("position", &self.position)
             .finish()
     }
@@ -356,7 +355,7 @@ where
     B: FallibleBuffer + Clone,
 {
     fn check_read_length(&self, len: usize) -> Result<()> {
-        let remaining = self.end - self.start - self.position;
+        let remaining = self.range.size() - self.position;
         if remaining < len {
             return Err(self.err_with_context()(NotEnoughData {
                 required: len,
@@ -398,14 +397,14 @@ where
     where
         NewD: Display + Debug + Clone + 'static,
     {
-        let new_start = self.start + start;
-        let new_end = self.start + end;
+        let new_range = self.range.new_relative(start..end);
         BufferMemReader {
             buffer: self.buffer.clone(),
-            start: new_start,
-            end: new_end,
+            range: new_range,
             position: 0,
-            context: self.context.nested(self.start, self.end, context),
+            context: self
+                .context
+                .nested(self.range.start(), self.range.end(), context),
         }
     }
 
@@ -413,8 +412,7 @@ where
         let buf_len = buf.size();
         Self {
             buffer: buf,
-            start: 0,
-            end: buf_len,
+            range: BoundedRange::from_size(buf_len),
             position: 0,
             context: BlockContext::new_root(buf_len),
         }
@@ -426,7 +424,7 @@ where
     B: Splittable,
 {
     pub fn into_remaining_buffer(self) -> B {
-        self.buffer.sub_buffer(self.position..self.end)
+        self.buffer.sub_buffer(self.position..self.range.end())
     }
 }
 
@@ -448,7 +446,7 @@ where
     }
 
     fn data_size(&self) -> usize {
-        self.end - self.start
+        self.range.size()
     }
 
     fn seek_to(&mut self, offset: usize) -> Result<()> {
@@ -487,7 +485,7 @@ where
         }
 
         self.buffer
-            .read_slice(self.start + self.position, buf)
+            .read_slice(self.range.start() + self.position, buf)
             .map_err(io::Error::other)
             .map_err(MemReaderError::Read)?;
 
@@ -496,7 +494,7 @@ where
     }
 
     fn remaining(&self) -> usize {
-        self.end - self.start - self.position
+        self.range.size() - self.position
     }
 
     fn read_until<T: FromFixedBytes + Debug>(
