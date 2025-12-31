@@ -318,9 +318,7 @@ impl SizedData for BlockBuffer {
 }
 
 impl FallibleBuffer for BlockBuffer {
-    type Error = io::Error;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         let offset = u64::try_from(offset).expect("sizeof(usize) <= sizeof(u64)");
         let range = Range::from_range(offset..offset + buf.len() as u64);
         let mem_block = self.0.open_mem(range)?;

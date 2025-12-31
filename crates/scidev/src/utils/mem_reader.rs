@@ -11,7 +11,7 @@ use bytes::BufMut;
 use crate::utils::{
     buffer::{FallibleBuffer, FallibleBufferRef, Splittable},
     convert::convert_if_different,
-    errors::{BlockContext, BoxError, InvalidDataError, NoError, OtherError, UnpackableError},
+    errors::{BlockContext, InvalidDataError, NoError, OtherError},
     range::BoundedRange,
 };
 
@@ -64,39 +64,6 @@ struct NotEnoughData {
 struct NotDivisible {
     required: usize,
     overflow: usize,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum MemReaderError {
-    /// An error that occured while reading from the underlying buffer.
-    #[error(transparent)]
-    Read(#[from] io::Error),
-    #[error(transparent)]
-    InvalidData(#[from] InvalidDataError),
-}
-
-impl UnpackableError for MemReaderError {
-    fn unpack_error(self) -> BoxError {
-        match self {
-            MemReaderError::Read(io_err) => Box::new(io_err),
-            MemReaderError::InvalidData(invalid_data_err) => Box::new(invalid_data_err),
-        }
-    }
-}
-
-impl From<MemReaderError> for OtherError {
-    fn from(err: MemReaderError) -> Self {
-        match err {
-            MemReaderError::Read(io_err) => OtherError::new(io_err),
-            MemReaderError::InvalidData(invalid_data_err) => OtherError::new(invalid_data_err),
-        }
-    }
-}
-
-impl MemReaderError {
-    pub fn new(invalid_data: InvalidDataError) -> Self {
-        Self::InvalidData(invalid_data)
-    }
 }
 
 macro_rules! impl_read_int {

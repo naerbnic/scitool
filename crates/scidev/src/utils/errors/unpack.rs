@@ -5,22 +5,14 @@ use std::{
     sync::{LazyLock, RwLock},
 };
 
-use crate::utils::{
-    errors::{BoxError, DynError, other::OtherError},
-    mem_reader,
-};
+use crate::utils::errors::{BoxError, DynError, other::OtherError};
 
 static WRAPPER_REGISTRY: LazyLock<RwLock<WrapCastHandlerRegistry>> = LazyLock::new(|| {
     let mut registry = WrapCastHandlerRegistry::new();
     registry.register_wrapper::<std::io::Error>();
     registry.register_wrapper::<OtherError>();
-    registry.register_unpack::<mem_reader::MemReaderError>();
     RwLock::new(registry)
 });
-
-pub(crate) trait UnpackableError: std::error::Error + Send + Sync + 'static {
-    fn unpack_error(self) -> BoxError;
-}
 
 /// A trait for error types that can wrap other generic errors.
 ///
@@ -123,18 +115,6 @@ impl WrapCastHandlerRegistry {
         self.handlers
             .entry(TypeId::of::<W>())
             .or_insert_with(|| Box::new(|err| unwrap_boxed::<W>(cast_or_panic::<W>(err))));
-    }
-
-    fn register_unpack<E>(&mut self)
-    where
-        E: UnpackableError + Send + Sync + 'static,
-    {
-        self.handlers.entry(TypeId::of::<E>()).or_insert_with(|| {
-            Box::new(|err| UnwrapResult {
-                error: cast_or_panic::<E>(err).unpack_error(),
-                did_unwrap: true,
-            })
-        });
     }
 
     fn resolve(&self, mut err: BoxError) -> BoxError {

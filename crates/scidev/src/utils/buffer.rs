@@ -6,7 +6,6 @@ use std::{
 
 use crate::utils::{
     convert::convert_if_different,
-    errors::NoError,
     mem_reader::FromFixedBytes,
     range::{BoundedRange, Range},
 };
@@ -167,19 +166,16 @@ impl Splittable for &[u8] {
 
 /// A buffer that can fail when reading.
 pub trait FallibleBuffer: SizedData {
-    type Error: std::error::Error + Send + Sync + 'static;
     /// Reads a slice starting at the given offset into the provided buffer.
     ///
     /// The length of the provided buffer determines how many bytes are read.
     ///
     /// Panics if the end of the read region would be beyond the end of the buffer.
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error>;
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()>;
 }
 
 impl FallibleBuffer for [u8] {
-    type Error = NoError;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         buf.copy_from_slice(&self[offset..][..buf.len()]);
         Ok(())
     }
@@ -189,9 +185,7 @@ impl<T> FallibleBuffer for &T
 where
     T: FallibleBuffer + ?Sized,
 {
-    type Error = T::Error;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         (*self).read_slice(offset, buf)
     }
 }
@@ -200,9 +194,7 @@ impl<T> FallibleBuffer for &mut T
 where
     T: FallibleBuffer + ?Sized,
 {
-    type Error = T::Error;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         (**self).read_slice(offset, buf)
     }
 }
@@ -211,9 +203,7 @@ impl<T> FallibleBuffer for Arc<T>
 where
     T: FallibleBuffer,
 {
-    type Error = T::Error;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         (**self).read_slice(offset, buf)
     }
 }
@@ -236,9 +226,7 @@ impl<B> FallibleBuffer for FallibleBufWrap<B>
 where
     B: Buffer,
 {
-    type Error = NoError;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         assert!(
             offset + buf.len() <= self.buffer.size(),
             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
@@ -309,9 +297,7 @@ impl<R> FallibleBuffer for ReaderBuffer<R>
 where
     R: io::Read + io::Seek,
 {
-    type Error = io::Error;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         assert!(
             offset + buf.len() <= self.size,
             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
@@ -363,9 +349,7 @@ impl<T> FallibleBuffer for FallibleBufferRef<'_, T>
 where
     T: FallibleBuffer,
 {
-    type Error = T::Error;
-
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
         self.0.read_slice(offset, buf)
     }
 }

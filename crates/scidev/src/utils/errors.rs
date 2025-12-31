@@ -22,4 +22,4 @@ pub use opaque::OpaqueError;
 pub(crate) use other::{OtherError, bail_other, ensure_other};
 
 pub(crate) use cast::{Builder as ErrorCastBuilder, ErrorCast, ErrorCastable, impl_error_castable};
-pub(crate) use unpack::{ErrWrapper, UnpackableError, resolve_error};
+pub(crate) use unpack::{ErrWrapper, resolve_error};
