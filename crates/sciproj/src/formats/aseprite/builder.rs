@@ -10,6 +10,7 @@ use crate::formats::aseprite::{
         PaletteContents, SpriteContents, TagContents, UserData, ValidationError,
     },
     model::Sprite,
+    props::Property,
 };
 
 pub struct FrameBuilder<'a> {
@@ -100,12 +101,7 @@ impl CelBuilder<'_> {
         self.contents.user_data.color = color;
     }
 
-    pub fn set_extension_property(
-        &mut self,
-        extension_id: &str,
-        key: &str,
-        value: crate::formats::aseprite::Property,
-    ) {
+    pub fn set_extension_property(&mut self, extension_id: &str, key: &str, value: Property) {
         let entry = self
             .contents
             .user_data
@@ -115,22 +111,18 @@ impl CelBuilder<'_> {
                     extension_id.to_string(),
                 ),
             )
-            .or_insert_with(|| crate::formats::aseprite::Properties {
-                properties: std::collections::BTreeMap::new(),
-            });
-        entry.properties.insert(key.to_string(), value);
+            .or_default();
+        entry.set(key.to_string(), value);
     }
 
-    pub fn set_general_property(&mut self, key: &str, value: crate::formats::aseprite::Property) {
+    pub fn set_general_property(&mut self, key: &str, value: Property) {
         let entry = self
             .contents
             .user_data
             .properties
             .entry(crate::formats::aseprite::backing::UserDataPropsKey::General)
-            .or_insert_with(|| crate::formats::aseprite::Properties {
-                properties: std::collections::BTreeMap::new(),
-            });
-        entry.properties.insert(key.to_string(), value);
+            .or_default();
+        entry.set(key.to_string(), value);
     }
 }
 
@@ -251,12 +243,7 @@ impl SpriteBuilder {
         self.contents.width = width;
     }
 
-    pub fn set_extension_property(
-        &mut self,
-        extension_id: &str,
-        key: &str,
-        value: crate::formats::aseprite::Property,
-    ) {
+    pub fn set_extension_property(&mut self, extension_id: &str, key: &str, value: Property) {
         let entry = self
             .contents
             .user_data
@@ -266,10 +253,8 @@ impl SpriteBuilder {
                     extension_id.to_string(),
                 ),
             )
-            .or_insert_with(|| crate::formats::aseprite::Properties {
-                properties: std::collections::BTreeMap::new(),
-            });
-        entry.properties.insert(key.to_string(), value);
+            .or_default();
+        entry.set(key.to_string(), value);
     }
     pub fn set_height(&mut self, height: u16) {
         self.contents.height = height;

@@ -18,7 +18,7 @@ use scidev::utils::{
 };
 
 use crate::formats::aseprite::{
-    ColorDepth, FixedI16, Point32, Rect32, Size32, backing::SpriteContents,
+    ColorDepth, FixedI16, Point32, Rect32, Size32, backing::SpriteContents, props::PropertyTag,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1158,8 +1158,8 @@ pub(super) mod user_data {
     use std::{collections::BTreeMap, io, num::NonZeroU32};
 
     use crate::formats::aseprite::{
-        Properties,
         backing::{self, UserData},
+        props::PropertyMap,
         raw::{ExtensionContext, UserDataPropsKey},
     };
 
@@ -1184,7 +1184,7 @@ pub(super) mod user_data {
         flags: UserDataFlags,
         text: Option<String>,
         color: Option<[u8; 4]>, // RGBA
-        properties_data: BTreeMap<UserDataPropsKey, Properties>,
+        properties_data: BTreeMap<UserDataPropsKey, PropertyMap>,
     }
 
     impl UserDataChunk {
@@ -1335,7 +1335,7 @@ pub(super) mod user_data {
                             || reader.create_invalid_data_error_msg("Invalid extension ID 0"),
                         )?)
                     };
-                    let props = Properties::read_from(&mut reader)?;
+                    let props = PropertyMap::read_from(&mut reader)?;
                     map.insert(key, props);
                 }
                 map
@@ -1945,46 +1945,48 @@ impl super::model::Sprite {
     }
 }
 
-impl super::Property {
+impl super::props::Property {
     fn read_from<M>(reader: &mut M) -> io::Result<Self>
     where
         M: MemReader,
     {
-        let type_id = reader.read_u16_le()?;
+        let type_id = PropertyTag::from_u16(reader.read_u16_le()?).map_err(|e| {
+            reader.create_invalid_data_error_msg(format!("Invalid property type: {e}"))
+        })?;
         Self::read_type_from(type_id, reader)
     }
 
-    fn read_type_from<M>(type_id: u16, reader: &mut M) -> io::Result<Self>
+    fn read_type_from<M>(type_id: PropertyTag, reader: &mut M) -> io::Result<Self>
     where
         M: MemReader,
     {
         let result = match type_id {
-            1 => Self::Bool(reader.read_u8()? != 0),
-            2 => Self::I8(reader.read_i8()?),
-            3 => Self::U8(reader.read_u8()?),
-            4 => Self::I16(reader.read_i16_le()?),
-            5 => Self::U16(reader.read_u16_le()?),
-            6 => Self::I32(reader.read_i32_le()?),
-            7 => Self::U32(reader.read_u32_le()?),
-            8 => Self::I64(reader.read_i64_le()?),
-            9 => Self::U64(reader.read_u64_le()?),
-            10 => Self::FixedPoint(FixedI16 {
+            PropertyTag::Bool => Self::Bool(reader.read_u8()? != 0),
+            PropertyTag::I8 => Self::I8(reader.read_i8()?),
+            PropertyTag::U8 => Self::U8(reader.read_u8()?),
+            PropertyTag::I16 => Self::I16(reader.read_i16_le()?),
+            PropertyTag::U16 => Self::U16(reader.read_u16_le()?),
+            PropertyTag::I32 => Self::I32(reader.read_i32_le()?),
+            PropertyTag::U32 => Self::U32(reader.read_u32_le()?),
+            PropertyTag::I64 => Self::I64(reader.read_i64_le()?),
+            PropertyTag::U64 => Self::U64(reader.read_u64_le()?),
+            PropertyTag::FixedPoint => Self::FixedPoint(FixedI16 {
                 value: reader.read_i32_le()?,
             }),
-            11 => Self::F32(reader.read_f32_le()?),
-            12 => Self::F64(reader.read_f64_le()?),
-            13 => Self::String(read_string_type(reader)?),
-            14 => {
+            PropertyTag::F32 => Self::F32(reader.read_f32_le()?),
+            PropertyTag::F64 => Self::F64(reader.read_f64_le()?),
+            PropertyTag::String => Self::String(read_string_type(reader)?),
+            PropertyTag::Point => {
                 let x = reader.read_i32_le()?;
                 let y = reader.read_i32_le()?;
                 Self::Point(Point32 { x, y })
             }
-            15 => {
+            PropertyTag::Size => {
                 let width = reader.read_i32_le()?;
                 let height = reader.read_i32_le()?;
                 Self::Size(Size32 { width, height })
             }
-            16 => {
+            PropertyTag::Rect => {
                 let x = reader.read_i32_le()?;
                 let y = reader.read_i32_le()?;
                 let width = reader.read_i32_le()?;
@@ -1994,34 +1996,45 @@ impl super::Property {
                     size: Size32 { width, height },
                 })
             }
-            17 => {
+            PropertyTag::Vec => {
                 let count = reader.read_u32_le()?;
                 let type_id = reader.read_u16_le()?;
+                let tag = if type_id == 0 {
+                    None
+                } else {
+                    Some(PropertyTag::from_u16(type_id).map_err(|e| {
+                        reader.create_invalid_data_error_msg(format!("Invalid property type: {e}"))
+                    })?)
+                };
                 let mut values = Vec::with_capacity(count as usize);
                 for _ in 0..count {
-                    let elem_type_id = if type_id == 0 {
-                        reader.read_u16_le()?
+                    let elem_tag = if let Some(tag) = tag {
+                        tag
                     } else {
-                        type_id
+                        PropertyTag::from_u16(reader.read_u16_le()?).map_err(|e| {
+                            reader.create_invalid_data_error_msg(format!(
+                                "Invalid property type: {e}",
+                            ))
+                        })?
                     };
-                    let value = Self::read_type_from(elem_type_id, reader)?;
+                    let value = Self::read_type_from(elem_tag, reader)?;
                     values.push(value);
                 }
                 Self::Vec(values)
             }
-            18 => Self::Map(super::Properties::read_from(reader)?),
-            _ => {
-                return Err(reader
-                    .create_invalid_data_error_msg("Invalid property type")
-                    .into());
-            }
+            PropertyTag::Map => Self::Map(super::props::PropertyMap::read_from(reader)?),
+            PropertyTag::Uuid => Self::Uuid({
+                let mut buf = [0u8; 16];
+                reader.read_exact(&mut buf)?;
+                buf
+            }),
         };
 
         Ok(result)
     }
 
     pub fn write_typed_to(&self, builder: &mut BlockBuilder) -> io::Result<()> {
-        builder.write_u16_le(self.type_id())?;
+        builder.write_u16_le(self.type_id().to_u16())?;
         self.write_untyped_to(builder)
     }
 
@@ -2059,7 +2072,7 @@ impl super::Property {
                 let group_type_id = if let Some((first, rest)) = items.split_first()
                     && rest.iter().all(|item| item.type_id() == first.type_id())
                 {
-                    first.type_id()
+                    first.type_id().to_u16()
                 } else {
                     0
                 };
@@ -2083,28 +2096,28 @@ impl super::Property {
     }
 }
 
-impl super::Properties {
+impl super::props::PropertyMap {
     pub fn read_from<M>(reader: &mut M) -> io::Result<Self>
     where
         M: MemReader,
     {
+        let mut properties = Self::new();
         let count = reader.read_u32_le()?;
-        let mut properties = BTreeMap::new();
         for _ in 0..count {
             let key = read_string_type(reader)?;
-            let value = super::Property::read_from(reader)?;
+            let value = super::props::Property::read_from(reader)?;
             // The existing semantics appear to be that duplicate keys are
             // overwritten.
-            properties.insert(key, value);
+            properties.set(key, value);
         }
-        Ok(Self { properties })
+        Ok(properties)
     }
 
     pub fn write_to(&self, builder: &mut BlockBuilder) -> io::Result<()> {
-        let count = u32::try_from(self.properties.len())
+        let count = u32::try_from(self.properties().len())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Too many properties"))?;
         builder.write_u32_le(count)?;
-        for (key, value) in &self.properties {
+        for (key, value) in self.properties() {
             write_string_to(key, builder)?;
             value.write_typed_to(builder)?;
         }

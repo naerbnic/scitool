@@ -3,8 +3,9 @@ use std::ops::Range;
 use std::{io, mem};
 
 use crate::formats::aseprite::backing::LayerContents;
+use crate::formats::aseprite::props::PropertyMap;
 use crate::formats::aseprite::{
-    BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point16, Properties,
+    BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point16,
     backing::{
         CelContents, CelData, CelPixelData, SpriteContents, UserDataPropsKey, ValidationError,
         validate_sprite,
@@ -170,7 +171,7 @@ impl Sprite {
 
     /// Returns the general user data properties.
     #[must_use]
-    pub fn properties(&self) -> Option<&Properties> {
+    pub fn properties(&self) -> Option<&PropertyMap> {
         self.contents
             .user_data
             .properties
@@ -179,7 +180,7 @@ impl Sprite {
 
     /// Returns the user data properties for a specific extension.
     #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
         self.contents
             .user_data
             .properties
@@ -302,7 +303,7 @@ impl<'a> LayerView<'a> {
 
     /// Returns the general user data properties.
     #[must_use]
-    pub fn properties(&self) -> Option<&Properties> {
+    pub fn properties(&self) -> Option<&PropertyMap> {
         self.contents()
             .user_data
             .properties
@@ -311,7 +312,7 @@ impl<'a> LayerView<'a> {
 
     /// Returns the user data properties for a specific extension.
     #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
         self.contents()
             .user_data
             .properties
@@ -372,7 +373,7 @@ impl<'a> TagView<'a> {
 
     /// Returns the general user data properties.
     #[must_use]
-    pub fn properties(&self) -> Option<&Properties> {
+    pub fn properties(&self) -> Option<&PropertyMap> {
         self.sprite.contents.tags[self.index]
             .user_data
             .properties
@@ -381,7 +382,7 @@ impl<'a> TagView<'a> {
 
     /// Returns the user data properties for a specific extension.
     #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
         self.sprite.contents.tags[self.index]
             .user_data
             .properties
@@ -489,7 +490,7 @@ impl<'a> CelView<'a> {
 
     /// Returns the general user data properties.
     #[must_use]
-    pub fn properties(&self) -> Option<&Properties> {
+    pub fn properties(&self) -> Option<&PropertyMap> {
         self.contents
             .user_data
             .properties
@@ -497,7 +498,7 @@ impl<'a> CelView<'a> {
     }
 
     #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&Properties> {
+    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
         self.contents
             .user_data
             .properties

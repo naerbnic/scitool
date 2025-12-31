@@ -6,7 +6,7 @@ use crate::formats::aseprite::{FrameIndex, LayerIndex, Point16};
 
 use super::{
     AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, LayerFlags, LayerType,
-    PaletteEntry, Point32, Properties, Size32,
+    PaletteEntry, Point32, Size32, props::PropertyMap,
 };
 
 /// Keys for user data properties.
@@ -23,7 +23,7 @@ pub(super) enum UserDataPropsKey {
 pub(super) struct UserData {
     pub(super) text: Option<String>,
     pub(super) color: Option<Color>,
-    pub(super) properties: BTreeMap<UserDataPropsKey, Properties>,
+    pub(super) properties: BTreeMap<UserDataPropsKey, PropertyMap>,
 }
 
 impl UserData {

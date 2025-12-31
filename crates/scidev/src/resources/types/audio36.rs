@@ -7,7 +7,7 @@ use crate::{
     resources::resource::ResourceContents,
     utils::{
         block::{Block, MemBlock},
-        data_writer::{DataWriter, IoDataWriter},
+        data_writer::DataWriterExt,
         errors::{BoxError, OpaqueError, OtherError, ensure_other},
         mem_reader::MemReader,
     },
@@ -43,7 +43,7 @@ impl RawMapEntry {
         })
     }
 
-    pub(crate) fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
+    pub(crate) fn write_to<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_u8(self.id.noun())?;
         writer.write_u8(self.id.verb())?;
         writer.write_u8(self.id.condition())?;
@@ -88,14 +88,14 @@ impl RawMapResource {
         Ok(RawMapResource { entries })
     }
 
-    pub(crate) fn write_to<W: DataWriter>(&self, writer: &mut W) -> io::Result<()> {
+    pub(crate) fn write_to<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         const TERM_BYTES: &[u8] = &[0xFF; 10];
 
         for entry in &self.entries {
             entry.write_to(writer)?;
         }
         // Write the terminator entry, consisting of an entry of all 0xFFs.
-        writer.write_slice(TERM_BYTES)?;
+        writer.write_all(TERM_BYTES)?;
         Ok(())
     }
 }
@@ -299,7 +299,7 @@ impl Audio36ResourceBuilder {
         let mut map_resources = Vec::new();
         for (room, map) in self.maps {
             let mut map_data = Vec::new();
-            map.write_to(&mut IoDataWriter::new(&mut Cursor::new(&mut map_data)))?;
+            map.write_to(&mut map_data)?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
                 ResourceContents::new(Block::from_mem_block(MemBlock::from_vec(map_data))),

@@ -4,8 +4,6 @@
 
 #![expect(dead_code)]
 
-use std::collections::BTreeMap;
-
 use bitflags::bitflags;
 
 // Conceptually, we separate the implementations of the Aseprite processor
@@ -39,6 +37,7 @@ use bitflags::bitflags;
 mod backing;
 mod builder;
 mod model;
+mod props;
 mod raw;
 mod tests;
 
@@ -49,6 +48,7 @@ pub use self::model::{
 };
 // Export builder types for public use
 pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder};
+pub use self::props::{Property, PropertyMap};
 
 /// The color depth (bits per pixel) of the image.
 #[derive(Debug, Clone, Copy)]
@@ -235,6 +235,9 @@ pub struct Rect32 {
     size: Size32,
 }
 
+#[derive(Debug, Clone)]
+pub struct Uuid([u8; 16]);
+
 /// A single pixel value.
 #[derive(Debug, Clone, Copy)]
 pub enum Pixel {
@@ -305,64 +308,6 @@ pub enum BlendMode {
     Subtraction = 17,
     Divide = 18,
 }
-
-/// A user data property value.
-#[derive(Debug, Clone)]
-pub enum Property {
-    Bool(bool),
-    I8(i8),
-    U8(u8),
-    I16(i16),
-    U16(u16),
-    I32(i32),
-    U32(u32),
-    I64(i64),
-    U64(u64),
-    F32(f32),
-    F64(f64),
-    FixedPoint(FixedI16),
-    String(String),
-    Point(Point32),
-    Size(Size32),
-    Rect(Rect32),
-    Vec(Vec<Property>),
-    Map(Properties),
-    Uuid([u8; 16]),
-}
-
-impl Property {
-    pub(crate) fn type_id(&self) -> u16 {
-        match self {
-            Property::Bool(_) => 1,
-            Property::I8(_) => 2,
-            Property::U8(_) => 3,
-            Property::I16(_) => 4,
-            Property::U16(_) => 5,
-            Property::I32(_) => 6,
-            Property::U32(_) => 7,
-            Property::I64(_) => 8,
-            Property::U64(_) => 9,
-            Property::F32(_) => 10,
-            Property::F64(_) => 11,
-            Property::FixedPoint(_) => 12,
-            Property::String(_) => 13,
-            Property::Point(_) => 14,
-            Property::Size(_) => 15,
-            Property::Rect(_) => 16,
-            Property::Vec(_) => 17,
-            Property::Map(_) => 18,
-            Property::Uuid(_) => 19,
-        }
-    }
-}
-
-/// A collection of user-defined properties.
-#[derive(Debug, Clone)]
-pub struct Properties {
-    properties: BTreeMap<String, Property>,
-}
-
-impl Properties {}
 
 /// The direction of an animation tag.
 #[derive(Debug, Clone, Copy)]
