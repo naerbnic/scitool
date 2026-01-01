@@ -2,17 +2,20 @@
 
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use bytes::{Buf as _, TryGetError};
 use itertools::Itertools;
 use scidev::utils::data_writer::DataWriterExt as _;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
-use serde::ser::{self, SerializeMap as _, Serializer};
+use serde::ser::{self, SerializeMap as _, SerializeSeq, Serializer};
 
-use crate::formats::aseprite::Point32;
 use crate::formats::aseprite::props::PropertyTag;
+use crate::formats::aseprite::props::serde::visitors::{
+    FixedI16Surrogate, PointSurrogate, RectSurrogate, SizeSurrogate, UuidSurrogate,
+};
+use crate::formats::aseprite::{FixedI16, Point32, Rect32, Size32, Uuid};
 
 mod visitors;
 
@@ -171,7 +174,31 @@ impl<'de> de::VariantAccess<'de> for EnumReader<'de, '_> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
-        todo!()
+        let mut deser = PropertyDeserializer::new(self.reader);
+        // Read a zero-element vec.
+        let tag = deser.read_tag()?;
+        if tag != PropertyTag::Vec {
+            return Err(de::Error::invalid_type(
+                de::Unexpected::Other(format!("{tag:?}").as_str()),
+                &"list",
+            ));
+        }
+
+        let len = deser.reader.try_get_u32_le().map_err(Error::from_try_get)?;
+        if len != 0 {
+            return Err(de::Error::invalid_type(
+                de::Unexpected::Other(format!("{len:?}").as_str()),
+                &"zero",
+            ));
+        }
+        let tag_num = deser.reader.try_get_u16_le().map_err(Error::from_try_get)?;
+        if tag_num != 0 {
+            return Err(de::Error::invalid_type(
+                de::Unexpected::Other(format!("{tag_num:?}").as_str()),
+                &"zero",
+            ));
+        }
+        Ok(())
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -256,6 +283,7 @@ impl<'de> Deserializer<'de> for PropertyDeserializer<'de, '_> {
         tuple_struct map struct identifier ignored_any
     }
 
+    #[expect(clippy::too_many_lines)]
     fn deserialize_any<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -263,24 +291,50 @@ impl<'de> Deserializer<'de> for PropertyDeserializer<'de, '_> {
         let tag = self.read_tag()?;
 
         Ok(match tag {
-            PropertyTag::Bool => visitor.visit_bool::<Error>(self.reader.get_u8() != 0)?,
-            PropertyTag::I8 => visitor.visit_i8::<Error>(self.reader.get_i8())?,
-            PropertyTag::U8 => visitor.visit_u8::<Error>(self.reader.get_u8())?,
-            PropertyTag::I16 => visitor.visit_i16::<Error>(self.reader.get_i16_le())?,
-            PropertyTag::U16 => visitor.visit_u16::<Error>(self.reader.get_u16_le())?,
-            PropertyTag::I32 => visitor.visit_i32::<Error>(self.reader.get_i32_le())?,
-            PropertyTag::U32 => visitor.visit_u32::<Error>(self.reader.get_u32_le())?,
-            PropertyTag::I64 => visitor.visit_i64::<Error>(self.reader.get_i64_le())?,
-            PropertyTag::U64 => visitor.visit_u64::<Error>(self.reader.get_u64_le())?,
-            PropertyTag::FixedPoint => {
-                return Err(Error::unsupported_type("FixedPoint"));
+            PropertyTag::Bool => visitor
+                .visit_bool::<Error>(self.reader.try_get_u8().map_err(Error::from_try_get)? != 0)?,
+            PropertyTag::I8 => {
+                visitor.visit_i8::<Error>(self.reader.try_get_i8().map_err(Error::from_try_get)?)?
             }
-            PropertyTag::F32 => visitor.visit_f32::<Error>(self.reader.get_f32_le())?,
-            PropertyTag::F64 => visitor.visit_f64::<Error>(self.reader.get_f64_le())?,
+            PropertyTag::U8 => {
+                visitor.visit_u8::<Error>(self.reader.try_get_u8().map_err(Error::from_try_get)?)?
+            }
+            PropertyTag::I16 => visitor
+                .visit_i16::<Error>(self.reader.try_get_i16_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::U16 => visitor
+                .visit_u16::<Error>(self.reader.try_get_u16_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::I32 => visitor
+                .visit_i32::<Error>(self.reader.try_get_i32_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::U32 => visitor
+                .visit_u32::<Error>(self.reader.try_get_u32_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::I64 => visitor
+                .visit_i64::<Error>(self.reader.try_get_i64_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::U64 => visitor
+                .visit_u64::<Error>(self.reader.try_get_u64_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::FixedPoint => {
+                let value = self.reader.try_get_i32_le().map_err(Error::from_try_get)?;
+                if castaway::cast!(visitor, self::visitors::FixedI16Visitor).is_ok() {
+                    // SAFETY:
+                    //
+                    // - Castaway ensures that the visitor here is of type `FixedI16Visitor`, which has
+                    //   a value type of `FixedI16`.
+                    // - `FixedI16` is a POD type that is already copyable, so copying it is safe.
+                    #[expect(unsafe_code)]
+                    unsafe {
+                        std::mem::transmute_copy::<_, V::Value>(&FixedI16::new_raw(value))
+                    }
+                } else {
+                    return Err(Error::unsupported_type("FixedPoint"));
+                }
+            }
+            PropertyTag::F32 => visitor
+                .visit_f32::<Error>(self.reader.try_get_f32_le().map_err(Error::from_try_get)?)?,
+            PropertyTag::F64 => visitor
+                .visit_f64::<Error>(self.reader.try_get_f64_le().map_err(Error::from_try_get)?)?,
             PropertyTag::String => visitor.visit_string::<Error>(self.read_string()?)?,
             PropertyTag::Point => {
-                let x = self.reader.get_i32_le();
-                let y = self.reader.get_i32_le();
+                let x = self.reader.try_get_i32_le().map_err(Error::from_try_get)?;
+                let y = self.reader.try_get_i32_le().map_err(Error::from_try_get)?;
                 if castaway::cast!(visitor, self::visitors::PointVisitor).is_ok() {
                     // SAFETY:
                     //
@@ -296,10 +350,43 @@ impl<'de> Deserializer<'de> for PropertyDeserializer<'de, '_> {
                 }
             }
             PropertyTag::Size => {
-                return Err(Error::unsupported_type("Size32"));
+                let width = self.reader.try_get_u32_le().map_err(Error::from_try_get)?;
+                let height = self.reader.try_get_u32_le().map_err(Error::from_try_get)?;
+                if castaway::cast!(visitor, self::visitors::SizeVisitor).is_ok() {
+                    // SAFETY:
+                    //
+                    // - Castaway ensures that the visitor here is of type `SizeVisitor`, which has
+                    //   a value type of `Size32`.
+                    // - `Size32` is a POD type that is already copyable, so copying it is safe.
+                    #[expect(unsafe_code)]
+                    unsafe {
+                        std::mem::transmute_copy::<_, V::Value>(&Size32 { width, height })
+                    }
+                } else {
+                    return Err(Error::unsupported_type("Size32"));
+                }
             }
             PropertyTag::Rect => {
-                return Err(Error::unsupported_type("Rect32"));
+                let x = self.reader.try_get_i32_le().map_err(Error::from_try_get)?;
+                let y = self.reader.try_get_i32_le().map_err(Error::from_try_get)?;
+                let width = self.reader.try_get_u32_le().map_err(Error::from_try_get)?;
+                let height = self.reader.try_get_u32_le().map_err(Error::from_try_get)?;
+                if castaway::cast!(visitor, self::visitors::RectVisitor).is_ok() {
+                    // SAFETY:
+                    //
+                    // - Castaway ensures that the visitor here is of type `RectVisitor`, which has
+                    //   a value type of `Rect32`.
+                    // - `Rect32` is a POD type that is already copyable, so copying it is safe.
+                    #[expect(unsafe_code)]
+                    unsafe {
+                        std::mem::transmute_copy::<_, V::Value>(&Rect32 {
+                            origin: Point32 { x, y },
+                            size: Size32 { width, height },
+                        })
+                    }
+                } else {
+                    return Err(Error::unsupported_type("Rect32"));
+                }
             }
             PropertyTag::Vec => {
                 let count = self.reader.try_get_u32_le().map_err(Error::from_try_get)?;
@@ -336,7 +423,21 @@ impl<'de> Deserializer<'de> for PropertyDeserializer<'de, '_> {
                 })?
             }
             PropertyTag::Uuid => {
-                return Err(Error::unsupported_type("UUID"));
+                let mut uuid_bytes = [0u8; 16];
+                self.reader.read_exact(&mut uuid_bytes)?;
+                if castaway::cast!(visitor, self::visitors::UuidVisitor).is_ok() {
+                    // SAFETY:
+                    //
+                    // - Castaway ensures that the visitor here is of type `UuidVisitor`, which has
+                    //   a value type of `Uuid`.
+                    // - `Uuid` is a POD type that is already copyable, so copying it is safe.
+                    #[expect(unsafe_code)]
+                    unsafe {
+                        std::mem::transmute_copy::<_, V::Value>(&Uuid(uuid_bytes))
+                    }
+                } else {
+                    return Err(Error::unsupported_type("Uuid"));
+                }
             }
         })
     }
@@ -354,7 +455,7 @@ impl<'de> Deserializer<'de> for PropertyDeserializer<'de, '_> {
         let tag = self.read_tag()?;
         if tag != PropertyTag::Map {
             return Err(de::Error::invalid_type(
-                de::Unexpected::Other(format!("{:?}", tag).as_str()),
+                de::Unexpected::Other(format!("{tag:?}").as_str()),
                 &"map",
             ));
         }
@@ -514,36 +615,52 @@ where
         Ok(())
     }
 
-    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Err(Error::unsupported_type("bytes"))
+    fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        self.handle_tag(PropertyTag::Vec)?;
+        self.writer
+            .write_u32_le(u32::try_from(v.len()).map_err(Error::other)?)?;
+        self.writer.write_u16_le(PropertyTag::U8.to_u16())?;
+        self.writer.write_all(v)?;
+        Ok(())
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::unsupported_type("none"))
+        self.serialize_seq(Some(0))?.end()
     }
 
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + ser::Serialize,
     {
-        value.serialize(self)
+        let mut seq = self.serialize_seq(Some(1))?;
+        seq.serialize_element(value)?;
+        seq.end()
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::unsupported_type("()"))
+        ser::SerializeSeq::end(self.serialize_seq(Some(0))?)
     }
 
     fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        Err(Error::unsupported_type("unit struct"))
+        ser::SerializeSeq::end(self.serialize_seq(Some(0))?)
     }
 
     fn serialize_unit_variant(
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        Err(Error::unsupported_type("unit variant"))
+        // Manually write out the header for a single-element map
+        self.handle_tag(PropertyTag::Map)?;
+        // Exactly one element
+        self.writer.write_u32_le(1)?;
+        // Write the key
+        (&mut PropertySerializer::new_tagged(PropertyTag::String, self.writer))
+            .serialize_str(variant)?;
+        self.writer.write_u16_le(PropertyTag::Vec.to_u16())?;
+        self.writer.write_u32_le(0)?;
+        Ok(())
     }
 
     fn serialize_newtype_struct<T>(
@@ -554,7 +671,39 @@ where
     where
         T: ?Sized + ser::Serialize,
     {
-        value.serialize(self)
+        castaway::match_type!(value, {
+            &FixedI16Surrogate as f => {
+                self.handle_tag(PropertyTag::FixedPoint)?;
+                self.writer.write_i32_le(f.0.value)?;
+                Ok(())
+            },
+            &PointSurrogate as p => {
+                self.handle_tag(PropertyTag::Point)?;
+                self.writer.write_i32_le(p.0.x)?;
+                self.writer.write_i32_le(p.0.y)?;
+                Ok(())
+            },
+            &SizeSurrogate as sz => {
+                self.handle_tag(PropertyTag::Size)?;
+                self.writer.write_u32_le(sz.0.width)?;
+                self.writer.write_u32_le(sz.0.height)?;
+                Ok(())
+            },
+            &RectSurrogate as r => {
+                self.handle_tag(PropertyTag::Rect)?;
+                self.writer.write_i32_le(r.0.origin.x)?;
+                self.writer.write_i32_le(r.0.origin.y)?;
+                self.writer.write_u32_le(r.0.size.width)?;
+                self.writer.write_u32_le(r.0.size.height)?;
+                Ok(())
+            },
+            &UuidSurrogate as u => {
+                self.handle_tag(PropertyTag::Uuid)?;
+                self.writer.write_all(&u.0.0)?;
+                Ok(())
+            },
+            v => v.serialize(self)
+        })
     }
 
     fn serialize_newtype_variant<T>(
@@ -1029,6 +1178,51 @@ mod tests {
         let data = buffer.into_inner();
         let output: TestEnum = read_from_prop_map(&data).unwrap();
 
+        assert_eq!(input, output);
+    }
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+    struct SpecializedTypes {
+        point: Point32,
+        size: Size32,
+        rect: Rect32,
+        fixed: FixedI16,
+        uuid: Uuid,
+    }
+
+    #[test]
+    fn test_round_trip_specialized_types() {
+        let input = SpecializedTypes {
+            point: Point32::new(10, -20),
+            size: Size32::new(100, 200),
+            rect: Rect32::new(Point32::new(5, 5), Size32::new(10, 10)),
+            fixed: FixedI16::new_raw(98304), // 1.5 * 65536
+            uuid: Uuid([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
+        };
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        serialize_prop_map(&input, &mut buffer).unwrap();
+
+        let data = buffer.into_inner();
+        let output: SpecializedTypes = read_from_prop_map(&data).unwrap();
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_round_trip_specialized_types_with_alternate_format() {
+        let input = SpecializedTypes {
+            point: Point32::new(10, -20),
+            size: Size32::new(100, 200),
+            rect: Rect32::new(Point32::new(5, 5), Size32::new(10, 10)),
+            fixed: FixedI16::new_raw(98304), // 1.5 * 65536
+            uuid: Uuid([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
+        };
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        serde_json::to_writer(&mut buffer, &input).unwrap();
+
+        let data = buffer.into_inner();
+        let output: SpecializedTypes = serde_json::from_slice(&data).unwrap();
         assert_eq!(input, output);
     }
 }

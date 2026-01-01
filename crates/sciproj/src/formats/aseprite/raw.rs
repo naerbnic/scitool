@@ -1982,17 +1982,17 @@ impl super::props::Property {
                 Self::Point(Point32 { x, y })
             }
             PropertyTag::Size => {
-                let width = reader.read_i32_le()?;
-                let height = reader.read_i32_le()?;
+                let width = reader.read_u32_le()?;
+                let height = reader.read_u32_le()?;
                 Self::Size(Size32 { width, height })
             }
             PropertyTag::Rect => {
                 let x = reader.read_i32_le()?;
                 let y = reader.read_i32_le()?;
-                let width = reader.read_i32_le()?;
-                let height = reader.read_i32_le()?;
+                let width = reader.read_u32_le()?;
+                let height = reader.read_u32_le()?;
                 Self::Rect(Rect32 {
-                    point: Point32 { x, y },
+                    origin: Point32 { x, y },
                     size: Size32 { width, height },
                 })
             }
@@ -2058,13 +2058,13 @@ impl super::props::Property {
             }
             Self::Point(value) => builder.write_i32_le(value.x)?.write_i32_le(value.y)?,
             Self::Size(value) => builder
-                .write_i32_le(value.width)?
-                .write_i32_le(value.height)?,
+                .write_u32_le(value.width)?
+                .write_u32_le(value.height)?,
             Self::Rect(value) => builder
-                .write_i32_le(value.point.x)?
-                .write_i32_le(value.point.y)?
-                .write_i32_le(value.size.width)?
-                .write_i32_le(value.size.height)?,
+                .write_i32_le(value.origin.x)?
+                .write_i32_le(value.origin.y)?
+                .write_u32_le(value.size.width)?
+                .write_u32_le(value.size.height)?,
             Self::Vec(items) => {
                 let count = u32::try_from(items.len())
                     .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Too many items"))?;

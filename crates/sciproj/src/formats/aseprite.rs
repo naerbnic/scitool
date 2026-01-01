@@ -161,14 +161,41 @@ impl GrayscaleColor {
 }
 
 /// A fixed-point number (16.16).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FixedI16 {
     /// Fixed point value. (16.16)
     value: i32,
 }
 
+impl FixedI16 {
+    /// Creates a new `FixedI16`.
+    #[must_use]
+    pub fn new_raw(value: i32) -> Self {
+        Self { value }
+    }
+
+    #[must_use]
+    pub fn as_f32(&self) -> f32 {
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.as_f64() as f32
+        }
+    }
+
+    #[must_use]
+    pub fn as_f64(&self) -> f64 {
+        f64::from(self.value) / 65536.0
+    }
+
+    /// Returns the fixed point value.
+    #[must_use]
+    pub fn value(&self) -> i32 {
+        self.value
+    }
+}
+
 /// A 2D point with integer coordinates.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Point32 {
     x: i32,
     y: i32,
@@ -195,7 +222,7 @@ impl Point32 {
 }
 
 /// A 2D point with 16-bit integer coordinates.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Point16 {
     x: i16,
     y: i16,
@@ -222,20 +249,60 @@ impl Point16 {
 }
 
 /// A 2D size with integer width and height.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Size32 {
-    width: i32,
-    height: i32,
+    width: u32,
+    height: u32,
+}
+
+impl Size32 {
+    /// Creates a new `Size32`.
+    #[must_use]
+    pub fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+
+    /// Returns the width.
+    #[must_use]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Returns the height.
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
 }
 
 /// A rectangle defined by a top-left point and a size.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect32 {
-    point: Point32,
+    origin: Point32,
     size: Size32,
 }
 
-#[derive(Debug, Clone)]
+impl Rect32 {
+    /// Creates a new `Rect32`.
+    #[must_use]
+    pub fn new(origin: Point32, size: Size32) -> Self {
+        Self { origin, size }
+    }
+
+    /// Returns the top-left point.
+    #[must_use]
+    pub fn origin(&self) -> Point32 {
+        self.origin
+    }
+
+    /// Returns the size.
+    #[must_use]
+    pub fn size(&self) -> Size32 {
+        self.size
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Uuid([u8; 16]);
 
 /// A single pixel value.

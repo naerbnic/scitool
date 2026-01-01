@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    io::{self, Cursor},
-};
+use std::{collections::BTreeMap, io};
 
 use crate::{
     resources::resource::ResourceContents,
