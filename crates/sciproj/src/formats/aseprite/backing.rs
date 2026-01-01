@@ -20,13 +20,13 @@ pub(super) enum UserDataPropsKey {
 
 /// User data associated with various Aseprite elements.
 #[derive(Debug, Clone, Default)]
-pub(super) struct UserData {
+pub(super) struct UserDataContents {
     pub(super) text: Option<String>,
     pub(super) color: Option<Color>,
     pub(super) properties: BTreeMap<UserDataPropsKey, PropertyMap>,
 }
 
-impl UserData {
+impl UserDataContents {
     pub(super) fn extension_names(&self) -> impl Iterator<Item = &str> + '_ {
         self.properties.keys().filter_map(|k| match k {
             UserDataPropsKey::Extension(s) => Some(s.as_str()),
@@ -43,7 +43,7 @@ pub(super) struct TagContents {
     pub(super) name: String,
     pub(super) color: Color,
     pub(super) direction: AnimationDirection,
-    pub(super) user_data: UserData,
+    pub(super) user_data: UserDataContents,
 }
 
 /// The backing data for a layer.
@@ -55,7 +55,7 @@ pub(super) struct LayerContents {
     pub(super) blend_mode: BlendMode,
     pub(super) opacity: u8,
     pub(super) uuid: Option<[u8; 16]>,
-    pub(super) user_data: UserData,
+    pub(super) user_data: UserDataContents,
 }
 
 /// Raw pixel data for a cel, including potential on-disk caching.
@@ -84,7 +84,7 @@ pub(super) struct CelContents {
     pub(super) position: Point16,
     pub(super) opacity: u8,
     pub(super) contents: CelData,
-    pub(super) user_data: UserData,
+    pub(super) user_data: UserDataContents,
     pub(super) precise_position: Point32,
     pub(super) precise_size: Size32,
 }
@@ -133,7 +133,7 @@ pub(super) struct SpriteContents {
     pub(super) cels: BTreeMap<CelIndex, CelContents>,
     pub(super) color_profile: ColorProfile,
     pub(super) palette: PaletteContents,
-    pub(super) user_data: UserData,
+    pub(super) user_data: UserDataContents,
 }
 
 /// Errors that can occur during sprite validation.
@@ -293,7 +293,7 @@ pub(super) fn validate_sprite(c: &SpriteContents) -> Result<(), ValidationError>
 impl SpriteContents {
     pub(super) fn visit_user_data<'a, F>(&'a self, mut f: F)
     where
-        F: FnMut(&'a UserData),
+        F: FnMut(&'a UserDataContents),
     {
         f(&self.user_data);
         for layer in &self.layers {
@@ -327,7 +327,7 @@ mod tests {
             cels: BTreeMap::new(),
             color_profile: ColorProfile::None,
             palette: PaletteContents { entries: vec![] },
-            user_data: UserData {
+            user_data: UserDataContents {
                 text: Some("Sprite".to_string()),
                 color: None,
                 properties: BTreeMap::new(),
@@ -342,7 +342,7 @@ mod tests {
             blend_mode: BlendMode::Normal,
             opacity: 255,
             uuid: None,
-            user_data: UserData {
+            user_data: UserDataContents {
                 text: Some("Layer".to_string()),
                 color: None,
                 properties: BTreeMap::new(),
@@ -356,7 +356,7 @@ mod tests {
             name: "T1".to_string(),
             color: Color::from_rgba(0, 0, 0, 0),
             direction: AnimationDirection::Forward,
-            user_data: UserData {
+            user_data: UserDataContents {
                 text: Some("Tag".to_string()),
                 color: None,
                 properties: BTreeMap::new(),
@@ -379,7 +379,7 @@ mod tests {
                     width: 0,
                     height: 0,
                 },
-                user_data: UserData {
+                user_data: UserDataContents {
                     text: Some("Cel".to_string()),
                     color: None,
                     properties: BTreeMap::new(),

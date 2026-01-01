@@ -1158,7 +1158,7 @@ pub(super) mod user_data {
     use std::{collections::BTreeMap, io, num::NonZeroU32};
 
     use crate::formats::aseprite::{
-        backing::{self, UserData},
+        backing::{self, UserDataContents},
         props::PropertyMap,
         raw::{ExtensionContext, UserDataPropsKey},
     };
@@ -1190,7 +1190,7 @@ pub(super) mod user_data {
     impl UserDataChunk {
         pub(super) fn from_backing(
             ext_context: &ExtensionContext,
-            user_data: &UserData,
+            user_data: &UserDataContents,
         ) -> Option<Self> {
             let mut flags = UserDataFlags::empty();
             let mut has_content = false;

@@ -7,7 +7,7 @@ use crate::formats::aseprite::{
     LayerType, PaletteEntry, Point16, Point32, Size32,
     backing::{
         CelContents, CelData, CelPixelData, ColorProfile, FrameContents, LayerContents,
-        PaletteContents, SpriteContents, TagContents, UserData, ValidationError,
+        PaletteContents, SpriteContents, TagContents, UserDataContents, ValidationError,
     },
     model::Sprite,
     props::Property,
@@ -149,7 +149,7 @@ impl SpriteBuilder {
                 palette: PaletteContents {
                     entries: Vec::new(),
                 },
-                user_data: UserData::default(),
+                user_data: UserDataContents::default(),
             },
         }
     }
@@ -173,7 +173,7 @@ impl SpriteBuilder {
             blend_mode: BlendMode::Normal,
             opacity: 255,
             uuid: None,
-            user_data: UserData::default(),
+            user_data: UserDataContents::default(),
         };
         self.contents.layers.push(layer);
         LayerBuilder {
@@ -194,7 +194,7 @@ impl SpriteBuilder {
                     data: Block::from_vec(Vec::new()),
                     cached_data: CachedMemBlock::new(),
                 }),
-                user_data: UserData::default(),
+                user_data: UserDataContents::default(),
                 precise_position: Point32 { x: 0, y: 0 },
                 precise_size: Size32 {
                     width: 0,
@@ -222,7 +222,7 @@ impl SpriteBuilder {
             name,
             color: Color::from_rgba(0, 0, 0, 255), // Default black
             direction,
-            user_data: UserData::default(),
+            user_data: UserDataContents::default(),
         });
     }
 

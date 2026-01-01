@@ -2,16 +2,16 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::{io, mem};
 
-use crate::formats::aseprite::backing::LayerContents;
-use crate::formats::aseprite::props::PropertyMap;
+use crate::formats::aseprite::backing::TagContents;
 use crate::formats::aseprite::{
-    BlendMode, CelIndex, Color, ColorDepth, GrayscaleColor, Point16,
+    BlendMode, CelIndex, Color, ColorDepth, FrameIndex, GrayscaleColor, LayerFlags, LayerIndex,
+    Point16,
     backing::{
-        CelContents, CelData, CelPixelData, SpriteContents, UserDataPropsKey, ValidationError,
-        validate_sprite,
+        CelContents, CelData, CelPixelData, LayerContents, SpriteContents, UserDataContents,
+        UserDataPropsKey, ValidationError, validate_sprite,
     },
+    props::PropertyMap,
 };
-use crate::formats::aseprite::{FrameIndex, LayerFlags, LayerIndex};
 
 use scidev::utils::block::MemBlock;
 
@@ -157,34 +157,12 @@ impl Sprite {
         }
     }
 
-    /// Returns the user data color, if set.
     #[must_use]
-    pub fn color(&self) -> Option<Color> {
-        self.contents.user_data.color
-    }
-
-    /// Returns the user data text, if set.
-    #[must_use]
-    pub fn data(&self) -> Option<&str> {
-        self.contents.user_data.text.as_deref()
-    }
-
-    /// Returns the general user data properties.
-    #[must_use]
-    pub fn properties(&self) -> Option<&PropertyMap> {
-        self.contents
-            .user_data
-            .properties
-            .get(&UserDataPropsKey::General)
-    }
-
-    /// Returns the user data properties for a specific extension.
-    #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
-        self.contents
-            .user_data
-            .properties
-            .get(&UserDataPropsKey::Extension(extension.to_string()))
+    pub fn user_data(&self) -> UserData<'_, &'_ Sprite> {
+        UserData {
+            owner: self,
+            user_data: &self.contents.user_data,
+        }
     }
 }
 
@@ -242,7 +220,7 @@ impl<'a> LayerView<'a> {
         self.index
     }
 
-    fn contents(&self) -> &LayerContents {
+    fn contents(&self) -> &'a LayerContents {
         &self.sprite.contents.layers[self.index.as_usize()]
     }
 
@@ -289,6 +267,14 @@ impl<'a> LayerView<'a> {
         self.sprite
     }
 
+    #[must_use]
+    pub fn user_data(&self) -> UserData<'a, LayerView<'a>> {
+        UserData {
+            owner: *self,
+            user_data: &self.contents().user_data,
+        }
+    }
+
     /// Returns the user data color, if set.
     #[must_use]
     pub fn color(&self) -> Option<Color> {
@@ -328,23 +314,26 @@ pub struct TagView<'a> {
 }
 
 impl<'a> TagView<'a> {
+    fn contents(&self) -> &'a TagContents {
+        &self.sprite.contents.tags[self.index]
+    }
     /// Returns the name of this tag.
     #[must_use]
     pub fn name(&self) -> &str {
-        &self.sprite.contents.tags[self.index].name
+        &self.contents().name
     }
 
     /// Returns the frame range covered by this tag (inclusive of start, exclusive of end).
     #[must_use]
     pub fn range(&self) -> Range<usize> {
-        let tag = &self.sprite.contents.tags[self.index];
+        let tag = self.contents();
         (tag.from_frame as usize)..(tag.to_frame as usize + 1)
     }
 
     /// Returns the animation direction of this tag.
     #[must_use]
     pub fn direction(&self) -> crate::formats::aseprite::AnimationDirection {
-        self.sprite.contents.tags[self.index].direction
+        self.contents().direction
     }
 
     /// Returns an iterator over the frames in this tag.
@@ -356,37 +345,12 @@ impl<'a> TagView<'a> {
         })
     }
 
-    /// Returns the user data color, if set.
     #[must_use]
-    pub fn color(&self) -> Option<Color> {
-        self.sprite.contents.tags[self.index].user_data.color
-    }
-
-    /// Returns the user data text, if set.
-    #[must_use]
-    pub fn data(&self) -> Option<&str> {
-        self.sprite.contents.tags[self.index]
-            .user_data
-            .text
-            .as_deref()
-    }
-
-    /// Returns the general user data properties.
-    #[must_use]
-    pub fn properties(&self) -> Option<&PropertyMap> {
-        self.sprite.contents.tags[self.index]
-            .user_data
-            .properties
-            .get(&UserDataPropsKey::General)
-    }
-
-    /// Returns the user data properties for a specific extension.
-    #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
-        self.sprite.contents.tags[self.index]
-            .user_data
-            .properties
-            .get(&UserDataPropsKey::Extension(extension.to_string()))
+    pub fn user_data(&self) -> UserData<'a, TagView<'a>> {
+        UserData {
+            owner: *self,
+            user_data: &self.contents().user_data,
+        }
     }
 }
 
@@ -476,33 +440,12 @@ impl<'a> CelView<'a> {
         self.sprite
     }
 
-    /// Returns the user data color, if set.
     #[must_use]
-    pub fn color(&self) -> Option<Color> {
-        self.contents.user_data.color
-    }
-
-    /// Returns the user data text, if set.
-    #[must_use]
-    pub fn data(&self) -> Option<&str> {
-        self.contents.user_data.text.as_deref()
-    }
-
-    /// Returns the general user data properties.
-    #[must_use]
-    pub fn properties(&self) -> Option<&PropertyMap> {
-        self.contents
-            .user_data
-            .properties
-            .get(&UserDataPropsKey::General)
-    }
-
-    #[must_use]
-    pub fn extension_properties(&self, extension: &str) -> Option<&PropertyMap> {
-        self.contents
-            .user_data
-            .properties
-            .get(&UserDataPropsKey::Extension(extension.to_string()))
+    pub fn user_data(&self) -> UserData<'a, CelView<'a>> {
+        UserData {
+            owner: *self,
+            user_data: &self.contents.user_data,
+        }
     }
 }
 
@@ -687,6 +630,43 @@ impl<T> std::ops::Deref for PixelSlice<T> {
         unsafe {
             std::slice::from_raw_parts(self.block.as_ptr().cast::<T>(), len)
         }
+    }
+}
+
+pub struct UserData<'a, OwnerT> {
+    owner: OwnerT,
+    user_data: &'a UserDataContents,
+}
+
+impl<'a, OwnerT> UserData<'a, OwnerT>
+where
+    OwnerT: Copy + 'a,
+{
+    #[must_use]
+    pub fn owner(&self) -> OwnerT {
+        self.owner
+    }
+
+    #[must_use]
+    pub fn color(&self) -> Option<&Color> {
+        self.user_data.color.as_ref()
+    }
+
+    #[must_use]
+    pub fn text(&self) -> Option<&str> {
+        self.user_data.text.as_deref()
+    }
+
+    #[must_use]
+    pub fn props(&self) -> Option<&PropertyMap> {
+        self.user_data.properties.get(&UserDataPropsKey::General)
+    }
+
+    #[must_use]
+    pub fn ext_props(&self, ext: &str) -> Option<&PropertyMap> {
+        self.user_data
+            .properties
+            .get(&UserDataPropsKey::Extension(ext.to_string()))
     }
 }
 

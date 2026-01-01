@@ -44,7 +44,7 @@ mod tests;
 // Export model types for public use
 pub use self::model::{
     CelImage, CelPixels, CelView, FrameView, LayerView, PaletteView, PixelSlice, Sprite, TagView,
-    TypedPixels,
+    TypedPixels, UserData,
 };
 // Export builder types for public use
 pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder};
