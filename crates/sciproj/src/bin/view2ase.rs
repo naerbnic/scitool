@@ -11,7 +11,7 @@ use scidev::{
     utils::block::{Block, BlockBuilderFactory},
 };
 use sciproj::formats::aseprite::{
-    AnimationDirection, Color, ColorDepth, LayerFlags, PaletteEntry, Property, SpriteBuilder,
+    Color, ColorDepth, LayerFlags, PaletteEntry, Property, SpriteBuilder,
 };
 use std::fs::File;
 use std::path::PathBuf;
@@ -100,8 +100,16 @@ fn main() -> Result<()> {
     // This allows exact round-tripping of original coordinates.
     // Aseprite X = Original X + origin_x
     // Original X = Aseprite X - origin_x
-    builder.set_extension_property("scidev/scitool", "origin_x", Property::I32(origin_x));
-    builder.set_extension_property("scidev/scitool", "origin_y", Property::I32(origin_y));
+    builder.user_data().set_extension_property(
+        "scidev/scitool",
+        "origin_x",
+        Property::I32(origin_x),
+    );
+    builder.user_data().set_extension_property(
+        "scidev/scitool",
+        "origin_y",
+        Property::I32(origin_y),
+    );
 
     // Create a single layer for the view
     let mut layer_builder = builder.add_layer();
@@ -153,7 +161,7 @@ fn main() -> Result<()> {
             cel_builder.set_image(cel.width(), cel.height(), Block::from_vec(remapped_pixels));
 
             // Store original transparency key in UserData
-            cel_builder.set_extension_property(
+            cel_builder.user_data().set_extension_property(
                 "scidev/scitool",
                 "transparency_key",
                 Property::U8(clear_key),
@@ -167,7 +175,6 @@ fn main() -> Result<()> {
             u32::try_from(start_frame).unwrap(),
             u32::try_from(frame_cursor - 1).unwrap(),
             format!("Loop {loop_idx}"),
-            AnimationDirection::Forward,
         );
     }
 

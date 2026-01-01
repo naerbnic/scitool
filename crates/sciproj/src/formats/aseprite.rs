@@ -47,7 +47,7 @@ pub use self::model::{
     TypedPixels, UserData,
 };
 // Export builder types for public use
-pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder};
+pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder, UserDataBuilder};
 pub use self::props::{Property, PropertyMap};
 
 /// The color depth (bits per pixel) of the image.

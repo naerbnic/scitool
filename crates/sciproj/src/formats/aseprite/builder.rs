@@ -4,10 +4,11 @@ use scidev::utils::block::{Block, CachedMemBlock};
 
 use crate::formats::aseprite::{
     AnimationDirection, BlendMode, CelIndex, Color, ColorDepth, FrameIndex, LayerFlags, LayerIndex,
-    LayerType, PaletteEntry, Point16, Point32, Size32,
+    LayerType, PaletteEntry, Point16, Point32, PropertyMap, Size32,
     backing::{
         CelContents, CelData, CelPixelData, ColorProfile, FrameContents, LayerContents,
-        PaletteContents, SpriteContents, TagContents, UserDataContents, ValidationError,
+        PaletteContents, SpriteContents, TagContents, UserDataContents, UserDataPropsKey,
+        ValidationError,
     },
     model::Sprite,
     props::Property,
@@ -60,6 +61,12 @@ impl LayerBuilder<'_> {
     pub fn set_opacity(&mut self, opacity: u8) {
         self.contents.opacity = opacity;
     }
+
+    pub fn user_data(&mut self) -> UserDataBuilder<'_> {
+        UserDataBuilder {
+            user_data: &mut self.contents.user_data,
+        }
+    }
 }
 
 pub struct CelBuilder<'a> {
@@ -101,28 +108,10 @@ impl CelBuilder<'_> {
         self.contents.user_data.color = color;
     }
 
-    pub fn set_extension_property(&mut self, extension_id: &str, key: &str, value: Property) {
-        let entry = self
-            .contents
-            .user_data
-            .properties
-            .entry(
-                crate::formats::aseprite::backing::UserDataPropsKey::Extension(
-                    extension_id.to_string(),
-                ),
-            )
-            .or_default();
-        entry.set(key.to_string(), value);
-    }
-
-    pub fn set_general_property(&mut self, key: &str, value: Property) {
-        let entry = self
-            .contents
-            .user_data
-            .properties
-            .entry(crate::formats::aseprite::backing::UserDataPropsKey::General)
-            .or_default();
-        entry.set(key.to_string(), value);
+    pub fn user_data(&mut self) -> UserDataBuilder<'_> {
+        UserDataBuilder {
+            user_data: &mut self.contents.user_data,
+        }
     }
 }
 
@@ -209,21 +198,19 @@ impl SpriteBuilder {
         }
     }
 
-    pub fn add_tag(
-        &mut self,
-        from_frame: u32,
-        to_frame: u32,
-        name: String,
-        direction: AnimationDirection,
-    ) {
+    pub fn add_tag(&mut self, from_frame: u32, to_frame: u32, name: String) -> TagBuilder<'_> {
+        let tag_index = self.contents.tags.len();
         self.contents.tags.push(TagContents {
             from_frame,
             to_frame,
             name,
             color: Color::from_rgba(0, 0, 0, 255), // Default black
-            direction,
+            direction: AnimationDirection::Forward,
             user_data: UserDataContents::default(),
         });
+        TagBuilder {
+            tag: &mut self.contents.tags[tag_index],
+        }
     }
 
     pub fn set_palette(&mut self, entries: Vec<PaletteEntry>) {
@@ -243,9 +230,67 @@ impl SpriteBuilder {
         self.contents.width = width;
     }
 
+    pub fn user_data(&mut self) -> UserDataBuilder<'_> {
+        UserDataBuilder {
+            user_data: &mut self.contents.user_data,
+        }
+    }
+
+    pub fn set_height(&mut self, height: u16) {
+        self.contents.height = height;
+    }
+
+    pub fn set_pixel_ratio(&mut self, pixel_width: u8, pixel_height: u8) {
+        self.contents.pixel_width = pixel_width;
+        self.contents.pixel_height = pixel_height;
+    }
+}
+
+pub struct TagBuilder<'a> {
+    tag: &'a mut TagContents,
+}
+
+impl TagBuilder<'_> {
+    pub fn set_direction(&mut self, direction: AnimationDirection) {
+        self.tag.direction = direction;
+    }
+
+    pub fn user_data(&mut self) -> UserDataBuilder<'_> {
+        UserDataBuilder {
+            user_data: &mut self.tag.user_data,
+        }
+    }
+}
+
+pub struct UserDataBuilder<'a> {
+    user_data: &'a mut UserDataContents,
+}
+
+impl UserDataBuilder<'_> {
+    pub fn set_color(&mut self, color: Color) {
+        self.user_data.color = Some(color);
+    }
+
+    pub fn set_text(&mut self, text: String) {
+        self.user_data.text = Some(text);
+    }
+
+    pub fn set_props<T>(&mut self, map: PropertyMap) {
+        self.user_data
+            .properties
+            .insert(UserDataPropsKey::General, map);
+    }
+
+    pub fn set_property(&mut self, key: &str, value: Property) {
+        self.user_data
+            .properties
+            .entry(crate::formats::aseprite::backing::UserDataPropsKey::General)
+            .or_default()
+            .set(key.to_string(), value);
+    }
+
     pub fn set_extension_property(&mut self, extension_id: &str, key: &str, value: Property) {
         let entry = self
-            .contents
             .user_data
             .properties
             .entry(
@@ -255,14 +300,6 @@ impl SpriteBuilder {
             )
             .or_default();
         entry.set(key.to_string(), value);
-    }
-    pub fn set_height(&mut self, height: u16) {
-        self.contents.height = height;
-    }
-
-    pub fn set_pixel_ratio(&mut self, pixel_width: u8, pixel_height: u8) {
-        self.contents.pixel_width = pixel_width;
-        self.contents.pixel_height = pixel_height;
     }
 }
 
@@ -318,7 +355,7 @@ mod tests {
         builder.add_frame(); // Index 0
 
         // Add tag referencing frame 1 (invalid, only 0 exists)
-        builder.add_tag(0, 1, "Tag1".to_string(), AnimationDirection::Forward);
+        builder.add_tag(0, 1, "Tag1".to_string());
 
         match builder.build() {
             Err(ValidationError::InvalidTagRange { index, to, .. }) => {
