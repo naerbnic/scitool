@@ -22,6 +22,8 @@ This document describes the high-level workflows for users interacting with `sci
 
 To support different copyright and workflow needs, `sciproj` offers three distinct project modes. These can be initialized in the current directory using `sciproj init <mode>` or in a new directory using `sciproj new <mode> <path>`.
 
+*Note*: Initializing a project also creates a `sciproj.toml` file with **Default Resource Patterns** (see [Proposals: Resource Patterns](proposals/resource_patterns.md)). This defines where the tool looks for resources (e.g., `src/views/100.aseprite`). Users can customize these patterns to fit their preferred directory structure.
+
 **Modes:**
 
 1.  **Modding (`mod`)**: Designed for modifying an existing game where the user *does not* own the original assets. The tool references the original game as a read-only source and only tracks the *changes* (patches) in version control.
@@ -103,6 +105,8 @@ To consistently target specific resources or sub-resources (e.g., a specific loo
     *   `text/20/noun/1/verb/2/cond/0/seq/1` (Specific message tuple)
 
 This syntax is designed to be shell-friendly and map logically to a REST-like or directory structure.
+
+*Note*: This CLI syntax (`view/0`) is abstract. The actual file on disk (e.g., `src/views/100.aseprite` or `src/rooms/pantry/100.ase`) is resolved using the **Configurable Resource Patterns** defined in `sciproj.toml`.
 
 ### Workflow: Creating a new resource
 
