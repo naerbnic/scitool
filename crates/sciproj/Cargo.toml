@@ -23,6 +23,8 @@ bitflags = "2.10.0"
 bytes = "1.10.1"
 num = "0.4.3"
 castaway = "0.2.4"
+unicode-properties = "0.1.4"
+unicode-ident = "1.0.22"
 
 [lints]
 workspace = true

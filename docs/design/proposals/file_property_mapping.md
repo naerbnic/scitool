@@ -30,19 +30,17 @@ A pattern is a string that consists of the following:
 
 - A named placeholder (`{field}`): This acts similarly to a glob, but indicates that the matched text can be referenced using the placeholder. Some special named placeholders are reserved as short mnemonics for common properties. Ambiguities created by fields create errors in mappings (e.g. `**/{id}/**` will match "foo/bar" two different ways, but there is an ambiguity if `id` maps to "foo" or "bar", thus it will indicate an error.). A given placeholder can only appear once in a pattern.
 
-- Escaped literals (`\*`, `\**`, `\{`, etc.): A backslash can be used to escape the following character, if it appears literally in a file path that is to be matched. That being said, most of these characters are rarely used in file paths, so this is generally discouraged.
+- Literals: We permit the L, N, and M categories of Unicode characters, as well as the specific punctuation characters `.`, `-`, and `_`.
 
-- Literals: All other characters are matched literally.
+- Other syntax or characters are not permitted. Of special note is that a closing brace `}` is not permitted outside of a placeholder.
 
-> NOTE: Backslashes are generally discouraged for several reasons. For example, in config files, they often have to be escaped themselves, which makes them harder to read.
-
-> Q: Do we want to have a specific syntax for matching character sequences that do not include `.`? This would ensure that we could always match a file extension. Without it, we could create ambiguities in dot-separated file segments (at least for placeholders) (e.g. "my.file.pic.png" for the pattern "*.{type}.{ext}" could either match as `type == "file.pic"` and `ext == "png"`, or `type == "file"` and `ext == "pic.png"`, where we desire `type == "pic"` and `ext == "png"`)
+In addition, there must not be two consecutive glob-likes (e.g. `{id}{type}` and `{id}*` are not allowed, but `{id}.{type}` is).
 
 ##### Examples
 
 ###### 1. The "Default" Convention (Type/ID)
 
-`"src/**/{id}.{type}.{ext}"` matches any file in the src directory tree with an ID and type encoded in the filename. For 
+`"src/**/{id}.{type}.{ext}"` matches any file in the src directory tree with an ID and type encoded in the filename. For example, `src/rooms/150.pic.aseprite` would match with `id` bound to "150" and `type` bound to "pic".
 
 ###### 2. The "Directory Grouping" Style (Project Specific)
 Maps files inside a `.id` suffixed folder to that ID.
