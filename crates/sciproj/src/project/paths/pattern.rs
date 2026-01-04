@@ -1,6 +1,9 @@
 use itertools::Itertools;
+use regex_syntax::hir::{Capture, Hir};
 use std::{borrow::Cow, str::FromStr};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
+
+use crate::project::paths::{matcher::PathMatcher, regex::Node};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -189,6 +192,80 @@ pub struct Pattern {
     segments: Vec<Segment>,
 }
 
+impl Pattern {
+    pub fn build_hir(&self) -> (Node, Vec<String>) {
+        let globstar_hir = Node::from_regex("[^/]+(?:/[^/]+)*").expect("Literal parses");
+
+        let glob_hir = Node::from_regex("[^/]+").expect("Literal parses");
+
+        let dirsep_hir = Node::literal("/");
+
+        // Special case: If the pattern is just "**", then it matches everything.
+        if self.segments.iter().all(|s| s == &Segment::GlobStar) {
+            return (globstar_hir.clone(), Vec::new());
+        }
+
+        let mut segments = self.segments.iter().fuse().peekable();
+
+        let mut concat_hirs = Vec::new();
+
+        // Handle prefix globstar.
+        if let Some(Segment::GlobStar) = segments.peek() {
+            segments.next();
+            assert!(!matches!(segments.peek(), Some(&Segment::GlobStar)));
+            let prefix_hir = Node::concat([globstar_hir.clone(), dirsep_hir.clone()]).optional();
+            concat_hirs.push(prefix_hir);
+        }
+
+        let mut captures = Vec::new();
+
+        while let Some(segment) = segments.next() {
+            match segment {
+                Segment::GlobStar => {
+                    // We've handled it separately as part of the previous step. Skip it.
+                }
+                Segment::List(components) => {
+                    let segment_hirs = components.iter().map(|comp| match comp {
+                        Component::Literal(literal) => Node::literal(literal.clone()),
+                        Component::Glob => glob_hir.clone(),
+                        Component::Capture(name) => {
+                            captures.push(name.clone());
+                            let index = u32::try_from(captures.len()).unwrap();
+                            glob_hir.clone().capture(index, name)
+                        }
+                    });
+                    concat_hirs.extend(segment_hirs);
+
+                    let add_globstar = if let Some(Segment::GlobStar) = segments.peek() {
+                        segments.next();
+                        true
+                    } else {
+                        false
+                    };
+
+                    if add_globstar {
+                        concat_hirs.push(
+                            Node::concat([dirsep_hir.clone(), globstar_hir.clone()]).optional(),
+                        );
+                    }
+
+                    if segments.peek().is_some() {
+                        concat_hirs.push(dirsep_hir.clone());
+                    }
+                }
+            }
+        }
+
+        (Node::concat(concat_hirs), captures)
+    }
+
+    pub fn build_matcher(&self) -> PathMatcher {
+        let (hir, captures) = self.build_hir();
+        let regex = hir.build_matcher().unwrap();
+        PathMatcher::new(regex, captures)
+    }
+}
+
 impl FromStr for Pattern {
     type Err = ParseError;
 
@@ -207,12 +284,20 @@ impl FromStr for Pattern {
             return Err(ParseError::EmptyPattern);
         }
 
-        Ok(Self {
-            segments: segment_strs
-                .into_iter()
-                .map(Segment::from_str)
-                .collect::<Result<Vec<_>, _>>()?,
-        })
+        let segments = segment_strs
+            .into_iter()
+            .map(Segment::from_str)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for (a, b) in segments.iter().tuple_windows() {
+            if a == &Segment::GlobStar && b == &Segment::GlobStar {
+                return Err(ParseError::malformed(
+                    "Two consecutive globstar segments are not allowed.",
+                ));
+            }
+        }
+
+        Ok(Self { segments })
     }
 }
 
@@ -394,5 +479,84 @@ mod tests {
             matches!(res, Err(ParseError::MalformedPattern(_))),
             "Triple glob should fail, got {res:?}"
         );
+    }
+
+    #[test]
+    fn test_simple_match() {
+        let pattern = "foo".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+        let res = matcher.match_path("foo").unwrap();
+        assert!(res.is_some());
+    }
+
+    #[test]
+    fn test_simple_match_failed() {
+        let pattern = "foo".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+        let res = matcher.match_path("bar").unwrap();
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_placeholder_match() {
+        let pattern = "files/{id}.{ext}".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+        let res = matcher.match_path("files/123.txt").unwrap();
+        assert!(res.is_some());
+        let res = res.unwrap();
+        assert_eq!(res.path(), "files/123.txt");
+        assert_eq!(res.properties().len(), 2);
+        assert_eq!(res.properties()["id"], "123");
+        assert_eq!(res.properties()["ext"], "txt");
+    }
+
+    #[test]
+    fn test_globstar_match() {
+        let pattern = "src/**/{name}.rs".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+        let res = matcher.match_path("src/lib.rs").unwrap();
+        assert!(res.is_some());
+        let res = res.unwrap();
+        assert_eq!(res.path(), "src/lib.rs");
+        assert_eq!(res.properties().len(), 1);
+        assert_eq!(res.properties()["name"], "lib");
+
+        let res = matcher.match_path("src/bin/main.rs").unwrap();
+        assert!(res.is_some());
+        let res = res.unwrap();
+        assert_eq!(res.path(), "src/bin/main.rs");
+        assert_eq!(res.properties().len(), 1);
+        assert_eq!(res.properties()["name"], "main");
+    }
+
+    #[test]
+    fn test_valid_ambiguous() {
+        let pattern = "**/foo/**".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+        let res = matcher.match_path("foo").unwrap();
+        assert!(res.is_some());
+
+        let res = matcher.match_path("foo/foo").unwrap();
+        assert!(res.is_some());
+    }
+
+    #[test]
+    fn test_invalid_ambiguous_match() {
+        let pattern = "**/{id}/**".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+        let res = matcher.match_path("foo").unwrap();
+        assert!(res.is_some());
+
+        let res = matcher.match_path("foo/bar");
+        assert!(res.is_err(), "Should be ambiguous: {res:?}");
+    }
+
+    #[test]
+    fn test_ambiguity_based_on_posititon() {
+        let pattern = "**/{id}/**".parse::<Pattern>().unwrap();
+        let matcher = pattern.build_matcher();
+
+        let res = matcher.match_path("foo/foo");
+        assert!(res.is_err(), "Should be ambiguous: {res:?}");
     }
 }

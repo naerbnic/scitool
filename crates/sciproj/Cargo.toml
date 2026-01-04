@@ -25,6 +25,9 @@ num = "0.4.3"
 castaway = "0.2.4"
 unicode-properties = "0.1.4"
 unicode-ident = "1.0.22"
+regex-syntax = "0.8.8"
+regex-automata = "0.4.13"
+unicode-normalization = "0.1.25"
 
 [lints]
 workspace = true
