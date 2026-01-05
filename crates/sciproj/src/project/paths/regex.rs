@@ -146,6 +146,7 @@ pub(super) enum Error {
     AmbiguousMatch,
 }
 
+#[derive(Debug)]
 pub(super) struct UnambiguousRegex {
     greedy: Regex,
     lazy: Regex,

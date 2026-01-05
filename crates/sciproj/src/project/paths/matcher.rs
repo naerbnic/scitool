@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, path::Path};
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -14,22 +11,23 @@ pub enum MatchError {
 }
 
 #[derive(Debug, Clone)]
-pub struct FileSetEntry {
-    path: PathBuf,
-    properties: BTreeMap<String, String>,
+pub struct MatchResult {
+    normalized_path: String,
+    captures: BTreeMap<String, String>,
 }
 
-impl FileSetEntry {
-    pub fn path(&self) -> &Path {
-        &self.path
+impl MatchResult {
+    pub fn normalized_path(&self) -> &str {
+        &self.normalized_path
     }
 
     pub fn properties(&self) -> &BTreeMap<String, String> {
-        &self.properties
+        &self.captures
     }
 }
 
-pub struct PathMatcher {
+#[derive(Debug)]
+pub(crate) struct PathMatcher {
     matcher: UnambiguousRegex,
     captures: Vec<String>,
 }
@@ -39,10 +37,14 @@ impl PathMatcher {
         Self { matcher, captures }
     }
 
-    pub fn match_path(&self, path: impl Into<PathBuf>) -> Result<Option<FileSetEntry>, MatchError> {
-        let path = path.into();
+    pub fn placeholders(&self) -> &[String] {
+        &self.captures
+    }
+
+    pub fn match_path(&self, path: impl AsRef<Path>) -> Result<Option<MatchResult>, MatchError> {
         // Create a syntactically canonical path, using "/" as the separator.
         let path_str = path
+            .as_ref()
             .to_string_lossy()
             .replace(std::path::MAIN_SEPARATOR, "/")
             .nfc()
@@ -59,7 +61,8 @@ impl PathMatcher {
 
         let mut properties = BTreeMap::new();
         // The first match is the entire string, so we skip it.
-        for (capture_name, capture_span) in self.captures.iter().zip(captures.iter().skip(1)) {
+        for capture_name in &self.captures {
+            let capture_span = captures.get_group_by_name(capture_name);
             let Some(capture_span) = capture_span else {
                 panic!("All capture values should be present");
             };
@@ -67,6 +70,9 @@ impl PathMatcher {
             properties.insert(capture_name.clone(), capture_value.to_string());
         }
 
-        Ok(Some(FileSetEntry { path, properties }))
+        Ok(Some(MatchResult {
+            normalized_path: path_str,
+            captures: properties,
+        }))
     }
 }

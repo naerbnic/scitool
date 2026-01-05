@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use regex_syntax::hir::{Capture, Hir};
 use std::{borrow::Cow, str::FromStr};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
@@ -188,7 +187,7 @@ impl FromStr for Segment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pattern {
+pub(crate) struct Pattern {
     segments: Vec<Segment>,
 }
 
@@ -504,7 +503,7 @@ mod tests {
         let res = matcher.match_path("files/123.txt").unwrap();
         assert!(res.is_some());
         let res = res.unwrap();
-        assert_eq!(res.path(), "files/123.txt");
+        assert_eq!(res.normalized_path(), "files/123.txt");
         assert_eq!(res.properties().len(), 2);
         assert_eq!(res.properties()["id"], "123");
         assert_eq!(res.properties()["ext"], "txt");
@@ -517,14 +516,14 @@ mod tests {
         let res = matcher.match_path("src/lib.rs").unwrap();
         assert!(res.is_some());
         let res = res.unwrap();
-        assert_eq!(res.path(), "src/lib.rs");
+        assert_eq!(res.normalized_path(), "src/lib.rs");
         assert_eq!(res.properties().len(), 1);
         assert_eq!(res.properties()["name"], "lib");
 
         let res = matcher.match_path("src/bin/main.rs").unwrap();
         assert!(res.is_some());
         let res = res.unwrap();
-        assert_eq!(res.path(), "src/bin/main.rs");
+        assert_eq!(res.normalized_path(), "src/bin/main.rs");
         assert_eq!(res.properties().len(), 1);
         assert_eq!(res.properties()["name"], "main");
     }
