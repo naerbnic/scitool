@@ -146,6 +146,10 @@ impl MappingRule {
         self.name.as_deref()
     }
 
+    pub fn properties(&self) -> impl Iterator<Item = &str> {
+        self.properties.keys().map(|s| s.as_str())
+    }
+
     pub fn overrides(&self) -> impl Iterator<Item = &str> {
         self.overrides.iter().map(|s| s.as_str())
     }
@@ -201,15 +205,9 @@ pub enum MappingError {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_helpers::{assert_matches, make_map};
+    use crate::test_helpers::{assert_matches, from_json, make_map};
 
     use super::*;
-
-    macro_rules! from_json {
-        ($($json:tt)*) => {
-            serde_json::from_value(serde_json::json!( $($json)* )).unwrap()
-        };
-    }
 
     #[test]
     fn test_rule_from_spec() {

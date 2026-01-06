@@ -24,4 +24,11 @@ macro_rules! assert_matches {
     }};
 }
 
+macro_rules! from_json {
+    ($($json:tt)*) => {
+        serde_json::from_value(serde_json::json!( $($json)* )).unwrap()
+    };
+}
+
 pub(crate) use assert_matches;
+pub(crate) use from_json;
