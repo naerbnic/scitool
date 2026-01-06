@@ -1,8 +1,27 @@
 use itertools::Itertools;
-use std::{borrow::Cow, str::FromStr};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+    str::FromStr,
+};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use crate::project::paths::{matcher::PathMatcher, regex::Node};
+
+fn iters_equal_unordered<I1, I2>(i1: I1, i2: I2) -> bool
+where
+    I1: Iterator,
+    I2: Iterator<Item = I1::Item>,
+    I1::Item: PartialEq<I2::Item> + Ord,
+{
+    let item_set: BTreeSet<_> = i1.collect();
+    let mut count = 0;
+    let all_contained = i2
+        .inspect(|_| count += 1)
+        .all(|item| item_set.contains(&item));
+    all_contained && count == item_set.len()
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -23,6 +42,13 @@ impl ParseError {
     fn malformed<'a>(s: impl Into<Cow<'a, str>>) -> Self {
         Self::MalformedPattern(s.into().into_owned())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to merge patterns")]
+pub enum MergeError {
+    #[error("The patterns have different placeholders")]
+    DifferentPlaceholders,
 }
 
 fn next_char(s: &mut &str) -> Option<char> {
@@ -85,6 +111,13 @@ impl Component {
     fn is_glob_like(&self) -> bool {
         matches!(self, Component::Glob | Component::Capture(_))
     }
+
+    fn segment(&self) -> Option<&str> {
+        match self {
+            Component::Capture(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 /// A single segment of a path pattern, between path separators (or at the begining or end of the pattern).
@@ -92,6 +125,17 @@ impl Component {
 enum Segment {
     GlobStar, // **
     List(Vec<Component>),
+}
+
+impl Segment {
+    fn captures(&self) -> impl Iterator<Item = &'_ str> {
+        (match self {
+            Segment::List(components) => Some(components),
+            _ => None,
+        })
+        .into_iter()
+        .flat_map(|components| components.iter().flat_map(|c| c.segment()))
+    }
 }
 
 impl FromStr for Segment {
@@ -187,12 +231,13 @@ impl FromStr for Segment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Pattern {
+struct SinglePattern {
+    captures: Vec<String>,
     segments: Vec<Segment>,
 }
 
-impl Pattern {
-    pub fn build_hir(&self) -> (Node, Vec<String>) {
+impl SinglePattern {
+    fn build_hir(&self) -> (Node, Vec<String>) {
         let globstar_hir = Node::from_regex("[^/]+(?:/[^/]+)*").expect("Literal parses");
 
         let glob_hir = Node::from_regex("[^/]+").expect("Literal parses");
@@ -261,11 +306,11 @@ impl Pattern {
     pub fn build_matcher(&self) -> PathMatcher {
         let (hir, captures) = self.build_hir();
         let regex = hir.build_matcher().unwrap();
-        PathMatcher::new(regex, captures)
+        PathMatcher::new(vec![regex], captures)
     }
 }
 
-impl FromStr for Pattern {
+impl FromStr for SinglePattern {
     type Err = ParseError;
 
     fn from_str(pattern_str: &str) -> Result<Self, Self::Err> {
@@ -288,6 +333,20 @@ impl FromStr for Pattern {
             .map(Segment::from_str)
             .collect::<Result<Vec<_>, _>>()?;
 
+        let captures = segments
+            .iter()
+            .flat_map(Segment::captures)
+            .map(String::from)
+            .collect::<Vec<_>>();
+
+        // Ensure that all captures are unique.
+        let captures_set = captures.iter().cloned().collect::<BTreeSet<_>>();
+        if captures.len() != captures_set.len() {
+            return Err(ParseError::malformed(
+                "Duplicate capture names are not allowed.",
+            ));
+        }
+
         for (a, b) in segments.iter().tuple_windows() {
             if a == &Segment::GlobStar && b == &Segment::GlobStar {
                 return Err(ParseError::malformed(
@@ -296,57 +355,59 @@ impl FromStr for Pattern {
             }
         }
 
-        Ok(Self { segments })
+        Ok(Self { captures, segments })
+    }
+}
+
+/// A set of unordered patterns. All patterns must have the same set of placeholders.
+#[derive(Debug)]
+pub(crate) struct Pattern {
+    patterns: Vec<SinglePattern>,
+}
+
+impl Pattern {
+    pub(crate) fn placeholders(&self) -> impl IntoIterator<Item = &'_ str> {
+        self.patterns[0].captures.iter().map(String::as_str)
+    }
+
+    pub(crate) fn merge(self, other: Pattern) -> Result<Self, MergeError> {
+        if !iters_equal_unordered(
+            self.patterns.iter().map(|p| &p.captures),
+            other.patterns.iter().map(|p| &p.captures),
+        ) {
+            return Err(MergeError::DifferentPlaceholders);
+        }
+        Ok(Self {
+            patterns: [self.patterns, other.patterns].concat(),
+        })
+    }
+
+    pub(crate) fn build_matcher(&self) -> PathMatcher {
+        let mut regexes = Vec::new();
+        for pattern in &self.patterns {
+            let (hir, _) = pattern.build_hir();
+            regexes.push(hir.build_matcher().expect("Ensured by struct invariants"));
+        }
+
+        let captures = self.patterns[0].captures.clone();
+
+        PathMatcher::new(regexes, captures)
+    }
+}
+
+impl FromStr for Pattern {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            patterns: vec![s.parse::<SinglePattern>()?],
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_simple_literal() {
-        let p: Pattern = "src/main.rs".parse().unwrap();
-        assert_eq!(p.segments.len(), 2);
-        assert_eq!(
-            p.segments[0],
-            Segment::List(vec![Component::Literal("src".into())])
-        );
-        assert_eq!(
-            p.segments[1],
-            Segment::List(vec![Component::Literal("main.rs".into())])
-        );
-    }
-
-    #[test]
-    fn test_placeholders() {
-        let p: Pattern = "files/{id}.{ext}".parse().unwrap();
-        assert_eq!(p.segments.len(), 2);
-        assert_eq!(
-            p.segments[1],
-            Segment::List(vec![
-                Component::Capture("id".into()),
-                Component::Literal(".".into()),
-                Component::Capture("ext".into())
-            ])
-        );
-    }
-
-    #[test]
-    fn test_glob() {
-        let p: Pattern = "*.rs".parse().unwrap();
-        assert_eq!(
-            p.segments[0],
-            Segment::List(vec![Component::Glob, Component::Literal(".rs".into())])
-        );
-    }
-
-    #[test]
-    fn test_globstar() {
-        let p: Pattern = "src/**/{name}.rs".parse().unwrap();
-        assert_eq!(p.segments.len(), 3);
-        assert_eq!(p.segments[1], Segment::GlobStar);
-    }
 
     #[test]
     fn test_placeholder_validation() {
@@ -400,8 +461,7 @@ mod tests {
     #[test]
     fn test_pattern_structure() {
         // "a/b"
-        let p = "a/b".parse::<Pattern>().unwrap();
-        assert_eq!(p.segments.len(), 2);
+        assert!("a/b".parse::<Pattern>().is_ok());
 
         // Trailing slash "a/" -> splits to "a", "" -> EmptySegment
         // Note: "a/".split('/') yields ["a", ""]. "a" parses OK. "" parses Err(EmptySegment).

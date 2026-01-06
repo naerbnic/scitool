@@ -1,6 +1,8 @@
+use std::{collections::BTreeMap, ops::Range};
+
 use regex_automata::{
     meta::{BuildError, Config, Regex},
-    util::captures::Captures,
+    util::captures::{self, Captures},
 };
 use regex_syntax::hir::{self, Capture, Hir, Look, Repetition};
 
@@ -136,6 +138,8 @@ impl Node {
         let greedy = builder.build_from_hir(&greedy)?;
         let lazy = builder.build_from_hir(&lazy)?;
 
+        // TODO: We should have the same group info for these two versions.
+
         Ok(UnambiguousRegex { greedy, lazy })
     }
 }
@@ -146,6 +150,20 @@ pub(super) enum Error {
     AmbiguousMatch,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CaptureSpans {
+    spans: BTreeMap<String, Range<usize>>,
+}
+
+impl CaptureSpans {
+    pub fn extract<'a, 'b>(&'a self, text: &'b str) -> impl Iterator<Item = (&'a str, &'b str)> {
+        self.spans.iter().map(|(name, range)| {
+            let value = &text[range.clone()];
+            (name.as_str(), value)
+        })
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct UnambiguousRegex {
     greedy: Regex,
@@ -153,7 +171,7 @@ pub(super) struct UnambiguousRegex {
 }
 
 impl UnambiguousRegex {
-    pub fn match_unambiguous(&self, text: &str) -> Result<Option<Captures>, Error> {
+    pub fn match_unambiguous(&self, text: &str) -> Result<Option<CaptureSpans>, Error> {
         let mut greedy_captures = self.greedy.create_captures();
         self.greedy.captures(text, &mut greedy_captures);
         let mut lazy_captures = self.lazy.create_captures();
@@ -173,6 +191,26 @@ impl UnambiguousRegex {
             }
         }
 
-        Ok(Some(greedy_captures))
+        let mut spans = BTreeMap::new();
+        let group_info = greedy_captures.group_info();
+        let pattern_id = greedy_captures
+            .pattern()
+            .expect("already confirmed to match");
+
+        for (i, name) in group_info
+            .pattern_names(pattern_id)
+            .enumerate()
+            .filter_map(|(i, name)| Some((i, name?)))
+        {
+            let (start_slot, end_slot) = group_info
+                .slots(pattern_id, i)
+                .expect("capture with invalid slot");
+            let start = greedy_captures.slots()[start_slot].expect("filtered out");
+            let end = greedy_captures.slots()[end_slot].expect("filtered out");
+            let old_value = spans.insert(name.to_string(), start.get()..end.get());
+            assert!(old_value.is_none(), "Duplicate capture name: {}", name);
+        }
+
+        Ok(Some(CaptureSpans { spans }))
     }
 }

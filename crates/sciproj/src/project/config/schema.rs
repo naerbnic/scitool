@@ -1,50 +1,33 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
-pub(super) struct Contents {
-    project: ProjectConfig,
-}
+use crate::project::file_mapping::MappingRuleSpec;
 
 fn default_sci_version() -> String {
     "1.1-late".to_string()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct ProjectConfig {
+pub(super) struct RootMappingConfig {
+    #[serde(default)]
+    rules: Vec<MappingRuleSpec>,
+    #[serde(default)]
+    excludes: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub(super) struct ProjectConfig {
     /// The SCI version that will be generated for this project.
-    #[serde(rename = "sci-version", default = "default_sci_version")]
+    #[serde(default = "default_sci_version")]
     sci_version: String,
 
     /// Configuration about the base game to use, if this is intended to be
     /// a mod/patch on an existing game.
-    #[serde(rename = "base-game", default)]
+    #[serde(default)]
     base_game: Option<BaseGame>,
 
-    /// Paths to search for resource files when searching for files to include.
-    ///
-    /// By default, this is the project root itself. Project config files will
-    /// not be searched.
-    #[serde(rename = "asset-paths", default)]
-    asset_paths: Vec<String>,
-
-    /// File patterns that are used to infer resource ids when importing files.
-    ///
-    /// Each pattern is a glob pattern that can include named capture groups
-    /// '{type}' and '{num}' to capture the resource type and number. '{ext}'
-    /// can also be used to capture the file extension, and '{name}' can be
-    /// used to capture the actual filename, which can be any valid string.
-    /// Other characters in the pattern must match exactly.
-    /// 
-    /// Files that match at at least one pattern will be considered for import.
-    /// If any fields are missing (for example, if the pattern does not include
-    /// '{num}'), either a default value will be used, or the user will be
-    /// prompted to provide the missing information.
-    /// 
-    /// Examples:
-    ///   - Classic SCI patch file names: "{num}.{type}.{ext}"
-    ///   - Prefix nameed files: "{name}.{type}.{num}.{ext}"
-    #[serde(rename = "import-patterns", default)]
-    import_patterns: Vec<String>,
+    /// Define the mapping rules for the files in this project.
+    mappings: RootMappingConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -58,4 +41,10 @@ struct BaseGame {
     /// project's state file.
     #[serde(rename = "root-path")]
     root_path: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub struct DirConfig {
+    mapping_rules: Vec<MappingRuleSpec>,
 }

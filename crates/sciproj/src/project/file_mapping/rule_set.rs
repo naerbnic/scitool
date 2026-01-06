@@ -60,10 +60,12 @@ impl RuleSet {
         &self,
         path: impl AsRef<Path>,
         prop_map: &mut BTreeMap<String, String>,
-    ) -> Result<(), ApplyError> {
+    ) -> Result<bool, ApplyError> {
         let path = path.as_ref();
         let mut local_props = BTreeMap::new();
         let mut overridden_rules = Vec::new();
+
+        let mut found_match = false;
 
         for rule in &self.0 {
             // Skip this rule if its properties are already set in the outer prop_map.
@@ -88,14 +90,17 @@ impl RuleSet {
                     return Err(ApplyError::PropertyCollision);
                 }
 
+                found_match = true;
                 local_props.extend(rule_props);
                 overridden_rules.extend(rule.overrides());
             }
         }
 
-        prop_map.extend(local_props);
+        if found_match {
+            prop_map.extend(local_props);
+        }
 
-        Ok(())
+        Ok(found_match)
     }
 }
 
@@ -285,12 +290,12 @@ mod tests {
         let rule_set = RuleSet::from_spec(&spec).unwrap();
         {
             let mut prop_map = BTreeMap::new();
-            rule_set.apply("test.txt", &mut prop_map).unwrap();
+            assert!(rule_set.apply("test.txt", &mut prop_map).unwrap());
             assert_eq!(prop_map, make_map([("type", "txt")]));
         }
         {
             let mut prop_map = BTreeMap::new();
-            rule_set.apply("test.rs", &mut prop_map).unwrap();
+            assert!(rule_set.apply("test.rs", &mut prop_map).unwrap());
             assert_eq!(prop_map, make_map([("type", "rs")]));
         }
     }

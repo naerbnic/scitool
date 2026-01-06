@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, ops::Range, path::Path};
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -28,13 +28,13 @@ impl MatchResult {
 
 #[derive(Debug)]
 pub(crate) struct PathMatcher {
-    matcher: UnambiguousRegex,
+    matchers: Vec<UnambiguousRegex>,
     captures: Vec<String>,
 }
 
 impl PathMatcher {
-    pub(super) fn new(matcher: UnambiguousRegex, captures: Vec<String>) -> Self {
-        Self { matcher, captures }
+    pub(super) fn new(matchers: Vec<UnambiguousRegex>, captures: Vec<String>) -> Self {
+        Self { matchers, captures }
     }
 
     pub fn placeholders(&self) -> &[String] {
@@ -50,29 +50,40 @@ impl PathMatcher {
             .nfc()
             .collect::<String>();
 
-        let captures = self
-            .matcher
-            .match_unambiguous(&path_str)
-            .map_err(|_| MatchError::AmbiguousMatch)?;
+        let capture_spans = self
+            .matchers
+            .iter()
+            .map(|matcher| {
+                matcher
+                    .match_unambiguous(&path_str)
+                    .map_err(|_| MatchError::AmbiguousMatch)
+            })
+            .filter_map(Result::transpose)
+            .reduce(|a, b| {
+                // Check that all valid matches match the exact same spans of the
+                // string.
+                let a = a?;
+                let b = b?;
+                if a == b {
+                    Ok(a)
+                } else {
+                    Err(MatchError::AmbiguousMatch)
+                }
+            })
+            .transpose()?;
 
-        let Some(captures) = captures else {
+        let Some(capture_spans) = capture_spans else {
             return Ok(None);
         };
 
-        let mut properties = BTreeMap::new();
-        // The first match is the entire string, so we skip it.
-        for capture_name in &self.captures {
-            let capture_span = captures.get_group_by_name(capture_name);
-            let Some(capture_span) = capture_span else {
-                panic!("All capture values should be present");
-            };
-            let capture_value = &path_str[capture_span.range()];
-            properties.insert(capture_name.clone(), capture_value.to_string());
-        }
+        let captures = capture_spans
+            .extract(&path_str)
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
 
         Ok(Some(MatchResult {
             normalized_path: path_str,
-            captures: properties,
+            captures,
         }))
     }
 }

@@ -2,6 +2,7 @@
 //! properties. This is used to acquire metadata about files in a project for
 //! association with resources.
 
+mod mapping_env;
 mod prop_templates;
 mod rule;
 mod rule_set;
@@ -14,8 +15,9 @@ use std::{
 
 use walkdir::DirEntry;
 
-use crate::project::file_mapping::rule::MappingError;
-use crate::project::file_mapping::rule_set::RuleSet;
+use crate::project::file_mapping::{rule::MappingError, rule_set::RuleSet};
+
+pub(crate) use rule::MappingRuleSpec;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
