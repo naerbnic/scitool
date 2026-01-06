@@ -166,7 +166,7 @@ impl FromStr for PropTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{assert_matches, make_map};
+    use crate::helpers::test::{assert_matches, make_map};
 
     #[test]
     fn test_literal() {

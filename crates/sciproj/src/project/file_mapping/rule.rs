@@ -205,7 +205,7 @@ pub enum MappingError {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_helpers::{assert_matches, from_json, make_map};
+    use crate::helpers::test::{assert_matches, from_json, make_map};
 
     use super::*;
 

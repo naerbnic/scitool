@@ -191,7 +191,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{assert_matches, from_json, make_map};
+    use crate::helpers::test::{assert_matches, from_json, make_map};
 
     #[test]
     fn test_topo_sort() {

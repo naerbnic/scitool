@@ -1,4 +1,3 @@
-mod file_collection;
 mod matcher;
 mod pattern;
 mod regex;

@@ -7,21 +7,10 @@ use std::{
 };
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
-use crate::project::paths::{matcher::PathMatcher, regex::Node};
-
-fn iters_equal_unordered<I1, I2>(i1: I1, i2: I2) -> bool
-where
-    I1: Iterator,
-    I2: Iterator<Item = I1::Item>,
-    I1::Item: PartialEq<I2::Item> + Ord,
-{
-    let item_set: BTreeSet<_> = i1.collect();
-    let mut count = 0;
-    let all_contained = i2
-        .inspect(|_| count += 1)
-        .all(|item| item_set.contains(&item));
-    all_contained && count == item_set.len()
-}
+use crate::{
+    helpers,
+    project::paths::{matcher::PathMatcher, regex::Node},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -371,7 +360,7 @@ impl Pattern {
     }
 
     pub(crate) fn merge(self, other: Pattern) -> Result<Self, MergeError> {
-        if !iters_equal_unordered(
+        if !helpers::iter::eq_unordered(
             self.patterns.iter().map(|p| &p.captures),
             other.patterns.iter().map(|p| &p.captures),
         ) {

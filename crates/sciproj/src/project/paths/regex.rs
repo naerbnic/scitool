@@ -208,7 +208,7 @@ impl UnambiguousRegex {
             let start = greedy_captures.slots()[start_slot].expect("filtered out");
             let end = greedy_captures.slots()[end_slot].expect("filtered out");
             let old_value = spans.insert(name.to_string(), start.get()..end.get());
-            assert!(old_value.is_none(), "Duplicate capture name: {}", name);
+            assert!(old_value.is_none(), "Duplicate capture name: {name}");
         }
 
         Ok(Some(CaptureSpans { spans }))
