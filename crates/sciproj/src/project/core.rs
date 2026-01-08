@@ -3,7 +3,7 @@ use std::{io, path::Path};
 use crate::project::config::ProjectConfig;
 
 pub struct Project {
-    #[expect(dead_code)]
+    #[expect(dead_code, reason = "in progress")]
     config: ProjectConfig,
 }
 
@@ -20,6 +20,7 @@ impl Project {
         Self::init_from_config(config)
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "in progress")]
     fn init_from_config(config: ProjectConfig) -> io::Result<Self> {
         Ok(Project { config })
     }

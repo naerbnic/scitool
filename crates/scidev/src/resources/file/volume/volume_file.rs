@@ -72,7 +72,7 @@ impl VolumeFile {
 
 #[cfg(test)]
 mod tests {
-    use crate::resources::{ResourceType};
+    use crate::resources::ResourceType;
 
     use super::*;
     use datalit::datalit;

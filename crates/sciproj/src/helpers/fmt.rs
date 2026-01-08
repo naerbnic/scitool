@@ -209,6 +209,6 @@ mod tests {
 
     #[test]
     fn test_debug_indented() {
-        assert_eq!(format!("{:?}", DebugIndent::new("hello")), "hello");
+        assert_eq!(format!("{:?}", DebugIndent::new("hello")), "\"hello\"");
     }
 }

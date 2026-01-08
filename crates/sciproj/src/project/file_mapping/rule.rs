@@ -11,7 +11,7 @@ use crate::project::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum SpecError {
+pub(crate) enum SpecError {
     #[error("Provided empty name")]
     EmptyName,
 
@@ -35,7 +35,7 @@ pub enum SpecError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MappingRuleSpec {
+pub(crate) struct MappingRuleSpec {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     name: Option<String>,
     includes: Vec<String>,
@@ -47,7 +47,7 @@ pub struct MappingRuleSpec {
 }
 
 #[derive(Debug)]
-pub struct MappingRule {
+pub(crate) struct MappingRule {
     /// The name of this rule, as used to reference it in other local rules.
     name: Option<String>,
 
@@ -69,7 +69,7 @@ pub struct MappingRule {
 }
 
 impl MappingRule {
-    pub fn from_spec(spec: &MappingRuleSpec) -> Result<Self, SpecError> {
+    pub(crate) fn from_spec(spec: &MappingRuleSpec) -> Result<Self, SpecError> {
         if let Some(name) = spec.name.as_ref()
             && name.is_empty()
         {
@@ -142,19 +142,19 @@ impl MappingRule {
         })
     }
 
-    pub fn name(&self) -> Option<&str> {
+    pub(crate) fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = &str> {
-        self.properties.keys().map(|s| s.as_str())
+    pub(crate) fn properties(&self) -> impl Iterator<Item = &str> {
+        self.properties.keys().map(String::as_str)
     }
 
-    pub fn overrides(&self) -> impl Iterator<Item = &str> {
-        self.overrides.iter().map(|s| s.as_str())
+    pub(crate) fn overrides(&self) -> impl Iterator<Item = &str> {
+        self.overrides.iter().map(String::as_str)
     }
 
-    pub fn apply_rule(
+    pub(crate) fn apply_rule(
         &self,
         path: impl AsRef<Path>,
     ) -> Result<Option<BTreeMap<String, String>>, MappingError> {
@@ -192,7 +192,7 @@ impl MappingRule {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MappingError {
+pub(crate) enum MappingError {
     #[error("Error during match: {0}")]
     MatchError(#[from] MatchError),
 

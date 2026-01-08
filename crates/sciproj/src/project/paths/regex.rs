@@ -1,9 +1,6 @@
 use std::{collections::BTreeMap, ops::Range};
 
-use regex_automata::{
-    meta::{BuildError, Config, Regex},
-    util::captures::{self, Captures},
-};
+use regex_automata::meta::{BuildError, Config, Regex};
 use regex_syntax::hir::{self, Capture, Hir, Look, Repetition};
 
 struct HirPrinter<'a>(&'a Hir);
@@ -11,7 +8,7 @@ struct HirPrinter<'a>(&'a Hir);
 impl std::fmt::Debug for HirPrinter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut printer = hir::print::Printer::new();
-        printer.print(&self.0, f)
+        printer.print(self.0, f)
     }
 }
 
@@ -36,7 +33,7 @@ impl std::fmt::Debug for Node {
 }
 
 impl Node {
-    pub fn from_regex(regex: &str) -> Result<Self, regex_syntax::Error> {
+    pub(super) fn from_regex(regex: &str) -> Result<Self, Box<regex_syntax::Error>> {
         let mut parser_builder = regex_syntax::ParserBuilder::new();
         let mut greedy_parser = parser_builder.utf8(true).build();
         let mut lazy_parser = parser_builder.utf8(true).swap_greed(true).build();
@@ -50,14 +47,15 @@ impl Node {
         })
     }
 
-    pub fn empty() -> Self {
+    #[expect(dead_code, reason = "in progress")]
+    pub(super) fn empty() -> Self {
         Self {
             greedy: Hir::empty(),
             lazy: Hir::empty(),
         }
     }
 
-    pub fn concat(nodes: impl IntoIterator<Item = Node>) -> Self {
+    pub(super) fn concat(nodes: impl IntoIterator<Item = Node>) -> Self {
         let (greedy, lazy) = nodes
             .into_iter()
             .map(|node| (node.greedy, node.lazy))
@@ -69,19 +67,7 @@ impl Node {
         }
     }
 
-    pub fn alt(nodes: impl IntoIterator<Item = Node>) -> Self {
-        let (greedy, lazy) = nodes
-            .into_iter()
-            .map(|node| (node.greedy, node.lazy))
-            .unzip();
-
-        Self {
-            greedy: Hir::alternation(greedy),
-            lazy: Hir::alternation(lazy),
-        }
-    }
-
-    pub fn literal(str: impl Into<String>) -> Self {
+    pub(super) fn literal(str: impl Into<String>) -> Self {
         let bytes = str.into().into_bytes();
         Self {
             greedy: Hir::literal(bytes.clone()),
@@ -89,7 +75,7 @@ impl Node {
         }
     }
 
-    pub fn optional(self) -> Self {
+    pub(super) fn optional(self) -> Self {
         Self {
             greedy: Hir::repetition(Repetition {
                 min: 0,
@@ -106,7 +92,7 @@ impl Node {
         }
     }
 
-    pub fn capture(self, index: u32, capture_name: &str) -> Self {
+    pub(super) fn capture(self, index: u32, capture_name: &str) -> Self {
         Self {
             greedy: Hir::capture(Capture {
                 index,
@@ -121,7 +107,7 @@ impl Node {
         }
     }
 
-    pub fn build_matcher(self) -> Result<UnambiguousRegex, BuildError> {
+    pub(super) fn build_matcher(self) -> Result<UnambiguousRegex, Box<BuildError>> {
         // We only provide full matchers, so insert Hir for the start and end of the input string.
         let greedy = Hir::concat(vec![
             Hir::look(Look::Start),
@@ -156,7 +142,10 @@ pub(super) struct CaptureSpans {
 }
 
 impl CaptureSpans {
-    pub fn extract<'a, 'b>(&'a self, text: &'b str) -> impl Iterator<Item = (&'a str, &'b str)> {
+    pub(super) fn extract<'a, 'b>(
+        &'a self,
+        text: &'b str,
+    ) -> impl Iterator<Item = (&'a str, &'b str)> {
         self.spans.iter().map(|(name, range)| {
             let value = &text[range.clone()];
             (name.as_str(), value)
@@ -171,7 +160,7 @@ pub(super) struct UnambiguousRegex {
 }
 
 impl UnambiguousRegex {
-    pub fn match_unambiguous(&self, text: &str) -> Result<Option<CaptureSpans>, Error> {
+    pub(super) fn match_unambiguous(&self, text: &str) -> Result<Option<CaptureSpans>, Error> {
         let mut greedy_captures = self.greedy.create_captures();
         self.greedy.captures(text, &mut greedy_captures);
         let mut lazy_captures = self.lazy.create_captures();

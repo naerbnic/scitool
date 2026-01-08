@@ -5,8 +5,8 @@ use crate::{
     utils::{
         buffer::Buffer,
         errors::{
-            BoxError, DynError, ErrWrapper, InvalidDataError, OpaqueError,
-            impl_error_castable, prelude::*,
+            BoxError, DynError, ErrWrapper, InvalidDataError, OpaqueError, impl_error_castable,
+            prelude::*,
         },
         mem_reader::BufferMemReader,
     },

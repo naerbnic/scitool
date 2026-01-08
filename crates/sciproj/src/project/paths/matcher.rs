@@ -1,27 +1,28 @@
-use std::{collections::BTreeMap, ops::Range, path::Path};
+use std::{collections::BTreeMap, path::Path};
 
 use unicode_normalization::UnicodeNormalization;
 
 use crate::project::paths::regex::UnambiguousRegex;
 
 #[derive(Debug, thiserror::Error)]
-pub enum MatchError {
+pub(crate) enum MatchError {
     #[error("String matched ambiguously with the capture groups.")]
     AmbiguousMatch,
 }
 
 #[derive(Debug, Clone)]
-pub struct MatchResult {
+pub(crate) struct MatchResult {
     normalized_path: String,
     captures: BTreeMap<String, String>,
 }
 
 impl MatchResult {
-    pub fn normalized_path(&self) -> &str {
+    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
+    pub(crate) fn normalized_path(&self) -> &str {
         &self.normalized_path
     }
 
-    pub fn properties(&self) -> &BTreeMap<String, String> {
+    pub(crate) fn properties(&self) -> &BTreeMap<String, String> {
         &self.captures
     }
 }
@@ -37,11 +38,14 @@ impl PathMatcher {
         Self { matchers, captures }
     }
 
-    pub fn placeholders(&self) -> &[String] {
+    pub(crate) fn placeholders(&self) -> &[String] {
         &self.captures
     }
 
-    pub fn match_path(&self, path: impl AsRef<Path>) -> Result<Option<MatchResult>, MatchError> {
+    pub(crate) fn match_path(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<Option<MatchResult>, MatchError> {
         // Create a syntactically canonical path, using "/" as the separator.
         let path_str = path
             .as_ref()

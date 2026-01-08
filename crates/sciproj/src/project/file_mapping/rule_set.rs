@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use crate::project::file_mapping::rule::{self, MappingRule, MappingRuleSpec};
 
 #[derive(Debug, thiserror::Error)]
-pub enum SpecError {
+pub(crate) enum SpecError {
     #[error("Invalid rule: {0}")]
     InvalidRule(#[from] rule::SpecError),
 
@@ -15,7 +15,7 @@ pub enum SpecError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ApplyError {
+pub(crate) enum ApplyError {
     #[error("Rule failed: {0}")]
     RuleFailed(#[from] rule::MappingError),
 
@@ -23,14 +23,13 @@ pub enum ApplyError {
     PropertyCollision,
 }
 
-pub type RuleSetSpec = Vec<MappingRuleSpec>;
-
 #[derive(Debug)]
-pub struct RuleSet(Vec<MappingRule>);
+pub(crate) struct RuleSet(Vec<MappingRule>);
 
 impl RuleSet {
+    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
     #[expect(single_use_lifetimes, reason = "false positive")]
-    pub fn from_spec<'a>(
+    pub(crate) fn from_spec<'a>(
         spec: impl IntoIterator<Item = &'a MappingRuleSpec>,
     ) -> Result<Self, SpecError> {
         let mut rules = Vec::new();
@@ -54,9 +53,9 @@ impl RuleSet {
     /// Apply this rule set to the given path, aggregating its properties in
     /// `prop_map`.
     ///
-    /// The properties in prop_map on input are assumed to override any
+    /// The properties in `prop_map` on input are assumed to override any
     /// properties set by this rule set.
-    pub fn apply(
+    pub(crate) fn apply(
         &self,
         path: impl AsRef<Path>,
         prop_map: &mut BTreeMap<String, String>,
@@ -105,7 +104,7 @@ impl RuleSet {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SortError<K> {
+pub(crate) enum SortError<K> {
     #[error("Undefined edge")]
     UndefinedEdge(K),
 
@@ -192,6 +191,8 @@ where
 mod tests {
     use super::*;
     use crate::helpers::test::{assert_matches, from_json, make_map};
+
+    type RuleSetSpec = Vec<MappingRuleSpec>;
 
     #[test]
     fn test_topo_sort() {

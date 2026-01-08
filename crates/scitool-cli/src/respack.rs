@@ -96,21 +96,20 @@ impl ResPack {
             ResourceProvenance::New => None,
         };
 
-        let (compressed_info, compressed_data) =
-            if let Some(compressed) = resource.compressed() {
-                let block = compressed.compressed_block().clone();
-                let compressed_info = BufferInfo::from_stream(
-                    block
-                        .open_reader(..)
-                        .map_err(io_err_map!(Other, "Failed to open compressed data"))?,
-                )?;
-                (
-                    Some(schema::CompressedInfo::new(compressed_info)),
-                    Some(block),
-                )
-            } else {
-                (None, None)
-            };
+        let (compressed_info, compressed_data) = if let Some(compressed) = resource.compressed() {
+            let block = compressed.compressed_block().clone();
+            let compressed_info = BufferInfo::from_stream(
+                block
+                    .open_reader(..)
+                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?,
+            )?;
+            (
+                Some(schema::CompressedInfo::new(compressed_info)),
+                Some(block),
+            )
+        } else {
+            (None, None)
+        };
 
         let metadata = Metadata {
             version: schema::CURRENT_VERSION,

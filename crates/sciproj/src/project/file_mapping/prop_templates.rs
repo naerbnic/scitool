@@ -4,7 +4,7 @@ use std::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum ParseError {
+pub(crate) enum ParseError {
     #[error("Unterminated placeholder")]
     UnterminatedPlaceholder,
 
@@ -19,7 +19,7 @@ pub enum ParseError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ApplyError {
+pub(crate) enum ApplyError {
     #[error("Missing property: {0}")]
     MissingProperty(String),
 }
@@ -34,7 +34,7 @@ fn validate_placeholder_name(str: &str) -> Result<(), ParseError> {
         return Err(ParseError::InvalidPlaceholder(str.to_string()));
     }
 
-    while let Some(c) = chars.next() {
+    for c in chars {
         if !unicode_ident::is_xid_continue(c) {
             return Err(ParseError::InvalidPlaceholder(str.to_string()));
         }
@@ -50,17 +50,20 @@ enum Component {
 }
 
 #[derive(Debug)]
-pub struct PropTemplate {
+pub(crate) struct PropTemplate {
     components: Vec<Component>,
     placeholder_names: BTreeSet<String>,
 }
 
 impl PropTemplate {
-    pub fn placeholders(&self) -> impl Iterator<Item = &String> {
+    pub(crate) fn placeholders(&self) -> impl Iterator<Item = &String> {
         self.placeholder_names.iter()
     }
 
-    pub fn apply(&self, properties: &BTreeMap<String, String>) -> Result<String, ApplyError> {
+    pub(crate) fn apply(
+        &self,
+        properties: &BTreeMap<String, String>,
+    ) -> Result<String, ApplyError> {
         let mut result = String::new();
         for component in &self.components {
             match component {

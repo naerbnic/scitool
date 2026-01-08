@@ -55,11 +55,13 @@ fn write_new(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<(
 }
 
 /// The root config file for sciproj.
+#[expect(dead_code, reason = "in progress")]
 pub(crate) struct RootConfig {
     contents: schema::ProjectConfig,
 }
 
 impl RootConfig {
+    #[expect(dead_code, reason = "in progress")]
     pub(crate) fn open_at(path: &impl AsRef<Path>) -> io::Result<Self> {
         let data = std::fs::read_to_string(path)?;
         let contents =
@@ -70,8 +72,11 @@ impl RootConfig {
 
 /// A representation of the raw data behind the workspace environment.
 pub(crate) struct ProjectConfig {
+    #[expect(dead_code, reason = "in progress")]
     root_path: PathBuf,
+    #[expect(dead_code, reason = "in progress")]
     root: schema::ProjectConfig,
+    #[expect(dead_code, reason = "in progress")]
     dir_configs: BTreeMap<PathBuf, schema::DirConfig>,
 }
 

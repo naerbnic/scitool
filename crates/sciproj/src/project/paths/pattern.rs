@@ -1,10 +1,5 @@
 use itertools::Itertools;
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, BTreeSet},
-    ops::Range,
-    str::FromStr,
-};
+use std::{borrow::Cow, collections::BTreeSet, str::FromStr};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use crate::{
@@ -13,13 +8,11 @@ use crate::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum ParseError {
+pub(crate) enum ParseError {
     #[error("An empty string is not a valid pattern")]
     EmptyPattern,
     #[error("A pattern segment (between path separators) cannot be empty")]
     EmptySegment,
-    #[error("A pattern cannot end with a '/'")]
-    EmptySuffix,
     #[error("Malformed pattern: {0}")]
     MalformedPattern(String),
     #[error("A placeholder name must not be empty")]
@@ -35,19 +28,9 @@ impl ParseError {
 
 #[derive(Debug, thiserror::Error)]
 #[error("Failed to merge patterns")]
-pub enum MergeError {
+pub(crate) enum MergeError {
     #[error("The patterns have different placeholders")]
     DifferentPlaceholders,
-}
-
-fn next_char(s: &mut &str) -> Option<char> {
-    match s.chars().next() {
-        Some(c) => {
-            *s = &s[c.len_utf8()..];
-            Some(c)
-        }
-        None => None,
-    }
 }
 
 fn is_valid_literal_char(c: char) -> bool {
@@ -120,10 +103,10 @@ impl Segment {
     fn captures(&self) -> impl Iterator<Item = &'_ str> {
         (match self {
             Segment::List(components) => Some(components),
-            _ => None,
+            Segment::GlobStar => None,
         })
         .into_iter()
-        .flat_map(|components| components.iter().flat_map(|c| c.segment()))
+        .flat_map(|components| components.iter().filter_map(|c| c.segment()))
     }
 }
 
@@ -292,7 +275,8 @@ impl SinglePattern {
         (Node::concat(concat_hirs), captures)
     }
 
-    pub fn build_matcher(&self) -> PathMatcher {
+    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn build_matcher(&self) -> PathMatcher {
         let (hir, captures) = self.build_hir();
         let regex = hir.build_matcher().unwrap();
         PathMatcher::new(vec![regex], captures)
@@ -355,10 +339,12 @@ pub(crate) struct Pattern {
 }
 
 impl Pattern {
+    #[expect(dead_code, reason = "in progress")]
     pub(crate) fn placeholders(&self) -> impl IntoIterator<Item = &'_ str> {
         self.patterns[0].captures.iter().map(String::as_str)
     }
 
+    #[expect(dead_code, reason = "in progress")]
     pub(crate) fn merge(self, other: Pattern) -> Result<Self, MergeError> {
         if !helpers::iter::eq_unordered(
             self.patterns.iter().map(|p| &p.captures),

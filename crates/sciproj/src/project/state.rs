@@ -11,6 +11,7 @@ pub(crate) struct StateFile {
 }
 
 impl StateFile {
+    #[expect(dead_code, reason = "in progress")]
     pub(crate) fn open_at(path: &impl AsRef<Path>) -> std::io::Result<Self> {
         let state_path = path.as_ref().to_path_buf();
         let contents: schema::Contents = match std::fs::read(&state_path) {

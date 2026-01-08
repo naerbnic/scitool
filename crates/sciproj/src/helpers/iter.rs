@@ -1,23 +1,32 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, btree_map};
 
 mod token {
     pub(crate) struct SealingToken {}
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "experimental"))]
 pub(crate) fn eq_unordered<I1, I2>(i1: I1, i2: I2) -> bool
 where
     I1: IntoIterator,
     I2: IntoIterator<Item = I1::Item>,
     I1::Item: PartialEq<I2::Item> + Ord,
 {
-    let item_set: BTreeSet<_> = i1.into_iter().collect();
-    let mut count = 0;
-    let all_contained = i2
-        .into_iter()
-        .inspect(|_| count += 1)
-        .all(|item| item_set.contains(&item));
-    all_contained && count == item_set.len()
+    let mut item_set: BTreeMap<_, usize> = BTreeMap::new();
+    for item in i1 {
+        *item_set.entry(item).or_insert(0) += 1;
+    }
+    for item in i2 {
+        match item_set.entry(item) {
+            btree_map::Entry::Vacant(_) => return false,
+            btree_map::Entry::Occupied(mut occ) => {
+                let count = occ.get_mut();
+                *count -= 1;
+                if *count == 0 {
+                    occ.remove();
+                }
+            }
+        }
+    }
+    item_set.is_empty()
 }
 
 #[cfg_attr(not(test), expect(dead_code, reason = "experimental"))]

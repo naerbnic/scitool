@@ -5,7 +5,7 @@ use std::{
 
 use crate::project::{
     file_mapping::rule_set::{self, RuleSet},
-    paths::{MatchError, PathMatcher, Pattern},
+    paths::{MatchError, PathMatcher},
 };
 
 fn is_simple_relative_path(path: &Path) -> bool {
@@ -13,7 +13,7 @@ fn is_simple_relative_path(path: &Path) -> bool {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CreateError {
+pub(crate) enum CreateError {
     #[error("Non-simple relative path: {0}")]
     NonRelativePath(PathBuf),
 
@@ -22,7 +22,7 @@ pub enum CreateError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ApplyError {
+pub(crate) enum ApplyError {
     #[error("Rule set error: {0}")]
     RuleSetError(#[from] rule_set::ApplyError),
 
@@ -31,13 +31,14 @@ pub enum ApplyError {
 }
 
 #[derive(Debug)]
-pub struct MappingEnv {
+pub(crate) struct MappingEnv {
     rule_sets: BTreeMap<PathBuf, RuleSet>,
     excludes: Vec<PathMatcher>,
 }
 
 impl MappingEnv {
-    pub fn new(
+    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn new(
         rule_sets: impl IntoIterator<Item = impl Into<(PathBuf, RuleSet)>>,
         excludes: impl IntoIterator<Item = impl Into<PathMatcher>>,
     ) -> Result<Self, CreateError> {
@@ -60,7 +61,8 @@ impl MappingEnv {
         })
     }
 
-    pub fn apply(
+    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn apply(
         &self,
         path: impl AsRef<Path>,
     ) -> Result<Option<BTreeMap<String, String>>, ApplyError> {

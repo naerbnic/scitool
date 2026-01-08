@@ -45,6 +45,6 @@ struct BaseGame {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub struct DirConfig {
+pub(crate) struct DirConfig {
     mapping_rules: Vec<MappingRuleSpec>,
 }

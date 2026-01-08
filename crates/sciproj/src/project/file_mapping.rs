@@ -20,27 +20,30 @@ use crate::project::file_mapping::{rule::MappingError, rule_set::RuleSet};
 pub(crate) use rule::MappingRuleSpec;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub(crate) enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
     #[error(transparent)]
     Mapping(#[from] MappingError),
 }
 
-pub struct FileMapper {
+pub(crate) struct FileMapper {
+    #[expect(dead_code, reason = "in progress")]
     rule_mappings: BTreeMap<PathBuf, RuleSet>,
     ignored_paths: BTreeSet<PathBuf>,
 }
 
 impl FileMapper {
-    pub fn map_workspace_files(
+    #[expect(dead_code, reason = "in progress")]
+    #[expect(clippy::todo, reason = "in progress")]
+    pub(crate) fn map_workspace_files(
         &self,
         workspace_root: impl AsRef<Path>,
     ) -> Result<FileCollection, Error> {
         let walk_dir = walkdir::WalkDir::new(workspace_root);
 
         // Collect all file paths that are not ignored.
-        let paths = walk_dir
+        let _paths = walk_dir
             .into_iter()
             .filter_entry(|entry| !self.ignored_paths.contains(entry.path()))
             .collect::<Result<Vec<_>, _>>()
@@ -56,34 +59,32 @@ impl FileMapper {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FileEntry {
+pub(crate) struct FileEntry {
     path: PathBuf,
     properties: BTreeMap<String, String>,
 }
 
 impl FileEntry {
-    pub fn new(path: impl Into<PathBuf>, properties: BTreeMap<String, String>) -> Self {
+    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn new(path: impl Into<PathBuf>, properties: BTreeMap<String, String>) -> Self {
         Self {
             path: path.into(),
             properties,
         }
     }
-    pub fn path(&self) -> &Path {
+
+    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn properties(&self) -> &BTreeMap<String, String> {
+    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn properties(&self) -> &BTreeMap<String, String> {
         &self.properties
     }
 }
 
-pub struct FileCollection {
+pub(crate) struct FileCollection {
+    #[expect(dead_code, reason = "in progress")]
     files: BTreeSet<FileEntry>,
-}
-
-fn apply_mappings(
-    path: &Path,
-    rules: &[&RuleSet],
-) -> Result<BTreeMap<String, String>, MappingError> {
-    todo!()
 }
