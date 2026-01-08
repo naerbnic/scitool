@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, btree_map},
+    path::Path,
+};
 
 use crate::project::file_mapping::rule::{self, MappingRule, MappingRuleSpec};
 
@@ -66,14 +69,7 @@ impl RuleSet {
         let mut found_match = false;
 
         for rule in &self.0 {
-            // Skip this rule if its properties are already set in the outer prop_map.
-            //
-            // This enforces the rule that nested rules override outer rules.
-            if rule.properties().any(|prop| prop_map.contains_key(prop)) {
-                break;
-            }
-
-            // Skip this rule if it has been overridden by a previous rule.
+            // Skip this rule if it has been overridden by a previous local rule.
             if let Some(name) = rule.name()
                 && overridden_rules.contains(&name)
             {
@@ -81,7 +77,7 @@ impl RuleSet {
             }
 
             if let Some(rule_props) = rule.apply_rule(path)? {
-                // Check that we aren't overwriting a property set by a previous rule.
+                // Check that we aren't overwriting a property set by a previous local rule.
                 //
                 // Any priority overrides should already have been applied.
                 if rule.properties().any(|prop| local_props.contains_key(prop)) {
@@ -95,7 +91,13 @@ impl RuleSet {
         }
 
         if found_match {
-            prop_map.extend(local_props);
+            // We are overridden by the fields in prop_map, so only copy those
+            // entries that are not in prop_map.
+            for (k, v) in local_props {
+                if let btree_map::Entry::Vacant(vac) = prop_map.entry(k) {
+                    vac.insert(v);
+                }
+            }
         }
 
         Ok(found_match)

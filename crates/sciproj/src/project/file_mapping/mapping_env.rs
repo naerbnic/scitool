@@ -72,3 +72,192 @@ impl MappingEnv {
         Ok(if found_match { Some(prop_map) } else { None })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        helpers::test::{from_json, make_map},
+        project::file_mapping::MappingRuleSpec,
+    };
+
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(transparent)]
+    struct RuleSetSpec(BTreeMap<PathBuf, Vec<MappingRuleSpec>>);
+
+    fn make_mapping_env(spec: RuleSetSpec) -> anyhow::Result<MappingEnv> {
+        let rule_sets = spec
+            .0
+            .into_iter()
+            .map(|(path, rules)| Ok::<_, anyhow::Error>((path, RuleSet::from_spec(&rules)?)))
+            .collect::<anyhow::Result<BTreeMap<PathBuf, RuleSet>>>()?;
+        Ok(MappingEnv::new(rule_sets)?)
+    }
+
+    #[test]
+    fn test_apply() -> anyhow::Result<()> {
+        let env = make_mapping_env(from_json!({
+            "": [
+                {
+                    "includes": ["**/*.rs"],
+                    "properties": {
+                        "lang": "rust"
+                    }
+                },
+                {
+                    "includes": ["**/*.py"],
+                    "properties": {
+                        "lang": "python"
+                    }
+                }
+            ]
+        }))?;
+
+        let props = env.apply("src/main.rs")?;
+        assert_eq!(props, Some(make_map([("lang", "rust")])));
+
+        let props = env.apply("src/main.py")?;
+        assert_eq!(props, Some(make_map([("lang", "python")])));
+
+        let props = env.apply("src/main.c")?;
+        assert_eq!(props, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_override() -> anyhow::Result<()> {
+        // A nested rule overrides the outer rule.
+        let env = make_mapping_env(from_json!({
+            "": [
+                {
+                    "includes": ["**/*.rs"],
+                    "properties": {
+                        "lang": "rust"
+                    }
+                },
+                {
+                    "includes": ["**/*.py"],
+                    "properties": {
+                        "lang": "python"
+                    }
+                }
+            ],
+            "docs": [
+                {
+                    "includes": ["**/*.rs"],
+                    "properties": {
+                        "lang": "some-other-type"
+                    }
+                }
+            ]
+        }))?;
+
+        let props = env.apply("src/main.rs")?;
+        assert_eq!(props, Some(make_map([("lang", "rust")])));
+
+        let props = env.apply("docs/main.rs")?;
+        assert_eq!(props, Some(make_map([("lang", "some-other-type")])));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_disjoint() -> anyhow::Result<()> {
+        // Disjoint property sets merge
+        let env = make_mapping_env(from_json!({
+            "": [
+                {
+                    "includes": ["**/*.rs"],
+                    "properties": {
+                        "lang": "rust"
+                    }
+                },
+                {
+                    "includes": ["**/*.md"],
+                    "properties": {
+                        "lang": "markdown"
+                    }
+                }
+            ],
+            "docs": [
+                {
+                    "includes": ["**"],
+                    "properties": {
+                        "category": "docs"
+                    }
+                }
+            ],
+            "src": [
+                {
+                    "includes": ["**"],
+                    "properties": {
+                        "category": "source"
+                    }
+                }
+            ]
+        }))?;
+
+        assert_eq!(
+            env.apply("src/main.rs")?,
+            Some(make_map([("lang", "rust"), ("category", "source")]))
+        );
+
+        assert_eq!(
+            env.apply("docs/main.md")?,
+            Some(make_map([("lang", "markdown"), ("category", "docs")]))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_partial_inner_overrides() -> anyhow::Result<()> {
+        let env = make_mapping_env(from_json!({
+            "": [
+                {
+                    "includes": ["**/*.rs"],
+                    "properties": {
+                        "lang": "rust",
+                        "category": "unknown"
+                    }
+                },
+            ],
+            "docs": [
+                {
+                    "includes": ["**"],
+                    "properties": {
+                        "category": "docs"
+                    }
+                }
+            ],
+            "src": [
+                {
+                    "includes": ["**"],
+                    "properties": {
+                        "category": "source"
+                    }
+                }
+            ]
+        }))?;
+
+        assert_eq!(
+            env.apply("tools/main.rs")?,
+            Some(make_map([("lang", "rust"), ("category", "unknown")]))
+        );
+
+        assert_eq!(
+            env.apply("docs/main.rs")?,
+            Some(make_map([("lang", "rust"), ("category", "docs")]))
+        );
+
+        assert_eq!(
+            env.apply("src/main.rs")?,
+            Some(make_map([("lang", "rust"), ("category", "source")]))
+        );
+
+        Ok(())
+    }
+}
