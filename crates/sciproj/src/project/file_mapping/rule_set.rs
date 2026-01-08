@@ -27,7 +27,6 @@ pub(crate) enum ApplyError {
 pub(crate) struct RuleSet(Vec<MappingRule>);
 
 impl RuleSet {
-    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
     #[expect(single_use_lifetimes, reason = "false positive")]
     pub(crate) fn from_spec<'a>(
         spec: impl IntoIterator<Item = &'a MappingRuleSpec>,

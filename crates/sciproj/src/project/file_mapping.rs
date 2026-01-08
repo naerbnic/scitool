@@ -13,14 +13,36 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use walkdir::DirEntry;
-
 use crate::{
-    helpers::iter::IterExt,
-    project::file_mapping::{rule::MappingError, rule_set::RuleSet},
+    helpers::{
+        iter::IterExt as _,
+        paths::{DirInfo, FileLister},
+    },
+    project::{
+        file_mapping::{mapping_env::MappingEnv, rule::MappingError, rule_set::RuleSet},
+        paths::{self, PathMatcher, Pattern},
+    },
 };
 
 pub(crate) use rule::MappingRuleSpec;
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SpecError {
+    #[error(transparent)]
+    Pattern(#[from] paths::ParseError),
+
+    #[error("Excludes not able to be merged: {0}")]
+    ExcludeMergeError(#[from] paths::MergeError),
+
+    #[error("Invalid rule spec: {0}")]
+    InvalidRuleSpec(#[from] rule_set::SpecError),
+
+    #[error(transparent)]
+    MappingEnv(#[from] mapping_env::CreateError),
+
+    #[error("Placeholders not allowed in exclude patterns")]
+    PlaceholdersInExcludes,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -28,35 +50,83 @@ pub(crate) enum Error {
     Io(#[from] io::Error),
     #[error(transparent)]
     Mapping(#[from] MappingError),
+    #[error(transparent)]
+    EnvApply(#[from] mapping_env::ApplyError),
 }
 
 pub(crate) struct FileMapper {
-    #[expect(dead_code, reason = "in progress")]
-    rule_mappings: BTreeMap<PathBuf, RuleSet>,
-    ignored_paths: BTreeSet<PathBuf>,
+    mapping_env: MappingEnv,
+    excludes: PathMatcher,
 }
 
 impl FileMapper {
+    #[expect(single_use_lifetimes, reason = "compile error without lifetime")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
+    #[cfg_attr(test, expect(dead_code, reason = "in progress"))]
+    pub(crate) fn from_config<'a>(
+        rule_sets: impl IntoIterator<
+            Item = (
+                impl AsRef<Path>,
+                impl IntoIterator<Item = impl Into<&'a MappingRuleSpec>>,
+            ),
+        >,
+        excludes: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Self, SpecError> {
+        let rule_sets = rule_sets
+            .into_iter()
+            .map(|(path, rules)| {
+                let path = path.as_ref().to_path_buf();
+                let rule_set = RuleSet::from_spec(rules.into_iter().map(Into::into))?;
+                Ok::<_, SpecError>((path, rule_set))
+            })
+            .extract_err()?;
+
+        let mapping_env = MappingEnv::new(rule_sets)?;
+        let excludes = excludes
+            .into_iter()
+            .map(|s| s.as_ref().parse::<Pattern>())
+            .map_err(SpecError::Pattern)
+            .reduce_result(|a, b| a.merge(b).map_err(SpecError::ExcludeMergeError))?
+            .unwrap_or_else(Pattern::empty)
+            .build_matcher();
+
+        if excludes.placeholders().is_empty() {
+            return Err(SpecError::PlaceholdersInExcludes);
+        }
+
+        Ok(Self {
+            mapping_env,
+            excludes,
+        })
+    }
+
     #[expect(dead_code, reason = "in progress")]
-    #[expect(clippy::todo, reason = "in progress")]
     pub(crate) fn map_workspace_files(
         &self,
         workspace_root: impl AsRef<Path>,
     ) -> Result<FileCollection, Error> {
-        let walk_dir = walkdir::WalkDir::new(workspace_root);
+        let file_filter = |dir: &DirInfo| {
+            self.excludes
+                .match_path(dir.path())
+                .map(|r| r.is_some())
+                .map_err(io::Error::other)
+        };
 
-        // Collect all file paths that are not ignored.
-        let _paths = walk_dir
-            .into_iter()
-            .filter_entry(|entry| !self.ignored_paths.contains(entry.path()))
-            .extract_err()
-            .map_err(io::Error::from)?
-            .filter(|entry| entry.file_type().is_file())
-            .map(DirEntry::into_path)
-            .collect::<Vec<PathBuf>>();
+        let file_list = FileLister::new(workspace_root)
+            .set_dir_filter(file_filter)
+            .list_all()
+            .map_err(Error::Io)?;
 
         // Attempt to map each file to its respective rule sets.
-        todo!()
+
+        let mut entries = BTreeSet::new();
+        for file in file_list {
+            if let Some(mappings) = self.mapping_env.apply(&file)? {
+                entries.insert(FileEntry::new(file, mappings));
+            }
+        }
+
+        Ok(FileCollection { entries })
     }
 }
 
@@ -67,7 +137,6 @@ pub(crate) struct FileEntry {
 }
 
 impl FileEntry {
-    #[expect(dead_code, reason = "in progress")]
     pub(crate) fn new(path: impl Into<PathBuf>, properties: BTreeMap<String, String>) -> Self {
         Self {
             path: path.into(),
@@ -88,5 +157,5 @@ impl FileEntry {
 
 pub(crate) struct FileCollection {
     #[expect(dead_code, reason = "in progress")]
-    files: BTreeSet<FileEntry>,
+    entries: BTreeSet<FileEntry>,
 }

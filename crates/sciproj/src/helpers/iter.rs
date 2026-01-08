@@ -41,6 +41,35 @@ pub(crate) trait IterExt: Iterator {
         Ok(self.collect::<Result<Vec<T>, E>>()?.into_iter())
     }
 
+    fn reduce_result<T, E, F>(self, mut reducer: F) -> Result<Option<T>, E>
+    where
+        Self: Iterator<Item = Result<T, E>> + Sized,
+        F: FnMut(T, T) -> Result<T, E>,
+    {
+        self.reduce(|a, b| {
+            let a = a?;
+            let b = b?;
+            reducer(a, b)
+        })
+        .transpose()
+    }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "experimental"))]
+    #[cfg_attr(test, expect(dead_code, reason = "experimental"))]
+    fn into_results<E>(self) -> impl Iterator<Item = Result<<Self as Iterator>::Item, E>>
+    where
+        Self: Sized,
+    {
+        self.map(Ok)
+    }
+
+    fn map_err<T, E, E2>(self, mut f: impl FnMut(E) -> E2) -> impl Iterator<Item = Result<T, E2>>
+    where
+        Self: Iterator<Item = Result<T, E>> + Sized,
+    {
+        self.map(move |item| item.map_err(&mut f))
+    }
+
     #[doc(hidden)]
     #[expect(dead_code, reason = "used for sealing")]
     fn sealed_result(_: token::SealingToken);

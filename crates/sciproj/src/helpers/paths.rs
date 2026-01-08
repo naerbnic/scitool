@@ -69,6 +69,22 @@ impl FileInfo<'_> {
     }
 }
 
+pub(crate) trait ValidResult<T, E> {
+    fn into_result(self) -> Result<T, E>;
+}
+
+impl<T, E> ValidResult<T, E> for T {
+    fn into_result(self) -> Result<T, E> {
+        Ok(self)
+    }
+}
+
+impl<T, E> ValidResult<T, E> for Result<T, E> {
+    fn into_result(self) -> Result<T, E> {
+        self
+    }
+}
+
 pub(crate) struct DirInfo<'a> {
     entity_info: EntityInfo<'a>,
 }
@@ -79,7 +95,6 @@ impl DirInfo<'_> {
         self.entity_info.full_path
     }
 
-    #[expect(dead_code, reason = "in progress")]
     pub(crate) fn path(&self) -> &Path {
         self.entity_info.rel_path
     }
@@ -96,16 +111,15 @@ impl DirInfo<'_> {
 }
 
 #[expect(clippy::type_complexity, reason = "Unable to create local type alias")]
-pub(crate) struct FileLister {
+pub(crate) struct FileLister<'a> {
     root: PathBuf,
-    file_filter: Box<dyn for<'b> Fn(&FileInfo<'b>) -> io::Result<bool>>,
-    dir_filter: Box<dyn for<'b> Fn(&DirInfo<'b>) -> io::Result<bool>>,
-    should_recurse: Box<dyn for<'b> Fn(&DirInfo<'b>) -> io::Result<bool>>,
+    file_filter: Box<dyn for<'b> Fn(&FileInfo<'b>) -> io::Result<bool> + 'a>,
+    dir_filter: Box<dyn for<'b> Fn(&DirInfo<'b>) -> io::Result<bool> + 'a>,
+    should_recurse: Box<dyn for<'b> Fn(&DirInfo<'b>) -> io::Result<bool> + 'a>,
 }
 
-impl FileLister {
-    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
-    pub(crate) fn new(root: impl AsRef<Path>) -> Self {
+impl<'a> FileLister<'a> {
+    pub(crate) fn new(root: impl AsRef<Path> + 'a) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
             file_filter: Box::new(|_| Ok(true)),
@@ -117,40 +131,38 @@ impl FileLister {
     #[expect(dead_code, reason = "in progress")]
     pub(crate) fn set_file_filter<R>(
         &mut self,
-        file_filter: impl for<'b> Fn(&FileInfo<'b>) -> R + 'static,
+        file_filter: impl for<'b> Fn(&FileInfo<'b>) -> R + 'a,
     ) -> &mut Self
     where
-        R: Into<io::Result<bool>>,
+        R: ValidResult<bool, io::Error>,
     {
-        self.file_filter = Box::new(move |info| file_filter(info).into());
+        self.file_filter = Box::new(move |info| file_filter(info).into_result());
         self
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
     pub(crate) fn set_dir_filter<R>(
         &mut self,
-        dir_filter: impl for<'b> Fn(&DirInfo<'b>) -> R + 'static,
+        dir_filter: impl for<'b> Fn(&DirInfo<'b>) -> R + 'a,
     ) -> &mut Self
     where
-        R: Into<io::Result<bool>>,
+        R: ValidResult<bool, io::Error>,
     {
-        self.dir_filter = Box::new(move |info| dir_filter(info).into());
+        self.dir_filter = Box::new(move |info| dir_filter(info).into_result());
         self
     }
 
     #[expect(dead_code, reason = "in progress")]
     pub(crate) fn set_should_recurse<R>(
         &mut self,
-        should_recurse: impl for<'b> Fn(&DirInfo<'b>) -> R + 'static,
+        should_recurse: impl for<'b> Fn(&DirInfo<'b>) -> R + 'a,
     ) -> &mut Self
     where
-        R: Into<io::Result<bool>>,
+        R: ValidResult<bool, io::Error>,
     {
-        self.should_recurse = Box::new(move |info| should_recurse(info).into());
+        self.should_recurse = Box::new(move |info| should_recurse(info).into_result());
         self
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
     pub(crate) fn list_all(&self) -> io::Result<Vec<PathBuf>> {
         let mut file_iter = walkdir::WalkDir::new(&self.root).into_iter();
 

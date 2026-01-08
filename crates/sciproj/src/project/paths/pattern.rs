@@ -339,17 +339,29 @@ pub(crate) struct Pattern {
 }
 
 impl Pattern {
-    #[expect(dead_code, reason = "in progress")]
-    pub(crate) fn placeholders(&self) -> impl IntoIterator<Item = &'_ str> {
-        self.patterns[0].captures.iter().map(String::as_str)
+    pub(crate) fn empty() -> Self {
+        Self {
+            patterns: Vec::new(),
+        }
     }
 
-    #[expect(dead_code, reason = "in progress")]
+    pub(crate) fn placeholders(&self) -> impl IntoIterator<Item = &'_ str> {
+        let string_slice = if let Some(first_pattern) = self.patterns.first() {
+            &first_pattern.captures[..]
+        } else {
+            &[]
+        };
+        string_slice.iter().map(String::as_str)
+    }
+
     pub(crate) fn merge(self, other: Pattern) -> Result<Self, MergeError> {
-        if !helpers::iter::eq_unordered(
-            self.patterns.iter().map(|p| &p.captures),
-            other.patterns.iter().map(|p| &p.captures),
-        ) {
+        if self.patterns.is_empty() {
+            return Ok(other);
+        }
+        if other.patterns.is_empty() {
+            return Ok(self);
+        }
+        if !helpers::iter::eq_unordered(self.placeholders(), other.placeholders()) {
             return Err(MergeError::DifferentPlaceholders);
         }
         Ok(Self {
@@ -364,7 +376,11 @@ impl Pattern {
             regexes.push(hir.build_matcher().expect("Ensured by struct invariants"));
         }
 
-        let captures = self.patterns[0].captures.clone();
+        let captures = self
+            .placeholders()
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>();
 
         PathMatcher::new(regexes, captures)
     }
