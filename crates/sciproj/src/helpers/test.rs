@@ -73,7 +73,6 @@ macro_rules! build_files {
 }
 
 pub(crate) use {assert_matches, from_json};
-#[expect(unused_imports)]
 pub(crate) use {build_files, make_file, make_files};
 
 #[cfg(test)]

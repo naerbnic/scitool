@@ -15,7 +15,10 @@ use std::{
 
 use walkdir::DirEntry;
 
-use crate::project::file_mapping::{rule::MappingError, rule_set::RuleSet};
+use crate::{
+    helpers::iter::IterExt,
+    project::file_mapping::{rule::MappingError, rule_set::RuleSet},
+};
 
 pub(crate) use rule::MappingRuleSpec;
 
@@ -46,9 +49,8 @@ impl FileMapper {
         let _paths = walk_dir
             .into_iter()
             .filter_entry(|entry| !self.ignored_paths.contains(entry.path()))
-            .collect::<Result<Vec<_>, _>>()
+            .extract_err()
             .map_err(io::Error::from)?
-            .into_iter()
             .filter(|entry| entry.file_type().is_file())
             .map(DirEntry::into_path)
             .collect::<Vec<PathBuf>>();

@@ -29,7 +29,6 @@ where
     item_set.is_empty()
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "experimental"))]
 pub(crate) trait IterExt: Iterator {
     /// For an iterator that returns `Result<T, E>`, extract the error into a `Result`, with the
     /// value being an iterator of the successful values.
