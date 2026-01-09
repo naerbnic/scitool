@@ -28,6 +28,9 @@ unicode-ident = "1.0.22"
 regex-syntax = "0.8.8"
 regex-automata = "0.4.13"
 unicode-normalization = "0.1.25"
+slab = "0.4.11"
+im = "15.1.0"
+parking_lot = "0.12.5"
 
 [lints]
 workspace = true

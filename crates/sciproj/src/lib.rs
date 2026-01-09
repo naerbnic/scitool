@@ -6,4 +6,5 @@ pub mod project;
 pub mod resources;
 pub mod tools;
 
+pub(crate) mod collections;
 pub(crate) mod helpers;
