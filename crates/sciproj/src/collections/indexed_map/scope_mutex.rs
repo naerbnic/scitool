@@ -109,7 +109,7 @@ where
         ScopeMutexGuard {
             poisoned: &mut inner_mut.poisoned,
             borrow: Some(borrow),
-            _owned_lock: owned_lock,
+            owned_lock,
         }
     }
 }
@@ -163,7 +163,7 @@ struct Inner<T> {
 pub(super) struct ScopeMutexGuard<'a, T> {
     poisoned: &'a mut bool,
     borrow: Option<RefMut<'a, T>>,
-    _owned_lock: Option<RawThreadMutexGuard<'a>>,
+    owned_lock: Option<RawThreadMutexGuard<'a>>,
 }
 
 impl<T> Deref for ScopeMutexGuard<'_, T> {
