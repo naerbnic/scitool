@@ -13,54 +13,18 @@ struct MapStorageInner<T> {
 ///
 /// Mutability is controlled by [`MapStorage::lock_read`] and [`MapStorage::lock_write`].
 pub(super) struct MapStorage<T> {
-    inner: Arc<Mutex<MapStorageInner<T>>>,
-}
-
-impl<T> Clone for MapStorage<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
+    inner: MapStorageInner<T>,
 }
 
 impl<T> MapStorage<T> {
     pub(super) fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MapStorageInner {
+            inner: MapStorageInner {
                 entries: Slab::new(),
-            })),
+            },
         }
     }
 
-    pub(super) fn lock_read(&self) -> ReadMapStorageGuard<'_, T> {
-        ReadMapStorageGuard {
-            inner: self.inner.lock().unwrap(),
-        }
-    }
-
-    pub(super) fn lock_write(&self) -> WriteMapStorageGuard<'_, T> {
-        WriteMapStorageGuard {
-            inner: self.inner.lock().unwrap(),
-        }
-    }
-}
-
-pub(super) struct ReadMapStorageGuard<'a, T> {
-    inner: MutexGuard<'a, MapStorageInner<T>>,
-}
-
-impl<T> ReadMapStorageGuard<'_, T> {
-    pub(super) fn for_id(&self, index: StorageId) -> &T {
-        &self.inner.entries[index.0]
-    }
-}
-
-pub(super) struct WriteMapStorageGuard<'a, T> {
-    inner: MutexGuard<'a, MapStorageInner<T>>,
-}
-
-impl<T> WriteMapStorageGuard<'_, T> {
     pub(super) fn for_id(&self, index: StorageId) -> &T {
         &self.inner.entries[index.0]
     }

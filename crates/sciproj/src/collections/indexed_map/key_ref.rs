@@ -74,3 +74,13 @@ impl<'a, K> From<&'a K> for KeyRef<'a, K> {
         KeyRef::Borrowed(k)
     }
 }
+
+/// A type for fetching a key from a value.
+///
+/// The result key value can be owned or borrowed, but if borrowed will
+/// have a lifetime limited by the fetcher.
+pub(super) trait LendingKeyFetcher<K, T> {
+    fn fetch<'a, 'val>(&'a self, value: &'val T) -> KeyRef<'a, K>
+    where
+        'val: 'a;
+}
