@@ -5,6 +5,20 @@ pub(crate) enum KeyRef<'a, K> {
     Borrowed(&'a K),
 }
 
+impl<K> KeyRef<'_, K> {
+    pub(crate) fn from_borrowed_fn<T>(
+        func: impl for<'a> Fn(&'a T) -> &'a K,
+    ) -> impl for<'a> Fn(&'a T) -> KeyRef<'a, K> {
+        move |val| KeyRef::Borrowed(func(val))
+    }
+
+    pub(crate) fn from_owned_fn<T>(
+        func: impl for<'a> Fn(&'a T) -> K,
+    ) -> impl for<'a> Fn(&'a T) -> KeyRef<'a, K> {
+        move |val| KeyRef::Owned(func(val))
+    }
+}
+
 impl<K> PartialEq for KeyRef<'_, K>
 where
     K: PartialEq,
@@ -80,7 +94,5 @@ impl<'a, K> From<&'a K> for KeyRef<'a, K> {
 /// The result key value can be owned or borrowed, but if borrowed will
 /// have a lifetime limited by the fetcher.
 pub(super) trait LendingKeyFetcher<K, T> {
-    fn fetch<'a, 'val>(&'a self, value: &'val T) -> KeyRef<'a, K>
-    where
-        'val: 'a;
+    fn fetch<'a>(&'a self, value: &'a T) -> KeyRef<'a, K>;
 }

@@ -41,7 +41,7 @@ where
     pub(super) fn new() -> Self {
         Self {
             contents: HashTable::new(),
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 
@@ -158,10 +158,7 @@ mod tests {
     struct BorrowFetcher;
 
     impl<'s> LendingKeyFetcher<&'s str, &'s str> for BorrowFetcher {
-        fn fetch<'a, 'val>(&'a self, value: &'val &'s str) -> KeyRef<'a, &'s str>
-        where
-            'val: 'a,
-        {
+        fn fetch<'a>(&'a self, value: &'a &'s str) -> KeyRef<'a, &'s str> {
             KeyRef::Borrowed(value)
         }
     }
@@ -169,10 +166,7 @@ mod tests {
     struct OwnedFetcher(Box<u32>);
 
     impl LendingKeyFetcher<u32, &str> for OwnedFetcher {
-        fn fetch<'a, 'val>(&'a self, _value: &'val &str) -> KeyRef<'a, u32>
-        where
-            'val: 'a,
-        {
+        fn fetch<'a>(&'a self, _value: &'a &str) -> KeyRef<'a, u32> {
             KeyRef::Borrowed(&*self.0)
         }
     }
@@ -201,4 +195,7 @@ mod tests {
             .collect::<HashSet<_>>();
         assert_eq!(result, ["a"].iter().collect::<HashSet<_>>());
     }
+
+    #[test]
+    fn removes_right_entry_with_equal_keys() {}
 }

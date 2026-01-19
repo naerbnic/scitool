@@ -1,6 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{borrow::Borrow, cell::RefCell, fmt::Debug, rc::Rc};
 
-use crate::collections::indexed_map::{fn_ord_map::FnMultiMap, key_ref::LendingKeyFetcher};
+use super::{
+    expr::{IndexPredicate, Predicate},
+    fn_ord_map::FnMultiMap,
+    key_ref::LendingKeyFetcher,
+};
 
 use super::{
     index::ManagedIndex,
@@ -16,6 +20,13 @@ pub(super) struct IndexOffset(usize);
 pub(super) struct OrderedIndexBacking<K, T> {
     index: FnMultiMap<K, StorageId>,
     key_fn: KeyFn<K, T>,
+}
+
+impl<K, T> std::fmt::Debug for OrderedIndexBacking<K, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO: We should really print more, but we need to do a later pass for that.
+        f.debug_struct("OrderedIndexBacking").finish()
+    }
 }
 
 impl<K, T> OrderedIndexBacking<K, T>
@@ -67,24 +78,38 @@ impl<K, T> Clone for StorageIdKeyFetcher<'_, K, T> {
     }
 }
 
-impl<K, T> Copy for StorageIdKeyFetcher<'_, K, T> {}
-
 impl<K, T> LendingKeyFetcher<K, StorageId> for StorageIdKeyFetcher<'_, K, T> {
-    fn fetch<'a, 'val>(&'a self, value: &'val StorageId) -> KeyRef<'a, K>
-    where
-        'val: 'a,
-    {
-        let entry = self.storage.for_id(*value);
-        (self.key_fn)(&entry)
+    fn fetch<'a>(&'a self, value: &'a StorageId) -> KeyRef<'a, K> {
+        (self.key_fn)(self.storage.for_id(*value))
     }
 }
 
-struct Reader<'a, K, T> {
+pub(super) struct Reader<'a, K, T> {
     fetcher: StorageIdKeyFetcher<'a, K, T>,
     index: &'a FnMultiMap<K, StorageId>,
 }
 
-impl<K, T> Reader<'_, K, T> where K: Ord {}
+impl<K, T> Reader<'_, K, T>
+where
+    K: Ord,
+{
+    fn find_eq<Q>(&self, key: &Q) -> impl Iterator<Item = StorageId>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        self.index.get(&self.fetcher, key).copied()
+    }
+
+    fn matches<Q>(&self, key: &Q, id: StorageId) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        let entry_key = self.fetcher.fetch(&id);
+        (*entry_key).borrow() == key
+    }
+}
 
 pub(super) struct Writer<'a, K, T> {
     fetcher: StorageIdKeyFetcher<'a, K, T>,
@@ -97,7 +122,7 @@ where
 {
     pub(super) fn as_reader(&self) -> Reader<'_, K, T> {
         Reader {
-            fetcher: self.fetcher,
+            fetcher: self.fetcher.clone(),
             index: self.index,
         }
     }
@@ -123,6 +148,18 @@ where
         Self {
             backing: Rc::new(RefCell::new(OrderedIndexBacking::new(key_fn))),
         }
+    }
+
+    pub(super) fn eq_pred<'a, Q>(&self, key: &'a Q) -> Predicate<'a, T>
+    where
+        K: Borrow<Q> + Debug + 'a,
+        Q: Ord + Debug,
+        T: Debug + 'a,
+    {
+        Predicate::index(EqPredicate {
+            eq_key: key,
+            backing: self.backing.clone(),
+        })
     }
 }
 
@@ -150,5 +187,32 @@ impl<K, T> Clone for OrderedIndexHandle<K, T> {
         Self {
             backing: self.backing.clone(),
         }
+    }
+}
+
+#[derive(Debug)]
+struct EqPredicate<'a, Q, K, T> {
+    eq_key: &'a Q,
+    backing: Rc<RefCell<OrderedIndexBacking<K, T>>>,
+}
+
+impl<'a, Q, K, T> IndexPredicate<'a, T> for EqPredicate<'a, Q, K, T>
+where
+    Q: Ord + Debug,
+    K: Ord + Borrow<Q> + Debug,
+    T: Debug,
+{
+    fn find_matching(
+        &self,
+        storage: &MapStorage<T>,
+        results: &mut std::collections::HashSet<StorageId>,
+    ) {
+        let index = RefCell::borrow(&self.backing);
+        results.extend(index.read_with_storage(storage).find_eq(self.eq_key));
+    }
+
+    fn matches(&self, storage: &MapStorage<T>, id: StorageId) -> bool {
+        let index = RefCell::borrow(&self.backing);
+        index.read_with_storage(storage).matches(self.eq_key, id)
     }
 }

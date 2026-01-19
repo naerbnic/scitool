@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), expect(dead_code, reason = "In development"))]
+#![cfg_attr(test, expect(dead_code, reason = "To be tested"))]
 mod expr;
 mod fn_hash_map;
 mod fn_ord_map;
@@ -5,49 +7,20 @@ mod hmap;
 mod index;
 mod key_ref;
 mod ordered_index;
-mod scope_mutex;
 mod storage;
 
-use std::{borrow::Borrow, marker::PhantomData};
+use std::{
+    borrow::Borrow,
+    collections::{HashSet, hash_set},
+    fmt::Debug,
+};
 
 use crate::collections::indexed_map::{
+    expr::Predicate,
+    index::ManagedIndex as _,
     key_ref::KeyRef,
     storage::{MapStorage, StorageId},
 };
-
-/// An index expression, used to select elements from an `IndexedMap`.
-pub(crate) struct IndexExpr<'a, T> {
-    /// Contents to be determined.
-    handle: PhantomData<&'a T>,
-}
-
-impl<T> IndexExpr<'_, T> {
-    /// Creates a new `IndexExpr` that represents the logical AND of two
-    /// `IndexExpr` values. Both expressions must be associated with the same
-    /// `IndexedMap`.
-    pub(crate) fn and(self, _other: Self) -> Self {
-        Self {
-            handle: PhantomData,
-        }
-    }
-
-    /// Creates a new `IndexExpr` that represents the logical OR of two
-    /// `IndexExpr` values. Both expressions must be associated with the same
-    /// `IndexedMap`.
-    pub(crate) fn or(self, _other: Self) -> Self {
-        Self {
-            handle: PhantomData,
-        }
-    }
-
-    /// Creates a new `IndexExpr` that represents the logical NOT of an
-    /// `IndexExpr` value.
-    pub(crate) fn not(self) -> Self {
-        Self {
-            handle: PhantomData,
-        }
-    }
-}
 
 /// A handle to an ordered index that is associated with a specific `IndexedMap`.
 ///
@@ -60,7 +33,7 @@ impl<T> IndexExpr<'_, T> {
 /// unspecified (but not unsafe) behavior.
 pub(crate) struct OrderedIndex<K, T> {
     /// Contents to be determined.
-    handle: PhantomData<(K, T)>,
+    handle: ordered_index::OrderedIndexHandle<K, T>,
 }
 
 impl<K, T> OrderedIndex<K, T>
@@ -69,12 +42,13 @@ where
 {
     /// Creates a new `IndexExpr` that will select all elements where the key
     /// is equal to the given key.
-    pub(crate) fn eq_expr<'a, Q>(&self, _key: &'a Q) -> IndexExpr<'a, T>
+    pub(crate) fn eq_expr<'a, Q>(&self, key: &'a Q) -> Predicate<'a, T>
     where
-        K: Borrow<Q>,
-        Q: Ord,
+        K: Borrow<Q> + Debug + 'a,
+        Q: Ord + Debug,
+        T: Debug + 'a,
     {
-        todo!()
+        self.handle.eq_pred(key)
     }
 }
 
@@ -130,7 +104,13 @@ where
     where
         K: Ord + 'static,
     {
-        todo!()
+        let handle = ordered_index::OrderedIndexHandle::new(key_fn);
+        let mut index = Box::new(handle.clone());
+        for id in self.storage.all_ids() {
+            index.insert(&self.storage, id);
+        }
+        self.indexes.push(index);
+        OrderedIndex { handle }
     }
 
     /// Inserts a value into the map. The value will be added to all indexes
@@ -143,15 +123,34 @@ where
     }
 
     /// Removes all values from the map that satisfy the given `IndexExpr`.
-    fn remove(&mut self, expr: &IndexExpr<'_, T>) {
-        todo!()
+    fn remove(&mut self, expr: &Predicate<'_, T>) {
+        let mut ids = HashSet::new();
+        expr.collect(&self.storage, &mut ids);
+
+        // Remove entries for removed items from all indexes
+        for index in &mut self.indexes {
+            for id in ids.iter().copied() {
+                index.remove(&self.storage, id);
+            }
+        }
+
+        // Remove items from storage
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "This is for a simple slab allocator"
+        )]
+        for id in ids {
+            self.storage.remove_at(id);
+        }
     }
 
     /// Returns an iterator over the values in the map that satisfy the given
     /// `IndexExpr`.
-    fn query(&self, expr: &IndexExpr<'_, T>) -> impl Iterator<Item = &T> {
-        todo!();
-        [].iter()
+    pub(crate) fn query(&self, expr: &Predicate<'_, T>) -> impl Iterator<Item = &T> {
+        let mut ids = HashSet::new();
+        expr.collect(&self.storage, &mut ids);
+
+        ids.into_iter().map(|id| self.storage.for_id(id))
     }
 
     /// Returns an iterator over the mutable values in the map that satisfy the
@@ -162,8 +161,99 @@ where
     /// iterator is dropped. If the iterator is forgotten, that may result in
     /// the indexes being out of sync with the storage, causing unspecified
     /// (but safe) behavior.
-    fn query_mut(&mut self, _expr: &IndexExpr<'_, T>) -> impl LendingIterator<Item = T> {
-        todo!();
-        &mut ([])[..]
+    fn query_mut(&mut self, expr: &Predicate<'_, T>) -> impl LendingIterator<Item = T> {
+        let mut ids = HashSet::new();
+        expr.collect(&self.storage, &mut ids);
+
+        QueryMut {
+            map: self,
+            ids: ids.into_iter(),
+            prev_id: None,
+        }
+    }
+}
+
+pub(crate) struct QueryMut<'a, T> {
+    map: &'a mut IndexedMap<T>,
+    ids: hash_set::IntoIter<StorageId>,
+    prev_id: Option<StorageId>,
+}
+
+impl<T> QueryMut<'_, T> {
+    /// If there is a pending re-indexing operation, perform it.
+    ///
+    /// Idempotent.
+    fn reindex(&mut self) {
+        if let Some(prev_id) = self.prev_id {
+            for index in &mut self.map.indexes {
+                index.insert(&self.map.storage, prev_id);
+            }
+        }
+        self.prev_id = None;
+    }
+}
+
+impl<T> LendingIterator for QueryMut<'_, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<&mut Self::Item> {
+        self.reindex();
+        let next_id = self.ids.next()?;
+        // Remove the id from all indexes, in preparation for re-indexing
+        for index in &mut self.map.indexes {
+            index.remove(&self.map.storage, next_id);
+        }
+        self.prev_id = Some(next_id);
+        Some(self.map.storage.for_id_mut(next_id))
+    }
+}
+
+impl<T> Drop for QueryMut<'_, T> {
+    fn drop(&mut self) {
+        self.reindex();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_indexed_map_access() {
+        let mut map = IndexedMap::new();
+        map.insert(1u32);
+        map.insert(2u32);
+        map.insert(3u32);
+        let index = map.add_ordered_index(KeyRef::from_borrowed_fn(|x| x));
+        assert_eq!(
+            map.query(&index.eq_expr(&1)).copied().collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!(
+            map.query(&index.eq_expr(&2)).copied().collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert_eq!(
+            map.query(&index.eq_expr(&3)).copied().collect::<Vec<_>>(),
+            vec![3]
+        );
+    }
+
+    #[test]
+    fn test_indexed_map_query_mut() {
+        let mut map = IndexedMap::new();
+        map.insert(1u32);
+        map.insert(2u32);
+        map.insert(3u32);
+        let index = map.add_ordered_index(KeyRef::from_borrowed_fn(|x| x));
+        let expr = index.eq_expr(&1);
+        {
+            let mut query = map.query_mut(&expr);
+            let mut_ref = query.next().unwrap();
+            assert_eq!(*mut_ref, 1);
+            *mut_ref = 5;
+        }
+        assert_eq!(map.query(&index.eq_expr(&1)).count(), 0);
+        assert_eq!(map.query(&index.eq_expr(&5)).count(), 1);
     }
 }
