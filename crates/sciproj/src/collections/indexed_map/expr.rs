@@ -2,15 +2,48 @@
 
 use std::{collections::HashSet, fmt::Debug};
 
-use crate::collections::indexed_map::{MapStorage, StorageId};
+use crate::collections::indexed_map::index::ManagedIndex;
+
+use super::{
+    MapStorage, StorageId,
+    index_table::{IndexId, IndexTable},
+};
+
+/// Helper type to allow access to the indexes and storage in a predicate.
+pub(super) struct PredicateContext<'a, T> {
+    indexes: &'a IndexTable<T>,
+    storage: &'a MapStorage<T>,
+}
+
+impl<'a, T> PredicateContext<'a, T>
+where
+    T: 'static,
+{
+    pub(super) fn new(indexes: &'a IndexTable<T>, storage: &'a MapStorage<T>) -> Self {
+        Self { indexes, storage }
+    }
+
+    pub(super) fn storage(&self) -> &MapStorage<T> {
+        self.storage
+    }
+
+    pub(super) fn index_by_id<I>(&self, id: &IndexId<I>) -> &I
+    where
+        I: ManagedIndex<T>,
+    {
+        self.indexes.get(id).expect("Invalid id")
+    }
+}
 
 /// The implementation of a predicate on a single index.
 ///
 /// Indexes must implement this in order to be used in an expression.
 pub(super) trait IndexPredicate<'a, T>: Debug {
+    type Index: ManagedIndex<T>;
     /// Returns a size hint for the number of entries in the index that match the predicate.
     fn size_hint(
         &self,
+        _index: &Self::Index,
         _storage: &MapStorage<T>,
         _negation: IndexNegation,
     ) -> (usize, Option<usize>) {
@@ -19,13 +52,19 @@ pub(super) trait IndexPredicate<'a, T>: Debug {
 
     /// Adds all ids of entries in the index that match the predicate to the
     /// results set.
-    fn find_matching(&self, storage: &MapStorage<T>, results: &mut HashSet<StorageId>);
+    fn find_matching(
+        &self,
+        index: &Self::Index,
+        storage: &MapStorage<T>,
+        results: &mut HashSet<StorageId>,
+    );
 
     /// If there is an optimization that allows us to find all ids of entries
     /// in the index that do not match the predicate, returns Ok(()). Otherwise,
     /// returns Err(()).
     fn try_find_non_matching(
         &self,
+        _index: &Self::Index,
         _storage: &MapStorage<T>,
         _results: &mut HashSet<StorageId>,
     ) -> Result<(), ()> {
@@ -33,7 +72,35 @@ pub(super) trait IndexPredicate<'a, T>: Debug {
     }
 
     /// Returns whether a specific entry matches the predicate.
-    fn matches(&self, storage: &MapStorage<T>, id: StorageId) -> bool;
+    fn matches(&self, index: &Self::Index, storage: &MapStorage<T>, id: StorageId) -> bool;
+}
+
+/// The implementation of a predicate on a single index.
+///
+/// Indexes must implement this in order to be used in an expression.
+trait IndexPredicateObject<'a, T>: Debug {
+    /// Returns a size hint for the number of entries in the index that match the predicate.
+    fn size_hint(
+        &self,
+        context: &PredicateContext<T>,
+        negation: IndexNegation,
+    ) -> (usize, Option<usize>);
+
+    /// Adds all ids of entries in the index that match the predicate to the
+    /// results set.
+    fn find_matching(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>);
+
+    /// If there is an optimization that allows us to find all ids of entries
+    /// in the index that do not match the predicate, returns Ok(()). Otherwise,
+    /// returns Err(()).
+    fn try_find_non_matching(
+        &self,
+        context: &PredicateContext<T>,
+        results: &mut HashSet<StorageId>,
+    ) -> Result<(), ()>;
+
+    /// Returns whether a specific entry matches the predicate.
+    fn matches(&self, context: &PredicateContext<T>, id: StorageId) -> bool;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,21 +118,85 @@ impl IndexNegation {
     }
 }
 
-struct IndexPredBox<'a, T> {
-    pred: Box<dyn IndexPredicate<'a, T> + 'a>,
+struct IndexPredImpl<'a, T, P>
+where
+    P: IndexPredicate<'a, T>,
+{
+    index_id: IndexId<P::Index>,
+    pred: P,
+}
+
+impl<'a, T, P> Debug for IndexPredImpl<'a, T, P>
+where
+    P: IndexPredicate<'a, T> + Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexPredImpl")
+            .field("index_id", &self.index_id)
+            .field("pred", &self.pred)
+            .finish()
+    }
+}
+
+impl<'a, T, P> IndexPredicateObject<'a, T> for IndexPredImpl<'a, T, P>
+where
+    T: 'static,
+    P: IndexPredicate<'a, T>,
+{
+    fn size_hint(
+        &self,
+        context: &PredicateContext<T>,
+        negation: IndexNegation,
+    ) -> (usize, Option<usize>) {
+        self.pred.size_hint(
+            context.index_by_id(&self.index_id),
+            context.storage,
+            negation,
+        )
+    }
+
+    fn find_matching(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
+        self.pred.find_matching(
+            context.index_by_id(&self.index_id),
+            context.storage,
+            results,
+        );
+    }
+
+    fn try_find_non_matching(
+        &self,
+        context: &PredicateContext<T>,
+        results: &mut HashSet<StorageId>,
+    ) -> Result<(), ()> {
+        self.pred.try_find_non_matching(
+            context.index_by_id(&self.index_id),
+            context.storage,
+            results,
+        )
+    }
+
+    fn matches(&self, context: &PredicateContext<T>, id: StorageId) -> bool {
+        self.pred
+            .matches(context.index_by_id(&self.index_id), context.storage, id)
+    }
+}
+
+/// A struct that contains an index predicate, with optional negation.
+struct IndexPredLeaf<'a, T> {
+    pred: Box<dyn IndexPredicateObject<'a, T> + 'a>,
     negation: IndexNegation,
 }
 
-impl<T> IndexPredBox<'_, T> {
+impl<T> IndexPredLeaf<'_, T> {
     fn negate(mut self) -> Self {
         self.negation = self.negation.negate();
         self
     }
 
-    fn find_matching(&self, storage: &MapStorage<T>, results: &mut HashSet<StorageId>) {
+    fn find_matching(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
         match self.negation {
             IndexNegation::Negated => {
-                if let Ok(()) = self.pred.try_find_non_matching(storage, results) {
+                if let Ok(()) = self.pred.try_find_non_matching(context, results) {
                     // There was an optimization in this implementation, so it should
                     // have already added all non-matching ids to the results set.
                     return;
@@ -73,26 +204,32 @@ impl<T> IndexPredBox<'_, T> {
 
                 // Go the slow path: Go through each id and add it to the results set
                 // if it does not match the predicate.
-                for id in storage.all_ids() {
-                    if !self.pred.matches(storage, id) {
+                for id in context.storage.all_ids() {
+                    if !self.pred.matches(context, id) {
                         results.insert(id);
                     }
                 }
             }
-            IndexNegation::Plain => self.pred.find_matching(storage, results),
+            IndexNegation::Plain => self.pred.find_matching(context, results),
         }
     }
 
-    fn evaluate(&self, storage: &MapStorage<T>, id: StorageId) -> bool {
+    fn evaluate(&self, context: &PredicateContext<T>, id: StorageId) -> bool {
         match self.negation {
-            IndexNegation::Negated => !self.pred.matches(storage, id),
-            IndexNegation::Plain => self.pred.matches(storage, id),
+            IndexNegation::Negated => !self.pred.matches(context, id),
+            IndexNegation::Plain => self.pred.matches(context, id),
         }
     }
 }
 
+/// Represents the different kinds of reified predicates.
+///
+/// Notably, this does not include negation, as that is pushed to the
+/// leaves of the expression tree.
 enum PredicateKind<'a, T> {
-    Index(IndexPredBox<'a, T>),
+    /// An index predicate. These are dynamic objects that evaluate predicates
+    /// over a single index.
+    Index(IndexPredLeaf<'a, T>),
     And(Vec<PredicateKind<'a, T>>),
     Or(Vec<PredicateKind<'a, T>>),
     All,
@@ -158,9 +295,9 @@ impl<T> Clauses<T> {
 }
 
 impl<'a, T> PredicateKind<'a, T> {
-    pub(super) fn collect(&self, storage: &MapStorage<T>, results: &mut HashSet<StorageId>) {
+    fn collect(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
         match &self {
-            PredicateKind::Index(pred) => pred.find_matching(storage, results),
+            PredicateKind::Index(pred) => pred.find_matching(context, results),
             PredicateKind::And(preds) => {
                 // TODO: Impelement some kind of basic optimization logic,
                 // using the size hints when available.
@@ -168,33 +305,33 @@ impl<'a, T> PredicateKind<'a, T> {
                 let Some(first_pred) = pred_iter.next() else {
                     panic!("Empty AND expression in reified predicate")
                 };
-                first_pred.collect(storage, results);
+                first_pred.collect(context, results);
                 for pred in pred_iter {
-                    pred.filter(storage, results);
+                    pred.filter(context, results);
                 }
             }
             PredicateKind::Or(preds) => {
                 for pred in preds {
-                    pred.collect(storage, results);
+                    pred.collect(context, results);
                 }
             }
-            PredicateKind::All => results.extend(storage.all_ids()),
+            PredicateKind::All => results.extend(context.storage.all_ids()),
             PredicateKind::None => results.clear(),
         }
     }
 
-    fn evaluate(&self, storage: &MapStorage<T>, id: StorageId) -> bool {
+    fn evaluate(&self, context: &PredicateContext<T>, id: StorageId) -> bool {
         match &self {
-            PredicateKind::Index(pred) => pred.evaluate(storage, id),
-            PredicateKind::And(preds) => preds.iter().all(|pred| pred.evaluate(storage, id)),
-            PredicateKind::Or(preds) => preds.iter().any(|pred| pred.evaluate(storage, id)),
+            PredicateKind::Index(pred) => pred.evaluate(context, id),
+            PredicateKind::And(preds) => preds.iter().all(|pred| pred.evaluate(context, id)),
+            PredicateKind::Or(preds) => preds.iter().any(|pred| pred.evaluate(context, id)),
             PredicateKind::All => true,
             PredicateKind::None => false,
         }
     }
 
-    fn filter(&self, storage: &MapStorage<T>, ids: &mut HashSet<StorageId>) {
-        ids.retain(|id| self.evaluate(storage, *id));
+    fn filter(&self, context: &PredicateContext<T>, ids: &mut HashSet<StorageId>) {
+        ids.retain(|id| self.evaluate(context, *id));
     }
 
     fn new_and(pred_iter: impl Iterator<Item = PredicateKind<'a, T>>) -> Self {
@@ -229,9 +366,13 @@ impl<'a, T> PredicateKind<'a, T> {
         pred.negate()
     }
 
-    fn new_index(pred: impl IndexPredicate<'a, T> + 'a) -> Self {
-        PredicateKind::Index(IndexPredBox {
-            pred: Box::new(pred),
+    fn new_index<P>(index_id: IndexId<P::Index>, pred: P) -> Self
+    where
+        P: IndexPredicate<'a, T> + 'a,
+        T: 'static,
+    {
+        PredicateKind::Index(IndexPredLeaf {
+            pred: Box::new(IndexPredImpl { index_id, pred }),
             negation: IndexNegation::Plain,
         })
     }
@@ -272,13 +413,21 @@ impl<'a, T> Predicate<'a, T> {
         }
     }
 
-    pub(super) fn index(pred: impl IndexPredicate<'a, T> + 'a) -> Self {
+    /// Creates an index predicate that will use the contents of a single index
+    /// object to evaluate the predicate.
+    pub(super) fn index<P>(index_id: IndexId<P::Index>, pred: P) -> Self
+    where
+        P: IndexPredicate<'a, T> + 'a,
+        T: 'static,
+    {
         Self {
-            pred: PredicateKind::new_index(pred),
+            pred: PredicateKind::new_index(index_id, pred),
         }
     }
 
-    pub(super) fn collect(&self, storage: &MapStorage<T>, results: &mut HashSet<StorageId>) {
-        self.pred.collect(storage, results);
+    /// Collects all the [`StorageId`]s that match the predicate into
+    /// `results`. Values are added to `results`.
+    pub(super) fn collect(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
+        self.pred.collect(context, results);
     }
 }

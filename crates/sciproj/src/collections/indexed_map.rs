@@ -1,13 +1,16 @@
 #![cfg_attr(not(test), expect(dead_code, reason = "In development"))]
 #![cfg_attr(test, expect(dead_code, reason = "To be tested"))]
+
 mod expr;
 mod fn_hash_map;
 mod fn_ord_map;
 mod hmap;
 mod index;
+mod index_table;
 mod key_ref;
 mod ordered_index;
 mod storage;
+mod unique_token;
 
 use std::{
     borrow::Borrow,
@@ -15,10 +18,12 @@ use std::{
     fmt::Debug,
 };
 
-use crate::collections::indexed_map::{
-    expr::Predicate,
+use self::{
+    expr::{Predicate, PredicateContext},
     index::ManagedIndex as _,
+    index_table::{IndexId, IndexTable},
     key_ref::KeyRef,
+    ordered_index::OrderedIndexBacking,
     storage::{MapStorage, StorageId},
 };
 
@@ -33,7 +38,7 @@ use crate::collections::indexed_map::{
 /// unspecified (but not unsafe) behavior.
 pub(crate) struct OrderedIndex<K, T> {
     /// Contents to be determined.
-    handle: ordered_index::OrderedIndexHandle<K, T>,
+    id: IndexId<OrderedIndexBacking<K, T>>,
 }
 
 impl<K, T> OrderedIndex<K, T>
@@ -44,11 +49,11 @@ where
     /// is equal to the given key.
     pub(crate) fn eq_expr<'a, Q>(&self, key: &'a Q) -> Predicate<'a, T>
     where
-        K: Borrow<Q> + Debug + 'a,
+        K: Borrow<Q> + Debug + 'static,
         Q: Ord + Debug,
-        T: Debug + 'a,
+        T: Debug + 'static,
     {
-        self.handle.eq_pred(key)
+        Predicate::index(self.id.clone(), ordered_index::EqPredicate::new(key))
     }
 }
 
@@ -75,7 +80,7 @@ impl<T> LendingIterator for &mut [T] {
 /// with the existing values in the map.
 pub(crate) struct IndexedMap<T> {
     storage: MapStorage<T>,
-    indexes: Vec<Box<dyn index::ManagedIndex<T>>>,
+    indexes: IndexTable<T>,
 }
 
 impl<T> IndexedMap<T>
@@ -86,7 +91,7 @@ where
     pub(crate) fn new() -> Self {
         Self {
             storage: MapStorage::new(),
-            indexes: Vec::new(),
+            indexes: IndexTable::new(),
         }
     }
 
@@ -104,20 +109,19 @@ where
     where
         K: Ord + 'static,
     {
-        let handle = ordered_index::OrderedIndexHandle::new(key_fn);
-        let mut index = Box::new(handle.clone());
+        let mut index = ordered_index::OrderedIndexBacking::new(key_fn);
         for id in self.storage.all_ids() {
             index.insert(&self.storage, id);
         }
-        self.indexes.push(index);
-        OrderedIndex { handle }
+        let id = self.indexes.insert(index);
+        OrderedIndex { id }
     }
 
     /// Inserts a value into the map. The value will be added to all indexes
     /// that have been created in the map.
     pub(crate) fn insert(&mut self, value: T) {
         let id = self.storage.insert(value);
-        for index in &mut self.indexes {
+        for index in self.indexes.values_mut() {
             index.insert(&self.storage, id);
         }
     }
@@ -125,10 +129,13 @@ where
     /// Removes all values from the map that satisfy the given `IndexExpr`.
     fn remove(&mut self, expr: &Predicate<'_, T>) {
         let mut ids = HashSet::new();
-        expr.collect(&self.storage, &mut ids);
+        expr.collect(
+            &PredicateContext::new(&self.indexes, &self.storage),
+            &mut ids,
+        );
 
         // Remove entries for removed items from all indexes
-        for index in &mut self.indexes {
+        for index in self.indexes.values_mut() {
             for id in ids.iter().copied() {
                 index.remove(&self.storage, id);
             }
@@ -144,11 +151,15 @@ where
         }
     }
 
+    fn as_predicate_context(&self) -> PredicateContext<'_, T> {
+        PredicateContext::new(&self.indexes, &self.storage)
+    }
+
     /// Returns an iterator over the values in the map that satisfy the given
     /// `IndexExpr`.
     pub(crate) fn query(&self, expr: &Predicate<'_, T>) -> impl Iterator<Item = &T> {
         let mut ids = HashSet::new();
-        expr.collect(&self.storage, &mut ids);
+        expr.collect(&self.as_predicate_context(), &mut ids);
 
         ids.into_iter().map(|id| self.storage.for_id(id))
     }
@@ -163,7 +174,7 @@ where
     /// (but safe) behavior.
     fn query_mut(&mut self, expr: &Predicate<'_, T>) -> impl LendingIterator<Item = T> {
         let mut ids = HashSet::new();
-        expr.collect(&self.storage, &mut ids);
+        expr.collect(&self.as_predicate_context(), &mut ids);
 
         QueryMut {
             map: self,
@@ -173,19 +184,25 @@ where
     }
 }
 
-pub(crate) struct QueryMut<'a, T> {
+pub(crate) struct QueryMut<'a, T>
+where
+    T: 'static,
+{
     map: &'a mut IndexedMap<T>,
     ids: hash_set::IntoIter<StorageId>,
     prev_id: Option<StorageId>,
 }
 
-impl<T> QueryMut<'_, T> {
+impl<T> QueryMut<'_, T>
+where
+    T: 'static,
+{
     /// If there is a pending re-indexing operation, perform it.
     ///
     /// Idempotent.
     fn reindex(&mut self) {
         if let Some(prev_id) = self.prev_id {
-            for index in &mut self.map.indexes {
+            for index in self.map.indexes.values_mut() {
                 index.insert(&self.map.storage, prev_id);
             }
         }
@@ -193,14 +210,17 @@ impl<T> QueryMut<'_, T> {
     }
 }
 
-impl<T> LendingIterator for QueryMut<'_, T> {
+impl<T> LendingIterator for QueryMut<'_, T>
+where
+    T: 'static,
+{
     type Item = T;
 
     fn next(&mut self) -> Option<&mut Self::Item> {
         self.reindex();
         let next_id = self.ids.next()?;
         // Remove the id from all indexes, in preparation for re-indexing
-        for index in &mut self.map.indexes {
+        for index in self.map.indexes.values_mut() {
             index.remove(&self.map.storage, next_id);
         }
         self.prev_id = Some(next_id);
@@ -208,7 +228,10 @@ impl<T> LendingIterator for QueryMut<'_, T> {
     }
 }
 
-impl<T> Drop for QueryMut<'_, T> {
+impl<T> Drop for QueryMut<'_, T>
+where
+    T: 'static,
+{
     fn drop(&mut self) {
         self.reindex();
     }

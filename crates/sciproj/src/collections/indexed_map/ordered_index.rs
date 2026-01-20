@@ -1,14 +1,11 @@
-use std::{borrow::Borrow, cell::RefCell, fmt::Debug, rc::Rc};
+use std::marker::PhantomData;
+use std::{borrow::Borrow, fmt::Debug};
 
 use super::{
-    expr::{IndexPredicate, Predicate},
+    expr::IndexPredicate,
     fn_ord_map::FnMultiMap,
-    key_ref::LendingKeyFetcher,
-};
-
-use super::{
     index::ManagedIndex,
-    key_ref::KeyRef,
+    key_ref::{KeyRef, LendingKeyFetcher},
     storage::{MapStorage, StorageId},
 };
 
@@ -136,83 +133,56 @@ where
     }
 }
 
-pub(super) struct OrderedIndexHandle<K, T> {
-    backing: Rc<RefCell<OrderedIndexBacking<K, T>>>,
-}
-
-impl<K, T> OrderedIndexHandle<K, T>
+impl<K, T> ManagedIndex<T> for OrderedIndexBacking<K, T>
 where
-    K: Ord,
-{
-    pub(super) fn new(key_fn: impl Fn(&T) -> KeyRef<'_, K> + 'static) -> Self {
-        Self {
-            backing: Rc::new(RefCell::new(OrderedIndexBacking::new(key_fn))),
-        }
-    }
-
-    pub(super) fn eq_pred<'a, Q>(&self, key: &'a Q) -> Predicate<'a, T>
-    where
-        K: Borrow<Q> + Debug + 'a,
-        Q: Ord + Debug,
-        T: Debug + 'a,
-    {
-        Predicate::index(EqPredicate {
-            eq_key: key,
-            backing: self.backing.clone(),
-        })
-    }
-}
-
-impl<K, T> ManagedIndex<T> for OrderedIndexHandle<K, T>
-where
-    K: Ord,
+    T: 'static,
+    K: Ord + 'static,
 {
     fn insert(&mut self, storage: &MapStorage<T>, id: StorageId) {
-        self.backing
-            .borrow_mut()
-            .write_with_storage(storage)
-            .insert_id(id);
+        self.write_with_storage(storage).insert_id(id);
     }
 
     fn remove(&mut self, storage: &MapStorage<T>, id: StorageId) {
-        self.backing
-            .borrow_mut()
-            .write_with_storage(storage)
-            .remove_id(id);
-    }
-}
-
-impl<K, T> Clone for OrderedIndexHandle<K, T> {
-    fn clone(&self) -> Self {
-        Self {
-            backing: self.backing.clone(),
-        }
+        self.write_with_storage(storage).remove_id(id);
     }
 }
 
 #[derive(Debug)]
-struct EqPredicate<'a, Q, K, T> {
+pub(super) struct EqPredicate<'a, Q, K> {
     eq_key: &'a Q,
-    backing: Rc<RefCell<OrderedIndexBacking<K, T>>>,
+    _phantom: PhantomData<&'a K>,
 }
 
-impl<'a, Q, K, T> IndexPredicate<'a, T> for EqPredicate<'a, Q, K, T>
+impl<'a, Q, K> EqPredicate<'a, Q, K>
 where
     Q: Ord + Debug,
     K: Ord + Borrow<Q> + Debug,
-    T: Debug,
 {
+    pub(crate) fn new(eq_key: &'a Q) -> Self {
+        Self {
+            eq_key,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, Q, K, T> IndexPredicate<'a, T> for EqPredicate<'a, Q, K>
+where
+    Q: Ord + Debug,
+    K: Ord + Borrow<Q> + Debug + 'static,
+    T: Debug + 'static,
+{
+    type Index = OrderedIndexBacking<K, T>;
     fn find_matching(
         &self,
+        index: &Self::Index,
         storage: &MapStorage<T>,
         results: &mut std::collections::HashSet<StorageId>,
     ) {
-        let index = RefCell::borrow(&self.backing);
         results.extend(index.read_with_storage(storage).find_eq(self.eq_key));
     }
 
-    fn matches(&self, storage: &MapStorage<T>, id: StorageId) -> bool {
-        let index = RefCell::borrow(&self.backing);
+    fn matches(&self, index: &Self::Index, storage: &MapStorage<T>, id: StorageId) -> bool {
         index.read_with_storage(storage).matches(self.eq_key, id)
     }
 }
