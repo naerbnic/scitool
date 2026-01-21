@@ -10,6 +10,7 @@ mod index_table;
 mod key_ref;
 mod ordered_index;
 mod storage;
+mod unique_ordered_index;
 mod unique_token;
 
 use std::{
@@ -19,13 +20,53 @@ use std::{
 };
 
 use self::{
-    expr::{Predicate, PredicateContext},
-    index::ManagedIndex as _,
-    index_table::{IndexId, IndexTable},
+    expr::{Predicate, PredicateContext, UniqueEntry},
+    index::{IndexInsertError, ManagedIndex},
+    index_table::{IndexId, IndexTable, RawIndexId},
     key_ref::KeyRef,
     ordered_index::OrderedIndexBacking,
     storage::{MapStorage, StorageId},
+    unique_ordered_index::UniqueOrderedIndexBacking,
 };
+
+mod sealed {
+    /// module-private type that limits implementabiltiy of a trait to this crate
+    pub(crate) struct Sealed {}
+}
+
+pub(crate) trait UniqueIndex {
+    #[doc(hidden)]
+    fn get_index_id(&self) -> &RawIndexId;
+
+    #[doc(hidden)]
+    fn sealed(_: sealed::Sealed);
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to insert value into index")]
+pub(crate) struct Error {
+    error: Box<dyn std::error::Error + Send + Sync>,
+}
+
+impl Error {
+    pub(crate) fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self {
+            error: Box::new(error),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to insert value into index")]
+pub(crate) struct InsertError<T> {
+    value: T,
+}
+
+impl<T> InsertError<T> {
+    pub(crate) fn into_value(self) -> T {
+        self.value
+    }
+}
 
 /// A handle to an ordered index that is associated with a specific `IndexedMap`.
 ///
@@ -57,6 +98,32 @@ where
     }
 }
 
+pub(crate) struct UniqueOrderedIndex<K, T> {
+    id: IndexId<UniqueOrderedIndexBacking<K, T>>,
+}
+
+impl<K, T> UniqueOrderedIndex<K, T>
+where
+    K: Ord,
+{
+    pub(crate) fn key_expr<'a, Q>(&self, key: &'a Q) -> UniqueEntry<'a, T>
+    where
+        K: Borrow<Q> + Debug + 'static,
+        Q: Ord + Debug,
+        T: Debug + 'static,
+    {
+        UniqueEntry::new(self.id.clone(), unique_ordered_index::EqPredicate::new(key))
+    }
+}
+
+impl<K, T> UniqueIndex for UniqueOrderedIndex<K, T> {
+    fn get_index_id(&self) -> &RawIndexId {
+        self.id.get_raw()
+    }
+
+    fn sealed(_: sealed::Sealed) {}
+}
+
 pub(crate) trait LendingIterator {
     type Item;
 
@@ -70,6 +137,65 @@ impl<T> LendingIterator for &mut [T] {
         let (head, tail) = std::mem::take(self).split_first_mut()?;
         *self = tail;
         Some(head)
+    }
+}
+
+#[must_use]
+pub(crate) struct EntryGuard<'a, T>
+where
+    T: 'static,
+{
+    map: &'a mut IndexedMap<T>,
+    id: StorageId,
+    resolved: bool,
+}
+
+impl<T> EntryGuard<'_, T> {
+    /// Consumes the guard, and attempts to reindex it. If there is a collision,
+    /// it will return an error.
+    ///
+    /// On an error, the value will
+    fn try_resolve_impl(this: &mut Self) -> Result<(), T> {
+        assert!(!this.resolved);
+        if this.resolved {
+            return Ok(());
+        }
+        this.resolved = true;
+        match this.map.reindex_id(this.id) {
+            Ok(()) => Ok(()),
+            Err(_) => Err(this.map.storage.remove_at(this.id)),
+        }
+    }
+
+    pub(crate) fn try_resolve(mut this: Self) -> Result<(), T> {
+        assert!(!this.resolved);
+        Self::try_resolve_impl(&mut this)
+    }
+}
+
+impl<T> std::ops::Deref for EntryGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.map.storage.for_id(self.id)
+    }
+}
+
+impl<T> std::ops::DerefMut for EntryGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.map.storage.for_id_mut(self.id)
+    }
+}
+
+impl<T> Drop for EntryGuard<'_, T>
+where
+    T: 'static,
+{
+    fn drop(&mut self) {
+        assert!(
+            Self::try_resolve_impl(self).is_ok(),
+            "Error occured during entry guard drop"
+        );
     }
 }
 
@@ -95,6 +221,16 @@ where
         }
     }
 
+    fn add_index<Idx>(&mut self, mut index: Idx) -> Result<IndexId<Idx>, IndexInsertError>
+    where
+        Idx: ManagedIndex<T>,
+    {
+        for id in self.storage.all_ids() {
+            index.insert(&self.storage, id)?;
+        }
+        Ok(self.indexes.insert(index))
+    }
+
     /// Adds a new index to the map that indexes based on a key type K, which
     /// implements `Ord`. The `key_fn` is used to extract the key from the
     /// value.
@@ -109,50 +245,98 @@ where
     where
         K: Ord + 'static,
     {
-        let mut index = ordered_index::OrderedIndexBacking::new(key_fn);
-        for id in self.storage.all_ids() {
-            index.insert(&self.storage, id);
-        }
-        let id = self.indexes.insert(index);
+        let id = self
+            .add_index(ordered_index::OrderedIndexBacking::new(key_fn))
+            .expect("Can't have key collisions for ordered indexes.");
         OrderedIndex { id }
     }
 
-    /// Inserts a value into the map. The value will be added to all indexes
-    /// that have been created in the map.
-    pub(crate) fn insert(&mut self, value: T) {
+    pub(crate) fn add_unique_ordered_index<K>(
+        &mut self,
+        key_fn: impl Fn(&T) -> KeyRef<'_, K> + 'static,
+    ) -> Result<UniqueOrderedIndex<K, T>, Error>
+    where
+        K: Ord + 'static,
+    {
+        let id = self
+            .add_index(unique_ordered_index::UniqueOrderedIndexBacking::new(key_fn))
+            .map_err(Error::new)?;
+        Ok(UniqueOrderedIndex { id })
+    }
+
+    /// Inserts a new value into the map. If there are any unique indexes, or
+    /// other validation errors, it will report an error.
+    pub(crate) fn insert_new(&mut self, value: T) -> Result<(), InsertError<T>> {
         let id = self.storage.insert(value);
+        if self.reindex_id(id).is_err() {
+            let value = self.storage.remove_at(id);
+            return Err(InsertError { value });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn insert_or_update<Idx>(
+        &mut self,
+        value: T,
+        index: &Idx,
+    ) -> Result<(), InsertError<T>>
+    where
+        Idx: UniqueIndex,
+    {
+        let index_id = index.get_index_id();
+        let index = self.indexes.get_raw(index_id).unwrap();
+
+        if let Some(conflict_id) = index.get_conflict(&self.storage, &value) {
+            // Since this is an upsert, a collision is equivalent to an overwrite.
+            // Remove the old value, and insert the new value.
+            self.remove_by_id(std::iter::once(conflict_id));
+        }
+        self.insert_new(value)
+    }
+
+    #[expect(clippy::extra_unused_lifetimes)]
+    fn remove_by_id<'a>(&mut self, ids: impl Iterator<Item = StorageId> + Clone) {
+        // Remove entries for removed items from all indexes
         for index in self.indexes.values_mut() {
-            index.insert(&self.storage, id);
+            for id in ids.clone() {
+                index.remove(&self.storage, id);
+            }
+        }
+        for id in ids {
+            self.storage.remove_at(id);
         }
     }
 
     /// Removes all values from the map that satisfy the given `IndexExpr`.
-    fn remove(&mut self, expr: &Predicate<'_, T>) {
+    pub(crate) fn remove(&mut self, expr: &Predicate<'_, T>) {
         let mut ids = HashSet::new();
         expr.collect(
             &PredicateContext::new(&self.indexes, &self.storage),
             &mut ids,
         );
 
-        // Remove entries for removed items from all indexes
-        for index in self.indexes.values_mut() {
-            for id in ids.iter().copied() {
-                index.remove(&self.storage, id);
-            }
-        }
-
-        // Remove items from storage
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "This is for a simple slab allocator"
-        )]
-        for id in ids {
-            self.storage.remove_at(id);
-        }
+        self.remove_by_id(ids.iter().copied());
     }
 
     fn as_predicate_context(&self) -> PredicateContext<'_, T> {
         PredicateContext::new(&self.indexes, &self.storage)
+    }
+
+    fn reindex_id(&mut self, id: StorageId) -> Result<(), IndexInsertError> {
+        let mut err_func = || {
+            for index in self.indexes.values_mut() {
+                index.insert(&self.storage, id)?;
+            }
+            Ok(())
+        };
+        let result: Result<(), IndexInsertError> = err_func();
+        if result.is_err() {
+            // Cleanup indexes, as the item will be removed from storage
+            for index in self.indexes.values_mut() {
+                index.remove(&self.storage, id);
+            }
+        }
+        result
     }
 
     /// Returns an iterator over the values in the map that satisfy the given
@@ -172,7 +356,7 @@ where
     /// iterator is dropped. If the iterator is forgotten, that may result in
     /// the indexes being out of sync with the storage, causing unspecified
     /// (but safe) behavior.
-    fn query_mut(&mut self, expr: &Predicate<'_, T>) -> impl LendingIterator<Item = T> {
+    pub(crate) fn query_mut(&mut self, expr: &Predicate<'_, T>) -> impl LendingIterator<Item = T> {
         let mut ids = HashSet::new();
         expr.collect(&self.as_predicate_context(), &mut ids);
 
@@ -181,6 +365,25 @@ where
             ids: ids.into_iter(),
             prev_id: None,
         }
+    }
+
+    pub(crate) fn get(&self, entry: &UniqueEntry<T>) -> Option<&T> {
+        let id = entry.get(&self.as_predicate_context())?;
+        Some(self.storage.for_id(id))
+    }
+
+    pub(crate) fn get_mut(&mut self, entry: &UniqueEntry<T>) -> Option<EntryGuard<'_, T>> {
+        let id = entry.get(&self.as_predicate_context())?;
+
+        for index in self.indexes.values_mut() {
+            index.remove(&self.storage, id);
+        }
+
+        Some(EntryGuard {
+            map: self,
+            id,
+            resolved: false,
+        })
     }
 }
 
@@ -200,13 +403,16 @@ where
     /// If there is a pending re-indexing operation, perform it.
     ///
     /// Idempotent.
-    fn reindex(&mut self) {
+    fn reindex(&mut self) -> Result<(), Error> {
         if let Some(prev_id) = self.prev_id {
             for index in self.map.indexes.values_mut() {
-                index.insert(&self.map.storage, prev_id);
+                index
+                    .insert(&self.map.storage, prev_id)
+                    .map_err(Error::new)?;
             }
         }
         self.prev_id = None;
+        Ok(())
     }
 }
 
@@ -217,7 +423,7 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<&mut Self::Item> {
-        self.reindex();
+        self.reindex().expect("Failed to reindex");
         let next_id = self.ids.next()?;
         // Remove the id from all indexes, in preparation for re-indexing
         for index in self.map.indexes.values_mut() {
@@ -233,20 +439,22 @@ where
     T: 'static,
 {
     fn drop(&mut self) {
-        self.reindex();
+        self.reindex().expect("Failed to reindex");
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::helpers::test::assert_matches;
+
     use super::*;
 
     #[test]
-    fn test_indexed_map_access() {
+    fn test_indexed_map_access() -> Result<(), InsertError<u32>> {
         let mut map = IndexedMap::new();
-        map.insert(1u32);
-        map.insert(2u32);
-        map.insert(3u32);
+        map.insert_new(1u32)?;
+        map.insert_new(2u32)?;
+        map.insert_new(3u32)?;
         let index = map.add_ordered_index(KeyRef::from_borrowed_fn(|x| x));
         assert_eq!(
             map.query(&index.eq_expr(&1)).copied().collect::<Vec<_>>(),
@@ -260,14 +468,15 @@ mod tests {
             map.query(&index.eq_expr(&3)).copied().collect::<Vec<_>>(),
             vec![3]
         );
+        Ok(())
     }
 
     #[test]
-    fn test_indexed_map_query_mut() {
+    fn test_indexed_map_query_mut() -> Result<(), InsertError<u32>> {
         let mut map = IndexedMap::new();
-        map.insert(1u32);
-        map.insert(2u32);
-        map.insert(3u32);
+        map.insert_new(1u32)?;
+        map.insert_new(2u32)?;
+        map.insert_new(3u32)?;
         let index = map.add_ordered_index(KeyRef::from_borrowed_fn(|x| x));
         let expr = index.eq_expr(&1);
         {
@@ -278,5 +487,41 @@ mod tests {
         }
         assert_eq!(map.query(&index.eq_expr(&1)).count(), 0);
         assert_eq!(map.query(&index.eq_expr(&5)).count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_unique_index_get() -> anyhow::Result<()> {
+        let mut map = IndexedMap::new();
+        map.insert_new(1u32)?;
+        map.insert_new(2u32)?;
+        map.insert_new(3u32)?;
+        let index = map.add_unique_ordered_index(KeyRef::from_borrowed_fn(|x| x))?;
+        let expr = index.key_expr(&1);
+        {
+            let mut mut_ref = map.get_mut(&expr).unwrap();
+            assert_eq!(*mut_ref, 1);
+            *mut_ref = 5;
+        }
+        assert!(map.get(&index.key_expr(&1)).is_none());
+        assert_matches!(map.get(&index.key_expr(&5)), Some(5));
+        Ok(())
+    }
+
+    #[test]
+    fn test_upsert_works() -> anyhow::Result<()> {
+        let mut map = IndexedMap::new();
+        map.insert_new((1u32, "a"))?;
+        map.insert_new((2u32, "b"))?;
+        map.insert_new((3u32, "c"))?;
+        let index = map.add_unique_ordered_index(KeyRef::from_borrowed_fn(|(x, _)| x))?;
+        let expr = index.key_expr(&1);
+        {
+            let entry_ref = map.get(&expr).unwrap();
+            assert_eq!(*entry_ref, (1, "a"));
+            map.insert_or_update((1, "d"), &index)?;
+        }
+        assert_eq!(map.get(&index.key_expr(&1)).unwrap().1, "d");
+        Ok(())
     }
 }

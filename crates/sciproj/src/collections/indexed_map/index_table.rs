@@ -2,9 +2,32 @@ use std::{any::Any, collections::HashMap, fmt::Debug, marker::PhantomData};
 
 use super::{index::ManagedIndex, unique_token::UniqueToken};
 
-pub(super) struct IndexId<I> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct RawIndexId {
     token: UniqueToken,
+}
+
+impl RawIndexId {
+    pub(super) fn new() -> Self {
+        Self {
+            token: UniqueToken::new(),
+        }
+    }
+}
+
+pub(super) struct IndexId<I> {
+    token: RawIndexId,
     _phantom: PhantomData<fn() -> I>,
+}
+
+impl<I> IndexId<I> {
+    pub(super) fn raw(&self) -> &RawIndexId {
+        &self.token
+    }
+
+    pub(super) fn get_raw(&self) -> &RawIndexId {
+        &self.token
+    }
 }
 
 impl<I> Debug for IndexId<I> {
@@ -35,7 +58,7 @@ impl<I> Eq for IndexId<I> {}
 /// be !Send and !Sync, while still allowing the index to be used from
 /// multiple threads.
 pub(super) struct IndexTable<T> {
-    indices: HashMap<UniqueToken, Box<dyn ManagedIndex<T>>>,
+    indices: HashMap<RawIndexId, Box<dyn ManagedIndex<T>>>,
 }
 
 impl<T> IndexTable<T>
@@ -52,7 +75,7 @@ where
     where
         I: ManagedIndex<T>,
     {
-        let token = UniqueToken::new();
+        let token = RawIndexId::new();
         self.indices.insert(token.clone(), Box::new(index));
         IndexId {
             token,
@@ -84,6 +107,14 @@ where
                 .downcast_mut::<I>()
                 .expect("Type system should enforce."),
         )
+    }
+
+    pub(super) fn get_raw(&self, id: &RawIndexId) -> Option<&dyn ManagedIndex<T>> {
+        self.indices.get(id).map(|index| &**index)
+    }
+
+    pub(super) fn get_raw_mut(&mut self, id: &RawIndexId) -> Option<&mut dyn ManagedIndex<T>> {
+        self.indices.get_mut(id).map(|index| &mut **index)
     }
 
     pub(super) fn values_mut(&mut self) -> impl Iterator<Item = &mut dyn ManagedIndex<T>> {

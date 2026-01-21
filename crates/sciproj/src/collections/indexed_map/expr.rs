@@ -34,7 +34,7 @@ where
 /// The implementation of a predicate on a single index.
 ///
 /// Indexes must implement this in order to be used in an expression.
-pub(super) trait IndexPredicate<'a, T>: Debug {
+pub(super) trait IndexPredicate<T>: Debug {
     type Index: ManagedIndex<T>;
     /// Returns a size hint for the number of entries in the index that match the predicate.
     fn size_hint(
@@ -74,7 +74,7 @@ pub(super) trait IndexPredicate<'a, T>: Debug {
 /// The implementation of a predicate on a single index.
 ///
 /// Indexes must implement this in order to be used in an expression.
-trait IndexPredicateObject<'a, T>: Debug {
+trait IndexPredicateObject<T>: Debug {
     /// Returns a size hint for the number of entries in the index that match the predicate.
     fn size_hint(
         &self,
@@ -114,17 +114,17 @@ impl IndexNegation {
     }
 }
 
-struct IndexPredImpl<'a, T, P>
+struct IndexPredImpl<T, P>
 where
-    P: IndexPredicate<'a, T>,
+    P: IndexPredicate<T>,
 {
     index_id: IndexId<P::Index>,
     pred: P,
 }
 
-impl<'a, T, P> Debug for IndexPredImpl<'a, T, P>
+impl<T, P> Debug for IndexPredImpl<T, P>
 where
-    P: IndexPredicate<'a, T> + Debug,
+    P: IndexPredicate<T> + Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IndexPredImpl")
@@ -134,10 +134,10 @@ where
     }
 }
 
-impl<'a, T, P> IndexPredicateObject<'a, T> for IndexPredImpl<'a, T, P>
+impl<T, P> IndexPredicateObject<T> for IndexPredImpl<T, P>
 where
     T: 'static,
-    P: IndexPredicate<'a, T>,
+    P: IndexPredicate<T>,
 {
     fn size_hint(
         &self,
@@ -177,9 +177,53 @@ where
     }
 }
 
+enum LeafPredType<'a, T> {
+    Index(Box<dyn IndexPredicateObject<T> + 'a>),
+    Unique(Box<dyn UniqueEntryObject<T> + 'a>),
+}
+
+impl<T> LeafPredType<'_, T> {
+    fn size_hint(
+        &self,
+        context: &PredicateContext<T>,
+        negation: IndexNegation,
+    ) -> (usize, Option<usize>) {
+        match (self, negation) {
+            (LeafPredType::Index(pred), _) => pred.size_hint(context, negation),
+            (LeafPredType::Unique(_), IndexNegation::Plain) => (0, Some(1)),
+            (LeafPredType::Unique(_), IndexNegation::Negated) => (0, None),
+        }
+    }
+
+    fn find_matching(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
+        match self {
+            LeafPredType::Index(pred) => pred.find_matching(context, results),
+            LeafPredType::Unique(pred) => results.extend(pred.get(context)),
+        }
+    }
+
+    fn try_find_non_matching(
+        &self,
+        context: &PredicateContext<T>,
+        results: &mut HashSet<StorageId>,
+    ) -> Result<(), ()> {
+        match self {
+            LeafPredType::Index(pred) => pred.try_find_non_matching(context, results),
+            LeafPredType::Unique(_) => Err(()),
+        }
+    }
+
+    fn matches(&self, context: &PredicateContext<T>, id: StorageId) -> bool {
+        match self {
+            LeafPredType::Index(pred) => pred.matches(context, id),
+            LeafPredType::Unique(pred) => pred.get(context) == Some(id),
+        }
+    }
+}
+
 /// A struct that contains an index predicate, with optional negation.
 struct IndexPredLeaf<'a, T> {
-    pred: Box<dyn IndexPredicateObject<'a, T> + 'a>,
+    pred: LeafPredType<'a, T>,
     negation: IndexNegation,
 }
 
@@ -359,11 +403,18 @@ impl<'a, T> PredicateKind<'a, T> {
 
     fn new_index<P>(index_id: IndexId<P::Index>, pred: P) -> Self
     where
-        P: IndexPredicate<'a, T> + 'a,
+        P: IndexPredicate<T> + 'a,
         T: 'static,
     {
         PredicateKind::Index(IndexPredLeaf {
-            pred: Box::new(IndexPredImpl { index_id, pred }),
+            pred: LeafPredType::Index(Box::new(IndexPredImpl { index_id, pred })),
+            negation: IndexNegation::Plain,
+        })
+    }
+
+    fn new_unique_from_boxed(pred: Box<dyn UniqueEntryObject<T> + 'a>) -> Self {
+        PredicateKind::Index(IndexPredLeaf {
+            pred: LeafPredType::Unique(pred),
             negation: IndexNegation::Plain,
         })
     }
@@ -448,7 +499,7 @@ impl<'a, T> Predicate<'a, T> {
     /// object to evaluate the predicate.
     pub(super) fn index<P>(index_id: IndexId<P::Index>, pred: P) -> Self
     where
-        P: IndexPredicate<'a, T> + 'a,
+        P: IndexPredicate<T> + 'a,
         T: 'static,
     {
         Self {
@@ -460,5 +511,115 @@ impl<'a, T> Predicate<'a, T> {
     /// `results`. Values are added to `results`.
     pub(super) fn collect(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
         self.pred.collect(context, results);
+    }
+}
+
+pub(super) trait UniqueEntryKind<T> {
+    type Index: ManagedIndex<T>;
+    fn get(&self, index: &Self::Index, storage: &MapStorage<T>) -> Option<StorageId>;
+}
+
+trait UniqueEntryObject<T>: Debug {
+    fn get(&self, context: &PredicateContext<T>) -> Option<StorageId>;
+}
+
+struct UniqueEntryWrapper<E, T>
+where
+    E: UniqueEntryKind<T>,
+{
+    id: IndexId<E::Index>,
+    entry: E,
+}
+
+impl<E, T> Debug for UniqueEntryWrapper<E, T>
+where
+    T: 'static,
+    E: UniqueEntryKind<T> + Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UniqueEntryWrapper")
+            .field("id", &self.id)
+            .field("entry", &self.entry)
+            .finish()
+    }
+}
+
+impl<E, T> UniqueEntryObject<T> for UniqueEntryWrapper<E, T>
+where
+    T: 'static,
+    E: UniqueEntryKind<T> + Debug,
+{
+    fn get(&self, context: &PredicateContext<T>) -> Option<StorageId> {
+        let index = context.index_by_id(&self.id);
+        self.entry.get(index, context.storage)
+    }
+}
+
+impl<T> IndexPredicateObject<T> for dyn UniqueEntryObject<T>
+where
+    T: 'static,
+{
+    fn size_hint(
+        &self,
+        _context: &PredicateContext<T>,
+        _negation: IndexNegation,
+    ) -> (usize, Option<usize>) {
+        (0, Some(1))
+    }
+
+    fn find_matching(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
+        results.extend(self.get(context));
+    }
+
+    fn try_find_non_matching(
+        &self,
+        _context: &PredicateContext<T>,
+        _results: &mut HashSet<StorageId>,
+    ) -> Result<(), ()> {
+        Err(())
+    }
+
+    fn matches(&self, context: &PredicateContext<T>, id: StorageId) -> bool {
+        self.get(context) == Some(id)
+    }
+}
+
+/// An expression from a unique index that accesses a particular unique entry.
+///
+/// This is used in cases when it is necessary to reference a single entry
+/// in the map. It can be generated by any indexes that declare themselves as
+/// unique.
+///
+/// It is possible that a unique entry does not exist (e.g. if an item has
+/// been removed from the map). How nonexistence is handled depends on the
+/// operation accepting the entry.
+pub(crate) struct UniqueEntry<'a, T> {
+    entry: Box<dyn UniqueEntryObject<T> + 'a>,
+}
+
+impl<'a, T> UniqueEntry<'a, T>
+where
+    T: 'static,
+{
+    pub(super) fn new<E>(index_id: IndexId<E::Index>, entry: E) -> Self
+    where
+        E: UniqueEntryKind<T> + Debug + 'a,
+    {
+        Self {
+            entry: Box::new(UniqueEntryWrapper {
+                id: index_id,
+                entry,
+            }),
+        }
+    }
+
+    pub(super) fn get(&self, context: &PredicateContext<T>) -> Option<StorageId> {
+        self.entry.get(context)
+    }
+
+    pub(super) fn into_predicate(self) -> Predicate<'a, T> {
+        Predicate {
+            pred: PredicateKind::new_unique_from_boxed(self.entry),
+        }
     }
 }

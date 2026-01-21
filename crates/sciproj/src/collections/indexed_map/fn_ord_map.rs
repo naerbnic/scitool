@@ -4,6 +4,15 @@ use im::Vector;
 
 use super::key_ref::LendingKeyFetcher;
 
+fn key_ord<K, T>(fetcher: &impl LendingKeyFetcher<K, T>, a: &T, b: &T) -> std::cmp::Ordering
+where
+    K: Ord,
+{
+    let a_key = fetcher.fetch(a);
+    let b_key = fetcher.fetch(b);
+    a_key.cmp(&b_key)
+}
+
 fn total_ord<K, T>(fetcher: &impl LendingKeyFetcher<K, T>, a: &T, b: &T) -> std::cmp::Ordering
 where
     T: Ord,
@@ -12,6 +21,20 @@ where
     let a_key = fetcher.fetch(a);
     let b_key = fetcher.fetch(b);
     a_key.cmp(&b_key).then_with(|| a.cmp(b))
+}
+
+fn searcher<Q, K, T>(
+    fetcher: &impl LendingKeyFetcher<K, T>,
+    value: &Q,
+    entry: &T,
+) -> std::cmp::Ordering
+where
+    K: Borrow<Q>,
+    Q: Ord,
+{
+    let entry_key = fetcher.fetch(entry);
+    let entry_key: &Q = (*entry_key).borrow();
+    entry_key.cmp(value)
 }
 
 fn lower_bound_searcher<Q, K, T>(
@@ -23,9 +46,7 @@ where
     K: Borrow<Q>,
     Q: Ord,
 {
-    let entry_key = fetcher.fetch(entry);
-    let entry_key: &Q = (*entry_key).borrow();
-    entry_key.cmp(value).then(Ordering::Greater)
+    searcher(fetcher, value, entry).then(Ordering::Greater)
 }
 
 fn upper_bound_searcher<Q, K, T>(
@@ -37,9 +58,81 @@ where
     K: Borrow<Q>,
     Q: Ord,
 {
-    let entry_key = fetcher.fetch(entry);
-    let entry_key: &Q = (*entry_key).borrow();
-    entry_key.cmp(value).then(Ordering::Less)
+    searcher(fetcher, value, entry).then(Ordering::Less)
+}
+
+pub(super) struct FnMap<K, T> {
+    contents: Vector<T>,
+    _phantom: PhantomData<K>,
+}
+
+impl<K, T> FnMap<K, T>
+where
+    T: Clone,
+    K: Ord,
+{
+    pub(super) fn new() -> Self {
+        Self {
+            contents: Vector::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    fn find_key<Q>(&self, fetcher: &impl LendingKeyFetcher<K, T>, key: &Q) -> Result<usize, usize>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        self.contents
+            .binary_search_by(|v| searcher(fetcher, key, v))
+    }
+
+    pub(super) fn insert(
+        &mut self,
+        fetcher: &impl LendingKeyFetcher<K, T>,
+        value: T,
+    ) -> Result<&T, T> {
+        match self
+            .contents
+            .binary_search_by(|v| key_ord(fetcher, v, &value))
+        {
+            Ok(_) => Err(value),
+            Err(index) => {
+                self.contents.insert(index, value);
+                Ok(&self.contents[index])
+            }
+        }
+    }
+
+    pub(super) fn get<Q>(&self, fetcher: &impl LendingKeyFetcher<K, T>, key: &Q) -> Option<&T>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        match self.find_key(fetcher, key) {
+            Ok(index) => Some(&self.contents[index]),
+            Err(_) => None,
+        }
+    }
+
+    pub(super) fn contains<Q>(&self, fetcher: &impl LendingKeyFetcher<K, T>, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        self.find_key(fetcher, key).is_ok()
+    }
+
+    pub(super) fn remove<Q>(&mut self, fetcher: &impl LendingKeyFetcher<K, T>, key: &Q) -> Option<T>
+    where
+        K: Borrow<Q>,
+        Q: Ord,
+    {
+        match self.find_key(fetcher, key) {
+            Ok(index) => Some(self.contents.remove(index)),
+            Err(_) => None,
+        }
+    }
 }
 
 /// A map that uses an external function to generate keys from the values.
