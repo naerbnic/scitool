@@ -23,10 +23,6 @@ where
         Self { indexes, storage }
     }
 
-    pub(super) fn storage(&self) -> &MapStorage<T> {
-        self.storage
-    }
-
     pub(super) fn index_by_id<I>(&self, id: &IndexId<I>) -> &I
     where
         I: ManagedIndex<T>,
@@ -193,6 +189,10 @@ impl<T> IndexPredLeaf<'_, T> {
         self
     }
 
+    fn size_hint(&self, context: &PredicateContext<T>) -> (usize, Option<usize>) {
+        self.pred.size_hint(context, self.negation)
+    }
+
     fn find_matching(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
         match self.negation {
             IndexNegation::Negated => {
@@ -236,7 +236,7 @@ enum PredicateKind<'a, T> {
     None,
 }
 
-impl<T> PredicateKind<'_, T> {
+impl<'a, T> PredicateKind<'a, T> {
     fn negate(self) -> Self {
         // Perform DeMorganization on the predicate, pushing negation down to the
         // leaves.
@@ -252,49 +252,40 @@ impl<T> PredicateKind<'_, T> {
             PredicateKind::None => PredicateKind::All,
         }
     }
-}
 
-/// Helper enum for optimizing AND/OR expressions
-#[derive(Debug, Clone, Default)]
-enum Clauses<T> {
-    #[default]
-    None,
-    Singleton(T),
-    Multiple(Vec<T>),
-}
-
-impl<T> Clauses<T> {
-    fn append(self, value: T) -> Self {
-        self.extend(std::iter::once(value))
-    }
-
-    fn extend(self, mut items: impl Iterator<Item = T>) -> Self {
+    fn size_hint(&self, context: &PredicateContext<T>) -> (usize, Option<usize>) {
         match self {
-            Clauses::None => match items.next() {
-                Some(first) => Clauses::Singleton(first).extend(items),
-                None => Clauses::None,
-            },
-            Clauses::Singleton(v) => match items.next() {
-                Some(second) => Clauses::Multiple(vec![v, second]).extend(items),
-                None => Clauses::Singleton(v),
-            },
-            Clauses::Multiple(mut v) => {
-                v.extend(items);
-                Clauses::Multiple(v)
+            PredicateKind::Index(pred) => pred.size_hint(context),
+            PredicateKind::And(preds) => {
+                // The upper bound of an And is the smallest upper bound of the
+                // children.
+                //
+                // The lower bound is generally any number, as without further
+                // information, any two children could be disjoint.
+                let mut upper = None;
+                for pred in preds {
+                    let (_, child_upper) = pred.size_hint(context);
+                    upper = match (upper, child_upper) {
+                        (None, None) => None,
+                        (Some(x), None) | (None, Some(x)) => Some(x),
+                        (Some(x), Some(y)) => Some(std::cmp::min(x, y)),
+                    };
+                }
+                (0, upper)
             }
+            PredicateKind::Or(preds) => {
+                let mut lower = 0;
+                for pred in preds {
+                    let (child_lower, _) = pred.size_hint(context);
+                    lower = std::cmp::max(lower, child_lower);
+                }
+                (lower, None)
+            }
+            PredicateKind::All => (context.storage.size(), Some(context.storage.size())),
+            PredicateKind::None => (0, Some(0)),
         }
     }
 
-    fn extract(self, default: impl FnOnce() -> T, combine: impl FnOnce(Vec<T>) -> T) -> T {
-        match self {
-            Clauses::None => default(),
-            Clauses::Singleton(v) => v,
-            Clauses::Multiple(v) => combine(v),
-        }
-    }
-}
-
-impl<'a, T> PredicateKind<'a, T> {
     fn collect(&self, context: &PredicateContext<T>, results: &mut HashSet<StorageId>) {
         match &self {
             PredicateKind::Index(pred) => pred.find_matching(context, results),
@@ -375,6 +366,46 @@ impl<'a, T> PredicateKind<'a, T> {
             pred: Box::new(IndexPredImpl { index_id, pred }),
             negation: IndexNegation::Plain,
         })
+    }
+}
+
+/// Helper enum for optimizing AND/OR expressions
+#[derive(Debug, Clone, Default)]
+enum Clauses<T> {
+    #[default]
+    None,
+    Singleton(T),
+    Multiple(Vec<T>),
+}
+
+impl<T> Clauses<T> {
+    fn append(self, value: T) -> Self {
+        self.extend(std::iter::once(value))
+    }
+
+    fn extend(self, mut items: impl Iterator<Item = T>) -> Self {
+        match self {
+            Clauses::None => match items.next() {
+                Some(first) => Clauses::Singleton(first).extend(items),
+                None => Clauses::None,
+            },
+            Clauses::Singleton(v) => match items.next() {
+                Some(second) => Clauses::Multiple(vec![v, second]).extend(items),
+                None => Clauses::Singleton(v),
+            },
+            Clauses::Multiple(mut v) => {
+                v.extend(items);
+                Clauses::Multiple(v)
+            }
+        }
+    }
+
+    fn extract(self, default: impl FnOnce() -> T, combine: impl FnOnce(Vec<T>) -> T) -> T {
+        match self {
+            Clauses::None => default(),
+            Clauses::Singleton(v) => v,
+            Clauses::Multiple(v) => combine(v),
+        }
     }
 }
 
