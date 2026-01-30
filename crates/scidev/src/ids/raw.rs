@@ -9,6 +9,7 @@ impl RawNounId {
         RawNounId(value)
     }
 
+    #[must_use]
     pub fn number(self) -> u8 {
         self.0
     }
@@ -38,6 +39,7 @@ impl RawConditionId {
         RawConditionId(value)
     }
 
+    #[must_use]
     pub fn number(self) -> u8 {
         self.0
     }
@@ -67,6 +69,7 @@ impl RawRoomId {
         RawRoomId(value)
     }
 
+    #[must_use]
     pub fn number(self) -> u16 {
         self.0
     }
