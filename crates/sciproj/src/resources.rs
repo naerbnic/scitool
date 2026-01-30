@@ -9,7 +9,10 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use itertools::Itertools;
 use scidev::utils::block::TempStore;
 use scidev::{
-    common::{LineId, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
+    ids::{
+        LineId,
+        raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
+    },
     resources::types::{
         audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
         msg::MessageId,

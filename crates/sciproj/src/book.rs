@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use ids::RawRoleId;
 
 use scidev::{
-    common::{
-        ConditionId, ConversationId, ConversationKey, LineId, NounId, RawConditionId, RawNounId,
-        RawRoomId, RawSequenceId, RawVerbId, RoomId,
+    ids::{
+        ConditionId, ConversationId, ConversationKey, LineId, NounId, RoomId,
+        raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
     },
     utils::validation::{MultiValidator, ValidationError},
 };
@@ -191,7 +191,7 @@ impl<'a> Conversation<'a> {
     pub fn validate_complete(&self) -> Result<(), ValidationError> {
         let mut validator = MultiValidator::new();
         let mut expected_next = 1;
-        for id in self.entry.lines.keys().map(RawSequenceId::as_u8) {
+        for id in self.entry.lines.keys().map(RawSequenceId::number) {
             if id != expected_next {
                 validator.with_err(ValidationError::from(
                     format!("Skipped sequence ID {expected_next}, next {id}").to_string(),

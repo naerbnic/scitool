@@ -3,7 +3,10 @@ use std::collections::{BTreeMap, btree_map};
 use itertools::Itertools;
 
 use scidev::{
-    common::{ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
+    ids::{
+        ConversationKey,
+        raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
+    },
     resources::types::msg::{MessageId, MessageRecord},
     utils::validation::{IteratorExt as _, MultiValidator, ValidationError},
 };

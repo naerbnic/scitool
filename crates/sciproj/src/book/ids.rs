@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use scidev::common::RawVerbId;
+use scidev::ids::raw::RawVerbId;
 
 // Raw IDs.
 //
@@ -48,7 +48,7 @@ impl VerbId {
 
     #[must_use]
     pub fn verb_num(&self) -> u8 {
-        self.0.as_u8()
+        self.0.number()
     }
 
     #[must_use]
@@ -59,7 +59,7 @@ impl VerbId {
 
 impl std::fmt::Debug for VerbId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("VerbId").field(&self.0.as_u8()).finish()
+        f.debug_tuple("VerbId").field(&self.0.number()).finish()
     }
 }
 

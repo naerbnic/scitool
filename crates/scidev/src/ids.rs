@@ -1,9 +1,11 @@
 //! Common types that are used by all libraries. This should do no IO, or
 //! interpretetation of existing data.
 
+pub mod raw;
+
 use std::{fmt::Display, str::FromStr};
 
-use serde::{Deserialize, Serialize};
+use crate::ids::raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId};
 
 #[derive(thiserror::Error, Debug)]
 #[error("Error converting to ID: {message}")]
@@ -17,88 +19,22 @@ pub struct IdConversionError {
 // They are copyable, but only reference a single literal value from the SCI message
 // file.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RawNounId(u8);
-
-impl RawNounId {
-    #[must_use]
-    pub fn new(value: u8) -> Self {
-        RawNounId(value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RawVerbId(u8);
-
-impl RawVerbId {
-    #[must_use]
-    pub fn new(value: u8) -> Self {
-        RawVerbId(value)
-    }
-
-    #[must_use]
-    pub fn as_u8(&self) -> u8 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RawConditionId(u8);
-
-impl RawConditionId {
-    #[must_use]
-    pub fn new(value: u8) -> Self {
-        RawConditionId(value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RawSequenceId(u8);
-
-impl RawSequenceId {
-    #[must_use]
-    pub fn new(value: u8) -> Self {
-        RawSequenceId(value)
-    }
-
-    #[must_use]
-    pub fn as_u8(&self) -> u8 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct RawRoomId(u16);
-
-impl RawRoomId {
-    #[must_use]
-    pub fn new(value: u16) -> Self {
-        RawRoomId(value)
-    }
-}
-
-impl From<u16> for RawRoomId {
-    fn from(value: u16) -> Self {
-        RawRoomId(value)
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RoomId(RawRoomId);
+pub struct RoomId(raw::RawRoomId);
 
 impl RoomId {
     #[must_use]
-    pub fn from_raw(raw_id: RawRoomId) -> RoomId {
+    pub fn from_raw(raw_id: raw::RawRoomId) -> RoomId {
         RoomId(raw_id)
     }
 
     #[must_use]
     pub fn room_num(&self) -> u16 {
-        self.0.0
+        self.0.number()
     }
 
     #[must_use]
-    pub fn raw_id(&self) -> RawRoomId {
+    pub fn raw_id(&self) -> raw::RawRoomId {
         self.0
     }
 }
@@ -122,18 +58,18 @@ impl FromStr for RoomId {
         let room_num = parts[1].parse::<u16>().map_err(|_| IdConversionError {
             message: format!("Invalid room number: {}", parts[1]),
         })?;
-        Ok(RoomId(RawRoomId(room_num)))
+        Ok(RoomId(raw::RawRoomId::new(room_num)))
     }
 }
 
 impl std::fmt::Debug for RoomId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("RoomId").field(&self.0.0).finish()
+        f.debug_tuple("RoomId").field(&self.0.number()).finish()
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NounId(RoomId, RawNounId);
+pub struct NounId(RoomId, raw::RawNounId);
 
 impl NounId {
     #[must_use]
@@ -153,12 +89,12 @@ impl NounId {
 
     #[must_use]
     pub fn room_num(&self) -> u16 {
-        self.0.0.0
+        self.0.0.number()
     }
 
     #[must_use]
     pub fn noun_num(&self) -> u8 {
-        self.1.0
+        self.1.number()
     }
 }
 
@@ -184,7 +120,10 @@ impl FromStr for NounId {
         let noun_num = parts[2].parse::<u8>().map_err(|_| IdConversionError {
             message: format!("Invalid noun number: {}", parts[2]),
         })?;
-        Ok(NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)))
+        Ok(NounId(
+            RoomId(RawRoomId::new(room_num)),
+            RawNounId::new(noun_num),
+        ))
     }
 }
 
@@ -218,15 +157,15 @@ impl ConditionId {
 
     #[must_use]
     pub fn condition_num(&self) -> u8 {
-        self.1.0
+        self.1.number()
     }
 }
 
 impl std::fmt::Debug for ConditionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConditionId")
-            .field("room", &self.0.0.0)
-            .field("condition", &self.1.0)
+            .field("room", &self.0.0.number())
+            .field("condition", &self.1.number())
             .finish()
     }
 }
@@ -276,22 +215,22 @@ impl ConversationId {
 
     #[must_use]
     pub fn room_num(&self) -> u16 {
-        self.0.0.0.0
+        self.0.0.0.number()
     }
 
     #[must_use]
     pub fn noun_num(&self) -> u8 {
-        self.0.1.0
+        self.0.1.number()
     }
 
     #[must_use]
     pub fn verb_num(&self) -> u8 {
-        self.1.verb().0
+        self.1.verb().number()
     }
 
     #[must_use]
     pub fn condition_num(&self) -> u8 {
-        self.1.condition().0
+        self.1.condition().number()
     }
 }
 
@@ -330,8 +269,8 @@ impl FromStr for ConversationId {
             message: format!("Invalid condition number: {}", parts[4]),
         })?;
         Ok(ConversationId(
-            NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)),
-            ConversationKey::new(RawVerbId(verb_num), RawConditionId(condition_num)),
+            NounId(RoomId(RawRoomId::new(room_num)), RawNounId::new(noun_num)),
+            ConversationKey::new(RawVerbId::new(verb_num), RawConditionId::new(condition_num)),
         ))
     }
 }
@@ -358,7 +297,7 @@ impl LineId {
 
     #[must_use]
     pub fn from_parts(
-        room: RawRoomId,
+        room: raw::RawRoomId,
         noun: RawNounId,
         verb: RawVerbId,
         condition: RawConditionId,
@@ -405,7 +344,7 @@ impl LineId {
 
     #[must_use]
     pub fn sequence_num(&self) -> u8 {
-        self.1.0
+        self.1.number()
     }
 }
 
@@ -450,10 +389,10 @@ impl FromStr for LineId {
         })?;
         Ok(LineId(
             ConversationId(
-                NounId(RoomId(RawRoomId(room_num)), RawNounId(noun_num)),
-                ConversationKey::new(RawVerbId(verb_num), RawConditionId(condition_num)),
+                NounId(RoomId(RawRoomId::new(room_num)), RawNounId::new(noun_num)),
+                ConversationKey::new(RawVerbId::new(verb_num), RawConditionId::new(condition_num)),
             ),
-            RawSequenceId(sequence_num),
+            RawSequenceId::new(sequence_num),
         ))
     }
 }
@@ -461,11 +400,11 @@ impl FromStr for LineId {
 impl std::fmt::Debug for LineId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LineId")
-            .field("room", &self.0.0.0.0.0)
-            .field("noun", &self.0.0.1.0)
-            .field("verb", &self.0.1.verb().0)
-            .field("condition", &self.0.1.condition().0)
-            .field("sequence", &self.1.0)
+            .field("room", &self.0.0.0.0.number())
+            .field("noun", &self.0.0.1.number())
+            .field("verb", &self.0.1.verb().number())
+            .field("condition", &self.0.1.condition().number())
+            .field("sequence", &self.1.number())
             .finish()
     }
 }
@@ -477,7 +416,7 @@ mod tests {
     #[test]
     fn test_line_id() {
         let line_id = LineId::from_parts(
-            RawRoomId::new(1),
+            raw::RawRoomId::new(1),
             RawNounId::new(2),
             RawVerbId::new(3),
             RawConditionId::new(4),
@@ -493,7 +432,7 @@ mod tests {
     #[test]
     fn test_line_id_string_roundtrip() {
         let line_id = LineId::from_parts(
-            RawRoomId::new(1),
+            raw::RawRoomId::new(1),
             RawNounId::new(2),
             RawVerbId::new(3),
             RawConditionId::new(4),
@@ -507,7 +446,7 @@ mod tests {
     #[test]
     fn test_conv_id_string_roundtrip() {
         let conv_id = ConversationId::from_noun_key(
-            NounId(RoomId(RawRoomId::new(1)), RawNounId::new(2)),
+            NounId(RoomId(raw::RawRoomId::new(1)), RawNounId::new(2)),
             ConversationKey::new(RawVerbId::new(3), RawConditionId::new(4)),
         );
         let conv_id_str = conv_id.to_string();

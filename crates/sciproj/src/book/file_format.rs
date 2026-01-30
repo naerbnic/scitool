@@ -9,8 +9,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 
 use schemars::JsonSchema;
-use scidev::common::{
-    ConversationKey, RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId,
+use scidev::ids::{
+    ConversationKey,
+    raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
 };
 use serde::{Deserialize, Serialize};
 
