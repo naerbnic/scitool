@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use scitool_cli::commands::scripts::{dump_headers, generate_headers};
+use crate::cmds::scripts::{dump_headers, generate_headers};
 
 /// Generates script header files (`selectors.sh` and `classdef.sh`) from game resources.
 #[derive(Parser)]

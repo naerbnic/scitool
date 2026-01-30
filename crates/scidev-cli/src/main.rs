@@ -1,9 +1,13 @@
-//! A low-level command-line tool for reading and constructing SCI games.
+//! A CLI for working with SCI games.
+//!
+//! This includes both low-level tools for primitive operations on game resources
+//! and higher-level project management tools.
 
-use crate::cmds::Cli;
-use clap::Parser;
-
+mod cli;
 mod cmds;
+
+use crate::cli::Cli;
+use clap::Parser;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

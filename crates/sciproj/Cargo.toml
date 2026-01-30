@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
+atomic-dir = { path = "../atomic-dir" }
 anyhow = { version = "1.0.97", features = ["backtrace"] }
 clap = { version = "4.5.16", features = ["derive"] }
 futures = "0.3.31"

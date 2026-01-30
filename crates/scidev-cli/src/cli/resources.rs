@@ -1,10 +1,10 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
-use clap::{Parser, Subcommand, builder::TypedValueParser};
-use scidev::resources::{ResourceId, ResourceType};
-use scitool_cli::commands::resources::{
+use crate::cmds::resources::{
     dump_resource, export, export_all, extract_resource_as_patch, list_resources,
 };
+use clap::{Parser, Subcommand, builder::TypedValueParser};
+use scidev::resources::{ResourceId, ResourceType};
 
 /// Commands for working with game resources.
 #[derive(Parser)]
@@ -98,7 +98,7 @@ struct ListResources {
     #[clap(index = 1)]
     root_dir: PathBuf,
 
-    /// Filter by resource type (e.g., Script, Heap, View, Pic, Sound, Message, Font, Cursor, Patch, AudioPath, Vocab, Palette, Wave, Audio, Sync).
+    /// Filter by resource type (e.g., Script, Heap, View, Pic, Sound, Message, Font, Cursor, Patch, `AudioPath`, Vocab, Palette, Wave, Audio, Sync).
     #[clap(long = "type", short = 't', value_parser = parse_resource_type())]
     res_type: Option<ResourceType>,
 }
@@ -147,18 +147,18 @@ impl ExtractResourceAsPatch {
         if self.dry_run {
             eprintln!(
                 "DRY_RUN: Writing resource {restype:?}:{resid} to {filename}",
-                restype = write_op.resource_id.type_id(),
-                resid = write_op.resource_id.resource_num(),
-                filename = write_op.filename,
+                restype = write_op.resource_id().type_id(),
+                resid = write_op.resource_id().resource_num(),
+                filename = write_op.filename(),
             );
         } else {
             eprintln!(
                 "Writing resource {restype:?}:{resid} to {filename}",
-                restype = write_op.resource_id.type_id(),
-                resid = write_op.resource_id.resource_num(),
-                filename = write_op.filename,
+                restype = write_op.resource_id().type_id(),
+                resid = write_op.resource_id().resource_num(),
+                filename = write_op.filename(),
             );
-            (write_op.operation)()?;
+            write_op.execute()?;
         }
 
         Ok(())

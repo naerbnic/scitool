@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use scitool_cli::commands::messages::print_talkers;
+use crate::cmds::messages::print_talkers;
 
 /// Prints a list of all unique talker IDs found in the game messages.
 #[derive(Parser)]

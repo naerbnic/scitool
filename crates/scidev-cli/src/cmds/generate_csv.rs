@@ -1,9 +1,5 @@
-use clap::Parser;
 use serde::Serialize;
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::{io, path::Path};
 
 use sciproj::book::{Book, file_format};
 
@@ -30,7 +26,7 @@ fn load_book(book_path: &Path) -> anyhow::Result<Book> {
     Ok(book)
 }
 
-fn generate_csv(book_path: &Path, script_url: &str) -> anyhow::Result<String> {
+pub(crate) fn generate_csv(book_path: &Path, script_url: &str) -> anyhow::Result<String> {
     let book = load_book(book_path)?;
     let output = io::Cursor::new(Vec::<u8>::new());
     let mut csv_writer = csv::Writer::from_writer(output);
@@ -47,21 +43,4 @@ fn generate_csv(book_path: &Path, script_url: &str) -> anyhow::Result<String> {
     }
     csv_writer.flush()?;
     Ok(String::from_utf8(csv_writer.into_inner().unwrap().into_inner()).unwrap())
-}
-
-#[derive(Parser)]
-pub(super) struct GenerateCsv {
-    book_path: PathBuf,
-
-    /// Base URL for the game script page.
-    #[clap(long, default_value = "https://sq5-fan-dub.github.io/script")]
-    base_url: String,
-}
-
-impl GenerateCsv {
-    pub(super) fn run(&self) -> anyhow::Result<()> {
-        let csv = generate_csv(&self.book_path, &self.base_url)?;
-        println!("{csv}");
-        Ok(())
-    }
 }

@@ -7,7 +7,7 @@ use std::{
 use self::headers::SciScriptExports;
 mod headers;
 
-pub fn generate_headers(
+pub(crate) fn generate_headers(
     game_dir: &Path,
     selectors_path: &Path,
     classdef_path: &Path,
@@ -20,7 +20,7 @@ pub fn generate_headers(
     Ok(())
 }
 
-pub fn dump_headers(game_dir: &Path, mut output: impl std::io::Write) -> anyhow::Result<()> {
+pub(crate) fn dump_headers(game_dir: &Path, mut output: impl std::io::Write) -> anyhow::Result<()> {
     let exports = SciScriptExports::read_from_resources(game_dir)?;
 
     let mut output = BufWriter::new(&mut output);

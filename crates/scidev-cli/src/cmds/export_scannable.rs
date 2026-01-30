@@ -1,20 +1,7 @@
-use std::path::PathBuf;
+use std::path::Path;
 
-use clap::Parser;
-
-#[derive(Parser)]
-pub(crate) struct ExportScannable {
-    #[clap(short = 's')]
-    sample_dir: PathBuf,
-
-    #[clap(short = 'o', long)]
-    output: PathBuf,
-}
-
-impl ExportScannable {
-    pub(crate) async fn run(&self) -> anyhow::Result<()> {
-        let sample_dir = sciproj::resources::SampleDir::load_dir(&self.sample_dir)?;
-        sample_dir.save_to_scannable_dir(&self.output).await?;
-        Ok(())
-    }
+pub(crate) async fn export_scannable(sample_dir: &Path, output_dir: &Path) -> anyhow::Result<()> {
+    let sample_dir = sciproj::resources::SampleDir::load_dir(sample_dir)?;
+    sample_dir.save_to_scannable_dir(output_dir).await?;
+    Ok(())
 }

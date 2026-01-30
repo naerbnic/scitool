@@ -5,9 +5,9 @@ use scidev::{
 };
 use std::path::Path;
 
-use crate::respack::ResPack;
+use sciproj::respack::ResPack;
 
-pub fn dump_resource(
+pub(crate) fn dump_resource(
     root_dir: &Path,
     resource_id: ResourceId,
     output: impl std::io::Write,
@@ -21,13 +21,27 @@ pub fn dump_resource(
     Ok(())
 }
 
-pub struct WriteOperation<'a> {
-    pub resource_id: ResourceId,
-    pub filename: String,
-    pub operation: Box<dyn FnOnce() -> anyhow::Result<()> + 'a>,
+pub(crate) struct WriteOperation<'a> {
+    resource_id: ResourceId,
+    filename: String,
+    operation: Box<dyn FnOnce() -> anyhow::Result<()> + 'a>,
 }
 
-pub fn extract_resource_as_patch<'a>(
+impl WriteOperation<'_> {
+    pub(crate) fn resource_id(&self) -> ResourceId {
+        self.resource_id
+    }
+
+    pub(crate) fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    pub(crate) fn execute(self) -> anyhow::Result<()> {
+        (self.operation)()
+    }
+}
+
+pub(crate) fn extract_resource_as_patch<'a>(
     root_dir: &'a Path,
     resource_type: ResourceType,
     resource_num: u16,
@@ -74,7 +88,7 @@ pub fn extract_resource_as_patch<'a>(
     })
 }
 
-pub fn list_resources(
+pub(crate) fn list_resources(
     root_dir: &Path,
     res_type: Option<ResourceType>,
 ) -> anyhow::Result<Vec<ResourceId>> {
@@ -87,7 +101,11 @@ pub fn list_resources(
     Ok(resources)
 }
 
-pub fn export(root_dir: &Path, resource_id: ResourceId, output_path: &Path) -> anyhow::Result<()> {
+pub(crate) fn export(
+    root_dir: &Path,
+    resource_id: ResourceId,
+    output_path: &Path,
+) -> anyhow::Result<()> {
     let resource_set = ResourceSet::from_root_dir(root_dir)?;
     let mut respack = ResPack::from_resource(
         &resource_set
@@ -100,7 +118,7 @@ pub fn export(root_dir: &Path, resource_id: ResourceId, output_path: &Path) -> a
     Ok(())
 }
 
-pub fn export_all(root_dir: &Path, output_root: &Path) -> anyhow::Result<()> {
+pub(crate) fn export_all(root_dir: &Path, output_root: &Path) -> anyhow::Result<()> {
     let resource_set = ResourceSet::from_root_dir(root_dir)?;
     for resource in resource_set.resources() {
         let mut respack = ResPack::from_resource(&resource)?;

@@ -1229,6 +1229,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "scidev-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "csv",
+ "futures",
+ "itertools",
+ "log",
+ "rayon",
+ "schemars",
+ "scidev",
+ "sciproj",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "thiserror",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
 name = "scidev-fuzz"
 version = "0.0.0"
 dependencies = [
@@ -1252,6 +1274,7 @@ name = "sciproj"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "atomic-dir",
  "bitflags",
  "bytes",
  "castaway",
@@ -1279,51 +1302,6 @@ dependencies = [
  "unicode-normalization",
  "unicode-properties",
  "walkdir",
-]
-
-[[package]]
-name = "sciproj-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "csv",
- "futures",
- "itertools",
- "log",
- "rayon",
- "schemars",
- "scidev",
- "sciproj",
- "serde",
- "serde_json",
- "serde_norway",
- "thiserror",
- "tokio",
- "walkdir",
-]
-
-[[package]]
-name = "scitool-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "atomic-dir",
- "base64",
- "bytes",
- "cap-std",
- "clap",
- "cross-file-id",
- "crosslock",
- "hex",
- "itertools",
- "rand",
- "scidev",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
 ]
 
 [[package]]

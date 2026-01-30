@@ -1,26 +1,16 @@
-use std::path::PathBuf;
+use std::path::Path;
 
-use clap::Parser;
+pub(crate) fn try_scan(scan_dir: &Path) -> anyhow::Result<()> {
+    let scan = sciproj::file::AudioSampleScan::read_from_dir(scan_dir)?;
 
-#[derive(Parser)]
-pub(crate) struct TryScan {
-    #[clap(short = 's')]
-    scan_dir: PathBuf,
-}
+    anyhow::ensure!(
+        !scan.has_duplicates(),
+        "Duplicate files found in scan directory",
+    );
 
-impl TryScan {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
-        let scan = sciproj::file::AudioSampleScan::read_from_dir(&self.scan_dir)?;
-
-        anyhow::ensure!(
-            !scan.has_duplicates(),
-            "Duplicate files found in scan directory",
-        );
-
-        eprintln!("Scan directory: {}", scan.base_path().display());
-        for (line_id, sample) in scan.get_valid_entries() {
-            eprintln!("{line_id}: {sample:?}");
-        }
-        Ok(())
+    eprintln!("Scan directory: {}", scan.base_path().display());
+    for (line_id, sample) in scan.get_valid_entries() {
+        eprintln!("{line_id}: {sample:?}");
     }
+    Ok(())
 }
