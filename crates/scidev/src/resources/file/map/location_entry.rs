@@ -1,6 +1,4 @@
-use std::io;
-
-use crate::utils::mem_reader::MemReader;
+use crate::utils::mem_reader::{self, MemReader};
 
 #[derive(Debug)]
 pub(super) struct ResourceLocationEntry {
@@ -19,7 +17,9 @@ impl ResourceLocationEntry {
 }
 
 impl ResourceLocationEntry {
-    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> io::Result<ResourceLocationEntry> {
+    pub(crate) fn read_from<M: MemReader>(
+        reader: &mut M,
+    ) -> mem_reader::Result<ResourceLocationEntry> {
         let resource_num = reader.read_u16_le()?;
         let body = reader.read_u24_le()?;
         assert_eq!(body & 0xF000_0000, 0);

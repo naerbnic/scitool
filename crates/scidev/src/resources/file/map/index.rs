@@ -1,6 +1,6 @@
-use std::io;
+use scidev_errors::bail;
 
-use crate::utils::mem_reader::{MemReader, Parse};
+use crate::utils::mem_reader::{self, MemReader, Parse};
 
 use super::index_entry::ResourceIndexEntry;
 
@@ -21,18 +21,14 @@ impl ResourceIndex {
 }
 
 impl Parse for ResourceIndex {
-    fn parse<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let mut entries: Vec<ResourceIndexEntry> = Vec::new();
         loop {
             let entry = ResourceIndexEntry::parse(reader)?;
             if let Some(last) = entries.last()
                 && entry.file_offset() <= last.file_offset()
             {
-                return Err(reader
-                    .create_invalid_data_error_msg(
-                        "Resource index entries are not in ascending order",
-                    )
-                    .into());
+                bail!("Resource index entries are not in ascending order");
             }
             if entry.type_id() == 0xFF {
                 return Ok(ResourceIndex {

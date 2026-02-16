@@ -14,7 +14,7 @@ use std::{
 use bitflags::bitflags;
 use scidev::utils::{
     block::{Block, BlockBuilder, BlockBuilderFactory},
-    mem_reader::MemReader,
+    mem_reader::{self, MemReader},
 };
 
 use crate::formats::aseprite::{
@@ -27,7 +27,7 @@ enum UserDataPropsKey {
     ForExtension(NonZeroU32),
 }
 
-fn read_string_type<M>(reader: &mut M) -> io::Result<String>
+fn read_string_type<M>(reader: &mut M) -> mem_reader::Result<String>
 where
     M: MemReader,
 {
@@ -289,7 +289,7 @@ trait ChunkType: ChunkValue + Sized {
 
     fn to_block(&self, factory: &BlockBuilderFactory) -> io::Result<Block>;
 
-    fn from_block<M>(block: M) -> io::Result<Self>
+    fn from_block<M>(block: M) -> mem_reader::Result<Self>
     where
         M: MemReader;
 }
@@ -309,7 +309,7 @@ where
 mod layer {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -365,7 +365,7 @@ mod layer {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -390,9 +390,7 @@ mod layer {
                     LayerType::Tilemap { tileset_index }
                 }
                 _ => {
-                    return Err(reader
-                        .create_invalid_data_error_msg("Invalid layer type")
-                        .into());
+                    return Err(reader.create_invalid_data_error_msg("Invalid layer type"));
                 }
             };
 
@@ -417,9 +415,7 @@ mod layer {
                 17 => BlendMode::Subtraction,
                 18 => BlendMode::Divide,
                 _ => {
-                    return Err(reader
-                        .create_invalid_data_error_msg("Invalid blend mode")
-                        .into());
+                    return Err(reader.create_invalid_data_error_msg("Invalid blend mode"));
                 }
             };
 
@@ -479,7 +475,7 @@ mod layer {
 mod cel {
     use scidev::utils::{
         block::{Block, BlockBuilder, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -507,7 +503,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
             let width = reader.read_u16_le()?;
             let height = reader.read_u16_le()?;
             let pixels = reader.read_remaining()?;
@@ -531,7 +527,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
             let frame_position = FrameIndex::from_u16(reader.read_u16_le()?);
             Ok(Self { frame_position })
         }
@@ -553,7 +549,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
             let width = reader.read_u16_le()?;
             let height = reader.read_u16_le()?;
             let data = reader.read_remaining()?;
@@ -592,7 +588,7 @@ mod cel {
             Ok(())
         }
 
-        fn read<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+        fn read<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
             let width = reader.read_u16_le()?;
             let height = reader.read_u16_le()?;
             let bits_per_tile = reader.read_u16_le()?;
@@ -664,7 +660,7 @@ mod cel {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -682,9 +678,7 @@ mod cel {
                 2 => CelType::Compressed(CompressedCel::read(&mut reader)?),
                 3 => CelType::CompressedTilemap(CompressedTilemapCel::read(&mut reader)?),
                 _ => {
-                    return Err(reader
-                        .create_invalid_data_error_msg("Invalid cel type")
-                        .into());
+                    return Err(reader.create_invalid_data_error_msg("Invalid cel type"));
                 }
             };
 
@@ -766,7 +760,7 @@ mod cel {
 mod cel_extra {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -796,7 +790,7 @@ mod cel_extra {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -821,7 +815,7 @@ mod cel_extra {
 mod tags {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -903,7 +897,7 @@ mod tags {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -930,9 +924,9 @@ mod tags {
                     2 => AnimationDirection::PingPong,
                     3 => AnimationDirection::PingPongReverse,
                     _ => {
-                        return Err(reader
-                            .create_invalid_data_error_msg("Invalid animation direction")
-                            .into());
+                        return Err(
+                            reader.create_invalid_data_error_msg("Invalid animation direction")
+                        );
                     }
                 };
 
@@ -1000,7 +994,7 @@ mod palette {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -1063,7 +1057,7 @@ mod palette {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -1153,7 +1147,7 @@ pub(super) mod user_data {
 
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::{collections::BTreeMap, io, num::NonZeroU32};
 
@@ -1289,7 +1283,7 @@ pub(super) mod user_data {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -1320,9 +1314,7 @@ pub(super) mod user_data {
                 let size = reader.read_u32_le()?;
                 // Sanity check size. Spec says >= 8 bytes (4 for size + 4 for count)
                 if size < 8 {
-                    return Err(reader
-                        .create_invalid_data_error_msg("Invalid properties size")
-                        .into());
+                    return Err(reader.create_invalid_data_error_msg("Invalid properties size"));
                 }
                 let count = reader.read_u32_le()?;
                 let mut map = BTreeMap::new();
@@ -1357,7 +1349,7 @@ mod slice {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -1426,7 +1418,7 @@ mod slice {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -1490,7 +1482,7 @@ mod tileset {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -1559,7 +1551,7 @@ mod tileset {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -1610,7 +1602,7 @@ mod color_profile {
     use bitflags::bitflags;
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -1685,7 +1677,7 @@ mod color_profile {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -1700,9 +1692,7 @@ mod color_profile {
                 1 => ColorProfileType::Srgb,
                 2 => ColorProfileType::Icc,
                 _ => {
-                    return Err(reader
-                        .create_invalid_data_error_msg("Invalid color profile type")
-                        .into());
+                    return Err(reader.create_invalid_data_error_msg("Invalid color profile type"));
                 }
             };
 
@@ -1726,7 +1716,7 @@ mod color_profile {
 mod external_files {
     use scidev::utils::{
         block::{Block, BlockBuilderFactory},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     };
     use std::io;
 
@@ -1793,7 +1783,7 @@ mod external_files {
             builder.build()
         }
 
-        fn from_block<M>(mut reader: M) -> io::Result<Self>
+        fn from_block<M>(mut reader: M) -> mem_reader::Result<Self>
         where
             M: MemReader,
         {
@@ -1816,9 +1806,9 @@ mod external_files {
                     2 => ExternalFileType::ExtensionProperties,
                     3 => ExternalFileType::ExtensionTileManagement,
                     _ => {
-                        return Err(reader
-                            .create_invalid_data_error_msg("Invalid external file type")
-                            .into());
+                        return Err(
+                            reader.create_invalid_data_error_msg("Invalid external file type")
+                        );
                     }
                 };
 
@@ -1946,7 +1936,7 @@ impl super::model::Sprite {
 }
 
 impl super::props::Property {
-    fn read_from<M>(reader: &mut M) -> io::Result<Self>
+    fn read_from<M>(reader: &mut M) -> mem_reader::Result<Self>
     where
         M: MemReader,
     {
@@ -1956,7 +1946,7 @@ impl super::props::Property {
         Self::read_type_from(type_id, reader)
     }
 
-    fn read_type_from<M>(type_id: PropertyTag, reader: &mut M) -> io::Result<Self>
+    fn read_type_from<M>(type_id: PropertyTag, reader: &mut M) -> mem_reader::Result<Self>
     where
         M: MemReader,
     {
@@ -2097,7 +2087,7 @@ impl super::props::Property {
 }
 
 impl super::props::PropertyMap {
-    pub fn read_from<M>(reader: &mut M) -> io::Result<Self>
+    pub fn read_from<M>(reader: &mut M) -> mem_reader::Result<Self>
     where
         M: MemReader,
     {

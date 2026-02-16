@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, BufferRef, Splittable as _},
-    errors::{OtherError, bail_other, ensure_other, prelude::*},
-    mem_reader::{BufferMemReader, MemReader},
+    mem_reader::{self, BufferMemReader, MemReader},
 };
 
+use scidev_errors::{bail, define_error, diag, ensure, prelude::*};
 use serde::{Deserialize, Serialize};
 
 fn zero_u8() -> u8 {
@@ -106,39 +106,39 @@ impl MessageRecord {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct ParseError(#[from] OtherError);
+define_error! {
+    pub struct ParseError;
+}
 
 fn parse_message_resource_v4<M: MemReader>(
     mut reader: M,
-) -> Result<Vec<RawMessageRecord>, ParseError> {
-    let _header_data = reader.read_u32_le().with_other_err()?;
-    let message_count = reader.read_u16_le().with_other_err()?;
+) -> Result<Vec<RawMessageRecord>, mem_reader::Error> {
+    let _header_data = reader.read_u32_le()?;
+    let message_count = reader.read_u16_le()?;
 
     let mut raw_msg_records = Vec::new();
     for _ in 0..message_count {
         let id = {
-            let noun = reader.read_u8().with_other_err()?;
-            let verb = reader.read_u8().with_other_err()?;
-            let condition = reader.read_u8().with_other_err()?;
-            let sequence = reader.read_u8().with_other_err()?;
+            let noun = reader.read_u8()?;
+            let verb = reader.read_u8()?;
+            let condition = reader.read_u8()?;
+            let sequence = reader.read_u8()?;
             MessageId::new(noun, verb, condition, sequence)
         };
 
-        let talker = reader.read_u8().with_other_err()?;
-        let text_offset = reader.read_u16_le().with_other_err()?;
+        let talker = reader.read_u8()?;
+        let text_offset = reader.read_u16_le()?;
 
         let ref_id = {
-            let noun = reader.read_u8().with_other_err()?;
-            let verb = reader.read_u8().with_other_err()?;
-            let condition = reader.read_u8().with_other_err()?;
+            let noun = reader.read_u8()?;
+            let verb = reader.read_u8()?;
+            let condition = reader.read_u8()?;
             MessageId::new(noun, verb, condition, None)
         };
 
         // According to ScummVM, the record size is 11, but I don't know the purpose of
         // the last byte.
-        let _unknown = reader.read_u8().with_other_err()?;
+        let _unknown = reader.read_u8()?;
 
         let raw_record = RawMessageRecord {
             id,
@@ -153,8 +153,8 @@ fn parse_message_resource_v4<M: MemReader>(
     Ok(raw_msg_records)
 }
 
-fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, ParseError> {
-    ensure_other!(
+fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, mem_reader::Error> {
+    ensure!(
         offset as usize <= msg_res.size(),
         "String offset out of bounds"
     );
@@ -162,19 +162,19 @@ fn read_string_at_offset(msg_res: &MemBlock, offset: u16) -> Result<String, Pars
     let mut reader = BufferMemReader::new(BufferRef::from(&base_buffer).into_fallible());
     let mut text = Vec::new();
     loop {
-        let ch = reader.read_u8().with_other_err()?;
+        let ch = reader.read_u8()?;
         if ch == 0 {
             break;
         }
         text.push(ch);
     }
-    Ok(String::from_utf8(text).with_other_err()?)
+    Ok(String::from_utf8(text).map_raise(diag!(|err| "String at offset was invalid: {err}"))?)
 }
 
 fn resolve_raw_record(
     msg_res: &MemBlock,
     raw_record: RawMessageRecord,
-) -> Result<MessageRecord, ParseError> {
+) -> Result<MessageRecord, mem_reader::Error> {
     let text = read_string_at_offset(msg_res, raw_record.text_offset)?;
     Ok(MessageRecord {
         _ref_id: raw_record.ref_id,
@@ -193,12 +193,12 @@ impl RoomMessageSet {
     }
 }
 
-pub fn parse_message_resource(msg_res: &MemBlock) -> Result<RoomMessageSet, ParseError> {
+pub fn parse_message_resource(msg_res: &MemBlock) -> mem_reader::Result<RoomMessageSet> {
     let mut reader = BufferMemReader::new(msg_res.into_fallible());
-    let version_num = reader.read_u32_le().with_other_err()? / 1000;
+    let version_num = reader.read_u32_le()? / 1000;
     let raw_records = match version_num {
         4 => parse_message_resource_v4(&mut reader)?,
-        _ => bail_other!("Unsupported message resource version: {}", version_num),
+        _ => bail!("Unsupported message resource version: {}", version_num),
     };
 
     let messages = raw_records
@@ -207,6 +207,6 @@ pub fn parse_message_resource(msg_res: &MemBlock) -> Result<RoomMessageSet, Pars
             let record = resolve_raw_record(msg_res, raw_record)?;
             Ok((raw_record.id, record))
         })
-        .collect::<Result<BTreeMap<_, _>, ParseError>>()?;
+        .collect::<mem_reader::Result<BTreeMap<_, _>>>()?;
     Ok(RoomMessageSet { messages })
 }

@@ -1,8 +1,8 @@
-use std::io;
+use scidev_errors::{diag, prelude::*};
 
 use crate::{
     resources::ResourceId,
-    utils::mem_reader::{MemReader, Parse},
+    utils::mem_reader::{self, MemReader, Parse},
 };
 
 use super::{
@@ -49,7 +49,7 @@ impl ResourceLocationSet {
 }
 
 impl Parse for ResourceLocationSet {
-    fn parse<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let index = ResourceIndex::parse(reader)?;
         let mut type_locations = Vec::new();
 
@@ -64,7 +64,7 @@ impl Parse for ResourceLocationSet {
                 reader,
                 (entry.type_id() & 0x7f)
                     .try_into()
-                    .map_err(|e| reader.create_invalid_data_error(e))?,
+                    .map_raise(diag!(|e| "Type ID does not fit in u8"))?,
                 entry.file_offset(),
                 end_offset,
             )?;

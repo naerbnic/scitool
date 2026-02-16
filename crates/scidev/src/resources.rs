@@ -1,11 +1,10 @@
-use std::fmt::Display;
-
 mod file;
 mod resource;
 pub mod types;
 
 pub use file::ResourceSet;
 pub use resource::{ExtraData, PatchSource, Resource, ResourceProvenance, VolumeSource};
+use scidev_errors::{Kind, Reportable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
@@ -34,13 +33,25 @@ pub enum ResourceType {
     Rave,
 }
 
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("Conversion Error: {0}")]
-pub struct ConversionError(String);
+#[derive(Debug, thiserror::Error)]
+pub enum ConversionErrorKind {
+    #[error("Invalid file extension for resource type: {0}")]
+    InvalidFileExtension(String),
+    #[error("Invalid resource type ID: 0x{0:02X}")]
+    InvalidResourceTypeId(u8),
+}
+
+impl Kind for ConversionErrorKind {}
+
+scidev_errors::define_error!(
+    pub struct ConversionError {
+        type OptKind = ConversionErrorKind;
+    }
+);
 
 impl ConversionError {
-    pub fn new(msg: impl Display) -> ConversionError {
-        ConversionError(msg.to_string())
+    pub fn new(msg: impl Reportable) -> ConversionError {
+        Self::from(scidev_errors::AnyDiag::new().msg(msg))
     }
 }
 
@@ -65,9 +76,7 @@ impl ResourceType {
             "map" => Ok(ResourceType::Map),
             "hep" => Ok(ResourceType::Heap),
             "trn" => Ok(ResourceType::Translation),
-            _ => Err(ConversionError(format!(
-                "Invalid file extension for resource type: {ext}"
-            ))),
+            _ => scidev_errors::bail!(ConversionErrorKind::InvalidFileExtension(ext.to_string())),
         }
     }
 
@@ -126,9 +135,7 @@ impl TryFrom<u8> for ResourceType {
             0x13 => Ok(ResourceType::Sync36),
             0x14 => Ok(ResourceType::Translation),
             0x15 => Ok(ResourceType::Rave),
-            _ => Err(ConversionError(format!(
-                "Invalid resource type: 0x{value:02X}"
-            ))),
+            _ => scidev_errors::bail!(ConversionErrorKind::InvalidResourceTypeId(value)),
         }
     }
 }

@@ -3,13 +3,20 @@ use std::{
     sync::Arc,
 };
 
-use scidev_macros_internal::other_fn;
+use scidev_errors::{define_error, diag, prelude::*};
 
 use crate::utils::{
     block::Block,
     buffer::{Buffer, BufferCursor},
-    errors::{BoxError, OpaqueError},
 };
+
+define_error! {
+    pub struct StoreError;
+}
+
+define_error! {
+    pub struct CreateError;
+}
 
 struct BlockPathHandle {
     path: PathBuf,
@@ -23,30 +30,6 @@ impl AsRef<Path> for BlockPathHandle {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum CreateError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-}
-
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum StoreError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OpaqueError),
-}
-
-impl From<BoxError> for StoreError {
-    fn from(err: BoxError) -> Self {
-        StoreError::Other(OpaqueError::from_boxed(err))
-    }
-}
-
 pub struct TempStore {
     temp_dir: Arc<tempfile::TempDir>,
 }
@@ -54,13 +37,19 @@ pub struct TempStore {
 impl TempStore {
     pub fn create() -> Result<Self, CreateError> {
         Ok(Self {
-            temp_dir: Arc::new(tempfile::TempDir::new()?),
+            temp_dir: Arc::new(
+                tempfile::TempDir::new()
+                    .map_raise(diag!(|err| "Unable to create initial tempdir: {err}"))?,
+            ),
         })
     }
 
     pub fn with_base(base: &Path) -> Result<Self, CreateError> {
         Ok(Self {
-            temp_dir: Arc::new(tempfile::TempDir::new_in(base)?),
+            temp_dir: Arc::new(
+                tempfile::TempDir::new_in(base)
+                    .map_raise(diag!(|err| "Unable to create initial tempdir: {err}"))?,
+            ),
         })
     }
 
@@ -78,18 +67,22 @@ impl TempStore {
         self.create_temp_block(buffer)
     }
 
-    #[other_fn]
     fn create_temp_block<B>(&self, buffer: B) -> Result<Block, StoreError>
     where
         B: Buffer,
     {
-        let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())?.keep()?;
-        std::io::copy(&mut BufferCursor::new(buffer.into_fallible()), &mut file)?;
+        let (mut file, path) = tempfile::NamedTempFile::new_in(self.temp_dir.path())
+            .map_raise(diag!(|err| "Unable to create initial temp file: {err}"))?
+            .keep()
+            .map_raise(diag!(|err| "Unable to keep temp file"))?;
+        std::io::copy(&mut BufferCursor::new(buffer.into_fallible()), &mut file)
+            .map_raise(diag!(|err| "Unable to copy data to temp file: {err}"))?;
         drop(file);
         Ok(Block::from_path(BlockPathHandle {
             path,
             _dir: self.temp_dir.clone(),
-        })?)
+        })
+        .map_raise(diag!(|err| "Unable to create block from temp file: {err}"))?)
     }
 }
 

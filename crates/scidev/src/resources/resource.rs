@@ -1,9 +1,15 @@
 use std::io;
 
+use scidev_errors::{define_error, diag, prelude::*};
+
 use crate::{
     resources::{ResourceId, file::write_resource_to_patch_file},
-    utils::{block::Block, errors::OpaqueError},
+    utils::block::Block,
 };
+
+define_error! {
+    pub struct PatchError;
+}
 
 #[derive(Debug, Clone)]
 pub enum ExtraData {
@@ -197,7 +203,9 @@ impl Resource {
         self.contents.source()
     }
 
-    pub fn write_patch<W: io::Write>(&self, writer: W) -> Result<(), OpaqueError> {
-        write_resource_to_patch_file(self, writer)
+    pub fn write_patch<W: io::Write>(&self, writer: W) -> Result<(), PatchError> {
+        Ok(write_resource_to_patch_file(self, writer).map_raise(diag!(
+            |err| "Unable to write patch file for resource {self:?}"
+        ))?)
     }
 }

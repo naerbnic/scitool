@@ -2,21 +2,14 @@ use std::collections::HashMap;
 
 use crate::{
     resources::{ResourceId, ResourceSet, ResourceType},
-    utils::{
-        buffer::Buffer,
-        errors::{
-            BoxError, DynError, ErrWrapper, InvalidDataError, OpaqueError, impl_error_castable,
-            prelude::*,
-        },
-        mem_reader::BufferMemReader,
-    },
+    utils::{buffer::Buffer, mem_reader::BufferMemReader},
 };
 use mem_loader::LoadedScript;
+use scidev_errors::prelude::*;
 
 mod mem_loader;
 mod selectors;
 
-use crate::utils::errors::other_fn;
 pub use mem_loader::Object;
 
 const SELECTOR_TABLE_VOCAB_NUM: u16 = 997;
@@ -53,26 +46,9 @@ impl std::fmt::Debug for Species {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ScriptLoadError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-
-    #[error(transparent)]
-    InvalidData(#[from] InvalidDataError),
-
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(OpaqueError),
+scidev_errors::define_error! {
+    pub struct ScriptLoadError;
 }
-
-impl_error_castable!(
-    ScriptLoadError,
-    ScriptLoadError::Other,
-    ScriptLoadError::Io,
-    ScriptLoadError::InvalidData
-);
 
 pub struct ScriptLoader {
     selectors: selectors::SelectorTable,
@@ -80,32 +56,41 @@ pub struct ScriptLoader {
 }
 
 impl ScriptLoader {
-    #[other_fn]
     pub fn load_from(resources: &ResourceSet) -> Result<Self, ScriptLoadError> {
         let selector_table_data = resources
             .get_resource(&ResourceId::new(
                 ResourceType::Vocab,
                 SELECTOR_TABLE_VOCAB_NUM,
             ))
-            .ok_or_else_other(|| "Selector table not found")?
+            .raise()
+            .msg("Selector table (vocab 997) not found")?
             .data()
             .open_mem(..)
-            .with_other_err()?;
+            .raise()
+            .msg("Failed to open selector table memory")?;
         let reader = BufferMemReader::new(selector_table_data.into_fallible());
-        let selectors = selectors::SelectorTable::load_from(&reader)?;
+        let selectors = selectors::SelectorTable::load_from(&reader)
+            .raise()
+            .msg("Failed to load selector table")?;
         let mut loaded_scripts = HashMap::new();
         for script in resources.resources_of_type(ResourceType::Script) {
             let script_num = script.id().resource_num();
-            let script_data = script.data().open_mem(..).with_other_err()?;
-            let heap = resources
-                .get_resource(&ResourceId::new(ResourceType::Heap, script_num))
-                .ok_or_else_other(|| "Selector heap not found")?
+            let script_data = script
                 .data()
                 .open_mem(..)
-                .with_other_err()?;
+                .raise_with(|r| r.msg(format!("Failed to open memory for script {script_num}")))?;
+            let heap = resources
+                .get_resource(&ResourceId::new(ResourceType::Heap, script_num))
+                .raise()
+                .msg(format!("Selector heap for script {script_num} not found"))?
+                .data()
+                .open_mem(..)
+                .raise_with(|r| {
+                    r.args(format_args!("Failed to open memory for heap {script_num}"))
+                })?;
 
-            let loaded_script =
-                mem_loader::LoadedScript::load(&selectors, &script_data, &heap).with_other_err()?;
+            let loaded_script = mem_loader::LoadedScript::load(&selectors, &script_data, &heap)
+                .raise_with(|r| r.args(format_args!("Failed to load script {script_num}")))?;
 
             loaded_scripts.insert(ScriptId(script_num), loaded_script);
         }
@@ -129,29 +114,8 @@ impl ScriptLoader {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ClassDeclSetError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-impl ErrWrapper for ClassDeclSetError {
-    fn wrap_box(err: BoxError) -> Self {
-        ClassDeclSetError::Other(err)
-    }
-
-    fn wrapped_err(&self) -> Option<&DynError> {
-        match self {
-            ClassDeclSetError::Other(other) => Some(&**other),
-        }
-    }
-
-    fn try_unwrap_box(self) -> Result<BoxError, Self> {
-        match self {
-            ClassDeclSetError::Other(other) => Ok(other),
-        }
-    }
+scidev_errors::define_error! {
+    pub struct ClassDeclSetError;
 }
 
 pub struct ClassDeclSet {
@@ -159,9 +123,10 @@ pub struct ClassDeclSet {
 }
 
 impl ClassDeclSet {
-    #[other_fn]
     pub fn new(resources: &ResourceSet) -> Result<Self, ClassDeclSetError> {
-        let loader = ScriptLoader::load_from(resources)?;
+        let loader = ScriptLoader::load_from(resources)
+            .raise()
+            .msg("Failed to load scripts for class declaration set")?;
         let mut classes = HashMap::new();
         for (script_id, loaded_script) in loader.loaded_scripts() {
             for object in loaded_script.objects() {

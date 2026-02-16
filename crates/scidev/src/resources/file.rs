@@ -7,17 +7,39 @@ use std::{
 
 use volume::VolumeFile;
 
+use scidev_errors::{AnyDiag, Kind, RaisedMaybe, Raiser, bail, prelude::*};
+
 use self::patch::try_patch_from_file;
 use crate::{
     resources::{
         file::map::MapFile,
         resource::{Resource, ResourceContents, VolumeSource},
     },
-    utils::{
-        block::Block,
-        errors::{BoxError, DynError, ErrWrapper, OtherError, prelude::*},
-    },
+    utils::block::Block,
 };
+
+#[derive(Debug)]
+enum FileIoKind {
+    NotFound,
+}
+
+impl Kind for FileIoKind {}
+
+impl FileIoKind {
+    fn from_error(err: &std::io::Error, r: Raiser) -> RaisedMaybe<Self> {
+        match err.kind() {
+            io::ErrorKind::NotFound => r
+                .kind_args(
+                    Self::NotFound,
+                    format_args!("Couldn't open the file: {}", *err),
+                )
+                .into(),
+            _ => r
+                .args(format_args!("Unexpected error kind: {}", err.kind()))
+                .into(),
+        }
+    }
+}
 
 use super::{ResourceId, ResourceType};
 
@@ -31,9 +53,12 @@ pub(super) fn read_resources(
     map_file: &Path,
     data_file: &Path,
     patches: &[Resource],
-) -> Result<ResourceSet, OtherError> {
-    let map_file = MapFile::from_read_seek(File::open(map_file)?)?;
-    let data_file = VolumeFile::new(Block::from_path(data_file.to_path_buf())?);
+) -> Result<ResourceSet, AnyDiag> {
+    let map_file =
+        MapFile::from_read_seek(File::open(map_file).map_raise(FileIoKind::from_error)?)?;
+    let data_file = VolumeFile::new(
+        Block::from_path(data_file.to_path_buf()).map_raise(FileIoKind::from_error)?,
+    );
 
     let mut entries = BTreeMap::new();
 
@@ -94,24 +119,36 @@ impl ResourceBlocks {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct OpenGameResourcesError(#[from] OtherError);
+#[derive(Debug)]
+pub enum OpenGameResourcesErrorKind {
+    NotFound,
+    NotAGameDirectory,
+}
 
-impl ErrWrapper for OpenGameResourcesError {
-    fn wrapped_err(&self) -> Option<&DynError> {
-        self.0.wrapped_err()
-    }
-
-    fn try_unwrap_box(self) -> Result<BoxError, Self> {
-        match self.0.try_unwrap_box() {
-            Ok(boxed) => Ok(boxed),
-            Err(wrap) => Err(OpenGameResourcesError(wrap)),
+impl OpenGameResourcesErrorKind {
+    fn from_dir_scan_error(err: &io::Error, r: Raiser) -> RaisedMaybe<Self> {
+        match err.kind() {
+            io::ErrorKind::NotFound => r
+                .kind_args(Self::NotFound, format_args!("No directory found: {err}"))
+                .maybe(),
+            io::ErrorKind::NotADirectory => r
+                .kind_args(
+                    Self::NotAGameDirectory,
+                    format_args!("Not a directory: {err}"),
+                )
+                .maybe(),
+            _ => r
+                .args(format_args!("Unexpected error kind: {}", err.kind()))
+                .maybe(),
         }
     }
+}
 
-    fn wrap_box(err: BoxError) -> Self {
-        OpenGameResourcesError(OtherError::wrap_box(err))
+impl Kind for OpenGameResourcesErrorKind {}
+
+scidev_errors::define_error! {
+    pub struct OpenGameResourcesError {
+        type OptKind = OpenGameResourcesErrorKind;
     }
 }
 
@@ -122,10 +159,18 @@ pub struct ResourceSet {
 impl ResourceSet {
     pub fn from_root_dir(root_dir: &Path) -> Result<Self, OpenGameResourcesError> {
         let mut patches = Vec::new();
-        for entry in root_dir.read_dir().with_other_err()? {
-            let entry = entry.with_other_err()?;
-            if entry.file_type().with_other_err()?.is_file()
-                && let Some(patch_res) = try_patch_from_file(&entry.path()).with_other_err()?
+        for entry in root_dir
+            .read_dir()
+            .map_raise(OpenGameResourcesErrorKind::from_dir_scan_error)?
+        {
+            let entry = entry.map_raise(OpenGameResourcesErrorKind::from_dir_scan_error)?;
+            if entry
+                .file_type()
+                .map_raise(OpenGameResourcesErrorKind::from_dir_scan_error)?
+                .is_file()
+                && let Some(patch_res) = try_patch_from_file(&entry.path())
+                    .raise()
+                    .msg("Patch from file")?
             {
                 patches.push(patch_res);
             }
@@ -134,15 +179,39 @@ impl ResourceSet {
         let main_set = {
             let map_file = root_dir.join("RESOURCE.MAP");
             let data_file = root_dir.join("RESOURCE.000");
-            read_resources(&map_file, &data_file, &patches).with_other_err()?
+
+            scidev_errors::ensure!(
+                map_file.exists(),
+                OpenGameResourcesErrorKind::NotAGameDirectory,
+                "RESOURCE.MAP not found"
+            );
+            scidev_errors::ensure!(
+                data_file.exists(),
+                OpenGameResourcesErrorKind::NotAGameDirectory,
+                "RESOURCE.000 not found"
+            );
+
+            read_resources(&map_file, &data_file, &patches)?
         };
 
         let message_set = {
             let map_file = root_dir.join("MESSAGE.MAP");
             let data_file = root_dir.join("RESOURCE.MSG");
-            read_resources(&map_file, &data_file, &[]).with_other_err()?
+
+            scidev_errors::ensure!(
+                map_file.exists(),
+                OpenGameResourcesErrorKind::NotAGameDirectory,
+                "MESSAGE.MAP not found"
+            );
+            scidev_errors::ensure!(
+                data_file.exists(),
+                OpenGameResourcesErrorKind::NotAGameDirectory,
+                "RESOURCE.MSG not found"
+            );
+
+            read_resources(&map_file, &data_file, &[])?
         };
-        Ok(main_set.merge(&message_set).with_other_err()?)
+        Ok(main_set.merge(&message_set)?)
     }
     #[must_use]
     pub fn get_resource(&self, id: &ResourceId) -> Option<Resource> {
@@ -179,7 +248,7 @@ impl ResourceSet {
         ResourceSet { entries }
     }
 
-    pub fn merge(&self, other: &ResourceSet) -> io::Result<ResourceSet> {
+    pub fn merge(&self, other: &ResourceSet) -> Result<ResourceSet, AnyDiag> {
         let mut entries = self.entries.clone();
         for (id, block) in &other.entries {
             match entries.entry(*id) {
@@ -187,10 +256,7 @@ impl ResourceSet {
                     vac.insert(block.clone());
                 }
                 btree_map::Entry::Occupied(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Duplicate resource ID: {id:?}"),
-                    ));
+                    bail!("Duplicate resource ID: {id:?}")
                 }
             }
         }

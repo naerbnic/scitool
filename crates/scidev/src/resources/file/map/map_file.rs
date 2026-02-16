@@ -1,4 +1,6 @@
-use std::{io, sync::Arc};
+use std::sync::Arc;
+
+use scidev_errors::{AnyDiag, prelude::*};
 
 use crate::{
     resources::file::map::{ResourceLocation, ResourceLocationSet},
@@ -13,12 +15,18 @@ pub(crate) struct MapFile {
 }
 
 impl MapFile {
-    pub(crate) fn from_read_seek<R>(reader: R) -> io::Result<Self>
+    pub(crate) fn from_read_seek<R>(reader: R) -> Result<Self, AnyDiag>
     where
         R: std::io::Read + std::io::Seek,
     {
-        let buffer = Arc::new(ReaderBuffer::new(reader)?);
-        let locations = ResourceLocationSet::parse(&mut BufferMemReader::new(buffer.clone()))?;
+        let buffer = Arc::new(
+            ReaderBuffer::new(reader)
+                .raise()
+                .msg("IO error when creating map file")?,
+        );
+        let locations = ResourceLocationSet::parse(&mut BufferMemReader::new(buffer.clone()))
+            .raise()
+            .msg("Error while parsing map file")?;
         Ok(MapFile { locations })
     }
 

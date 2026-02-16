@@ -1,19 +1,35 @@
 use std::{
     borrow::Cow,
-    error::Error as StdError,
     fmt::{Debug, Display},
-    io,
     ops::Bound,
 };
 
 use bytes::BufMut;
+use scidev_errors::{DiagLike, Kind, MaybeDiag, Reportable, define_error, diag};
 
 use crate::utils::{
+    block_context::BlockContext,
     buffer::{FallibleBuffer, FallibleBufferRef, Splittable},
-    convert::convert_if_different,
-    errors::{BlockContext, InvalidDataError, NoError, OtherError},
     range::BoundedRange,
 };
+
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum ErrorKind {
+    NotEnoughData { required: usize, available: usize },
+}
+
+impl Kind for ErrorKind {}
+
+pub(crate) type MemReaderDiag = MaybeDiag<ErrorKind>;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+define_error! {
+    pub struct Error {
+        type OptKind = ErrorKind;
+    }
+}
 
 pub trait ToFixedBytes {
     const SIZE: usize;
@@ -52,23 +68,9 @@ macro_rules! impl_fixed_bytes_for_num {
 impl_fixed_bytes_for_num!(i8, i16, i32, i64, i128, isize);
 impl_fixed_bytes_for_num!(u8, u16, u32, u64, u128, usize);
 
-#[derive(Debug, thiserror::Error)]
-#[error("Not enough data in buffer. Needed {required}, but only {available} available.")]
-struct NotEnoughData {
-    required: usize,
-    available: usize,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("Buffer size is not a multiple of {required}. Had overflow of {overflow} instead.")]
-struct NotDivisible {
-    required: usize,
-    overflow: usize,
-}
-
 macro_rules! impl_read_int {
     ($name:ident, $ty:ty) => {
-        fn $name(&mut self) -> io::Result<$ty> {
+        fn $name(&mut self) -> Result<$ty> {
             let mut buf = [0u8; std::mem::size_of::<$ty>()];
             self.read_exact(&mut buf)?;
             Ok(<$ty>::from_le_bytes(buf))
@@ -77,7 +79,7 @@ macro_rules! impl_read_int {
 }
 
 pub trait MemReader {
-    fn seek_to(&mut self, offset: usize) -> io::Result<()>;
+    fn seek_to(&mut self, offset: usize) -> Result<()>;
 
     #[must_use]
     fn tell(&self) -> usize;
@@ -85,29 +87,17 @@ pub trait MemReader {
     #[must_use]
     fn data_size(&self) -> usize;
 
-    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()>;
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()>;
 
     #[must_use]
     fn remaining(&self) -> usize;
-
-    /// Create an `InvalidDataError` with the current context and backtrace.
-    fn create_invalid_data_error<Err>(&self, message: Err) -> InvalidDataError
-    where
-        Err: StdError + Send + Sync + 'static;
-
-    fn create_invalid_data_error_msg<'a, Msg>(&self, message: Msg) -> InvalidDataError
-    where
-        Msg: Into<Cow<'a, str>>,
-    {
-        self.create_invalid_data_error(OtherError::from_msg(message.into().into_owned()))
-    }
 
     #[must_use]
     fn is_empty(&self) -> bool {
         self.remaining() == 0
     }
 
-    fn read_some<'buf>(&mut self, buf: &'buf mut [u8]) -> io::Result<&'buf [u8]> {
+    fn read_some<'buf>(&mut self, buf: &'buf mut [u8]) -> Result<&'buf [u8]> {
         let remaining = self.remaining();
         let len = std::cmp::min(remaining, buf.len());
         let buf = &mut buf[..len];
@@ -115,7 +105,7 @@ pub trait MemReader {
         Ok(buf)
     }
 
-    fn read_remaining(&mut self) -> io::Result<Vec<u8>> {
+    fn read_remaining(&mut self) -> Result<Vec<u8>> {
         let remaining = self.remaining();
         let mut buf = vec![0; remaining];
         self.read_exact(&mut buf)?;
@@ -126,7 +116,7 @@ pub trait MemReader {
         &'b self,
         context: Ctxt,
         range: R,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         R: std::ops::RangeBounds<usize>,
         Ctxt: Into<Cow<'b, str>>;
@@ -136,7 +126,7 @@ pub trait MemReader {
         context: Ctxt,
         offset: usize,
         length: Option<usize>,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         Ctxt: Into<Cow<'b, str>>,
     {
@@ -147,14 +137,14 @@ pub trait MemReader {
         &'b mut self,
         context: Ctxt,
         len: usize,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         Ctxt: Into<Cow<'b, str>>;
 
     /// Reads a value from the front of the buffer, returning the value and the
     /// remaining buffer.
     // Functions that can be implemented in terms of the above functions.
-    fn read_value<T: FromFixedBytes>(&mut self, context: &str) -> io::Result<T> {
+    fn read_value<T: FromFixedBytes>(&mut self, context: &str) -> Result<T> {
         let mut const_buf = [0u8; 16];
         let mut dyn_buf = Vec::new();
 
@@ -172,11 +162,7 @@ pub trait MemReader {
 
     /// Reads N values from the front of the buffer, returning the values and the
     /// remaining buffer.
-    fn read_values<T: FromFixedBytes>(
-        &mut self,
-        context: &str,
-        count: usize,
-    ) -> io::Result<Vec<T>> {
+    fn read_values<T: FromFixedBytes>(&mut self, context: &str, count: usize) -> Result<Vec<T>> {
         let mut values = Vec::with_capacity(count);
         for i in 0..count {
             values.push(self.read_value(&format!("{context}[{i}]"))?);
@@ -188,15 +174,15 @@ pub trait MemReader {
         &mut self,
         context: &str,
         pred: impl Fn(&T) -> bool,
-    ) -> io::Result<Vec<T>>;
+    ) -> Result<Vec<T>>;
 
-    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> io::Result<Vec<T>>;
+    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>>;
 
     fn read_length_delimited_block<'b>(
         &'b mut self,
         context: &'b str,
         item_size: usize,
-    ) -> io::Result<impl MemReader + 'b> {
+    ) -> Result<impl MemReader + 'b> {
         let num_blocks = self.read_value::<u16>(&format!("{context}(length)"))?;
         let total_block_size = usize::from(num_blocks)
             .checked_mul(item_size)
@@ -209,7 +195,7 @@ pub trait MemReader {
     fn read_length_delimited_records<T: FromFixedBytes>(
         &mut self,
         context: &str,
-    ) -> io::Result<Vec<T>> {
+    ) -> Result<Vec<T>> {
         let num_records = self.read_value::<u16>(&format!("{context}(length)"))?;
         self.read_values::<T>(&format!("{context}(values)"), num_records as usize)
     }
@@ -225,18 +211,20 @@ pub trait MemReader {
     impl_read_int!(read_f32_le, f32);
     impl_read_int!(read_f64_le, f64);
 
-    fn read_u24_le(&mut self) -> io::Result<u32> {
+    fn read_u24_le(&mut self) -> Result<u32> {
         let mut buf = [0u8; 3];
         self.read_exact(&mut buf)?;
         Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], 0]))
     }
+
+    fn create_invalid_data_error_msg(&self, message: impl Into<String>) -> Error;
 }
 
 impl<M> MemReader for &mut M
 where
     M: MemReader,
 {
-    fn seek_to(&mut self, offset: usize) -> io::Result<()> {
+    fn seek_to(&mut self, offset: usize) -> Result<()> {
         (**self).seek_to(offset)
     }
 
@@ -248,7 +236,7 @@ where
         (**self).data_size()
     }
 
-    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         (**self).read_exact(buf)
     }
 
@@ -256,18 +244,11 @@ where
         (**self).remaining()
     }
 
-    fn create_invalid_data_error<Err>(&self, message: Err) -> InvalidDataError
-    where
-        Err: StdError + Send + Sync + 'static,
-    {
-        (**self).create_invalid_data_error(message)
-    }
-
     fn sub_reader_range<'b, R, Ctxt>(
         &'b self,
         context: Ctxt,
         range: R,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         R: std::ops::RangeBounds<usize>,
         Ctxt: Into<Cow<'b, str>>,
@@ -279,7 +260,7 @@ where
         &'b mut self,
         context: Ctxt,
         len: usize,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         Ctxt: Into<Cow<'b, str>>,
     {
@@ -290,12 +271,16 @@ where
         &mut self,
         context: &str,
         pred: impl Fn(&T) -> bool,
-    ) -> io::Result<Vec<T>> {
+    ) -> Result<Vec<T>> {
         (**self).read_until(context, pred)
     }
 
-    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> io::Result<Vec<T>> {
+    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
         (**self).split_values(context)
+    }
+
+    fn create_invalid_data_error_msg(&self, message: impl Into<String>) -> Error {
+        (**self).create_invalid_data_error_msg(message)
     }
 }
 
@@ -320,42 +305,43 @@ impl<B> BufferMemReader<'_, B>
 where
     B: FallibleBuffer + Clone,
 {
-    fn check_read_length(&self, len: usize) -> io::Result<()> {
+    fn check_read_length(&self, len: usize) -> Result<()> {
         let remaining = self.range.size() - self.position;
         if remaining < len {
-            return Err(self.err_with_context()(NotEnoughData {
-                required: len,
-                available: remaining,
-            }));
+            return Err(diag!(
+                ErrorKind::NotEnoughData {
+                    required: len,
+                    available: remaining
+                },
+                "Not enough data in buffer. Needed {len}, but only {remaining} available."
+            )
+            .add_context()
+            .msg(self.current_context())
+            .into());
         }
         Ok(())
     }
 
-    #[track_caller]
-    fn err_with_context<E>(&self) -> impl FnOnce(E) -> io::Error
+    fn err_with_context<E>(&self, err: E) -> MemReaderDiag
     where
-        E: StdError + Send + Sync + 'static,
+        E: Into<MemReaderDiag>,
     {
-        move |err| {
-            convert_if_different(err, |err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    self.context.create_error(self.position, err),
-                )
-            })
-        }
+        err.into().add_context().msg(self.current_context())
     }
 
     #[track_caller]
-    fn err_with_message<Msg>(&self, message: Msg) -> io::Error
+    fn err_with_message<Msg>(&self, message: Msg) -> MemReaderDiag
     where
         Msg: Into<String>,
     {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            self.context
-                .create_error(self.position, OtherError::from_msg(message.into())),
-        )
+        diag!(message: message.into())
+            .add_context()
+            .msg(self.current_context())
+            .into()
+    }
+
+    fn current_context(&self) -> impl Reportable {
+        self.context.make_context(self.position)
     }
 
     fn make_sub_reader<NewD>(
@@ -419,24 +405,33 @@ where
         self.range.size()
     }
 
-    fn seek_to(&mut self, offset: usize) -> io::Result<()> {
+    fn seek_to(&mut self, offset: usize) -> Result<()> {
         if self.data_size() < offset {
-            return Err(self.err_with_context()(NotEnoughData {
-                required: offset,
-                available: self.data_size(),
-            }));
+            return Err(self
+                .err_with_context(diag!(
+                    ErrorKind::NotEnoughData {
+                        required: offset,
+                        available: self.data_size(),
+                    },
+                    "Unable to seek to offset {}. Maximum available position: {}",
+                    offset,
+                    self.data_size(),
+                ))
+                .into());
         }
 
         self.position = offset;
         Ok(())
     }
 
-    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> io::Result<Vec<T>> {
+    fn split_values<T: FromFixedBytes>(&mut self, context: &str) -> Result<Vec<T>> {
         if !self.remaining().is_multiple_of(T::SIZE) {
-            return Err(self.err_with_context()(NotDivisible {
-                required: T::SIZE,
-                overflow: self.remaining() % T::SIZE,
-            }));
+            return Err(self.err_with_context(
+                diag!("split_value() called on buffer not divisible by size of parsed value. Buffer size: {}, Value size: {}, Overflow: {}",
+                self.remaining(),
+                T::SIZE,
+                self.remaining() % T::SIZE),
+            ).into());
         }
         let mut values = Vec::with_capacity(self.remaining() / T::SIZE);
         while !self.is_empty() {
@@ -446,17 +441,23 @@ where
         Ok(values)
     }
 
-    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
         if self.remaining() < buf.len() {
-            return Err(self.err_with_context()(NotEnoughData {
-                required: buf.len(),
-                available: self.remaining(),
-            }));
+            return Err(self
+                .err_with_context(diag!(
+                    ErrorKind::NotEnoughData {
+                        required: buf.len(),
+                        available: self.remaining(),
+                    },
+                    "Not enough data to read {} bytes. Only {} available.",
+                    buf.len(),
+                    self.remaining(),
+                ))
+                .into());
         }
 
         self.buffer
-            .read_slice(self.range.start() + self.position, buf)
-            .map_err(io::Error::other)?;
+            .read_slice(self.range.start() + self.position, buf)?;
 
         self.position += buf.len();
         Ok(())
@@ -470,7 +471,7 @@ where
         &mut self,
         context: &str,
         pred: impl Fn(&T) -> bool,
-    ) -> io::Result<Vec<T>> {
+    ) -> Result<Vec<T>> {
         let mut values = Vec::new();
         while !self.is_empty() {
             let value = self.read_value::<T>(context)?;
@@ -480,21 +481,16 @@ where
                 return Ok(values);
             }
         }
-        Err(self.err_with_message("Got to end before matching value."))
-    }
-
-    fn create_invalid_data_error<Err>(&self, message: Err) -> InvalidDataError
-    where
-        Err: StdError + Send + Sync + 'static,
-    {
-        self.context.create_error(self.position, message)
+        Err(self
+            .err_with_message("Got to end before matching value.")
+            .into())
     }
 
     fn sub_reader_range<'b, R, Ctxt>(
         &'b self,
         context: Ctxt,
         range: R,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         R: std::ops::RangeBounds<usize>,
         Ctxt: Into<Cow<'b, str>>,
@@ -526,10 +522,16 @@ where
         if start > end {
             // This must have been caused by an implicit range endpoint, so treat
             // it as an error, not a panic.
-            return Err(self.err_with_context()(NotEnoughData {
-                required: start,
-                available: end,
-            }));
+            return Err(self
+                .err_with_context(diag!(
+                    ErrorKind::NotEnoughData {
+                        required: start,
+                        available: end,
+                    },
+                    "Implicit input range starts after the end of the buffer. Range start {}, Buffer end {}",
+                    start,
+                    end
+                )).into());
         }
 
         Ok(self.make_sub_reader(
@@ -543,7 +545,7 @@ where
         &'b mut self,
         context: Ctxt,
         len: usize,
-    ) -> io::Result<impl MemReader + 'b>
+    ) -> Result<impl MemReader + 'b>
     where
         Ctxt: Into<Cow<'b, str>>,
     {
@@ -557,21 +559,12 @@ where
         );
         Ok(sub_reader)
     }
-}
 
-/// An extension trait for reducing the shape of an error that includes [`NoError`].
-pub trait NoErrorResultExt<T> {
-    type R;
-    fn remove_no_error(self) -> Self::R;
-}
-
-impl<T> NoErrorResultExt<T> for std::result::Result<T, NoError> {
-    type R = T;
-    fn remove_no_error(self) -> Self::R {
-        match self {
-            Ok(value) => value,
-            Err(err) => err.absurd(),
-        }
+    fn create_invalid_data_error_msg(&self, message: impl Into<String>) -> Error {
+        diag!(message: message.into())
+            .add_context()
+            .msg(self.current_context())
+            .into()
     }
 }
 
@@ -581,5 +574,5 @@ pub trait Parse: Sized {
     ///
     /// This function should leave the reader at the position immediately after
     /// the parsed value.
-    fn parse<M: MemReader>(reader: &mut M) -> io::Result<Self>;
+    fn parse<M: MemReader>(reader: &mut M) -> Result<Self>;
 }

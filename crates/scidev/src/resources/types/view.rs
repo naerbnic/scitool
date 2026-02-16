@@ -5,6 +5,7 @@ use std::{
 };
 
 use bytes::{Buf as _, BufMut as _};
+use scidev_errors::{AnyDiag, define_error, prelude::*};
 
 use crate::{
     resources::types::palette::Palette,
@@ -14,6 +15,10 @@ use crate::{
         range::BoundedRange,
     },
 };
+
+define_error! {
+    pub struct ViewError;
+}
 
 fn encode_ascii_bytes(bytes: &[u8]) -> String {
     bytes
@@ -68,16 +73,18 @@ pub struct ViewHeader {
 }
 
 impl ViewHeader {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> io::Result<ViewHeader> {
-        let header_size = reader.read_u16_le()?;
-        let mut header_data = reader.read_to_subreader("view_header", header_size.into())?;
-        let loop_count = header_data.read_u8()?;
-        let flags = header_data.read_u8()?;
+    pub fn read_from<M: MemReader>(reader: &mut M) -> Result<ViewHeader, AnyDiag> {
+        let header_size = reader.read_u16_le().reraise()?;
+        let mut header_data = reader
+            .read_to_subreader("view_header", header_size.into())
+            .reraise()?;
+        let loop_count = header_data.read_u8().reraise()?;
+        let flags = header_data.read_u8().reraise()?;
         let mut reserved = [0u8; 4];
-        header_data.read_exact(&mut reserved)?;
-        let pal_offset = header_data.read_u32_le()?;
-        let loop_size = header_data.read_u8()?;
-        let cel_size = header_data.read_u8()?;
+        header_data.read_exact(&mut reserved).reraise()?;
+        let pal_offset = header_data.read_u32_le().reraise()?;
+        let loop_size = header_data.read_u8().reraise()?;
+        let cel_size = header_data.read_u8().reraise()?;
 
         Ok(ViewHeader {
             loop_count,
@@ -86,7 +93,7 @@ impl ViewHeader {
             pal_offset,
             loop_size,
             cel_size,
-            rest: header_data.read_remaining()?.into(),
+            rest: header_data.read_remaining().reraise()?.into(),
         })
     }
 }
@@ -102,20 +109,20 @@ pub struct LoopEntry {
 }
 
 impl LoopEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> io::Result<LoopEntry> {
-        let seek_entry = reader.read_u8()?;
-        let reserved1 = reader.read_u8()?;
-        let cel_count = reader.read_u8()?;
+    pub fn read_from<M: MemReader>(reader: &mut M) -> Result<LoopEntry, AnyDiag> {
+        let seek_entry = reader.read_u8().reraise()?;
+        let reserved1 = reader.read_u8().reraise()?;
+        let cel_count = reader.read_u8().reraise()?;
         let mut reserved2 = [0u8; 9];
-        reader.read_exact(&mut reserved2)?;
-        let cel_offset = reader.read_u32_le()?;
+        reader.read_exact(&mut reserved2).reraise()?;
+        let cel_offset = reader.read_u32_le().reraise()?;
         Ok(LoopEntry {
             seek_entry,
             reserved1,
             cel_count,
             reserved2: reserved2.into(),
             cel_offset,
-            rest: reader.read_remaining()?.into(),
+            rest: reader.read_remaining().reraise()?.into(),
         })
     }
 }
@@ -134,17 +141,17 @@ pub struct CelEntry {
 }
 
 impl CelEntry {
-    pub fn read_from<M: MemReader>(reader: &mut M) -> io::Result<CelEntry> {
-        let width = reader.read_u16_le()?;
-        let height = reader.read_u16_le()?;
-        let displace_x = reader.read_i16_le()?;
-        let displace_y = reader.read_i16_le()?;
-        let clear_key = reader.read_u8()?;
+    pub fn read_from<M: MemReader>(reader: &mut M) -> Result<CelEntry, AnyDiag> {
+        let width = reader.read_u16_le().reraise()?;
+        let height = reader.read_u16_le().reraise()?;
+        let displace_x = reader.read_i16_le().reraise()?;
+        let displace_y = reader.read_i16_le().reraise()?;
+        let clear_key = reader.read_u8().reraise()?;
         let mut reserved1 = [0u8; 15];
-        reader.read_exact(&mut reserved1)?;
-        let rle_offset = reader.read_u32_le()?;
-        let literal_offset = reader.read_u32_le()?;
-        let rest = reader.read_remaining()?;
+        reader.read_exact(&mut reserved1).reraise()?;
+        let rle_offset = reader.read_u32_le().reraise()?;
+        let literal_offset = reader.read_u32_le().reraise()?;
+        let rest = reader.read_remaining().reraise()?;
         Ok(CelEntry {
             width,
             height,
@@ -368,7 +375,7 @@ impl LoopState {
         header: &ViewHeader,
         loop_reader: &mut M,
         ranges: &mut RangeComputer<u32>,
-    ) -> io::Result<Self>
+    ) -> Result<Self, AnyDiag>
     where
         M: MemReader,
     {
@@ -387,7 +394,9 @@ impl LoopState {
         let mut cels = Vec::with_capacity(usize::from(loop_entry.cel_count));
         for i in 0..cel_count {
             let entry = CelEntry::read_from(
-                &mut cel_reader.read_to_subreader(format!("{i}"), usize::from(header.cel_size))?,
+                &mut cel_reader
+                    .read_to_subreader(format!("{i}"), usize::from(header.cel_size))
+                    .reraise()?,
             )?;
             cels.push(CelState {
                 data: CelData {
@@ -423,7 +432,7 @@ impl View {
         &self.loops
     }
 
-    pub fn from_resource(resource_data: &Block) -> io::Result<View> {
+    pub fn from_resource(resource_data: &Block) -> Result<View, ViewError> {
         // Keep track of ranges of data in the view
         let mut ranges = RangeComputer::<u32>::new();
         ranges.add_range_start(0);
@@ -432,7 +441,9 @@ impl View {
         let header = ViewHeader::read_from(&mut reader)?;
         let loop_count = usize::from(header.loop_count);
         let loop_size = usize::from(header.loop_size);
-        let mut loop_reader = reader.read_to_subreader("loop_data", loop_count * loop_size)?;
+        let mut loop_reader = reader
+            .read_to_subreader("loop_data", loop_count * loop_size)
+            .reraise()?;
         let palette_range = if header.pal_offset != 0 {
             Some(ranges.add_range_start(header.pal_offset))
         } else {
@@ -444,7 +455,9 @@ impl View {
             let loop_state = LoopState::from_reader(
                 resource_data,
                 &header,
-                &mut loop_reader.read_to_subreader(format!("{i}"), loop_size)?,
+                &mut loop_reader
+                    .read_to_subreader(format!("{i}"), loop_size)
+                    .reraise()?,
                 &mut ranges,
             )?;
             loop_states.push(loop_state);
@@ -455,7 +468,7 @@ impl View {
         let palette = palette_range
             .map(|range| {
                 Palette::from_data(
-                    resource_data
+                    &resource_data
                         .subblock(ranges.get(&range).unwrap().cast_to::<u64>())
                         .open_mem(..)
                         .unwrap(),

@@ -1,27 +1,9 @@
+use scidev_errors::{AnyDiag, ensure, prelude::*};
+
 use crate::{
-    resources::{
-        ResourceId,
-        file::{map::ResourceLocation, volume::raw_contents::RawContents},
-    },
-    utils::{
-        block::{Block, FromBlock as _},
-        errors::{OtherError, OtherResultExt},
-    },
+    resources::file::{map::ResourceLocation, volume::raw_contents::RawContents},
+    utils::block::{Block, FromBlock as _},
 };
-
-#[derive(Debug, thiserror::Error)]
-#[error("Resource ID mismatch: expected {expected:?}, got {got:?}")]
-pub(super) struct ResourceIdMismatch {
-    pub expected: ResourceId,
-    pub got: ResourceId,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("Invalid resource location {location:x}: {reason}")]
-pub(super) struct InvalidResourceLocation {
-    pub location: usize,
-    pub reason: String,
-}
 
 use super::{contents::Contents, raw_header::RawEntryHeader};
 
@@ -34,45 +16,42 @@ impl VolumeFile {
         VolumeFile { data }
     }
 
-    pub(crate) fn read_raw_contents(&self, offset: u32) -> Result<RawContents, OtherError> {
-        if self.data.len() < u64::from(offset) {
-            return Err(OtherError::new(InvalidResourceLocation {
-                location: offset as usize,
-                reason: "file offset is beyond end of file".into(),
-            }));
-        }
+    pub(crate) fn read_raw_contents(&self, offset: u32) -> Result<RawContents, AnyDiag> {
+        ensure!(
+            self.data.len() >= u64::from(offset),
+            "file offset is beyond end of file"
+        );
 
         let (header, rest) =
-            RawEntryHeader::from_block_source(&self.data.subblock(u64::from(offset)..))?;
+            RawEntryHeader::from_block_source(&self.data.subblock(u64::from(offset)..))
+                .reraise()?;
 
         let packed_size = u64::from(header.packed_size());
 
-        if rest.len() < packed_size {
-            return Err(OtherError::new(InvalidResourceLocation {
-                location: offset as usize,
-                reason: format!("resource data ({packed_size} bytes) extends beyond end of file"),
-            }));
-        }
+        ensure!(
+            rest.len() >= packed_size,
+            "resource data ({packed_size} bytes) extends beyond end of file"
+        );
 
         let resource_block = rest.subblock(..packed_size);
         Ok(RawContents::new(offset, header, resource_block))
     }
 
-    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, OtherError> {
+    pub(crate) fn read_contents(&self, location: ResourceLocation) -> Result<Contents, AnyDiag> {
         let raw_contents = &self.read_raw_contents(location.file_offset())?;
-        if raw_contents.id() != location.id() {
-            return Err(OtherError::new(ResourceIdMismatch {
-                expected: location.id(),
-                got: raw_contents.id(),
-            }));
-        }
-        Contents::from_raw(raw_contents).with_other_err()
+        ensure!(
+            raw_contents.id() == location.id(),
+            "resource ID mismatch: expected {:?}, got {:?}",
+            location.id(),
+            raw_contents.id(),
+        );
+        Ok(Contents::from_raw(raw_contents).reraise()?)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::resources::ResourceType;
+    use crate::resources::{ResourceId, ResourceType};
 
     use super::*;
     use datalit::datalit;

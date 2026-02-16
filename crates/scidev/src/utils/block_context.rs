@@ -1,10 +1,5 @@
-use std::backtrace::{Backtrace, BacktraceStatus};
-use std::error::Error;
 use std::fmt::{Debug, Display};
-use std::io;
 use std::sync::Arc;
-
-use crate::utils::errors::BoxError;
 
 /// A trait representing a "displayable" item that will be referenced from
 /// scopes.
@@ -94,17 +89,19 @@ impl Display for ConcreteScopeItem {
 /// This should not represent an error in reading the data itself, only in the
 /// format of the data.
 #[derive(Debug)]
-struct ScopeInfo {
+pub(crate) struct ScopeInfo {
     data_size: usize,
     scopes: Vec<ConcreteScopeItem>,
+    position: usize,
 }
 
 impl Display for ScopeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "- {} block", self.data_size)?;
+        write!(f, "At byte position {}, ", self.position)?;
         for scope in &self.scopes {
-            writeln!(f, "\n- {scope}")?;
+            writeln!(f, "\n- In subblock in {scope}")?;
         }
+        write!(f, "\n- In block of size {}", self.data_size)?;
         Ok(())
     }
 }
@@ -130,21 +127,18 @@ impl BlockContext<'_> {
         })
     }
 
-    pub(crate) fn create_error<E>(&self, position: usize, message: E) -> InvalidDataError
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        InvalidDataError {
-            backtrace: Backtrace::capture(),
-            scope_info: self.0.make_scope_info(),
+    pub(crate) fn make_context(&self, position: usize) -> ScopeInfo {
+        let (data_size, scopes) = self.0.make_context();
+        ScopeInfo {
+            data_size,
+            scopes,
             position,
-            message: message.into(),
         }
     }
 }
 
 trait ContextLayer<'a>: std::fmt::Debug {
-    fn make_scope_info(&self) -> ScopeInfo;
+    fn make_context(&self) -> (usize, Vec<ConcreteScopeItem>);
 }
 
 #[derive(Debug, Clone)]
@@ -159,53 +153,15 @@ enum ContextInner<'a> {
 }
 
 impl<'a> ContextLayer<'a> for ContextInner<'a> {
-    fn make_scope_info(&self) -> ScopeInfo {
+    #[track_caller]
+    fn make_context(&self) -> (usize, Vec<ConcreteScopeItem>) {
         match self {
-            ContextInner::Root { data_size } => ScopeInfo {
-                data_size: *data_size,
-                scopes: Vec::new(),
-            },
+            ContextInner::Root { data_size } => (*data_size, Vec::new()),
             ContextInner::Nested { parent, scope_item } => {
-                let mut info = parent.make_scope_info();
-                info.scopes.push(scope_item.to_concrete());
-                info
+                let (data_size, mut scopes) = parent.make_context();
+                scopes.push(scope_item.to_concrete());
+                (data_size, scopes)
             }
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct InvalidDataError {
-    backtrace: Backtrace,
-    scope_info: ScopeInfo,
-    position: usize,
-    message: BoxError,
-}
-
-impl Display for InvalidDataError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Invalid data at position {}: {}{}",
-            self.position, self.message, self.scope_info
-        )?;
-
-        if let BacktraceStatus::Captured = self.backtrace.status() {
-            write!(f, "\n\nBacktrace:\n{}", self.backtrace)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl Error for InvalidDataError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&*self.message)
-    }
-}
-
-impl From<InvalidDataError> for io::Error {
-    fn from(err: InvalidDataError) -> Self {
-        io::Error::new(io::ErrorKind::InvalidData, err)
     }
 }

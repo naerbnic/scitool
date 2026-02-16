@@ -1,12 +1,11 @@
+use scidev_errors::{AnyDiag, ensure, prelude::*};
+
 use crate::{
     script_loader::{
-        mem_loader::{object::error::PropertyMismatch, read_null_terminated_string},
+        mem_loader::read_null_terminated_string,
         selectors::{Selector, SelectorTable},
     },
-    utils::{
-        errors::{OtherError, OtherResultExt as _},
-        mem_reader::MemReader,
-    },
+    utils::mem_reader::MemReader,
 };
 
 use super::object_data::ObjectData;
@@ -27,7 +26,7 @@ impl Object {
         selector_table: &SelectorTable,
         loaded_data: &M,
         obj_data: Vec<u16>,
-    ) -> Result<Object, OtherError>
+    ) -> Result<Object, AnyDiag>
     where
         M: MemReader + 'a,
     {
@@ -61,25 +60,21 @@ impl Object {
             if name_ptr == 0 {
                 None
             } else {
-                let string_data =
-                    loaded_data.sub_reader_range("object name string data", name_ptr as usize..)?;
-                Some(
-                    read_null_terminated_string(string_data)
-                        .map_err(|e| loaded_data.create_invalid_data_error(e))
-                        .with_other_err()?
-                        .clone(),
-                )
+                let string_data = loaded_data
+                    .sub_reader_range("object name string data", name_ptr as usize..)
+                    .reraise()?;
+                Some(read_null_terminated_string(string_data)?.clone())
             }
         } else {
             None
         };
 
-        if script != 0xFFFF && object_data.get_num_properties() != object_data.get_num_fields() {
-            return Err(OtherError::new(PropertyMismatch {
-                num_properties: object_data.get_num_properties(),
-                num_fields: object_data.get_num_fields(),
-            }));
-        }
+        ensure!(
+            script == 0xFFFF || object_data.get_num_properties() == object_data.get_num_fields(),
+            "Class has script but number of properties does not equal number of fields: {} properties, {} fields",
+            object_data.get_num_properties(),
+            object_data.get_num_fields(),
+        );
 
         Ok(Self {
             data: object_data,

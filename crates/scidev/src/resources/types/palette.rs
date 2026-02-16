@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
-use scidev_macros_internal::other_fn;
+use scidev_errors::{AnyDiag, bail, prelude::*};
 
 use crate::utils::{
     buffer::{Buffer, BufferExt as _, SplittableBuffer},
-    errors::{OpaqueError, bail_other},
     mem_reader::{BufferMemReader, MemReader as _},
 };
 
@@ -51,13 +50,12 @@ pub struct Palette {
 }
 
 impl Palette {
-    #[other_fn]
-    pub fn from_data<B>(data: B) -> Result<Self, OpaqueError>
+    pub fn from_data<B>(data: &B) -> Result<Self, AnyDiag>
     where
         B: SplittableBuffer,
     {
         if data.size() < 37 {
-            bail_other!("Palette data is too small");
+            bail!("Palette data is too small");
         }
         let data0 = data.read_at::<u8>(0);
         let data1 = data.read_at::<u8>(1);
@@ -76,22 +74,21 @@ impl Palette {
             format = match data.read_at::<u8>(32) {
                 0 => PaletteFormat::Variable,
                 1 => PaletteFormat::Constant,
-                _ => bail_other!("Invalid palette format"),
+                _ => bail!("Invalid palette format"),
             };
             color_start = data.read_at::<u8>(25);
             color_count = data.read_at::<u16>(29);
         }
 
-        Ok(Self::from_params(&block, format, color_start, color_count)?)
+        Self::from_params(&block, format, color_start, color_count)
     }
 
-    #[other_fn]
     fn from_params<B>(
         pal_data: &B,
         format: PaletteFormat,
         color_start: u8,
         color_count: u16,
-    ) -> Result<Self, OpaqueError>
+    ) -> Result<Self, AnyDiag>
     where
         B: Buffer,
     {
@@ -99,13 +96,13 @@ impl Palette {
         let mut mapping = BTreeMap::new();
         for i in 0..color_count {
             let used = if let PaletteFormat::Variable = format {
-                reader.read_u8()? != 0
+                reader.read_u8().raise().msg("Failed to read used flag")? != 0
             } else {
                 true
             };
-            let r = reader.read_u8()?;
-            let g = reader.read_u8()?;
-            let b = reader.read_u8()?;
+            let r = reader.read_u8().raise().msg("Failed to read red")?;
+            let g = reader.read_u8().raise().msg("Failed to read green")?;
+            let b = reader.read_u8().raise().msg("Failed to read blue")?;
 
             if !used {
                 continue;

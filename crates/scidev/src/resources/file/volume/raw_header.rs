@@ -1,8 +1,6 @@
-use std::io;
-
 use crate::utils::{
     block::FromBlock,
-    mem_reader::{MemReader, Parse},
+    mem_reader::{self, MemReader, Parse},
 };
 
 /// A resource entry header in a data file.
@@ -40,7 +38,7 @@ impl RawEntryHeader {
 }
 
 impl Parse for RawEntryHeader {
-    fn parse<M: MemReader>(reader: &mut M) -> io::Result<Self> {
+    fn parse<M: MemReader>(reader: &mut M) -> mem_reader::Result<Self> {
         let res_type = reader.read_u8()?;
         let res_number = reader.read_u16_le()?;
         let packed_size = reader.read_u16_le()?;
@@ -64,7 +62,7 @@ impl FromBlock for RawEntryHeader {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::{mem_reader, testing::block::mem_reader_from_bytes};
+    use crate::utils::testing::block::mem_reader_from_bytes;
 
     use super::*;
     use datalit::datalit;

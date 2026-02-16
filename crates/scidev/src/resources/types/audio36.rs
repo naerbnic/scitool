@@ -1,18 +1,16 @@
 use std::{collections::BTreeMap, io};
 
+use scidev_errors::prelude::*;
+
 use crate::{
-    resources::resource::ResourceContents,
+    resources::{Resource, ResourceId, ResourceType, resource::ResourceContents},
     utils::{
         block::{Block, MemBlock},
         data_writer::DataWriterExt,
-        errors::{BoxError, OpaqueError, OtherError, ensure_other},
-        mem_reader::MemReader,
+        mem_reader::{self, MemReader},
     },
 };
 use bytes::BufMut;
-use scidev_macros_internal::other_fn;
-
-use crate::resources::{Resource, ResourceId, ResourceType};
 
 use super::msg::MessageId;
 
@@ -26,7 +24,7 @@ struct RawMapEntry {
 }
 
 impl RawMapEntry {
-    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> io::Result<RawMapEntry> {
+    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<RawMapEntry> {
         let noun = reader.read_u8()?;
         let verb = reader.read_u8()?;
         let cond = reader.read_u8()?;
@@ -73,7 +71,7 @@ impl RawMapResource {
     }
 
     #[expect(dead_code)]
-    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> io::Result<RawMapResource> {
+    pub(crate) fn read_from<M: MemReader>(reader: &mut M) -> mem_reader::Result<RawMapResource> {
         let mut entries = Vec::new();
         loop {
             let entry = RawMapEntry::read_from(reader)?;
@@ -138,17 +136,8 @@ struct AudioVolumeBuilder {
     curr_offset: u32,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum AudioVolumeBuilderError {
-    #[doc(hidden)]
-    #[error(transparent)]
-    Other(#[from] OpaqueError),
-}
-
-impl From<BoxError> for AudioVolumeBuilderError {
-    fn from(err: BoxError) -> Self {
-        AudioVolumeBuilderError::Other(OpaqueError::from_boxed(err))
-    }
+scidev_errors::define_error! {
+    pub struct AudioVolumeBuilderError;
 }
 
 impl AudioVolumeBuilder {
@@ -160,7 +149,6 @@ impl AudioVolumeBuilder {
         }
     }
 
-    #[other_fn]
     pub(crate) fn add_entry(
         &mut self,
         sample: &VoiceSample,
@@ -168,7 +156,7 @@ impl AudioVolumeBuilder {
         // Check if the entry is vaild. Variable is copied in case we need to use it to
         // calculate the new file offset.
         let _format = if let Some(format) = self.format {
-            ensure_other!(
+            scidev_errors::ensure!(
                 format == sample.format,
                 "Audio format mismatch: expected {:?}, got {:?}",
                 format,
@@ -291,12 +279,13 @@ impl Audio36ResourceBuilder {
         Ok(())
     }
 
-    #[other_fn]
     pub fn build(self) -> Result<VoiceSampleResources, AudioVolumeBuilderError> {
         let mut map_resources = Vec::new();
         for (room, map) in self.maps {
             let mut map_data = Vec::new();
-            map.write_to(&mut map_data)?;
+            map.write_to(&mut map_data).raise_with(|r| {
+                r.args(format_args!("Failed to write resource map for room {room}"))
+            })?;
             map_resources.push(Resource::new(
                 ResourceId::new(ResourceType::Map, room),
                 ResourceContents::new(Block::from_mem_block(MemBlock::from_vec(map_data))),

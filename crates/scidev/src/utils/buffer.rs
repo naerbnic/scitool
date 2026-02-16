@@ -4,11 +4,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use scidev_errors::{AnyDiag, Reportable, prelude::*};
+
 use crate::utils::{
-    convert::convert_if_different,
     mem_reader::FromFixedBytes,
     range::{BoundedRange, Range},
 };
+
+pub type Result<T> = std::result::Result<T, AnyDiag>;
 
 pub trait SizedData {
     /// Returns the size of the buffer in bytes.
@@ -171,11 +174,11 @@ pub trait FallibleBuffer: SizedData {
     /// The length of the provided buffer determines how many bytes are read.
     ///
     /// Panics if the end of the read region would be beyond the end of the buffer.
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()>;
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()>;
 }
 
 impl FallibleBuffer for [u8] {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         buf.copy_from_slice(&self[offset..][..buf.len()]);
         Ok(())
     }
@@ -185,7 +188,7 @@ impl<T> FallibleBuffer for &T
 where
     T: FallibleBuffer + ?Sized,
 {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         (*self).read_slice(offset, buf)
     }
 }
@@ -194,7 +197,7 @@ impl<T> FallibleBuffer for &mut T
 where
     T: FallibleBuffer + ?Sized,
 {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         (**self).read_slice(offset, buf)
     }
 }
@@ -203,7 +206,7 @@ impl<T> FallibleBuffer for Arc<T>
 where
     T: FallibleBuffer,
 {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         (**self).read_slice(offset, buf)
     }
 }
@@ -226,7 +229,7 @@ impl<B> FallibleBuffer for FallibleBufWrap<B>
 where
     B: Buffer,
 {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         assert!(
             offset + buf.len() <= self.buffer.size(),
             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
@@ -297,7 +300,7 @@ impl<R> FallibleBuffer for ReaderBuffer<R>
 where
     R: io::Read + io::Seek,
 {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         assert!(
             offset + buf.len() <= self.size,
             "Attempted to read beyond end of buffer: offset {offset} + length {} > size {}",
@@ -305,8 +308,12 @@ where
             self.size
         );
         let mut reader = self.reader.lock().unwrap();
-        reader.seek(io::SeekFrom::Start(offset as u64))?;
-        reader.read_exact(buf)?;
+        reader
+            .seek(io::SeekFrom::Start(offset as u64))
+            .raise_with(|r| r.args(format_args!("Failed to seek to slice offset {offset}")))?;
+        reader
+            .read_exact(buf)
+            .raise_with(|r| r.args(format_args!("Failed to read data of size {}", buf.size())))?;
         Ok(())
     }
 }
@@ -349,10 +356,24 @@ impl<T> FallibleBuffer for FallibleBufferRef<'_, T>
 where
     T: FallibleBuffer,
 {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         self.0.read_slice(offset, buf)
     }
 }
+
+#[derive(Debug)]
+struct IoDiagWrapper<E>(E);
+
+impl<E> std::fmt::Display for IoDiagWrapper<E>
+where
+    E: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<E> std::error::Error for IoDiagWrapper<E> where E: Reportable {}
 
 /// A buffer that can be split and can fail when reading.
 pub trait SplittableFallibleBuffer: Splittable + FallibleBuffer {}
@@ -379,7 +400,8 @@ impl<B: FallibleBuffer> io::Read for BufferCursor<B> {
         let buf = &mut buf[..available];
         self.buffer
             .read_slice(self.position, buf)
-            .map_err(|e| convert_if_different(e, io::Error::other))?;
+            .map_err(IoDiagWrapper)
+            .map_err(io::Error::other)?;
         self.position += buf.len();
         Ok(buf.len())
     }

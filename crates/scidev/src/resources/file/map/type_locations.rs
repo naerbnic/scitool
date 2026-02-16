@@ -1,8 +1,8 @@
-use std::io;
+use scidev_errors::ensure;
 
 use crate::{
     resources::ResourceType,
-    utils::mem_reader::{MemReader, Parse},
+    utils::mem_reader::{self, MemReader, Parse},
 };
 
 use super::location_entry::ResourceLocationEntry;
@@ -27,17 +27,14 @@ impl ResourceTypeLocations {
         type_id: ResourceType,
         start: u16,
         end: u16,
-    ) -> io::Result<ResourceTypeLocations> {
+    ) -> mem_reader::Result<ResourceTypeLocations> {
         // Despite documentation to the contrary, SCI11 uses 5 byte entries in the resource map
         // file.
-        if !(end - start).is_multiple_of(5) {
-            return Err(reader
-                .create_invalid_data_error_msg(format!(
-                    "Resource type {type_id:?} has invalid location entry size: {} bytes",
-                    end - start
-                ))
-                .into());
-        }
+        ensure!(
+            (end - start).is_multiple_of(5),
+            "Resource type {type_id:?} has invalid location entry size: {} bytes",
+            end - start
+        );
         let count = (end - start) / 5;
         reader.seek_to(usize::from(start))?;
         let mut entries = Vec::new();
@@ -49,7 +46,7 @@ impl ResourceTypeLocations {
 }
 
 impl Parse for ResourceTypeLocations {
-    fn parse<M: MemReader>(_: &mut M) -> io::Result<Self> {
+    fn parse<M: MemReader>(_: &mut M) -> mem_reader::Result<Self> {
         unimplemented!("ResourceTypeLocations cannot be parsed without additional context")
     }
 }

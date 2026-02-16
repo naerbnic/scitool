@@ -1221,7 +1221,7 @@ dependencies = [
  "num",
  "pin-project",
  "proptest",
- "scidev-macros-internal",
+ "scidev-errors",
  "serde",
  "sha2",
  "tempfile",
@@ -1265,15 +1265,6 @@ dependencies = [
  "libfuzzer-sys",
  "scidev",
  "tempfile",
-]
-
-[[package]]
-name = "scidev-macros-internal"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

@@ -17,6 +17,7 @@ use std::{
 };
 
 use bytes::Buf;
+use scidev_errors::{AnyDiag, ensure, prelude::*};
 
 use crate::utils::{
     block::{
@@ -318,10 +319,16 @@ impl SizedData for BlockBuffer {
 }
 
 impl FallibleBuffer for BlockBuffer {
-    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> io::Result<()> {
+    fn read_slice(&self, offset: usize, buf: &mut [u8]) -> Result<(), AnyDiag> {
         let offset = u64::try_from(offset).expect("sizeof(usize) <= sizeof(u64)");
         let range = Range::from_range(offset..offset + buf.len() as u64);
-        let mem_block = self.0.open_mem(range)?;
+        let mem_block = self.0.open_mem(range).raise_with(|r| {
+            r.args(format_args!(
+                "Tried to read {:?} bytes from block source of size {}",
+                range.size(),
+                self.0.len()
+            ))
+        })?;
         buf.copy_from_slice(&mem_block);
         Ok(())
     }
@@ -437,21 +444,23 @@ impl Default for Builder {
 pub trait FromBlock: mem_reader::Parse {
     fn read_size() -> usize;
 
-    fn from_block_source(source: &Block) -> io::Result<(Self, Block)> {
-        if Self::read_size() as u64 > source.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Tried to read {} bytes from block source of size {}",
-                    Self::read_size(),
-                    source.len()
-                ),
-            ));
-        }
-        let block = source.subblock(..Self::read_size() as u64).open_mem(..)?;
+    fn from_block_source(source: &Block) -> mem_reader::Result<(Self, Block)> {
+        ensure!(
+            Self::read_size() as u64 <= source.len(),
+            mem_reader::ErrorKind::NotEnoughData {
+                required: Self::read_size(),
+                available: source.len().try_into().unwrap()
+            },
+            "Tried to read {} bytes from block source of size {}",
+            Self::read_size(),
+            source.len()
+        );
+        let block = source
+            .subblock(..Self::read_size() as u64)
+            .open_mem(..)
+            .map_raise(|err, r| r.args(format_args!("Unable to open mem block: {err}")))?;
         let mut reader = BufferMemReader::new(block.as_fallible());
-        let parse_result = Self::parse(&mut reader);
-        let value = parse_result.map_err(io::Error::other)?;
+        let value = Self::parse(&mut reader)?;
         let rest = source.subblock(reader.tell() as u64..);
         Ok((value, rest))
     }
