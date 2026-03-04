@@ -2,14 +2,14 @@ use std::marker::PhantomData;
 
 use crate::{
     Kind, RaisedKind, RaisedMessage, Raiser, Reportable, ext::RaisedToDiag,
-    reportable::BoxedErrLike,
+    reportable::ReportableHandle,
 };
 
 pub(crate) struct KindFinding<K>
 where
     K: Kind,
 {
-    err_like: BoxedErrLike,
+    err_like: ReportableHandle,
     _phantom: PhantomData<K>,
 }
 
@@ -22,7 +22,7 @@ where
         K: Reportable,
     {
         Self {
-            err_like: BoxedErrLike::new(kind),
+            err_like: ReportableHandle::new(kind),
             _phantom: PhantomData,
         }
     }
@@ -32,16 +32,16 @@ where
         M: Reportable,
     {
         Self {
-            err_like: BoxedErrLike::from_split(kind, msg),
+            err_like: ReportableHandle::from_split(kind, msg),
             _phantom: PhantomData,
         }
     }
 
     pub(crate) fn new_kind_args(kind: K, args: std::fmt::Arguments<'_>) -> Self {
         let err_like = if let Some(static_str) = args.as_str() {
-            BoxedErrLike::from_split(kind, static_str)
+            ReportableHandle::from_split(kind, static_str)
         } else {
-            BoxedErrLike::from_split(kind, args.to_string())
+            ReportableHandle::from_split(kind, args.to_string())
         };
         Self {
             err_like,
@@ -50,13 +50,13 @@ where
     }
 
     #[must_use]
-    pub(crate) fn into_err_like(self) -> BoxedErrLike {
+    pub(crate) fn into_err_like(self) -> ReportableHandle {
         self.err_like
     }
 }
 
 pub(crate) struct MessageFinding {
-    err_like: BoxedErrLike,
+    err_like: ReportableHandle,
 }
 
 impl MessageFinding {
@@ -65,21 +65,21 @@ impl MessageFinding {
         M: Reportable,
     {
         Self {
-            err_like: BoxedErrLike::from_report_only(msg),
+            err_like: ReportableHandle::from_report_only(msg),
         }
     }
 
     pub(crate) fn new_args(args: std::fmt::Arguments<'_>) -> Self {
         let err_like = if let Some(static_str) = args.as_str() {
-            BoxedErrLike::from_report_only(static_str)
+            ReportableHandle::from_report_only(static_str)
         } else {
-            BoxedErrLike::from_report_only(args.to_string())
+            ReportableHandle::from_report_only(args.to_string())
         };
         Self { err_like }
     }
 
     #[must_use]
-    pub(crate) fn into_err_like(self) -> BoxedErrLike {
+    pub(crate) fn into_err_like(self) -> ReportableHandle {
         self.err_like
     }
 }

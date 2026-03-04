@@ -20,11 +20,11 @@ trait DynReportable: Debug + Send + Sync + 'static {
 }
 
 #[derive(Debug)]
-struct ReportableWraper<T>(T);
+struct KindWrapper<K>(K);
 
-impl<T> DynReportable for ReportableWraper<T>
+impl<K> DynReportable for KindWrapper<K>
 where
-    T: Kind + Reportable,
+    K: Kind + Reportable,
 {
     fn as_reportable(&self) -> &dyn Reportable {
         &self.0
@@ -40,15 +40,15 @@ where
 }
 
 #[derive(Debug)]
-struct SplitReportable<T, E> {
-    value: T,
-    reportable: E,
+struct SplitReportable<K, R> {
+    value: K,
+    reportable: R,
 }
 
-impl<T, E> DynReportable for SplitReportable<T, E>
+impl<K, R> DynReportable for SplitReportable<K, R>
 where
-    T: Kind,
-    E: Reportable,
+    K: Kind,
+    R: Reportable,
 {
     fn as_reportable(&self) -> &dyn Reportable {
         &self.reportable
@@ -64,13 +64,13 @@ where
 }
 
 #[derive(Debug)]
-struct OnlyReportable<E> {
-    reportable: E,
+struct OnlyReportable<R> {
+    reportable: R,
 }
 
-impl<E> DynReportable for OnlyReportable<E>
+impl<R> DynReportable for OnlyReportable<R>
 where
-    E: Reportable,
+    R: Reportable,
 {
     fn as_reportable(&self) -> &dyn Reportable {
         &self.reportable
@@ -85,27 +85,27 @@ where
     }
 }
 
-pub(crate) struct BoxedErrLike(Box<dyn DynReportable>);
+pub(crate) struct ReportableHandle(Box<dyn DynReportable>);
 
-impl BoxedErrLike {
-    pub(crate) fn new<E>(err_like: E) -> Self
+impl ReportableHandle {
+    pub(crate) fn new<K>(err_like: K) -> Self
     where
-        E: Kind + Reportable,
+        K: Kind + Reportable,
     {
-        Self(Box::new(ReportableWraper(err_like)))
+        Self(Box::new(KindWrapper(err_like)))
     }
 
-    pub(crate) fn from_split<T, E>(value: T, reportable: E) -> Self
+    pub(crate) fn from_split<K, R>(value: K, reportable: R) -> Self
     where
-        T: Kind,
-        E: Reportable,
+        K: Kind,
+        R: Reportable,
     {
         Self(Box::new(SplitReportable { value, reportable }))
     }
 
-    pub(crate) fn from_report_only<E>(reportable: E) -> Self
+    pub(crate) fn from_report_only<R>(reportable: R) -> Self
     where
-        E: Reportable,
+        R: Reportable,
     {
         Self(Box::new(OnlyReportable { reportable }))
     }
@@ -114,28 +114,28 @@ impl BoxedErrLike {
         self.0.as_reportable()
     }
 
-    pub(crate) fn downcast_ref<T>(&self) -> Option<&T>
+    pub(crate) fn downcast_ref<K>(&self) -> Option<&K>
     where
-        T: Kind,
+        K: Kind,
     {
         self.0.as_any()?.downcast_ref()
     }
 
-    pub(crate) fn downcast<T>(self) -> Option<T>
+    pub(crate) fn downcast<K>(self) -> Option<K>
     where
-        T: Kind,
+        K: Kind,
     {
-        self.0.into_any_box()?.downcast::<T>().map(|v| *v).ok()
+        self.0.into_any_box()?.downcast::<K>().map(|v| *v).ok()
     }
 }
 
-impl Display for BoxedErrLike {
+impl Display for ReportableHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0.as_reportable(), f)
     }
 }
 
-impl Debug for BoxedErrLike {
+impl Debug for ReportableHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.0.as_reportable(), f)
     }

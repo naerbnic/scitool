@@ -94,7 +94,7 @@ macro_rules! define_error {
 
         impl $name {
             $v fn kind(&self) -> &$kind {
-                self.diag.as_error()
+                self.diag.kind()
             }
         }
 
@@ -154,7 +154,7 @@ macro_rules! define_error {
 
         impl $name {
             $v fn opt_kind(&self) -> Option<&$kind> {
-                self.diag.try_as_error()
+                self.diag.opt_kind()
             }
         }
 

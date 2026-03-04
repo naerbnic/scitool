@@ -357,14 +357,14 @@ mod tests {
     #[test]
     fn test_result_map_raising_ok() {
         let result: Result<u32, Diag<TestKind>> = Ok(5);
-        let raised = result.map_raise(|err, r| r.kind(TestKind(err.as_error().0 * 2)));
+        let raised = result.map_raise(|err, r| r.kind(TestKind(err.kind().0 * 2)));
         assert!(raised.is_ok());
     }
 
     #[test]
     fn test_result_map_raising_err() {
         let result: Result<u32, Diag<TestKind>> = Err(Diag::new().kind(TestKind(5)));
-        let raised = result.map_raise(|err, r| r.kind(TestKind(err.as_error().0 * 2)));
-        assert_eq!(raised.unwrap_err().as_error().0, 10);
+        let raised = result.map_raise(|err, r| r.kind(TestKind(err.kind().0 * 2)));
+        assert_eq!(raised.unwrap_err().kind().0, 10);
     }
 }

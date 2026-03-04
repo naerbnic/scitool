@@ -9,13 +9,13 @@ use crate::{
     Kind,
     finding::MessageFinding,
     fmt_helpers::Indent,
-    reportable::{BoxedErrLike, Reportable},
+    reportable::{Reportable, ReportableHandle},
 };
 
 #[derive(Debug)]
 struct Context {
     created_at: &'static Location<'static>,
-    message: BoxedErrLike,
+    message: ReportableHandle,
 }
 
 /// Helper for frames, giving a generalized structure of printable
@@ -41,7 +41,7 @@ impl Debug for FrameFormatWrapper<'_> {
 }
 
 #[derive(Debug)]
-pub(crate) struct Frame {
+struct Inner {
     /// Contexts on top of the given error. In reverse order of creation.
     additional_contexts: Vec<Context>,
 
@@ -53,9 +53,14 @@ pub(crate) struct Frame {
     causes: Vec<Frame>,
 }
 
+#[derive(Debug)]
+pub(crate) struct Frame {
+    inner: Box<Inner>,
+}
+
 impl Frame {
     pub(crate) fn new(
-        root_err: BoxedErrLike,
+        root_err: ReportableHandle,
         created_at: &'static Location<'static>,
         causes: Vec<Frame>,
     ) -> Self {
@@ -64,9 +69,11 @@ impl Frame {
             message: root_err,
         };
         Self {
-            additional_contexts: Vec::new(),
-            base_context: code_context,
-            causes,
+            inner: Box::new(Inner {
+                additional_contexts: Vec::new(),
+                base_context: code_context,
+                causes,
+            }),
         }
     }
 
@@ -75,7 +82,7 @@ impl Frame {
         msg: MessageFinding,
         created_at: &'static Location<'static>,
     ) {
-        self.additional_contexts.push(Context {
+        self.inner.additional_contexts.push(Context {
             created_at,
             message: msg.into_err_like(),
         });
@@ -85,31 +92,35 @@ impl Frame {
     where
         E: Kind,
     {
-        self.base_context.message.downcast_ref::<E>().is_some()
+        self.inner
+            .base_context
+            .message
+            .downcast_ref::<E>()
+            .is_some()
     }
 
     pub(crate) fn try_error_ref<E>(&self) -> Option<&E>
     where
         E: Kind,
     {
-        self.base_context.message.downcast_ref()
+        self.inner.base_context.message.downcast_ref()
     }
 
     pub(crate) fn try_extract_error<E>(&mut self) -> Option<E>
     where
         E: Kind,
     {
-        let placeholder = BoxedErrLike::from_report_only("<extracted>");
+        let placeholder = ReportableHandle::from_report_only("<extracted>");
         let error =
-            std::mem::replace(&mut self.base_context.message, placeholder).downcast::<E>()?;
+            std::mem::replace(&mut self.inner.base_context.message, placeholder).downcast::<E>()?;
         Some(error)
     }
 
     fn get_format_context(&self) -> FrameFormatContext<'_> {
         FrameFormatContext {
-            base_context: &self.base_context,
-            additional_contexts: &self.additional_contexts[..],
-            causes: &self.causes,
+            base_context: &self.inner.base_context,
+            additional_contexts: &self.inner.additional_contexts[..],
+            causes: &self.inner.causes,
         }
     }
 
@@ -195,14 +206,14 @@ impl Frame {
     }
 
     pub(crate) fn causes(&self) -> &[Frame] {
-        &self.causes
+        &self.inner.causes
     }
 
     pub(crate) fn location(&self) -> &'static Location<'static> {
-        if let Some(context) = self.additional_contexts.last() {
+        if let Some(context) = self.inner.additional_contexts.last() {
             context.created_at
         } else {
-            self.base_context.created_at
+            self.inner.base_context.created_at
         }
     }
 
@@ -210,7 +221,7 @@ impl Frame {
     /// context-based frame, then this is the location of the originating
     /// context.
     pub(crate) fn err_location(&self) -> &'static Location<'static> {
-        self.base_context.created_at
+        self.inner.base_context.created_at
     }
 
     #[expect(unsafe_code, reason = "For casts between transparent types.")]
@@ -240,7 +251,7 @@ impl Frame {
     /// Returns an iterator over all causes of this frame, including the cause
     /// represented by the current [`Frame`]
     pub(crate) fn all_causes(&self) -> impl Iterator<Item = ErrorView<'_>> {
-        FrameIter::from_frame_slice(&self.causes).map(Frame::view)
+        FrameIter::from_frame_slice(&self.inner.causes).map(Frame::view)
     }
 }
 
@@ -365,6 +376,7 @@ where
     /// Returns an iterator over the contexts that were added to this error.
     pub fn contexts(&self) -> impl Iterator<Item = ContextView<'a>> + 'a {
         self.error
+            .inner
             .additional_contexts
             .iter()
             .map(|context| ContextView { context })
@@ -471,6 +483,7 @@ impl<'a> ErrorView<'a> {
     /// Returns a list of iterators over the contexts added to this error.
     pub fn contexts(&self) -> impl Iterator<Item = ContextView<'a>> + 'a {
         self.error
+            .inner
             .additional_contexts
             .iter()
             .map(|context| ContextView { context })

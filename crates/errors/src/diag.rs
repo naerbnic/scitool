@@ -80,24 +80,24 @@ where
 /// error with the error type `E`, with additional layers of context added
 /// on top of it. Below that layer are one or more causes of this error, each
 /// with their own context.
-pub struct Diag<E>
+pub struct Diag<K>
 where
-    E: Kind,
+    K: Kind,
 {
-    root: Box<Frame>,
-    _phantom: std::marker::PhantomData<E>,
+    root: Frame,
+    _phantom: std::marker::PhantomData<K>,
 }
 
-impl<E> Diag<E>
+impl<K> Diag<K>
 where
-    E: Kind,
+    K: Kind,
 {
     /// Creates a new Diag error based on the given err-like.
     ///
     /// The caller of this function is recorded as the source of the error.
     #[track_caller]
     #[expect(clippy::new_ret_no_self, reason = "DiagBuilder is a builder")]
-    pub fn new() -> DiagBuilder<E> {
+    pub fn new() -> DiagBuilder<K> {
         DiagBuilder::new(std::iter::empty::<std::convert::Infallible>())
     }
 
@@ -105,12 +105,12 @@ where
     ///
     /// The caller of this function is recorded as the source of the error.
     #[track_caller]
-    pub fn with_causes<C: IntoCause>(causes: impl IntoIterator<Item = C>) -> DiagBuilder<E> {
+    pub fn with_causes<C: IntoCause>(causes: impl IntoIterator<Item = C>) -> DiagBuilder<K> {
         DiagBuilder::new(causes)
     }
 
     pub(crate) fn from_finding_and_causes<C: IntoCause>(
-        fnd: KindFinding<E>,
+        fnd: KindFinding<K>,
         causes: impl IntoIterator<Item = C>,
         created_at: &'static Location<'static>,
     ) -> Self {
@@ -125,24 +125,24 @@ where
     }
 
     pub(crate) fn from_finding_and_frames(
-        fnd: KindFinding<E>,
+        fnd: KindFinding<K>,
         causes: Vec<Frame>,
         created_at: &'static Location<'static>,
     ) -> Self {
         Self {
-            root: Box::new(Frame::new(fnd.into_err_like(), created_at, causes)),
+            root: Frame::new(fnd.into_err_like(), created_at, causes),
             _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<E> Diag<E>
+impl<K> Diag<K>
 where
-    E: Kind,
+    K: Kind,
 {
     /// Returns the contained err-like type the Diag was created with.
     #[must_use]
-    pub fn as_error(&self) -> &E {
+    pub fn kind(&self) -> &K {
         self.root
             .try_error_ref()
             .expect("Diag should always contain an error of type E")
@@ -155,9 +155,9 @@ where
     /// This can still be used and thrown, but the object no longer exists
     /// in the tree.
     ///
-    /// If you only want the error, you can call `err.into_error().0`
+    /// If you only want the error, you can call `err.into_kind().0`
     #[must_use]
-    pub fn into_error(mut self) -> (E, AnyDiag) {
+    pub fn into_kind(mut self) -> (K, AnyDiag) {
         let error = self
             .root
             .try_extract_error()
@@ -171,7 +171,7 @@ where
     T: Kind,
 {
     fn into_cause(self, _created_at: &'static Location<'static>) -> Cause {
-        Cause::from_frame(*self.root)
+        Cause::from_frame(self.root)
     }
 }
 
@@ -239,7 +239,7 @@ impl AnyDiagBuilder {
 /// be used for cases where the actual type of the error does not matter, but
 /// error context should still be preserved.
 pub struct AnyDiag {
-    root: Box<Frame>,
+    root: Frame,
 }
 
 impl AnyDiag {
@@ -285,14 +285,14 @@ impl AnyDiag {
         created_at: &'static Location<'static>,
     ) -> Self {
         Self {
-            root: Box::new(Frame::new(fnd.into_err_like(), created_at, causes)),
+            root: Frame::new(fnd.into_err_like(), created_at, causes),
         }
     }
 }
 
 impl IntoCause for AnyDiag {
     fn into_cause(self, _created_at: &'static Location<'static>) -> Cause {
-        Cause::from_frame(*self.root)
+        Cause::from_frame(self.root)
     }
 }
 
@@ -308,45 +308,48 @@ impl fmt::Debug for AnyDiag {
     }
 }
 
-impl<E> From<Diag<E>> for AnyDiag
+impl<K> From<Diag<K>> for AnyDiag
 where
-    E: Kind,
+    K: Kind,
 {
-    fn from(value: Diag<E>) -> Self {
+    fn from(value: Diag<K>) -> Self {
         Self { root: value.root }
     }
 }
 
-/// An error that is either an actionable error of type E, or is unactionable.
-pub struct MaybeDiag<E>
+/// An error that is either an actionable error of kind K, or is unactionable.
+pub struct MaybeDiag<K>
 where
-    E: Kind,
+    K: Kind,
 {
-    root: Box<Frame>,
+    root: Frame,
     /// If true, then this error is from an actionable source, and can be
     /// used and extracted.
     ///
     /// Precondition: If this value is true, then the Frame must contain an
     /// error of type E.
     actionable: bool,
-    _phantom: PhantomData<E>,
+    _phantom: PhantomData<K>,
 }
 
-impl<E> MaybeDiag<E>
+impl<K> MaybeDiag<K>
 where
-    E: Kind,
+    K: Kind,
 {
     #[must_use]
-    pub fn try_as_error(&self) -> Option<&E> {
+    pub fn opt_kind(&self) -> Option<&K> {
         if !self.actionable {
             return None;
         }
 
-        self.root.try_error_ref::<E>()
+        self.root.try_error_ref::<K>()
     }
 
+    /// Extracts the contained kind if it is actionable, and returns an
+    /// [`AnyDiag`] that keeps the rest of the error tree, replacing the
+    /// kind with a placeholder.
     #[must_use]
-    pub fn into_error_opt(mut self) -> (Option<E>, AnyDiag) {
+    pub fn into_kind_opt(mut self) -> (Option<K>, AnyDiag) {
         if !self.actionable {
             return (None, AnyDiag { root: self.root });
         }
@@ -360,38 +363,38 @@ where
     }
 }
 
-impl<T> IntoCause for MaybeDiag<T>
+impl<K> IntoCause for MaybeDiag<K>
 where
-    T: Kind,
+    K: Kind,
 {
     fn into_cause(self, _created_at: &'static Location<'static>) -> Cause {
-        Cause::from_frame(*self.root)
+        Cause::from_frame(self.root)
     }
 }
 
-impl<E> fmt::Display for MaybeDiag<E>
+impl<K> fmt::Display for MaybeDiag<K>
 where
-    E: Kind,
+    K: Kind,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.root.display_fmt(f)
     }
 }
 
-impl<E> fmt::Debug for MaybeDiag<E>
+impl<K> fmt::Debug for MaybeDiag<K>
 where
-    E: Kind,
+    K: Kind,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.root.debug_fmt(f)
     }
 }
 
-impl<E> From<Diag<E>> for MaybeDiag<E>
+impl<K> From<Diag<K>> for MaybeDiag<K>
 where
-    E: Kind,
+    K: Kind,
 {
-    fn from(value: Diag<E>) -> Self {
+    fn from(value: Diag<K>) -> Self {
         Self {
             root: value.root,
             actionable: true,
@@ -400,9 +403,9 @@ where
     }
 }
 
-impl<E> From<AnyDiag> for MaybeDiag<E>
+impl<K> From<AnyDiag> for MaybeDiag<K>
 where
-    E: Kind,
+    K: Kind,
 {
     fn from(value: AnyDiag) -> Self {
         Self {
@@ -698,13 +701,13 @@ mod tests {
         #[test]
         fn test_as_error() {
             let err = Diag::new().kind(TestError);
-            assert!(matches!(err.as_error(), &TestError));
+            assert!(matches!(err.kind(), &TestError));
         }
 
         #[test]
         fn test_into_error() {
             let err = Diag::new().kind(TestError);
-            let (err_val, _) = err.into_error();
+            let (err_val, _) = err.into_kind();
             assert!(matches!(err_val, TestError));
         }
 
