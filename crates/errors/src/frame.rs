@@ -9,7 +9,7 @@ use crate::{
     Kind,
     finding::MessageFinding,
     fmt_helpers::Indent,
-    reportable::{Reportable, ReportableHandle},
+    reportable::{Reportable, ReportableHandle, WeakReportableHandle},
 };
 
 #[derive(Debug)]
@@ -75,6 +75,10 @@ impl Frame {
                 causes,
             }),
         }
+    }
+
+    pub(crate) fn clone_msg_weak(&self) -> WeakReportableHandle {
+        self.inner.base_context.message.clone_weak()
     }
 
     pub(crate) fn add_context(
@@ -331,7 +335,7 @@ impl ContextView<'_> {
     /// This will display/debug identically to the message that was added.
     #[must_use]
     pub fn message(&self) -> &dyn Reportable {
-        self.context.message.as_ref()
+        self.context.message.as_reportable()
     }
 
     /// The code location that the message was created and/or added at.

@@ -1,204 +1,11 @@
-use std::{marker::PhantomData, panic::Location};
-
 use crate::{
-    AnyDiag, Diag, DiagLike, Kind, MaybeDiag, Reportable,
-    binders::{IntoCause, OptionRaiseBinder, ResultContextBinder, ResultRaiseBinder},
-    finding::{KindFinding, MessageFinding},
-    frame::Frame,
+    ContextBind, ContextBinder, DiagLike, RaisedMessage, Raiser,
+    binders::{
+        Bind, ErrResultBind, IntoCause, OptionBind, RaiseBinder, ResultBind, ResultContextBind,
+    },
+    out,
+    raiser::RaisedToDiag,
 };
-
-#[must_use]
-pub struct RaisedKind<K>
-where
-    K: Kind,
-{
-    finding: KindFinding<K>,
-    created_at: &'static Location<'static>,
-}
-
-impl<K> RaisedKind<K>
-where
-    K: Kind,
-{
-    pub fn maybe(self) -> RaisedMaybe<K> {
-        self.into()
-    }
-}
-
-#[must_use]
-pub struct RaisedMessage {
-    finding: MessageFinding,
-    created_at: &'static Location<'static>,
-}
-
-impl RaisedMessage {
-    pub fn maybe<K>(self) -> RaisedMaybe<K>
-    where
-        K: Kind,
-    {
-        self.into()
-    }
-
-    pub(crate) fn add_as_context<D>(self, mut diag: D) -> D
-    where
-        D: DiagLike,
-    {
-        diag.add_context_message(self);
-        diag
-    }
-
-    pub(crate) fn add_to_frame_as_context(self, frame: &mut Frame) {
-        frame.add_context(self.finding, self.created_at);
-    }
-}
-
-#[must_use]
-pub struct RaisedMaybe<K>
-where
-    K: Kind,
-{
-    finding: Result<KindFinding<K>, MessageFinding>,
-    created_at: &'static Location<'static>,
-}
-
-impl<K> From<RaisedMessage> for RaisedMaybe<K>
-where
-    K: Kind,
-{
-    fn from(value: RaisedMessage) -> Self {
-        RaisedMaybe {
-            finding: Err(value.finding),
-            created_at: value.created_at,
-        }
-    }
-}
-
-impl<K> From<RaisedKind<K>> for RaisedMaybe<K>
-where
-    K: Kind,
-{
-    fn from(value: RaisedKind<K>) -> Self {
-        RaisedMaybe {
-            finding: Ok(value.finding),
-            created_at: value.created_at,
-        }
-    }
-}
-
-pub trait RaisedToDiag: Sized {
-    type Diag;
-    fn into_diag(self, causes: impl IntoIterator<Item = impl IntoCause>) -> Self::Diag;
-
-    fn into_new_diag(self) -> Self::Diag {
-        self.into_diag(std::iter::empty::<std::convert::Infallible>())
-    }
-}
-
-impl<K> RaisedToDiag for RaisedKind<K>
-where
-    K: Kind,
-{
-    type Diag = Diag<K>;
-
-    fn into_diag(self, causes: impl IntoIterator<Item = impl IntoCause>) -> Self::Diag {
-        Diag::from_finding_and_causes(self.finding, causes, self.created_at)
-    }
-}
-
-impl RaisedToDiag for RaisedMessage {
-    type Diag = AnyDiag;
-
-    fn into_diag(self, causes: impl IntoIterator<Item = impl IntoCause>) -> Self::Diag {
-        AnyDiag::from_finding_and_causes(self.finding, causes, self.created_at)
-    }
-}
-
-impl<K> RaisedToDiag for RaisedMaybe<K>
-where
-    K: Kind,
-{
-    type Diag = MaybeDiag<K>;
-
-    fn into_diag(self, causes: impl IntoIterator<Item = impl IntoCause>) -> Self::Diag {
-        match self.finding {
-            Ok(finding) => Diag::from_finding_and_causes(finding, causes, self.created_at).into(),
-            Err(finding) => {
-                AnyDiag::from_finding_and_causes(finding, causes, self.created_at).into()
-            }
-        }
-    }
-}
-
-#[must_use]
-pub struct Raiser<'a> {
-    // A field to prevent users from creating in in situ.
-    created_at: &'static Location<'static>,
-    _phantom: PhantomData<&'a ()>,
-}
-
-impl Raiser<'_> {
-    #[track_caller]
-    pub(crate) fn new() -> Self {
-        Self {
-            created_at: Location::caller(),
-            _phantom: PhantomData,
-        }
-    }
-
-    pub(crate) fn created_at(&self) -> &'static Location<'static> {
-        self.created_at
-    }
-
-    pub(crate) fn kind_finding<K>(self, finding: KindFinding<K>) -> RaisedKind<K>
-    where
-        K: Kind,
-    {
-        RaisedKind {
-            finding,
-            created_at: self.created_at,
-        }
-    }
-
-    pub(crate) fn msg_finding(self, finding: MessageFinding) -> RaisedMessage {
-        RaisedMessage {
-            finding,
-            created_at: self.created_at,
-        }
-    }
-
-    pub fn kind<K>(self, kind: K) -> RaisedKind<K>
-    where
-        K: Kind + Reportable,
-    {
-        self.kind_finding(KindFinding::new_kind(kind))
-    }
-
-    pub fn kind_msg<K, M>(self, kind: K, msg: M) -> RaisedKind<K>
-    where
-        K: Kind,
-        M: Reportable,
-    {
-        self.kind_finding(KindFinding::new_kind_msg(kind, msg))
-    }
-
-    pub fn kind_args<K>(self, kind: K, args: std::fmt::Arguments<'_>) -> RaisedKind<K>
-    where
-        K: Kind,
-    {
-        self.kind_finding(KindFinding::new_kind_args(kind, args))
-    }
-
-    pub fn msg<M>(self, msg: M) -> RaisedMessage
-    where
-        M: Reportable,
-    {
-        self.msg_finding(MessageFinding::new_msg(msg))
-    }
-
-    pub fn args(self, args: std::fmt::Arguments<'_>) -> RaisedMessage {
-        self.msg_finding(MessageFinding::new_args(args))
-    }
-}
 
 /// A trait that marks specific `std::error::Error` types that can be converted
 /// back to Diags if requested.
@@ -213,7 +20,7 @@ pub trait ResultExt: Sized {
     type ErrT;
 
     /// Creates a binder used to add context to an error.
-    fn with_context(self) -> ResultContextBinder<Self::OkT, Self::ErrT>
+    fn with_context(self) -> ContextBinder<impl ContextBind<Out = Result<Self::OkT, Self::ErrT>>>
     where
         Self::ErrT: DiagLike;
 
@@ -230,9 +37,13 @@ pub trait ResultExt: Sized {
     ///
     /// This is part of a fluent API. Calling a method on the returned object
     /// will return the new Result with the new error.
-    fn raise(self) -> ResultRaiseBinder<Self::OkT, Self::ErrT>
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Result<Self::OkT>>>
     where
         Self::ErrT: IntoCause;
+
+    fn raise_err(self) -> RaiseBinder<impl Bind<Out = out::Result<Self::OkT>>>
+    where
+        Self::ErrT: std::error::Error + Send + Sync + 'static;
 
     fn raise_with<R>(self, raise_fn: impl FnOnce(Raiser<'_>) -> R) -> Result<Self::OkT, R::Diag>
     where
@@ -243,12 +54,28 @@ pub trait ResultExt: Sized {
     where
         Self::ErrT: DiagStdError;
 
+    fn raise_err_with<R>(
+        self,
+        raise_fn: impl FnOnce(Raiser<'_>) -> R,
+    ) -> Result<Self::OkT, R::Diag>
+    where
+        Self::ErrT: std::error::Error + Send + Sync + 'static,
+        R: RaisedToDiag;
+
     fn map_raise<R>(
         self,
         raise_fn: impl FnOnce(&Self::ErrT, Raiser<'_>) -> R,
     ) -> Result<Self::OkT, R::Diag>
     where
         Self::ErrT: IntoCause,
+        R: RaisedToDiag;
+
+    fn map_raise_err<R>(
+        self,
+        func: impl FnOnce(&Self::ErrT, Raiser<'_>) -> R,
+    ) -> Result<Self::OkT, R::Diag>
+    where
+        Self::ErrT: std::error::Error + Send + Sync + 'static,
         R: RaisedToDiag;
 }
 
@@ -257,11 +84,11 @@ impl<T, E> ResultExt for Result<T, E> {
     type ErrT = E;
 
     #[track_caller]
-    fn with_context(self) -> ResultContextBinder<T, E>
+    fn with_context(self) -> ContextBinder<impl ContextBind<Out = Result<Self::OkT, Self::ErrT>>>
     where
         Self::ErrT: DiagLike,
     {
-        ResultContextBinder::new(self)
+        ContextBinder::new(ResultContextBind::new(self))
     }
 
     fn map_with_context(
@@ -279,11 +106,19 @@ impl<T, E> ResultExt for Result<T, E> {
     }
 
     #[track_caller]
-    fn raise(self) -> ResultRaiseBinder<T, E>
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Result<T>>>
     where
         Self::ErrT: IntoCause,
     {
-        ResultRaiseBinder::new(self)
+        RaiseBinder::new(ResultBind::new(self))
+    }
+
+    #[track_caller]
+    fn raise_err(self) -> RaiseBinder<impl Bind<Out = out::Result<T>>>
+    where
+        Self::ErrT: std::error::Error + Send + Sync + 'static,
+    {
+        RaiseBinder::new(ErrResultBind::new(self))
     }
 
     #[track_caller]
@@ -292,8 +127,16 @@ impl<T, E> ResultExt for Result<T, E> {
         Self::ErrT: IntoCause,
         R: RaisedToDiag,
     {
-        let raiser = Raiser::new();
-        self.map_err(|err| raise_fn(raiser).into_diag([err]))
+        self.map_raise(|_, r| raise_fn(r))
+    }
+
+    #[track_caller]
+    fn raise_err_with<R>(self, raise_fn: impl FnOnce(Raiser<'_>) -> R) -> Result<Self::OkT, R::Diag>
+    where
+        Self::ErrT: std::error::Error + Send + Sync + 'static,
+        R: RaisedToDiag,
+    {
+        self.map_raise_err(|_, r| raise_fn(r))
     }
 
     fn reraise(self) -> Result<Self::OkT, <Self::ErrT as DiagStdError>::Diag>
@@ -315,11 +158,23 @@ impl<T, E> ResultExt for Result<T, E> {
         let raiser = Raiser::new();
         self.map_err(|err| raise_fn(&err, raiser).into_diag([err]))
     }
+    #[track_caller]
+    fn map_raise_err<R>(
+        self,
+        func: impl FnOnce(&Self::ErrT, Raiser<'_>) -> R,
+    ) -> Result<Self::OkT, R::Diag>
+    where
+        Self::ErrT: std::error::Error + Send + Sync + 'static,
+        R: RaisedToDiag,
+    {
+        let raiser = Raiser::new();
+        self.map_err(|err| func(&err, raiser).into_diag_with_appended(err))
+    }
 }
 
 pub trait OptionExt {
     type Value;
-    fn raise(self) -> OptionRaiseBinder<Self::Value>;
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Result<Self::Value>>>;
 
     fn raise_with<R>(self, raise_fn: impl FnOnce(Raiser<'_>) -> R) -> Result<Self::Value, R::Diag>
     where
@@ -330,9 +185,10 @@ impl<T> OptionExt for Option<T> {
     type Value = T;
 
     #[track_caller]
-    fn raise(self) -> OptionRaiseBinder<T> {
-        OptionRaiseBinder::new(self)
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Result<Self::Value>>> {
+        RaiseBinder::new(OptionBind::new(self))
     }
+
     fn raise_with<R>(self, raise_fn: impl FnOnce(Raiser<'_>) -> R) -> Result<T, R::Diag>
     where
         R: RaisedToDiag,
@@ -346,6 +202,8 @@ impl<T> OptionExt for Option<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Diag, Kind};
+
     use super::*;
 
     #[derive(Debug, thiserror::Error)]

@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{
-    Kind, RaisedKind, RaisedMessage, Raiser, Reportable, ext::RaisedToDiag,
-    reportable::ReportableHandle,
-};
+use crate::{Kind, Reportable, reportable::ReportableHandle};
 
 pub(crate) struct KindFinding<K>
 where
@@ -50,8 +47,15 @@ where
     }
 
     #[must_use]
-    pub(crate) fn into_err_like(self) -> ReportableHandle {
+    pub(crate) fn into_handle(self) -> ReportableHandle {
         self.err_like
+    }
+
+    pub(crate) fn append_reportable(self, rep: impl Reportable) -> Self {
+        Self {
+            err_like: self.err_like.append_reportable(rep),
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -82,29 +86,10 @@ impl MessageFinding {
     pub(crate) fn into_err_like(self) -> ReportableHandle {
         self.err_like
     }
-}
 
-pub(crate) trait FindingToRaised {
-    type Raised: RaisedToDiag;
-
-    fn into_raised(self, raiser: Raiser<'_>) -> Self::Raised;
-}
-
-impl<K> FindingToRaised for KindFinding<K>
-where
-    K: Kind,
-{
-    type Raised = RaisedKind<K>;
-
-    fn into_raised(self, raiser: Raiser<'_>) -> Self::Raised {
-        raiser.kind_finding(self)
-    }
-}
-
-impl FindingToRaised for MessageFinding {
-    type Raised = RaisedMessage;
-
-    fn into_raised(self, raiser: Raiser<'_>) -> Self::Raised {
-        raiser.msg_finding(self)
+    pub(crate) fn append_reportable(self, rep: impl Reportable) -> Self {
+        Self {
+            err_like: self.err_like.append_reportable(rep),
+        }
     }
 }

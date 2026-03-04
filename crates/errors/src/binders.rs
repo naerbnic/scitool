@@ -1,10 +1,11 @@
 use std::panic::Location;
 
+use crate::RaisedMessage;
+use crate::reportable::WeakReportableHandle;
+use crate::sealed::SealedToken;
 use crate::{
-    AnyDiag, Diag, DiagLike, Kind, Raiser, Reportable,
-    ext::RaisedToDiag,
-    finding::{FindingToRaised, KindFinding, MessageFinding},
-    frame::Frame,
+    AnyDiag, Diag, DiagLike, Kind, Raiser, Reportable, finding::KindFinding, frame::Frame, out,
+    raiser::RaisedToDiag, sealed::Sealed,
 };
 
 struct StdErrorCause<T> {
@@ -42,6 +43,10 @@ impl Cause {
     pub(crate) fn into_frame(self) -> Frame {
         self.0
     }
+
+    pub(crate) fn msg_clone_weak(&self) -> WeakReportableHandle {
+        self.0.clone_msg_weak()
+    }
 }
 
 pub trait IntoCause: Sized {
@@ -70,298 +75,302 @@ impl IntoCause for Cause {
     }
 }
 
-trait IntoOptCause: Sized {
-    fn into_opt_cause(self, created_at: &'static Location<'static>) -> Option<Cause>;
+pub trait Bind: Sealed + Sized {
+    type Out: out::Out;
+
+    #[doc(hidden)]
+    fn into_diag<R>(
+        self,
+        func: impl FnOnce(Raiser<'_>) -> R,
+        _: SealedToken,
+    ) -> <Self::Out as out::Out>::Ty<R::Diag>
+    where
+        R: RaisedToDiag;
 }
 
-impl<T> IntoOptCause for T
-where
-    T: IntoCause,
-{
-    fn into_opt_cause(self, created_at: &'static Location<'static>) -> Option<Cause> {
-        Some(self.into_cause(created_at))
-    }
-}
-
-pub(crate) struct NullCause;
-
-impl IntoOptCause for NullCause {
-    fn into_opt_cause(self, _created_at: &'static Location<'static>) -> Option<Cause> {
-        None
-    }
-}
-
-struct InnerBinder<R> {
-    mapper: R,
+pub(crate) struct ResultBind<T, E> {
+    value: Result<T, E>,
     raiser: Raiser<'static>,
 }
 
-impl<M> InnerBinder<M>
-where
-    M: Mapper,
-{
+impl<T, E> ResultBind<T, E> {
     #[track_caller]
-    fn new(mapper: M) -> Self {
+    pub(crate) fn new(value: Result<T, E>) -> Self {
         Self {
-            mapper,
+            value,
             raiser: Raiser::new(),
         }
     }
+}
 
-    fn add_message(self, msg_fn: MessageFinding) -> M::Out<M::In>
-    where
-        M::In: DiagLike,
-    {
-        let Self { mapper, raiser } = self;
-        mapper.map_value(move |err| raiser.msg_finding(msg_fn).add_as_context(err))
-    }
+impl<T, E> Sealed for ResultBind<T, E> {}
 
-    fn into_diag<R>(self, func: impl FnOnce() -> R) -> M::Out<<R::Raised as RaisedToDiag>::Diag>
+impl<T, E> Bind for ResultBind<T, E>
+where
+    E: IntoCause,
+{
+    type Out = out::Result<T>;
+
+    fn into_diag<R>(self, func: impl FnOnce(Raiser<'_>) -> R, _: SealedToken) -> Result<T, R::Diag>
     where
-        M::In: IntoOptCause,
-        R: FindingToRaised,
+        R: RaisedToDiag,
     {
-        let Self { mapper, raiser } = self;
-        let created_at = raiser.created_at();
-        mapper.map_value(|err| {
-            func()
-                .into_raised(raiser)
-                .into_diag(err.into_opt_cause(created_at))
-        })
+        match self.value {
+            Ok(value) => Ok(value),
+            Err(error) => Err(func(self.raiser).into_diag([error])),
+        }
     }
 }
 
-macro_rules! define_context_binder {
-    (
-        $(#[$meta:meta])*
-        $v:vis struct $name:ident$(<$($ty_var:ident),*>)?($mapper_ty:ty => $out_ty:ty, Docs => {
-            $(#[$msg_doc:meta])* msg,
-            $(#[$args_doc:meta])* args,
-        })
-        $(where $($where_clause:tt)*)?
-    ) => {
-        $(#[$meta])*
-        $v struct $name$(<$($ty_var),*>)?(InnerBinder<$mapper_ty>);
+pub(crate) struct ErrResultBind<T, E> {
+    value: Result<T, E>,
+    raiser: Raiser<'static>,
+}
 
-        impl$(<$($ty_var),*>)? $name$(<$($ty_var),*>)?
-        $(where $($where_clause)*)?
-        {
-            #[track_caller]
-            pub(crate) fn new(mapper: $mapper_ty) -> Self {
-                Self(InnerBinder::new(mapper))
-            }
+impl<T, E> ErrResultBind<T, E> {
+    #[track_caller]
+    pub(crate) fn new(value: Result<T, E>) -> Self {
+        Self {
+            value,
+            raiser: Raiser::new(),
+        }
+    }
+}
 
-            $(#[$msg_doc])*
-            $v fn msg<M>(self, msg: M) -> $out_ty
-            where
-                M: Reportable,
-            {
-                self.0.add_message(MessageFinding::new_msg(msg))
-            }
+impl<T, E> Sealed for ErrResultBind<T, E> {}
 
-            $(#[$args_doc])*
-            $v fn args(self, args: std::fmt::Arguments<'_>) -> $out_ty {
-                self.0.add_message(MessageFinding::new_args(args))
+impl<T, E> Bind for ErrResultBind<T, E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    type Out = out::Result<T>;
+
+    fn into_diag<R>(self, func: impl FnOnce(Raiser<'_>) -> R, _: SealedToken) -> Result<T, R::Diag>
+    where
+        R: RaisedToDiag,
+    {
+        match self.value {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let raised = func(self.raiser);
+                let diag = raised.into_diag_with_appended(error);
+                Err(diag)
             }
         }
-    };
+    }
 }
 
-define_context_binder! {
-    // Note: This does not use the _with methods, as they would be immediately
-    // evaluated otherwise.
-    pub struct ContextBinder<T>(ValueMapper<T> => T, Docs => {
-        /// Adds the given [`Reportable`] message to the error as context.
-        msg,
-        /// Adds the given [`std::fmt::Arguments`] to the error as context.
-        ///
-        /// This can be used with [`std::format_args!`] to create a message
-        /// from a format string and arguments.
-        args,
-    }) where T: DiagLike
+pub(crate) struct ValueBind<T> {
+    value: T,
+    raiser: Raiser<'static>,
 }
 
-define_context_binder! {
-    pub struct ResultContextBinder<T, E>(Result<T, E> => Result<T, E>, Docs => {
-        /// If this is a [`Result::Err`], adds the given [`Reportable`] message to the
-        /// error as context.
-        ///
-        /// ```text
-        /// let result = Err(e);
-        ///
-        /// result.add_context().msg("This is what I was doing here");
-        /// ```
-        msg,
-        /// If this is a [`Result::Err`], adds a message from a [`std::fmt::Arguments`]
-        /// to the error as context.
-        ///
-        /// This can be used with [`std::format_args!`] to create a message
-        /// from a format string and arguments.
-        args,
-    }) where E: DiagLike
-}
-
-macro_rules! define_raise_binder {
-    (
-        $(#[$meta:meta])*
-        $v:vis struct $name:ident$(<$($ty_var:ident),*>)?(
-            $mapper_ty:ty => {
-                type Kind = $kind_var:ident,
-                Diag => $diag_ty:ty,
-                AnyDiag => $any_ty:ty,
-                Docs => {
-                    $(#[$kind_meta:meta])* kind,
-                    $(#[$kind_msg_meta:meta])* kind_msg,
-                    $(#[$kind_args_meta:meta])* kind_args,
-                    $(#[$msg_meta:meta])* msg,
-                    $(#[$args_meta:meta])* args,
-                },
-            })
-        $(where $($where_clause:tt)*)?
-    ) => {
-        $(#[$meta])*
-        $v struct $name$(<$($ty_var),*>)?(InnerBinder<$mapper_ty>);
-
-        impl$(<$($ty_var),*>)? $name$(<$($ty_var),*>)?
-            $(where $($where_clause)*)?
-        {
-            #[track_caller]
-            pub(crate) fn new(mapper: $mapper_ty) -> Self {
-                Self(InnerBinder::new(mapper))
-            }
-
-            $(#[$kind_meta])*
-            $v fn kind<$kind_var>(self, kind: $kind_var) -> $diag_ty
-            where
-                $kind_var: Kind + Reportable,
-            {
-                self.0.into_diag(move || KindFinding::new_kind(kind))
-            }
-
-            $(#[$kind_msg_meta])*
-            $v fn kind_msg<$kind_var, M>(self, kind: $kind_var, msg: M) -> $diag_ty
-            where
-                $kind_var: Kind,
-                M: Reportable,
-            {
-                self.0.into_diag(move || KindFinding::new_kind_msg(kind, msg))
-            }
-
-            $(#[$kind_args_meta])*
-            $v fn kind_args<$kind_var>(self, kind: $kind_var, args: std::fmt::Arguments<'_>) -> $diag_ty
-            where
-                $kind_var: Kind,
-            {
-                self.0.into_diag(move || KindFinding::new_kind_args(kind, args))
-            }
-
-            $(#[$msg_meta])*
-            $v fn msg<M>(self, msg: M) -> $any_ty
-            where
-                M: Reportable,
-            {
-                self.0.into_diag(move || MessageFinding::new_msg(msg))
-            }
-
-            $(#[$args_meta])*
-            $v fn args(self, args: std::fmt::Arguments<'_>) -> $any_ty {
-                self.0.into_diag(move || MessageFinding::new_args(args))
-            }
+impl<T> ValueBind<T>
+where
+    T: IntoCause,
+{
+    #[track_caller]
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            value,
+            raiser: Raiser::new(),
         }
-    };
+    }
 }
 
-define_raise_binder! {
-    pub struct RaiseBinder<T>(ValueMapper<T> => {
-        type Kind = K,
-        Diag => Diag<K>,
-        AnyDiag => AnyDiag,
-        Docs => {
-            kind,
-            kind_msg,
-            kind_args,
-            msg,
-            args,
-        },
-    }) where T: IntoCause
+impl<T> Sealed for ValueBind<T> {}
+
+impl<T> Bind for ValueBind<T>
+where
+    T: IntoCause,
+{
+    type Out = out::Value;
+
+    fn into_diag<R>(self, func: impl FnOnce(Raiser<'_>) -> R, _: SealedToken) -> R::Diag
+    where
+        R: RaisedToDiag,
+    {
+        func(self.raiser).into_diag([self.value])
+    }
 }
 
-define_raise_binder! {
-    pub struct OptionRaiseBinder<T>(Option<T> => {
-        type Kind = K,
-        Diag => Result<T, Diag<K>>,
-        AnyDiag => Result<T, AnyDiag>,
-        Docs => {
-            kind,
-            kind_msg,
-            kind_args,
-            msg,
-            args,
-        },
-    })
+pub(crate) struct OptionBind<T> {
+    value: Option<T>,
+    raiser: Raiser<'static>,
 }
 
-define_raise_binder! {
-    pub struct ResultRaiseBinder<T, E>(Result<T, E> => {
-        type Kind = K,
-        Diag => Result<T, Diag<K>>,
-        AnyDiag => Result<T, AnyDiag>,
-        Docs => {
-            kind,
-            kind_msg,
-            kind_args,
-            msg,
-            args,
-        },
-    }) where E: IntoCause
+impl<T> OptionBind<T> {
+    #[track_caller]
+    pub(crate) fn new(value: Option<T>) -> Self {
+        Self {
+            value,
+            raiser: Raiser::new(),
+        }
+    }
 }
 
-pub(crate) trait Mapper {
-    type In;
-    type Out<T>;
+impl<T> Sealed for OptionBind<T> {}
+
+impl<T> Bind for OptionBind<T> {
+    type Out = out::Result<T>;
+
+    fn into_diag<R>(self, func: impl FnOnce(Raiser<'_>) -> R, _: SealedToken) -> Result<T, R::Diag>
+    where
+        R: RaisedToDiag,
+    {
+        if let Some(value) = self.value {
+            return Ok(value);
+        }
+
+        Err(func(self.raiser).into_new_diag())
+    }
+}
+
+pub trait ContextBind: Sealed {
+    type Out;
 
     #[doc(hidden)]
-    fn map_value<T>(self, func: impl FnOnce(Self::In) -> T) -> Self::Out<T>;
+    fn add_message(
+        self,
+        msg_fn: impl FnOnce(Raiser<'_>) -> RaisedMessage,
+        _: SealedToken,
+    ) -> Self::Out;
 }
 
-pub(crate) struct ValueMapper<T>(T);
+pub(crate) struct ValueContextBind<T> {
+    value: T,
+    raiser: Raiser<'static>,
+}
 
-impl<T> ValueMapper<T> {
+impl<T> ValueContextBind<T> {
+    #[track_caller]
     pub(crate) fn new(value: T) -> Self {
-        Self(value)
-    }
-}
-
-impl<T> Mapper for ValueMapper<T> {
-    type In = T;
-    type Out<D> = D;
-
-    fn map_value<D>(self, func: impl FnOnce(Self::In) -> D) -> Self::Out<D> {
-        func(self.0)
-    }
-}
-
-impl<V, E> Mapper for Result<V, E> {
-    type In = E;
-    type Out<D> = Result<V, D>;
-
-    fn map_value<T>(self, func: impl FnOnce(Self::In) -> T) -> Self::Out<T> {
-        match self {
-            Ok(val) => Ok(val),
-            Err(err) => Err(func(err)),
+        Self {
+            value,
+            raiser: Raiser::new(),
         }
     }
 }
 
-impl<T> Mapper for Option<T> {
-    type In = NullCause;
+impl<T> Sealed for ValueContextBind<T> {}
 
-    type Out<D> = Result<T, D>;
+impl<T> ContextBind for ValueContextBind<T>
+where
+    T: DiagLike,
+{
+    type Out = T;
 
-    fn map_value<D>(self, func: impl FnOnce(Self::In) -> D) -> Self::Out<D> {
-        match self {
-            Some(val) => Ok(val),
-            None => Err(func(NullCause)),
+    fn add_message(
+        mut self,
+        msg_fn: impl FnOnce(Raiser<'_>) -> RaisedMessage,
+        _: SealedToken,
+    ) -> Self::Out {
+        self.value.add_context_message(msg_fn(self.raiser));
+        self.value
+    }
+}
+
+pub(crate) struct ResultContextBind<T, E> {
+    value: Result<T, E>,
+    raiser: Raiser<'static>,
+}
+
+impl<T, E> ResultContextBind<T, E> {
+    #[track_caller]
+    pub(crate) fn new(value: Result<T, E>) -> Self {
+        Self {
+            value,
+            raiser: Raiser::new(),
         }
+    }
+}
+
+impl<T, E> Sealed for ResultContextBind<T, E> {}
+
+impl<T, E> ContextBind for ResultContextBind<T, E>
+where
+    E: DiagLike,
+{
+    type Out = Result<T, E>;
+
+    fn add_message(
+        mut self,
+        msg_fn: impl FnOnce(Raiser<'_>) -> RaisedMessage,
+        _: SealedToken,
+    ) -> Self::Out {
+        if let Err(err) = &mut self.value {
+            err.add_context_message(msg_fn(self.raiser));
+        }
+        self.value
+    }
+}
+
+pub struct ContextBinder<B> {
+    binder: B,
+}
+
+impl<B: ContextBind> ContextBinder<B> {
+    pub(crate) fn new(binder: B) -> Self {
+        Self { binder }
+    }
+
+    pub fn msg<M>(self, msg: M) -> B::Out
+    where
+        M: Reportable,
+    {
+        self.binder.add_message(|r| r.msg(msg), SealedToken)
+    }
+
+    pub fn args(self, args: std::fmt::Arguments<'_>) -> B::Out {
+        self.binder.add_message(|r| r.args(args), SealedToken)
+    }
+}
+
+pub struct RaiseBinder<B: Bind> {
+    binder: B,
+}
+
+impl<B: Bind> RaiseBinder<B> {
+    pub(crate) fn new(binder: B) -> Self {
+        Self { binder }
+    }
+
+    pub fn kind<K>(self, kind: K) -> <B::Out as out::Out>::Ty<Diag<K>>
+    where
+        K: Kind + Reportable,
+    {
+        self.binder.into_diag(move |r| r.kind(kind), SealedToken)
+    }
+
+    pub fn kind_msg<K, M>(self, kind: K, msg: M) -> <B::Out as out::Out>::Ty<Diag<K>>
+    where
+        K: Kind,
+        M: Reportable,
+    {
+        self.binder
+            .into_diag(move |r| r.kind_msg(kind, msg), SealedToken)
+    }
+
+    pub fn kind_args<K>(
+        self,
+        kind: K,
+        args: std::fmt::Arguments<'_>,
+    ) -> <B::Out as out::Out>::Ty<Diag<K>>
+    where
+        K: Kind,
+    {
+        self.binder
+            .into_diag(move |r| r.kind_args(kind, args), SealedToken)
+    }
+
+    pub fn msg<M>(self, msg: M) -> <B::Out as out::Out>::Ty<AnyDiag>
+    where
+        M: Reportable,
+    {
+        self.binder.into_diag(move |r| r.msg(msg), SealedToken)
+    }
+
+    pub fn args(self, args: std::fmt::Arguments<'_>) -> <B::Out as out::Out>::Ty<AnyDiag> {
+        self.binder.into_diag(move |r| r.args(args), SealedToken)
     }
 }

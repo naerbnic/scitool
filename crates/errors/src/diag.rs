@@ -1,10 +1,12 @@
 use std::{any::Any, fmt, marker::PhantomData, panic::Location};
 
 use crate::{
-    IntoCause, Reportable,
-    binders::{Cause, ContextBinder, RaiseBinder, ValueMapper},
+    ContextBind, ContextBinder, IntoCause, RaisedMessage, Reportable,
+    binders::{Bind, Cause, RaiseBinder, ValueBind, ValueContextBind},
     finding::{KindFinding, MessageFinding},
     frame::{ErrorView, Frame},
+    out,
+    sealed::DiagLikePriv,
 };
 
 /// A marker trait for types that are usable as kinds for Diag types. This
@@ -124,13 +126,27 @@ where
         )
     }
 
+    pub(crate) fn from_finding_with_appended_cause<C: IntoCause>(
+        fnd: KindFinding<K>,
+        cause: C,
+        created_at: &'static Location<'static>,
+    ) -> Self {
+        let cause = cause.into_cause(created_at);
+        let weak_cause_msg = cause.msg_clone_weak();
+        Self::from_finding_and_frames(
+            fnd.append_reportable(weak_cause_msg),
+            [cause.into_frame()].into_iter().collect(),
+            created_at,
+        )
+    }
+
     pub(crate) fn from_finding_and_frames(
         fnd: KindFinding<K>,
         causes: Vec<Frame>,
         created_at: &'static Location<'static>,
     ) -> Self {
         Self {
-            root: Frame::new(fnd.into_err_like(), created_at, causes),
+            root: Frame::new(fnd.into_handle(), created_at, causes),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -279,6 +295,20 @@ impl AnyDiag {
         )
     }
 
+    pub(crate) fn from_finding_with_appended_cause<C: IntoCause>(
+        fnd: MessageFinding,
+        cause: C,
+        created_at: &'static Location<'static>,
+    ) -> Self {
+        let cause = cause.into_cause(created_at);
+        let weak_cause_msg = cause.msg_clone_weak();
+        Self::from_finding_and_frames(
+            fnd.append_reportable(weak_cause_msg),
+            [cause.into_frame()].into_iter().collect(),
+            created_at,
+        )
+    }
+
     pub(crate) fn from_finding_and_frames(
         fnd: MessageFinding,
         causes: Vec<Frame>,
@@ -416,51 +446,18 @@ where
     }
 }
 
-pub(crate) mod sealed {
-    use crate::{AnyDiag, Diag, Kind, MaybeDiag, RaisedMessage};
-
-    #[doc(hidden)]
-    pub trait DiagLikePriv: Sized {
-        fn add_context_message(&mut self, msg: RaisedMessage);
-    }
-
-    impl<K> DiagLikePriv for Diag<K>
-    where
-        K: Kind,
-    {
-        fn add_context_message(&mut self, msg: RaisedMessage) {
-            msg.add_to_frame_as_context(&mut self.root);
-        }
-    }
-
-    impl<K> DiagLikePriv for MaybeDiag<K>
-    where
-        K: Kind,
-    {
-        fn add_context_message(&mut self, msg: RaisedMessage) {
-            msg.add_to_frame_as_context(&mut self.root);
-        }
-    }
-
-    impl DiagLikePriv for AnyDiag {
-        fn add_context_message(&mut self, msg: RaisedMessage) {
-            msg.add_to_frame_as_context(&mut self.root);
-        }
-    }
-}
-
-pub trait DiagLike: sealed::DiagLikePriv {
+pub trait DiagLike: DiagLikePriv + Sized {
     type Kind: Kind;
 
     /// Adds the given err-like value as a context, return a value of the same
     /// type.
     #[must_use]
-    fn add_context(self) -> ContextBinder<Self>;
+    fn add_context(self) -> ContextBinder<impl ContextBind<Out = Self>>;
 
     /// Raises a new error with type E, with the current error as the previous
     /// link in the causal chain.
     #[must_use]
-    fn raise(self) -> RaiseBinder<Self>;
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Value>>;
 
     /// Tries to extract this [`DiagLike`] as an actionable Diag<K>. If that fails,
     /// it is returned as an unactionable [`AnyDiag`].
@@ -488,13 +485,13 @@ where
     type Kind = K;
 
     #[track_caller]
-    fn add_context(self) -> ContextBinder<Self> {
-        ContextBinder::new(ValueMapper::new(self))
+    fn add_context(self) -> ContextBinder<impl ContextBind<Out = Self>> {
+        ContextBinder::new(ValueContextBind::new(self))
     }
 
     #[track_caller]
-    fn raise(self) -> RaiseBinder<Self> {
-        RaiseBinder::new(ValueMapper::new(self))
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Value>> {
+        RaiseBinder::new(ValueBind::new(self))
     }
 
     fn extract_actionable(self) -> Result<Diag<K>, AnyDiag> {
@@ -510,17 +507,26 @@ where
     }
 }
 
+impl<K> DiagLikePriv for Diag<K>
+where
+    K: Kind,
+{
+    fn add_context_message(&mut self, msg: RaisedMessage) {
+        msg.add_to_frame_as_context(&mut self.root);
+    }
+}
+
 impl DiagLike for AnyDiag {
     type Kind = std::convert::Infallible;
 
     #[track_caller]
-    fn add_context(self) -> ContextBinder<Self> {
-        ContextBinder::new(ValueMapper::new(self))
+    fn add_context(self) -> ContextBinder<impl ContextBind<Out = Self>> {
+        ContextBinder::new(ValueContextBind::new(self))
     }
 
     #[track_caller]
-    fn raise(self) -> RaiseBinder<Self> {
-        RaiseBinder::new(ValueMapper::new(self))
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Value>> {
+        RaiseBinder::new(ValueBind::new(self))
     }
 
     fn extract_actionable(self) -> Result<Diag<Self::Kind>, AnyDiag> {
@@ -536,6 +542,12 @@ impl DiagLike for AnyDiag {
     }
 }
 
+impl DiagLikePriv for AnyDiag {
+    fn add_context_message(&mut self, msg: RaisedMessage) {
+        msg.add_to_frame_as_context(&mut self.root);
+    }
+}
+
 impl<K> DiagLike for MaybeDiag<K>
 where
     K: Kind,
@@ -543,13 +555,13 @@ where
     type Kind = K;
 
     #[track_caller]
-    fn add_context(self) -> ContextBinder<Self> {
-        ContextBinder::new(ValueMapper::new(self))
+    fn add_context(self) -> ContextBinder<impl ContextBind<Out = Self>> {
+        ContextBinder::new(ValueContextBind::new(self))
     }
 
     #[track_caller]
-    fn raise(self) -> RaiseBinder<Self> {
-        RaiseBinder::new(ValueMapper::new(self))
+    fn raise(self) -> RaiseBinder<impl Bind<Out = out::Value>> {
+        RaiseBinder::new(ValueBind::new(self))
     }
 
     fn extract_actionable(self) -> Result<Diag<K>, AnyDiag> {
@@ -569,6 +581,15 @@ where
 
     fn view(&self) -> ErrorView<'_> {
         self.root.view()
+    }
+}
+
+impl<K> DiagLikePriv for MaybeDiag<K>
+where
+    K: Kind,
+{
+    fn add_context_message(&mut self, msg: RaisedMessage) {
+        msg.add_to_frame_as_context(&mut self.root);
     }
 }
 
