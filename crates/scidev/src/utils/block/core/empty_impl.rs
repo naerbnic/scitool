@@ -1,7 +1,12 @@
 use std::io;
 
+use scidev_errors::ensure;
+
 use crate::utils::{
-    block::{MemBlock, core::BlockBase},
+    block::{
+        MemBlock,
+        core::{BlockBase, OpenBaseResult},
+    },
     range::BoundedRange,
 };
 
@@ -9,25 +14,16 @@ use crate::utils::{
 pub(super) struct EmptyBlockImpl;
 
 impl BlockBase for EmptyBlockImpl {
-    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
-        if range.size() > 0 {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "cannot read from empty block",
-            ))
-        } else {
-            Ok(MemBlock::empty())
-        }
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
+        ensure!(range.size() == 0, "Cannot read from empty block");
+        Ok(MemBlock::empty())
     }
 
-    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
-        if range.size() > 0 {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "cannot read from empty block",
-            ))
-        } else {
-            Ok(Box::new(io::empty()))
-        }
+    fn open_reader<'a>(
+        &'a self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
+        ensure!(range.size() == 0, "Cannot read from empty block");
+        Ok(Box::new(io::empty()))
     }
 }

@@ -20,7 +20,7 @@ define_error! {
 
 struct BlockPathHandle {
     path: PathBuf,
-    // This is used to keep the temp file alive
+    // This is kept to delete the TempDir when the BlockPathHandle is dropped.
     _dir: Arc<tempfile::TempDir>,
 }
 

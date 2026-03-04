@@ -1,9 +1,11 @@
 use std::io;
 
+use scidev_errors::{ResultExt, bail, ensure};
+
 use crate::utils::{
     block::{
         MemBlock,
-        core::{Block, BlockBase},
+        core::{Block, BlockBase, OpenBaseResult},
     },
     range::BoundedRange,
 };
@@ -26,7 +28,7 @@ impl SequenceBlockImpl {
 }
 
 impl BlockBase for SequenceBlockImpl {
-    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         let mut data = Vec::new();
         let mut remaining_range = range;
         let mut iter = self.blocks.iter();
@@ -34,14 +36,17 @@ impl BlockBase for SequenceBlockImpl {
             && let Some(curr_block) = iter.next()
         {
             if let Some(curr_range) = remaining_range.intersect(0..curr_block.len()) {
-                data.push(curr_block.open_mem(curr_range)?);
+                data.push(curr_block.open_mem(curr_range).reraise()?);
             }
             remaining_range = remaining_range.shift_down_by(curr_block.len());
         }
         Ok(MemBlock::concat_blocks(data))
     }
 
-    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
+    fn open_reader<'a>(
+        &'a self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
         struct SequenceReader<'a> {
             remaining_size: u64,
             remaining_blocks: &'a [Block],
@@ -67,8 +72,12 @@ impl BlockBase for SequenceBlockImpl {
                             ));
                         };
                         self.remaining_blocks = remaining;
+                        // FIXME: This should be another error than OpenError, as OpenError is
+                        // an unactionable error.
                         self.current_reader = Some(
-                            next_block.open_reader(BoundedRange::from_size(next_block.len()))?,
+                            next_block
+                                .open_reader(BoundedRange::from_size(next_block.len()))
+                                .map_err(io::Error::other)?,
                         );
                         self.current_reader.as_mut().unwrap()
                     };
@@ -93,17 +102,12 @@ impl BlockBase for SequenceBlockImpl {
         let mut blocks = &self.blocks[..];
 
         let first_block = loop {
-            if remaining_range.size() == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "range extends beyond end of sequence block",
-                ));
-            }
+            ensure!(
+                remaining_range.size() > 0,
+                "Range extends beyond end of sequence block: {remaining_range:?}"
+            );
             let Some((first_block, rest)) = blocks.split_first() else {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "range extends beyond end of sequence block",
-                ));
+                bail!("Range extends beyond end of sequence block: {remaining_range:?}");
             };
             blocks = rest;
             if remaining_range.start() < first_block.len() {
@@ -112,8 +116,9 @@ impl BlockBase for SequenceBlockImpl {
             remaining_range = remaining_range.shift_down_by(first_block.len());
         };
 
-        let initial_reader =
-            first_block.open_reader(remaining_range.intersect(0..first_block.len()).unwrap())?;
+        let initial_reader = first_block
+            .open_reader(remaining_range.intersect(0..first_block.len()).unwrap())
+            .reraise()?;
 
         Ok(Box::new(SequenceReader {
             remaining_size: remaining_range.size(),

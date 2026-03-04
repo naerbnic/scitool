@@ -3,8 +3,10 @@ use std::{
     io::{self, Read as _, Seek as _},
 };
 
+use scidev_errors::{AnyDiag, diag, prelude::*};
+
 use crate::utils::{
-    block::core::{RangeStreamBase, RefFactory},
+    block::core::{OpenBaseResult, RangeStreamBase, RefFactory},
     range::BoundedRange,
 };
 
@@ -23,15 +25,23 @@ where
 impl<F> RangeStreamBase for ReadSeekFactorySource<F>
 where
     F: RefFactory,
+    F::Error: Into<AnyDiag>,
     for<'a> F::Output<'a>: io::Read + io::Seek,
 {
     type Reader<'a>
         = io::Take<F::Output<'a>>
     where
         Self: 'a;
-    fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>> {
-        let mut reader = self.0.create_new()?;
-        reader.seek(io::SeekFrom::Start(range.start()))?;
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>> {
+        let mut reader = self
+            .0
+            .create_new()
+            .map_err(Into::into)
+            .with_context()
+            .msg("Failed to create base reader")?;
+        reader
+            .seek(io::SeekFrom::Start(range.start()))
+            .raise_err_with(diag!(|| "Failed to seek to start of range {range:?}"))?;
         Ok(reader.take(range.size()))
     }
 }

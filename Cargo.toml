@@ -4,6 +4,7 @@ members = ["crates/*", "fuzz"]
 
 [workspace.dependencies]
 scidev = { path = "crates/scidev" }
+scidev-errors = { path = "crates/errors" }
 datalit = "0.1.0-alpha.4"
 thiserror = "2.0.17"
 

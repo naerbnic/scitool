@@ -1,6 +1,7 @@
-use std::{fmt::Debug, io};
+use std::fmt::Debug;
 
 use scidev::resources::ResourceId;
+use scidev_errors::{diag, prelude::*};
 use serde::{Deserialize, Serialize};
 
 pub(super) use scidev::utils::serde::{Base64Data, ResourceIdSerde, Sha256Hash};
@@ -82,8 +83,9 @@ impl BufferInfo {
         Self { size, hash }
     }
 
-    pub(crate) fn from_stream<R: std::io::Read>(reader: R) -> io::Result<Self> {
-        let (hash, size) = Sha256Hash::from_stream_hash(reader)?;
+    pub(crate) fn from_stream<R: std::io::Read>(reader: R) -> super::Result<Self> {
+        let (hash, size) = Sha256Hash::from_stream_hash(reader)
+            .raise_err_with(diag!(|| "I/O error while hashing buffer"))?;
         Ok(BufferInfo { size, hash })
     }
 }

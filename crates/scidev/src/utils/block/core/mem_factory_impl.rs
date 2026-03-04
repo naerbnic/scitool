@@ -1,8 +1,10 @@
-use std::{fmt::Debug, io};
+use std::fmt::Debug;
+
+use scidev_errors::{AnyDiag, ResultExt};
 
 use crate::utils::block::{
     MemBlock,
-    core::{MemBlockBase, RefFactory},
+    core::{MemBlockBase, OpenBaseResult, RefFactory},
 };
 
 pub(super) struct MemFactoryImpl<F>(F);
@@ -20,10 +22,17 @@ where
 impl<F> MemBlockBase for MemFactoryImpl<F>
 where
     F: RefFactory,
+    F::Error: Into<AnyDiag>,
     for<'a> F::Output<'a>: Into<MemBlock>,
 {
-    fn load_mem_block(&self) -> io::Result<MemBlock> {
-        Ok(self.0.create_new()?.into())
+    fn load_mem_block(&self) -> OpenBaseResult<MemBlock> {
+        Ok(self
+            .0
+            .create_new()
+            .map_err(Into::into)
+            .with_context()
+            .msg("Error creating MemBlock")?
+            .into())
     }
 }
 

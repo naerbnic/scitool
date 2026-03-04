@@ -1,6 +1,7 @@
-use std::io;
-
-use crate::utils::block::{MemBlock, core::MemBlockBase};
+use crate::utils::block::{
+    MemBlock,
+    core::{MemBlockBase, OpenBaseResult},
+};
 
 #[derive(Debug)]
 pub(super) struct ContainedMemBlock(MemBlock);
@@ -12,7 +13,7 @@ impl ContainedMemBlock {
 }
 
 impl MemBlockBase for ContainedMemBlock {
-    fn load_mem_block(&self) -> io::Result<MemBlock> {
+    fn load_mem_block(&self) -> OpenBaseResult<MemBlock> {
         Ok(self.0.clone())
     }
 }

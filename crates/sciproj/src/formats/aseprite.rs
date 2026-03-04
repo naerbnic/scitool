@@ -50,6 +50,12 @@ pub use self::model::{
 pub use self::builder::{CelBuilder, FrameBuilder, LayerBuilder, SpriteBuilder, UserDataBuilder};
 pub use self::props::{Property, PropertyMap};
 
+scidev_errors::define_error! {
+    pub struct AsepriteError;
+}
+
+type Result<T> = std::result::Result<T, AsepriteError>;
+
 /// The color depth (bits per pixel) of the image.
 #[derive(Debug, Clone, Copy)]
 pub enum ColorDepth {

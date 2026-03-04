@@ -4,7 +4,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::utils::{block::core::RangeStreamBase, range::BoundedRange};
+use crate::utils::{
+    block::core::{OpenBaseResult, RangeStreamBase},
+    range::BoundedRange,
+};
 
 pub(super) struct BorrowedReader<'a, R> {
     reader: &'a Mutex<R>,
@@ -51,7 +54,7 @@ where
         = BorrowedReader<'a, R>
     where
         Self: 'a;
-    fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>> {
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>> {
         let reader = &*self.0;
         Ok(BorrowedReader {
             reader,

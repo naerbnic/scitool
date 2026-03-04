@@ -8,7 +8,7 @@ mod read_seek_impl;
 mod seq_impl;
 
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     io::{self, Read as _, Seek as _},
     num::TryFromIntError,
     ops::RangeBounds,
@@ -17,7 +17,7 @@ use std::{
 };
 
 use bytes::Buf;
-use scidev_errors::{AnyDiag, ensure, prelude::*};
+use scidev_errors::{AnyDiag, Diag, Kind, Reportable, define_error, diag, ensure, prelude::*};
 
 use crate::utils::{
     block::{
@@ -34,34 +34,77 @@ use crate::utils::{
     range::{BoundedRange, Range},
 };
 
+#[derive(Debug)]
+pub enum FromPathErrorKind {
+    NotFound,
+}
+
+impl Kind for FromPathErrorKind {}
+
+define_error! {
+    pub struct FromPathError {
+        type OptKind = FromPathErrorKind;
+    }
+}
+
+impl FromPathError {
+    pub fn new_not_found<E>(path: &Path, cause: Option<E>) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Diag::with_causes(cause)
+            .kind_args(
+                FromPathErrorKind::NotFound,
+                format_args!("File not found: {}", path.display()),
+            )
+            .into()
+    }
+
+    pub fn from_other<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        AnyDiag::with_causes([err]).msg("Other Error").into()
+    }
+}
+
+define_error! {
+    pub struct OpenError;
+}
+
+type OpenBaseResult<T> = Result<T, AnyDiag>;
+
 /// Implementation trait for Block sources.
 ///
 /// This is a dyn-compatible trait that provides the core functionality for
 /// Block sources.
 trait BlockBase: Debug {
     // Open as loaded data, possibly shared.
-    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock>;
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock>;
 
     /// Open as borrowed reader.
-    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>>;
+    fn open_reader<'a>(
+        &'a self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<Box<dyn io::Read + 'a>>;
 }
 
 trait MemBlockBase: Debug {
-    fn load_mem_block(&self) -> io::Result<MemBlock>;
+    fn load_mem_block(&self) -> OpenBaseResult<MemBlock>;
 }
 
 trait RangeStreamBase: Debug {
     type Reader<'a>: io::Read + 'a
     where
         Self: 'a;
-    fn open_range_reader(&self, range: BoundedRange<u64>) -> io::Result<Self::Reader<'_>>;
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>>;
 }
 
 trait FullStreamBase: Debug {
     type Reader<'a>: io::Read + 'a
     where
         Self: 'a;
-    fn open_full_reader(&self) -> io::Result<Self::Reader<'_>>;
+    fn open_full_reader(&self) -> OpenBaseResult<Self::Reader<'_>>;
 }
 
 #[derive(Debug)]
@@ -71,13 +114,16 @@ impl<T> BlockBase for MemBlockWrap<T>
 where
     T: MemBlockBase,
 {
-    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         let mem_block = self.0.load_mem_block()?;
         let mem_block = mem_block.sub_buffer(range.cast_to::<usize>());
         Ok(mem_block.clone())
     }
 
-    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
+    fn open_reader<'a>(
+        &'a self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
         let mem_block = self.0.load_mem_block()?;
         let mem_block = mem_block.sub_buffer(range.cast_to::<usize>());
         Ok(Box::new(io::Cursor::new(mem_block)))
@@ -91,13 +137,19 @@ impl<T> BlockBase for RangeStreamBaseWrap<T>
 where
     T: RangeStreamBase,
 {
-    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         let mut data = Vec::new();
-        self.0.open_range_reader(range)?.read_to_end(&mut data)?;
+        self.0
+            .open_range_reader(range)?
+            .read_to_end(&mut data)
+            .raise_err_with(diag!(|| "I/O error while reading range {range:?}"))?;
         Ok(MemBlock::from_vec(data))
     }
 
-    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
+    fn open_reader<'a>(
+        &'a self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
         let reader = self.0.open_range_reader(range)?;
         Ok(Box::new(reader))
     }
@@ -110,19 +162,29 @@ impl<T> BlockBase for FullStreamBaseWrap<T>
 where
     T: FullStreamBase,
 {
-    fn open_mem(&self, range: BoundedRange<u64>) -> io::Result<MemBlock> {
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         let mut data = Vec::new();
-        self.open_reader(range)?.read_to_end(&mut data)?;
+        self.open_reader(range)?
+            .read_to_end(&mut data)
+            .raise_err_with(diag!(|| "I/O error while reading range {range:?}"))?;
         Ok(MemBlock::from_vec(data))
     }
 
-    fn open_reader<'a>(&'a self, range: BoundedRange<u64>) -> io::Result<Box<dyn io::Read + 'a>> {
+    fn open_reader<'a>(
+        &'a self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
         let mut reader = self.0.open_full_reader()?;
         let temp_buffer = &mut [0u8; 8192];
         let mut data_remaining = range.start();
         while data_remaining > 0 {
             let to_read = std::cmp::min(data_remaining, temp_buffer.len() as u64);
-            let read_bytes = reader.read(&mut temp_buffer[..to_read.try_into().unwrap()])?;
+            let read_bytes = reader
+                .read(&mut temp_buffer[..to_read.try_into().unwrap()])
+                .raise_err_with(diag!(
+                    || "I/O error while advancing to initial position {start}",
+                    start = range.start()
+                ))?;
             if read_bytes == 0 {
                 break;
             }
@@ -137,24 +199,91 @@ pub trait RefFactory {
     type Output<'a>
     where
         Self: 'a;
+    type Error;
 
-    fn create_new(&self) -> io::Result<Self::Output<'_>>;
+    fn create_new(&self) -> Result<Self::Output<'_>, Self::Error>;
 }
 
-impl<F, T> RefFactory for F
+impl<F, T, E> RefFactory for F
 where
-    F: Fn() -> io::Result<T>,
+    F: Fn() -> Result<T, E>,
+    E: Debug + Display + Send + Sync + 'static,
 {
     type Output<'a>
         = T
     where
         Self: 'a;
+    type Error = E;
 
-    fn create_new(&self) -> io::Result<Self::Output<'_>> {
+    fn create_new(&self) -> Result<Self::Output<'_>, E> {
         self()
     }
 }
 
+struct MapErrRefFactory<F, M, E> {
+    factory: F,
+    err_mapper: M,
+    _phantom: std::marker::PhantomData<fn() -> E>,
+}
+
+impl<F, M, E> RefFactory for MapErrRefFactory<F, M, E>
+where
+    F: RefFactory,
+    M: Fn(F::Error) -> E,
+    E: Display + Debug + Send + Sync + 'static,
+{
+    type Output<'a>
+        = F::Output<'a>
+    where
+        Self: 'a;
+    type Error = E;
+
+    fn create_new(&self) -> Result<Self::Output<'_>, Self::Error> {
+        self.factory.create_new().map_err(&self.err_mapper)
+    }
+}
+
+// Helpers for creating specific block types
+
+fn build_from_read_factory_size<F>(size: u64, factory: F) -> Block
+where
+    F: RefFactory + Send + Sync + 'static,
+    F::Error: Into<AnyDiag>,
+    for<'a> F::Output<'a>: io::Read,
+{
+    Block::from_source_size(FullStreamBaseWrap(ReadFactoryImpl::new(factory)), size)
+}
+
+fn build_from_read_seek_factory_size<F>(size: u64, factory: F) -> Block
+where
+    F: RefFactory + Send + Sync + 'static,
+    F::Error: Into<AnyDiag>,
+    for<'a> F::Output<'a>: io::Read + io::Seek,
+{
+    Block::from_source_size(
+        RangeStreamBaseWrap(ReadSeekFactorySource::new(factory)),
+        size,
+    )
+}
+
+fn build_from_mem_block_factory_size<F>(size: u64, factory: F) -> Block
+where
+    F: RefFactory + Send + Sync + 'static,
+    F::Error: Into<AnyDiag>,
+    for<'a> F::Output<'a>: Into<MemBlock>,
+{
+    Block::from_source_size(MemBlockWrap(MemFactoryImpl::new(factory)), size)
+}
+
+/// A logical block of data of a given size.
+///
+/// A block represents a block of data that may or may not be resident in
+/// memory. Regions of the block can be accessed either through a
+/// [`std::io::Read`] object via [`Self::open_reader()`], or by loading the
+/// entire block into memory via [`Self::open_mem()`].
+///
+/// In addition, subranges of a block can be split off into its own block, and
+/// blocks can be concatenated to form a new block.
 #[derive(Clone, Debug)]
 pub struct Block {
     source: Arc<dyn BlockBase + Send + Sync>,
@@ -183,12 +312,13 @@ impl Block {
     #[must_use]
     pub fn from_error<E>(error: E) -> Self
     where
-        E: Into<io::Error> + Clone + Send + Sync + 'static,
+        E: Reportable + Clone,
     {
-        let source = ErrorBlockImpl::new(move || error.clone().into());
+        let source = ErrorBlockImpl::new(move || AnyDiag::new().msg(error.clone()));
         Self::from_source_size(source, 0)
     }
 
+    /// Returns a new block with the contents of the given vector.
     #[must_use]
     pub fn from_vec(data: Vec<u8>) -> Self {
         Self::from_mem_block(MemBlock::from_vec(data))
@@ -196,24 +326,41 @@ impl Block {
 
     /// Returns a block that always errors on access.
     #[must_use]
-    pub fn from_error_fn<F>(error: F) -> Self
+    pub fn from_error_fn<F>(error_fn: F) -> Self
     where
         F: Fn() -> io::Error + Clone + Send + Sync + 'static,
     {
-        let source = ErrorBlockImpl::new(error);
+        let source = ErrorBlockImpl::new(move || Err(error_fn()).raise_err().msg("Error").unwrap());
         Self::from_source_size(source, 0)
     }
 
     /// Creates a block source that represents the contents of a path at the
     /// given path. Returns an error if the file cannot be opened.
-    pub fn from_path<P>(path: P) -> io::Result<Self>
+    pub fn from_path<P>(path: P) -> Result<Self, FromPathError>
     where
         P: AsRef<Path> + Send + Sync + 'static,
     {
-        let size = std::fs::metadata(path.as_ref())?.len();
-        Builder::new()
-            .with_size(size)
-            .build_from_read_seek_factory(move || std::fs::File::open(path.as_ref()))
+        let size = std::fs::metadata(path.as_ref())
+            .raise_err_with(diag!(|| "Unable to stat file {}", path.as_ref().display()))?
+            .len();
+        Ok(build_from_read_seek_factory_size(size, move || {
+            let result = std::fs::File::open(path.as_ref());
+            result.map_raise_err(|e, r| {
+                if let io::ErrorKind::NotFound = e.kind() {
+                    r.kind_args(
+                        FromPathErrorKind::NotFound,
+                        format_args!("File not found. path = \"{}\"", path.as_ref().display()),
+                    )
+                    .maybe()
+                } else {
+                    r.args(format_args!(
+                        "Error opening file {}",
+                        path.as_ref().display()
+                    ))
+                    .maybe()
+                }
+            })
+        }))
     }
 
     pub fn from_buf<B: Buf>(buf: B) -> Self {
@@ -242,21 +389,25 @@ impl Block {
     }
 
     /// Open a subrange of the block as loaded data.
-    pub fn open_mem<R>(&self, range: R) -> io::Result<MemBlock>
+    pub fn open_mem<R>(&self, range: R) -> Result<MemBlock, OpenError>
     where
         R: RangeBounds<u64>,
     {
         let range = Range::from_range(range);
-        self.source.open_mem(self.range.new_relative(range))
+        self.source
+            .open_mem(self.range.new_relative(range))
+            .map_err(Into::into)
     }
 
     /// Open a subrange of the block as a reader.
-    pub fn open_reader<'a, R>(&'a self, range: R) -> io::Result<Box<dyn io::Read + 'a>>
+    pub fn open_reader<'a, R>(&'a self, range: R) -> Result<Box<dyn io::Read + 'a>, OpenError>
     where
         R: RangeBounds<u64>,
     {
         let range = Range::from_range(range);
-        self.source.open_reader(self.range.new_relative(range))
+        self.source
+            .open_reader(self.range.new_relative(range))
+            .map_err(Into::into)
     }
 
     /// Returns the length of the block in bytes.
@@ -273,6 +424,10 @@ impl Block {
 
     /// Returns a sub-block source that represents a subrange of the current
     /// block source.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is out of bounds.
     #[must_use]
     pub fn subblock<R>(&self, range: R) -> Self
     where
@@ -286,6 +441,10 @@ impl Block {
         }
     }
 
+    /// Splits a single block into two blocks at the given offset.
+    ///
+    /// For a call `self.split_at(n)`, the first block consists of bytes from
+    /// [0, n) and the second block consists of bytes from [n, `self.len()`).
     #[must_use]
     pub fn split_at(self, at: u64) -> (Self, Self) {
         assert!(
@@ -382,55 +541,85 @@ impl Builder {
         ))
     }
 
-    pub fn build_from_read_factory<F>(self, factory: F) -> io::Result<Block>
+    pub fn build_from_read_factory<F>(self, factory: F) -> Result<Block, OpenError>
     where
         F: RefFactory + Send + Sync + 'static,
+        F::Error: std::error::Error + Send + Sync + 'static,
         for<'a> F::Output<'a>: io::Read,
     {
         let size = if let Some(size) = self.size {
             size
         } else {
+            let mut probe_reader = factory
+                .create_new()
+                .raise_err_with(diag!(|| "Unable to create probe reader for sizing."))?;
             // Count size by reading all data
-            io::copy(&mut factory.create_new()?, &mut io::sink())?
+            io::copy(&mut probe_reader, &mut io::sink())
+                .raise_err_with(diag!(|| "Unable to count size of block via reading."))?
         };
-        Ok(Block::from_source_size(
-            FullStreamBaseWrap(ReadFactoryImpl::new(factory)),
+
+        Ok(build_from_read_factory_size(
             size,
+            MapErrRefFactory {
+                factory,
+                err_mapper: |e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."),
+                _phantom: std::marker::PhantomData,
+            },
         ))
     }
 
-    pub fn build_from_read_seek_factory<F>(self, factory: F) -> io::Result<Block>
+    pub fn build_from_read_seek_factory<F>(self, factory: F) -> Result<Block, OpenError>
     where
         F: RefFactory + Send + Sync + 'static,
+        F::Error: std::error::Error + Send + Sync + 'static,
         for<'a> F::Output<'a>: io::Read + io::Seek,
     {
         let size = if let Some(size) = self.size {
             size
         } else {
-            let mut reader = factory.create_new()?;
-            reader.seek(io::SeekFrom::End(0))?
+            let mut probe_reader = factory
+                .create_new()
+                .raise_err_with(diag!(|| "Unable to create probe reader for sizing."))?;
+            probe_reader
+                .seek(io::SeekFrom::End(0))
+                .raise_err_with(diag!(|| "Unable to count size of block via seeking."))?
         };
 
-        Ok(Block::from_source_size(
-            RangeStreamBaseWrap(ReadSeekFactorySource::new(factory)),
+        Ok(build_from_read_seek_factory_size(
             size,
+            MapErrRefFactory {
+                factory,
+                err_mapper: |e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."),
+                _phantom: std::marker::PhantomData,
+            },
         ))
     }
 
-    pub fn build_from_mem_block_factory<F>(self, factory: F) -> io::Result<Block>
+    pub fn build_from_mem_block_factory<F>(self, factory: F) -> Result<Block, OpenError>
     where
         F: RefFactory + Send + Sync + 'static,
+        F::Error: std::error::Error + Send + Sync + 'static,
         for<'a> F::Output<'a>: Into<MemBlock>,
     {
         let size = if let Some(size) = self.size {
             size
         } else {
-            let mem_block: MemBlock = factory.create_new()?.into();
+            let mem_block: MemBlock = factory
+                .create_new()
+                .raise_err_with(diag!(|| "Unable to create probe MemBlock for sizing."))?
+                .into();
             mem_block.len() as u64
         };
-        Ok(Block::from_source_size(
-            MemBlockWrap(MemFactoryImpl::new(factory)),
+
+        Ok(build_from_mem_block_factory_size(
             size,
+            MapErrRefFactory {
+                factory,
+                err_mapper: |e| {
+                    AnyDiag::with_causes(Some(e)).msg("when opening memblock-based block.")
+                },
+                _phantom: std::marker::PhantomData,
+            },
         ))
     }
 }
@@ -496,20 +685,20 @@ mod tests {
 
     #[test]
     fn test_from_error_block() {
-        let block = Block::from_error(io::ErrorKind::Other);
+        let block = Block::from_error("Error");
         assert_eq!(block.len(), 0);
     }
 
     #[test]
     fn test_from_error_block_open_mem_fails() {
-        let block = Block::from_error(io::ErrorKind::Other);
+        let block = Block::from_error("Error");
         let result = block.open_mem(..);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_from_error_block_open_reader_fails() {
-        let block = Block::from_error(io::ErrorKind::Other);
+        let block = Block::from_error("Error");
         let result = block.open_reader(..);
         assert!(result.is_err());
     }
@@ -742,7 +931,7 @@ mod tests {
     #[test]
     fn test_builder_from_read_factory() {
         let data = vec![1, 2, 3, 4, 5];
-        let factory = move || Ok(Cursor::new(data.clone()));
+        let factory = move || Ok::<_, io::Error>(Cursor::new(data.clone()));
         let block = Builder::new().build_from_read_factory(factory).unwrap();
         assert_eq!(block.len(), 5);
         let mem = block.open_mem(..).unwrap();
@@ -752,7 +941,7 @@ mod tests {
     #[test]
     fn test_builder_from_read_factory_with_explicit_size() {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        let factory = move || Ok(Cursor::new(data.clone()));
+        let factory = move || Ok::<_, io::Error>(Cursor::new(data.clone()));
         let block = Builder::new()
             .with_size(5)
             .build_from_read_factory(factory)
@@ -765,7 +954,7 @@ mod tests {
     #[test]
     fn test_builder_from_read_seek_factory() {
         let data = vec![1, 2, 3, 4, 5];
-        let factory = move || Ok(Cursor::new(data.clone()));
+        let factory = move || Ok::<_, io::Error>(Cursor::new(data.clone()));
         let block = Builder::new()
             .build_from_read_seek_factory(factory)
             .unwrap();
@@ -777,7 +966,7 @@ mod tests {
     #[test]
     fn test_builder_from_read_seek_factory_with_explicit_size() {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        let factory = move || Ok(Cursor::new(data.clone()));
+        let factory = move || Ok::<_, io::Error>(Cursor::new(data.clone()));
         let block = Builder::new()
             .with_size(5)
             .build_from_read_seek_factory(factory)
@@ -790,7 +979,7 @@ mod tests {
     #[test]
     fn test_builder_factory_multiple_calls() {
         let data = vec![1, 2, 3, 4, 5];
-        let factory = move || Ok(Cursor::new(data.clone()));
+        let factory = move || Ok::<_, io::Error>(Cursor::new(data.clone()));
         let block = Builder::new()
             .build_from_read_seek_factory(factory)
             .unwrap();

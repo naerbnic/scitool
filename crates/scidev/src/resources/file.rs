@@ -56,9 +56,7 @@ pub(super) fn read_resources(
 ) -> Result<ResourceSet, AnyDiag> {
     let map_file =
         MapFile::from_read_seek(File::open(map_file).map_raise(FileIoKind::from_error)?)?;
-    let data_file = VolumeFile::new(
-        Block::from_path(data_file.to_path_buf()).map_raise(FileIoKind::from_error)?,
-    );
+    let data_file = VolumeFile::new(Block::from_path(data_file.to_path_buf()).reraise_any()?);
 
     let mut entries = BTreeMap::new();
 

@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::Range;
-use std::{io, mem};
 
 use crate::formats::aseprite::backing::TagContents;
 use crate::formats::aseprite::{
     BlendMode, CelIndex, Color, ColorDepth, FrameIndex, GrayscaleColor, LayerFlags, LayerIndex,
-    Point16,
+    Point16, Result,
     backing::{
         CelContents, CelData, CelPixelData, LayerContents, SpriteContents, UserDataContents,
         UserDataPropsKey, ValidationError, validate_sprite,
@@ -14,6 +14,7 @@ use crate::formats::aseprite::{
 };
 
 use scidev::utils::block::MemBlock;
+use scidev_errors::{ensure, prelude::*};
 
 /// A readonly view of an Aseprite sprite.
 ///
@@ -23,7 +24,7 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    pub(super) fn new(contents: SpriteContents) -> Result<Self, ValidationError> {
+    pub(super) fn new(contents: SpriteContents) -> std::result::Result<Self, ValidationError> {
         validate_sprite(&contents)?;
         Ok(Self { contents })
     }
@@ -514,38 +515,34 @@ impl CelPixels<'_> {
         self.color_depth
     }
 
-    fn raw_bytes(&self) -> io::Result<MemBlock> {
-        self.inner
+    fn raw_bytes(&self) -> Result<MemBlock> {
+        Ok(self
+            .inner
             .cached_data
             .get_or_else(|| self.inner.data.open_mem(..))
+            .reraise_any()?)
     }
 
     /// Returns the pixels as an RGBA slice, if the color mode matches.
-    pub fn as_rgba(&self) -> io::Result<PixelSlice<Color>> {
-        if matches!(self.color_depth, ColorDepth::Rgba) {
-            PixelSlice::new(self.raw_bytes()?)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Cel is not RGBA",
-            ))
-        }
+    pub fn as_rgba(&self) -> Result<PixelSlice<Color>> {
+        ensure!(
+            matches!(self.color_depth, ColorDepth::Rgba),
+            "Cel is not RGBA"
+        );
+        PixelSlice::new(self.raw_bytes()?)
     }
 
     /// Returns the pixels as an indexed slice, if the color mode matches.
-    pub fn as_indexed(&self) -> io::Result<PixelSlice<u8>> {
-        if matches!(self.color_depth, ColorDepth::Indexed(_)) {
-            PixelSlice::new(self.raw_bytes()?)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Cel is not Indexed",
-            ))
-        }
+    pub fn as_indexed(&self) -> Result<PixelSlice<u8>> {
+        ensure!(
+            matches!(self.color_depth, ColorDepth::Indexed(_)),
+            "Cel is not Indexed"
+        );
+        PixelSlice::new(self.raw_bytes()?)
     }
 
     /// Returns a typed view of the pixel data based on the color depth.
-    pub fn as_pixels(&self) -> io::Result<TypedPixels> {
+    pub fn as_pixels(&self) -> Result<TypedPixels> {
         // We open the block as a MemBlock (loading it into memory if needed).
         // Since we are creating a view, we need to ensure we have the data.
         // raw_bytes() returns a MemBlock which is RefCounted, so cloning it is cheap.
@@ -586,28 +583,20 @@ impl<T> PixelSlice<T> {
     /// Returns an error if:
     /// - The type `T` has an alignment greater than 1.
     /// - The block's size is not a multiple of `size_of::<T>()`.
-    fn new(block: MemBlock) -> io::Result<Self> {
-        if mem::align_of::<T>() != 1 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "PixelSlice only supports types with alignment 1, but {} has alignment {}",
-                    std::any::type_name::<T>(),
-                    mem::align_of::<T>()
-                ),
-            ));
-        }
+    fn new(block: MemBlock) -> Result<Self> {
+        ensure!(
+            mem::align_of::<T>() == 1,
+            "PixelSlice only supports types with alignment 1, but {} has alignment {}",
+            std::any::type_name::<T>(),
+            mem::align_of::<T>()
+        );
 
-        if !block.len().is_multiple_of(mem::size_of::<T>()) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "Block size {} is not a multiple of pixel size {}",
-                    block.len(),
-                    mem::size_of::<T>()
-                ),
-            ));
-        }
+        ensure!(
+            block.len().is_multiple_of(mem::size_of::<T>()),
+            "Block size {} is not a multiple of pixel size {}",
+            block.len(),
+            mem::size_of::<T>(),
+        );
 
         Ok(Self {
             block,

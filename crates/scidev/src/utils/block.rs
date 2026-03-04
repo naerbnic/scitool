@@ -6,6 +6,6 @@ mod mem_block;
 mod temp_store;
 
 pub use builder::{BlockBuilder, BlockBuilderFactory};
-pub use core::{Block, FromBlock, RefFactory};
+pub use core::{Block, FromBlock, FromPathError, FromPathErrorKind, OpenError, RefFactory};
 pub use mem_block::{CachedMemBlock, FromReaderError as MemBlockFromReaderError, MemBlock};
 pub use temp_store::TempStore;

@@ -1271,6 +1271,7 @@ dependencies = [
  "regex-syntax",
  "schemars",
  "scidev",
+ "scidev-errors",
  "serde",
  "serde_json",
  "slab",

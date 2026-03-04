@@ -7,17 +7,15 @@ mod err_helpers;
 mod io_wrappers;
 pub mod schema;
 
-use std::{
-    borrow::Cow,
-    io::{self, Read as _},
-    path::Path,
-};
+use std::{borrow::Cow, io::Read as _, path::Path};
 
 use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::{ExtraData, Resource, ResourceId, ResourceProvenance},
     utils::{block::Block, compression::dcl::DecompressFactory},
 };
+
+use scidev_errors::{define_error, prelude::*};
 
 use crate::respack::{
     err_helpers::{io_bail, io_err_map},
@@ -31,8 +29,14 @@ const META_PATH: &str = "meta.json";
 const COMPRESSED_BIN_PATH: &str = "compressed.bin";
 const RAW_BIN_PATH: &str = "raw.bin";
 
-fn buffer_info_from_lazy_block(block: &Block) -> io::Result<schema::BufferInfo> {
-    let buffer = block.open_mem(..)?;
+define_error! {
+    pub struct RespackError;
+}
+
+type Result<T> = std::result::Result<T, RespackError>;
+
+fn buffer_info_from_lazy_block(block: &Block) -> Result<schema::BufferInfo> {
+    let buffer = block.open_mem(..).reraise_any()?;
 
     let size = u64::try_from(buffer.len()).unwrap();
     let hash = Sha256Hash::from_data_hash(&*buffer);
@@ -58,10 +62,10 @@ impl ResPack {
         }
     }
 
-    pub fn from_resource(resource: &Resource) -> io::Result<Self> {
+    pub fn from_resource(resource: &Resource) -> Result<Self> {
         let raw_data = resource.data().clone();
 
-        let raw_buffer_info = BufferInfo::from_stream(raw_data.open_reader(..)?)?;
+        let raw_buffer_info = BufferInfo::from_stream(raw_data.open_reader(..).reraise_any()?)?;
 
         // Get provenance info from the contents.
         let source = match resource.provenance() {
@@ -74,15 +78,15 @@ impl ResPack {
             ResourceProvenance::PatchFile(patch_source) => {
                 let header_data = match patch_source.extra_data() {
                     ExtraData::Simple(data) => {
-                        let data = data.open_mem(..)?;
+                        let data = data.open_mem(..).reraise_any()?;
                         schema::HeaderData::Simple(schema::Base64Data::new(data.to_vec()))
                     }
                     ExtraData::Composite {
                         ext_header,
                         extra_data,
                     } => {
-                        let ext_header = ext_header.open_mem(..)?;
-                        let extra_data = extra_data.open_mem(..)?;
+                        let ext_header = ext_header.open_mem(..).reraise_any()?;
+                        let extra_data = extra_data.open_mem(..).reraise_any()?;
                         schema::HeaderData::Composite {
                             ext_header_data: schema::Base64Data::new(ext_header.to_vec()),
                             extra_data: schema::Base64Data::new(extra_data.to_vec()),
@@ -98,11 +102,7 @@ impl ResPack {
 
         let (compressed_info, compressed_data) = if let Some(compressed) = resource.compressed() {
             let block = compressed.compressed_block().clone();
-            let compressed_info = BufferInfo::from_stream(
-                block
-                    .open_reader(..)
-                    .map_err(io_err_map!(Other, "Failed to open compressed data"))?,
-            )?;
+            let compressed_info = BufferInfo::from_stream(block.open_reader(..).reraise_any()?)?;
             (
                 Some(schema::CompressedInfo::new(compressed_info)),
                 Some(block),

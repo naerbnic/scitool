@@ -1,6 +1,8 @@
 use std::{fmt::Debug, io};
 
-use crate::utils::block::core::{FullStreamBase, RefFactory};
+use scidev_errors::{AnyDiag, ResultExt as _};
+
+use crate::utils::block::core::{FullStreamBase, OpenBaseResult, RefFactory};
 
 pub(super) struct ReadFactoryImpl<F>(F);
 
@@ -17,14 +19,19 @@ where
 impl<F> FullStreamBase for ReadFactoryImpl<F>
 where
     F: RefFactory,
+    F::Error: Into<AnyDiag>,
     for<'a> F::Output<'a>: io::Read,
 {
     type Reader<'a>
         = F::Output<'a>
     where
         Self: 'a;
-    fn open_full_reader(&self) -> io::Result<Self::Reader<'_>> {
-        self.0.create_new()
+    fn open_full_reader(&self) -> OpenBaseResult<Self::Reader<'_>> {
+        self.0
+            .create_new()
+            .map_err(Into::into)
+            .with_context()
+            .msg("Error creating full reader.")
     }
 }
 

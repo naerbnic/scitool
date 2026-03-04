@@ -203,10 +203,10 @@ impl CachedMemBlock {
         None
     }
 
-    pub fn get_or_else(
+    pub fn get_or_else<E>(
         &self,
-        factory: impl FnOnce() -> io::Result<MemBlock>,
-    ) -> io::Result<MemBlock> {
+        factory: impl FnOnce() -> Result<MemBlock, E>,
+    ) -> Result<MemBlock, E> {
         let mut cached_store = self.store.lock().unwrap();
         if let Some(weak_block) = cached_store.as_ref()
             && let Some(block) = weak_block.upgrade()

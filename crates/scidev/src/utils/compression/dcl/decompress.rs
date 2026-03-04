@@ -1,8 +1,9 @@
 use std::io;
 
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
+use scidev_errors::{diag, prelude::*};
 
-use crate::utils::block::{Block, RefFactory};
+use crate::utils::block::{Block, OpenError, RefFactory};
 use crate::utils::compression::pipe::{self, DataProcessor};
 use crate::utils::compression::reader::{BitReader, LittleEndianReader};
 
@@ -310,8 +311,13 @@ impl RefFactory for DecompressFactory {
     where
         Self: 'a;
 
-    fn create_new(&self) -> io::Result<Self::Output<'_>> {
-        let reader = self.0.open_reader(..)?;
+    type Error = OpenError;
+
+    fn create_new(&self) -> Result<Self::Output<'_>, OpenError> {
+        let reader = self
+            .0
+            .open_reader(..)
+            .raise_err_with(diag!(|| "Failed to open block"))?;
         let decompressed_reader = decompress_reader(reader);
         Ok(Box::new(decompressed_reader))
     }
