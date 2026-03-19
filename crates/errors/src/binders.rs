@@ -305,15 +305,22 @@ where
     }
 }
 
+/// An object whose methods bind a context message to a value, and returns that
+/// value.
+///
+/// In the public interface, this is typically used with an `impl` of the
+/// `ContextBind` trait. The `Out` type in that binding is the type that will be
+/// returned from all methods of this struct.
 pub struct ContextBinder<B> {
     binder: B,
 }
-
 impl<B: ContextBind> ContextBinder<B> {
     pub(crate) fn new(binder: B) -> Self {
         Self { binder }
     }
 
+    /// Binds a reportable message of type `M` to a diag-like, and returns the
+    /// value.
     pub fn msg<M>(self, msg: M) -> B::Out
     where
         M: Reportable,
@@ -321,6 +328,8 @@ impl<B: ContextBind> ContextBinder<B> {
         self.binder.add_message(|r| r.msg(msg), SealedToken)
     }
 
+    /// Binds a [`std::format_args!`] printable string to a diag-like, and
+    /// returns the value.
     pub fn args(self, args: std::fmt::Arguments<'_>) -> B::Out {
         self.binder.add_message(|r| r.args(args), SealedToken)
     }

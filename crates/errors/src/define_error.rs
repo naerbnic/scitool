@@ -5,14 +5,14 @@
 ///
 /// There are three options for error types:
 ///
-/// - `define_error!(MyErr)` will define an error type that represents an opaque
+/// - `define_error! { struct MyErr; }` will define an error type that represents an opaque
 ///   error. Any [`crate::DiagLike`] type can be converted to it.
-/// - `define_error!(MyErr, kind = MyErrKind)` will define an error type that is
+/// - `define_error! { struct MyErr { type Kind = MyErrKind; } }` will define an error type that is
 ///   always actionable. It will have a `kind()` method that returns a
 ///   reference to `MyErrKind`. Values of `MyErrKind` and
 ///   `crate::Diag<MyErrKind>` are convertible to it. Note
 ///   that all error values _must_ have an instance of `MyErrKind`.
-/// - `define_error!(MyErr, opt_kind = MyErrKind)`will define an error type that
+/// - `define_error! { struct MyErr { type OptKind = MyErrKind; } }` will define an error type that
 ///   is _sometimes_ actionable. It has a `kind()` method that returns an
 ///   optional reference to a `MyErrKind`, intending to differentiate between an
 ///   actionable and non-actionable error. Can be converted from a `MyErrKind`,
@@ -20,6 +20,9 @@
 ///   when converted from an `AnyDiag`, it will _always_ return None from
 ///   `kind()` even if the underlying type of the `AnyDiag` is an instance of
 ///   `MyErrKind`.
+///
+/// The structs defined within a [`crate::define_error`] can have attributes added to
+/// it, along with documentation comments as desired.
 #[macro_export]
 macro_rules! define_error {
     {

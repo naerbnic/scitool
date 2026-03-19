@@ -105,7 +105,7 @@ non-view API.
 [`MaybeDiag<E>`] allows both [`Diag<E>`] and [`AnyDiag`] to be coerced to
 it. It keeps track of which source it came from, so if you try to round trip
 an error through [`Diag<E>`] -> [`AnyDiag`] -> [`MaybeDiag<E>`],
-[`MaybeDiag::try_as_error()`] will still return `None`.
+[`MaybeDiag::opt_kind()`] will still return `None`.
 
 ## Using Context
 

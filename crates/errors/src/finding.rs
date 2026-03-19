@@ -6,7 +6,7 @@ pub(crate) struct KindFinding<K>
 where
     K: Kind,
 {
-    err_like: ReportableHandle,
+    rep_handle: ReportableHandle,
     _phantom: PhantomData<K>,
 }
 
@@ -19,7 +19,7 @@ where
         K: Reportable,
     {
         Self {
-            err_like: ReportableHandle::new(kind),
+            rep_handle: ReportableHandle::new(kind),
             _phantom: PhantomData,
         }
     }
@@ -29,7 +29,7 @@ where
         M: Reportable,
     {
         Self {
-            err_like: ReportableHandle::from_split(kind, msg),
+            rep_handle: ReportableHandle::from_split(kind, msg),
             _phantom: PhantomData,
         }
     }
@@ -41,26 +41,26 @@ where
             ReportableHandle::from_split(kind, args.to_string())
         };
         Self {
-            err_like,
+            rep_handle: err_like,
             _phantom: PhantomData,
         }
     }
 
     #[must_use]
     pub(crate) fn into_handle(self) -> ReportableHandle {
-        self.err_like
+        self.rep_handle
     }
 
     pub(crate) fn append_reportable(self, rep: impl Reportable) -> Self {
         Self {
-            err_like: self.err_like.append_reportable(rep),
+            rep_handle: self.rep_handle.append_reportable(rep),
             _phantom: PhantomData,
         }
     }
 }
 
 pub(crate) struct MessageFinding {
-    err_like: ReportableHandle,
+    rep_handle: ReportableHandle,
 }
 
 impl MessageFinding {
@@ -69,7 +69,7 @@ impl MessageFinding {
         M: Reportable,
     {
         Self {
-            err_like: ReportableHandle::from_report_only(msg),
+            rep_handle: ReportableHandle::from_report_only(msg),
         }
     }
 
@@ -79,17 +79,19 @@ impl MessageFinding {
         } else {
             ReportableHandle::from_report_only(args.to_string())
         };
-        Self { err_like }
+        Self {
+            rep_handle: err_like,
+        }
     }
 
     #[must_use]
     pub(crate) fn into_err_like(self) -> ReportableHandle {
-        self.err_like
+        self.rep_handle
     }
 
     pub(crate) fn append_reportable(self, rep: impl Reportable) -> Self {
         Self {
-            err_like: self.err_like.append_reportable(rep),
+            rep_handle: self.rep_handle.append_reportable(rep),
         }
     }
 }

@@ -60,13 +60,13 @@ pub(crate) struct Frame {
 
 impl Frame {
     pub(crate) fn new(
-        root_err: ReportableHandle,
+        root_reportable: ReportableHandle,
         created_at: &'static Location<'static>,
         causes: Vec<Frame>,
     ) -> Self {
         let code_context = Context {
             created_at,
-            message: root_err,
+            message: root_reportable,
         };
         Self {
             inner: Box::new(Inner {
@@ -92,7 +92,7 @@ impl Frame {
         });
     }
 
-    pub(crate) fn has_error<E>(&self) -> bool
+    pub(crate) fn has_kind<E>(&self) -> bool
     where
         E: Kind,
     {
@@ -103,14 +103,14 @@ impl Frame {
             .is_some()
     }
 
-    pub(crate) fn try_error_ref<E>(&self) -> Option<&E>
+    pub(crate) fn try_kind_ref<E>(&self) -> Option<&E>
     where
         E: Kind,
     {
         self.inner.base_context.message.downcast_ref()
     }
 
-    pub(crate) fn try_extract_error<E>(&mut self) -> Option<E>
+    pub(crate) fn try_extract_kind<E>(&mut self) -> Option<E>
     where
         E: Kind,
     {
@@ -224,7 +224,7 @@ impl Frame {
     /// Returns the root source of this frame's error. If this is a
     /// context-based frame, then this is the location of the originating
     /// context.
-    pub(crate) fn err_location(&self) -> &'static Location<'static> {
+    pub(crate) fn kind_location(&self) -> &'static Location<'static> {
         self.inner.base_context.created_at
     }
 
@@ -245,11 +245,11 @@ impl Frame {
         FrameIter::from_frame_slice(std::slice::from_ref(self)).map(Frame::view)
     }
 
-    pub(crate) fn find_errors<E2>(&self) -> impl Iterator<Item = TypedErrorView<'_, E2>>
+    pub(crate) fn find_kinds<K>(&self) -> impl Iterator<Item = TypedErrorView<'_, K>>
     where
-        E2: Kind,
+        K: Kind,
     {
-        self.all_frames().filter_map(|view| view.as_typed::<E2>())
+        self.all_frames().filter_map(|view| view.as_typed::<K>())
     }
 
     /// Returns an iterator over all causes of this frame, including the cause
@@ -355,14 +355,14 @@ where
     _phantom: std::marker::PhantomData<E>,
 }
 
-impl<'a, E> TypedErrorView<'a, E>
+impl<'a, K> TypedErrorView<'a, K>
 where
-    E: Kind,
+    K: Kind,
 {
     /// Returns the contained error-like value.
     #[must_use]
-    pub fn error(&self) -> &E {
-        self.error.try_error_ref().unwrap()
+    pub fn kind(&self) -> &K {
+        self.error.try_kind_ref().unwrap()
     }
 
     /// Returns the last location that context was added.
@@ -374,7 +374,7 @@ where
     /// Returns the initial location that this error was raised at.
     #[must_use]
     pub fn err_location(&self) -> &'static Location<'static> {
-        self.error.err_location()
+        self.error.kind_location()
     }
 
     /// Returns an iterator over the contexts that were added to this error.
@@ -397,16 +397,16 @@ where
     /// Finds all err-like values in the cause tree of the given type.
     ///
     /// This is most useful for gathering debugging information.
-    pub fn find_errors<E2>(&self) -> impl Iterator<Item = TypedErrorView<'a, E2>> + 'a
+    pub fn find_errors<K2>(&self) -> impl Iterator<Item = TypedErrorView<'a, K2>> + 'a
     where
-        E2: Kind,
+        K2: Kind,
     {
-        self.error.find_errors::<E2>()
+        self.error.find_kinds::<K2>()
     }
 
     /// Returns an iterator to all the causes of this error, not including the
     /// current error.
-    pub fn all_causes<E2>(&self) -> impl Iterator<Item = ErrorView<'a>> + 'a {
+    pub fn all_causes(&self) -> impl Iterator<Item = ErrorView<'a>> + 'a {
         self.error.all_causes()
     }
 }
@@ -438,11 +438,11 @@ impl<'a> ErrorView<'a> {
     /// Returns `Some(err)` for the contained err-like, if the err-like is of
     /// type `E`.
     #[must_use]
-    pub fn as_typed<E>(&self) -> Option<TypedErrorView<'a, E>>
+    pub fn as_typed<K>(&self) -> Option<TypedErrorView<'a, K>>
     where
-        E: Kind,
+        K: Kind,
     {
-        if self.error.has_error::<E>() {
+        if self.error.has_kind::<K>() {
             Some(TypedErrorView {
                 error: self.error,
                 _phantom: PhantomData,
@@ -454,11 +454,11 @@ impl<'a> ErrorView<'a> {
 
     /// Returns true if the err-like is of type `E`.
     #[must_use]
-    pub fn has_error_type<E>(&self) -> bool
+    pub fn has_kind_type<K>(&self) -> bool
     where
-        E: Kind,
+        K: Kind,
     {
-        self.error.has_error::<E>()
+        self.error.has_kind::<K>()
     }
 
     /// Returns the last code location that the error had context added to.
@@ -469,8 +469,8 @@ impl<'a> ErrorView<'a> {
 
     /// Returns the initial location that this error was raised at.
     #[must_use]
-    pub fn err_location(&self) -> &'static Location<'static> {
-        self.error.err_location()
+    pub fn kind_location(&self) -> &'static Location<'static> {
+        self.error.kind_location()
     }
 
     /// Returns a [`std::error::Error`] reference that displays and debugs
@@ -504,11 +504,11 @@ impl<'a> ErrorView<'a> {
     /// Finds all err-like values in the cause tree of the given type.
     ///
     /// This is most useful for gathering debugging information.
-    pub fn find_errors<E2>(&self) -> impl Iterator<Item = TypedErrorView<'a, E2>> + 'a
+    pub fn find_kinds<K>(&self) -> impl Iterator<Item = TypedErrorView<'a, K>> + 'a
     where
-        E2: Kind,
+        K: Kind,
     {
-        self.error.find_errors::<E2>()
+        self.error.find_kinds::<K>()
     }
 
     /// Returns an iterator to all the causes of this error, not including the

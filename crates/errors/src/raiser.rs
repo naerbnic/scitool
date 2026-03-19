@@ -169,6 +169,8 @@ where
     }
 }
 
+/// A handle passed to [`DiagLike`]-generating functions to pass on a kind or
+/// printable message.
 #[must_use]
 pub struct Raiser<'a> {
     // A field to prevent users from creating in in situ.

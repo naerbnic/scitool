@@ -1,18 +1,19 @@
 use std::{any::Any, fmt, marker::PhantomData, panic::Location};
 
 use crate::{
-    ContextBind, ContextBinder, IntoCause, RaisedMessage, Reportable,
-    binders::{Bind, Cause, RaiseBinder, ValueBind, ValueContextBind},
+    ContextBinder, IntoCause, RaisedMessage, Reportable,
+    binders::{Bind, Cause, ContextBind, RaiseBinder, ValueBind, ValueContextBind},
     finding::{KindFinding, MessageFinding},
     frame::{ErrorView, Frame},
     out,
     sealed::DiagLikePriv,
 };
 
-/// A marker trait for types that are usable as kinds for Diag types. This
-/// has fewer restrictions than [`std::error::Error`], in that these types
-/// are not responsible for carrying all of the extra information connected
-/// with an error. In particular, Kinds do _not_ need to be
+/// A marker trait for types that are usable as kinds for Diag types.
+///
+/// This trait has fewer restrictions than [`std::error::Error`], in that these
+/// types are not responsible for carrying all of the extra information
+/// connected with an error. In particular, Kinds do _not_ need to be
 /// [`fmt::Display`]able, as long as any site that raises an error of this
 /// kind also provides how the message should appear.
 pub trait Kind: Any + fmt::Debug + Send + Sync + 'static {}
@@ -160,7 +161,7 @@ where
     #[must_use]
     pub fn kind(&self) -> &K {
         self.root
-            .try_error_ref()
+            .try_kind_ref()
             .expect("Diag should always contain an error of type E")
     }
 
@@ -176,7 +177,7 @@ where
     pub fn into_kind(mut self) -> (K, AnyDiag) {
         let error = self
             .root
-            .try_extract_error()
+            .try_extract_kind()
             .expect("Diag should always contain an error of type E");
         (error, AnyDiag { root: self.root })
     }
@@ -372,7 +373,7 @@ where
             return None;
         }
 
-        self.root.try_error_ref::<K>()
+        self.root.try_kind_ref::<K>()
     }
 
     /// Extracts the contained kind if it is actionable, and returns an
@@ -386,7 +387,7 @@ where
 
         let error = self
             .root
-            .try_extract_error()
+            .try_extract_kind()
             .expect("If actionable, frame must contain this type.");
 
         (Some(error), AnyDiag { root: self.root })
@@ -449,7 +450,7 @@ where
 pub trait DiagLike: DiagLikePriv + Sized {
     type Kind: Kind;
 
-    /// Adds the given err-like value as a context, return a value of the same
+    /// Adds a reportable value as a context, return a value of the same
     /// type.
     #[must_use]
     fn add_context(self) -> ContextBinder<impl ContextBind<Out = Self>>;
@@ -459,8 +460,8 @@ pub trait DiagLike: DiagLikePriv + Sized {
     #[must_use]
     fn raise(self) -> RaiseBinder<impl Bind<Out = out::Value>>;
 
-    /// Tries to extract this [`DiagLike`] as an actionable Diag<K>. If that fails,
-    /// it is returned as an unactionable [`AnyDiag`].
+    /// Tries to extract this [`DiagLike`] as an actionable [`Diag<K>`]. If
+    /// that fails, it is returned as an unactionable [`AnyDiag`].
     fn extract_actionable(self) -> Result<Diag<Self::Kind>, AnyDiag>;
 
     /// Returns an equivalent diag as self.
@@ -676,7 +677,7 @@ macro_rules! diag {
 
 /// A macro to automatically throw a [`Diag`] or a [`AnyDiag`] with appropriate context information.
 ///
-/// The arguments to [`bail!`] are identical to the [`diag!`] macro. See it for more details.
+/// The arguments to [`crate::bail!`] are identical to the [`crate::diag!`] macro. See it for more details.
 #[macro_export]
 macro_rules! bail {
      ($($diag_tt:tt)*) => {
@@ -687,8 +688,8 @@ macro_rules! bail {
 /// A macro to automatically throw a [`Diag`] or an [`AnyDiag`] with appropriate context
 /// information.
 ///
-/// The first argument to [`ensure!`] is a simple boolean expression that will always be evaluated
-/// The remaining arguments, are identical to the [`diag!`] macro. See it for more details.
+/// The first argument to [`crate::ensure!`] is a simple boolean expression that will always be evaluated
+/// The remaining arguments, are identical to the [`crate::diag!`] macro. See it for more details.
 #[macro_export]
 macro_rules! ensure {
      ($cond:expr, $($bail_tt:tt)*) => {
@@ -851,21 +852,21 @@ mod tests {
         #[test]
         fn test_find_errors_with_no_needle() {
             let diag = build_diag!(StrawError);
-            let errors: Vec<_> = diag.view().find_errors::<NeedleError>().collect();
+            let errors: Vec<_> = diag.view().find_kinds::<NeedleError>().collect();
             assert_eq!(errors.len(), 0);
         }
 
         #[test]
         fn test_find_root_error() {
             let diag = build_diag!(NeedleError);
-            let errors: Vec<_> = diag.view().find_errors::<NeedleError>().collect();
+            let errors: Vec<_> = diag.view().find_kinds::<NeedleError>().collect();
             assert_eq!(errors.len(), 1);
         }
 
         #[test]
         fn test_find_child_error() {
             let diag = build_diag!(StrawError, [build_diag!(NeedleError)]);
-            let errors: Vec<_> = diag.view().find_errors::<NeedleError>().collect();
+            let errors: Vec<_> = diag.view().find_kinds::<NeedleError>().collect();
             assert_eq!(errors.len(), 1);
         }
 
@@ -882,7 +883,7 @@ mod tests {
                     )
                 ]
             );
-            let errors: Vec<_> = diag.view().find_errors::<NeedleError>().collect();
+            let errors: Vec<_> = diag.view().find_kinds::<NeedleError>().collect();
             assert_eq!(errors.len(), 2);
             assert!(
                 errors
@@ -908,7 +909,7 @@ mod tests {
             assert!(
                 errors
                     .iter()
-                    .map(TypedErrorView::error)
+                    .map(TypedErrorView::kind)
                     .all(|err| matches!(err, NeedleError))
             );
         }
@@ -933,14 +934,14 @@ mod tests {
             assert_eq!(
                 errors
                     .iter()
-                    .filter(|err| err.has_error_type::<NeedleError>())
+                    .filter(|err| err.has_kind_type::<NeedleError>())
                     .count(),
                 2
             );
             assert_eq!(
                 errors
                     .iter()
-                    .filter(|err| err.has_error_type::<StrawError>())
+                    .filter(|err| err.has_kind_type::<StrawError>())
                     .count(),
                 1
             );
@@ -964,7 +965,7 @@ mod tests {
             let errors: Vec<_> = diag
                 .view()
                 .all_causes()
-                .filter(ErrorView::has_error_type::<NeedleError>)
+                .filter(ErrorView::has_kind_type::<NeedleError>)
                 .collect();
             assert_eq!(errors.len(), 2);
         }
@@ -1000,7 +1001,7 @@ mod tests {
             assert_eq!(format!("{diag_b}"), "error B");
             // Check that ErrorA is a child of ErrorB
             let children: Vec<_> = diag_b.view().all_causes().collect();
-            assert!(children.iter().any(ErrorView::has_error_type::<ErrorA>));
+            assert!(children.iter().any(ErrorView::has_kind_type::<ErrorA>));
         }
 
         #[test]
@@ -1010,7 +1011,7 @@ mod tests {
 
             assert_eq!(format!("{diag_b}"), "error B");
             let children: Vec<_> = diag_b.view().all_causes().collect();
-            assert!(children.iter().any(ErrorView::has_error_type::<ErrorA>));
+            assert!(children.iter().any(ErrorView::has_kind_type::<ErrorA>));
         }
 
         #[test]
@@ -1060,7 +1061,7 @@ mod tests {
             assert_eq!(format!("{diag}"), "error B");
 
             let children: Vec<_> = diag.view().all_causes().collect();
-            assert!(children.iter().any(ErrorView::has_error_type::<ErrorA>));
+            assert!(children.iter().any(ErrorView::has_kind_type::<ErrorA>));
         }
 
         #[test]

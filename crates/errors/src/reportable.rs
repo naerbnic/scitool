@@ -9,7 +9,7 @@ use crate::Kind;
 /// An alias-like trait for types that are Display, Debug, Send, Sync and 'static.
 ///
 /// Note that types that already implement [`std::error::Error`] automatically
-/// implement all of these traits, so automatically implement [`ErrLike`].
+/// implement all of these traits, so automatically implement [`Reportable`].
 pub trait Reportable: Display + Debug + Send + Sync + 'static {}
 
 impl<Obj> Reportable for Obj where Obj: Display + Debug + Send + Sync + 'static {}

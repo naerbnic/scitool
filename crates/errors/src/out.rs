@@ -1,6 +1,8 @@
+//! Types used to represent outputs from higher-kinded types.
+
 use crate::sealed::Sealed;
 
-/// A trait for tokens that indicate an output type that can vary with one
+/// A trait for marker types that indicate an output type that can vary with one
 /// variable.
 pub trait Out: Sealed {
     type Ty<T>;
@@ -18,6 +20,7 @@ impl<T> Out for Result<T> {
 
 impl<T> Sealed for Result<T> {}
 
+/// Outputs which return the varying type directly.
 pub struct Value;
 
 impl Out for Value {
