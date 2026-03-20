@@ -77,10 +77,8 @@ macro_rules! define_error {
             }
         }
 
-        impl $crate::DiagStdError for $name {
-            type Diag = $crate::AnyDiag;
-
-            fn into_diag(self) -> Self::Diag {
+        impl $crate::DiagStdError<$crate::AnyDiag> for $name {
+            fn into_diag(self) -> $crate::AnyDiag {
                 self.diag
             }
         }
@@ -143,10 +141,8 @@ macro_rules! define_error {
             }
         }
 
-        impl $crate::DiagStdError for $name {
-            type Diag = $crate::Diag<$kind>;
-
-            fn into_diag(self) -> Self::Diag {
+        impl $crate::DiagStdError<$crate::Diag<$kind>> for $name {
+            fn into_diag(self) -> $crate::Diag<$kind> {
                 self.diag
             }
         }
@@ -215,10 +211,8 @@ macro_rules! define_error {
             }
         }
 
-        impl $crate::DiagStdError for $name {
-            type Diag = $crate::MaybeDiag<$kind>;
-
-            fn into_diag(self) -> Self::Diag {
+        impl $crate::DiagStdError<$crate::MaybeDiag<$kind>> for $name {
+            fn into_diag(self) -> $crate::MaybeDiag<$kind> {
                 self.diag
             }
         }

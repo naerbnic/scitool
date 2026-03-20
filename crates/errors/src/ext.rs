@@ -10,10 +10,8 @@ use crate::{
 
 /// A trait that marks specific `std::error::Error` types that can be converted
 /// back to Diags if requested.
-pub trait DiagStdError: std::error::Error + Send + Sync + 'static {
-    type Diag: DiagLike;
-
-    fn into_diag(self) -> Self::Diag;
+pub trait DiagStdError<D>: std::error::Error + Send + Sync + 'static {
+    fn into_diag(self) -> D;
 }
 
 pub trait AnyDiagStdError: std::error::Error + Send + Sync + 'static {
@@ -64,9 +62,9 @@ pub trait ResultExt: Sized {
         Self::Error: IntoCause,
         R: RaisedToDiag;
 
-    fn reraise(self) -> Result<Self::Value, <Self::Error as DiagStdError>::Diag>
+    fn reraise<D>(self) -> Result<Self::Value, D>
     where
-        Self::Error: DiagStdError;
+        Self::Error: DiagStdError<D>;
 
     fn reraise_any(self) -> Result<Self::Value, AnyDiag>
     where
@@ -160,9 +158,9 @@ impl<T, E> ResultExt for Result<T, E> {
         self.map_raise_err(|_, r| raise_fn(r))
     }
 
-    fn reraise(self) -> Result<Self::Value, <Self::Error as DiagStdError>::Diag>
+    fn reraise<D>(self) -> Result<Self::Value, D>
     where
-        Self::Error: DiagStdError,
+        Self::Error: DiagStdError<D>,
     {
         self.map_err(DiagStdError::into_diag)
     }
