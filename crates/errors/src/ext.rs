@@ -1,5 +1,5 @@
 use crate::{
-    ContextBinder, DiagLike, RaisedMessage, Raiser,
+    AnyDiag, ContextBinder, DiagLike, RaisedMessage, Raiser,
     binders::{
         Bind, ContextBind, ErrResultBind, IntoCause, OptionBind, RaiseBinder, ResultBind,
         ResultContextBind,
@@ -14,6 +14,10 @@ pub trait DiagStdError: std::error::Error + Send + Sync + 'static {
     type Diag: DiagLike;
 
     fn into_diag(self) -> Self::Diag;
+}
+
+pub trait AnyDiagStdError: std::error::Error + Send + Sync + 'static {
+    fn into_any_diag(self) -> AnyDiag;
 }
 
 /// An extension trait for [`Result<T, E>`], providing different kinds of error
@@ -63,6 +67,10 @@ pub trait ResultExt: Sized {
     fn reraise(self) -> Result<Self::Value, <Self::Error as DiagStdError>::Diag>
     where
         Self::Error: DiagStdError;
+
+    fn reraise_any(self) -> Result<Self::Value, AnyDiag>
+    where
+        Self::Error: AnyDiagStdError;
 
     fn raise_err_with<R>(
         self,
@@ -157,6 +165,13 @@ impl<T, E> ResultExt for Result<T, E> {
         Self::Error: DiagStdError,
     {
         self.map_err(DiagStdError::into_diag)
+    }
+
+    fn reraise_any(self) -> Result<Self::Value, AnyDiag>
+    where
+        Self::Error: AnyDiagStdError,
+    {
+        self.map_err(AnyDiagStdError::into_any_diag)
     }
 
     #[track_caller]

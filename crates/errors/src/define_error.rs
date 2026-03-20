@@ -84,6 +84,12 @@ macro_rules! define_error {
                 self.diag
             }
         }
+
+        impl $crate::AnyDiagStdError for $name {
+            fn into_any_diag(self) -> $crate::AnyDiag {
+                self.diag.into()
+            }
+        }
     };
     {
         $(#[$meta:meta])* $v:vis struct $name:ident {
@@ -142,6 +148,12 @@ macro_rules! define_error {
 
             fn into_diag(self) -> Self::Diag {
                 self.diag
+            }
+        }
+
+        impl $crate::AnyDiagStdError for $name {
+            fn into_any_diag(self) -> $crate::AnyDiag {
+                self.diag.into()
             }
         }
     };
@@ -208,6 +220,12 @@ macro_rules! define_error {
 
             fn into_diag(self) -> Self::Diag {
                 self.diag
+            }
+        }
+
+        impl $crate::AnyDiagStdError for $name {
+            fn into_any_diag(self) -> $crate::AnyDiag {
+                self.diag.into()
             }
         }
     };
