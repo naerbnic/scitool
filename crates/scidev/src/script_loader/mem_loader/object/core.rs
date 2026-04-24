@@ -1,4 +1,4 @@
-use scidev_errors::{AnyDiag, ensure, prelude::*};
+use scidev_errors::{AnyDiag, diag, ensure, prelude::*};
 
 use crate::{
     script_loader::{
@@ -62,7 +62,7 @@ impl Object {
             } else {
                 let string_data = loaded_data
                     .sub_reader_range("object name string data", name_ptr as usize..)
-                    .reraise()?;
+                    .map_raise_err(diag!(|e| "Failed to read string data at {name_ptr}"))?;
                 Some(read_null_terminated_string(string_data)?.clone())
             }
         } else {

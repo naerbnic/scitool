@@ -1,7 +1,7 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, Splittable as _},
-    mem_reader::{BufferMemReader, MemReader},
+    mem_reader::{self, BufferMemReader, MemReader},
 };
 
 use super::selectors::SelectorTable;
@@ -30,7 +30,7 @@ where
 {
     let relocation_entries = relocations
         .read_length_delimited_records::<u16>("Relocation Table Contents")
-        .reraise()?;
+        .map_raise_err(diag!(|e| "Failed to read relocation entries"))?;
     ensure!(
         relocations.is_empty(),
         "Relocation block size and length must match. Found {num_entries} entries, had {bytes} bytes left.",
@@ -47,7 +47,7 @@ where
 fn read_null_terminated_string<M: MemReader>(mut buffer: M) -> Result<String, AnyDiag> {
     let string_data = buffer
         .read_until::<u8>("null terminated string", |b| *b == 0)
-        .reraise()?;
+        .map_raise_err(diag!(|e| "Failed to read null terminated string"))?;
     std::str::from_utf8(&string_data[..string_data.len() - 1])
         .map(ToString::to_string)
         .map_raise(diag!(|err| "Invalid UTF-8 in null terminated string {err}"))
@@ -70,56 +70,53 @@ impl Heap {
     where
         M: MemReader,
     {
-        let _ = resource_data.read_u16_le().reraise()?;
-        let num_locals = resource_data.read_value::<u16>("Num locals").reraise()?;
-        let locals = resource_data
-            .read_to_subreader("Splitting locals.", (num_locals * 2).into())
-            .reraise()?
-            .split_values::<u16>("Local variable IDs")
-            .reraise()?;
-
         let mut objects = Vec::new();
-        // Find all objects
-        loop {
-            let obj_start = resource_data.tell();
-            let magic = resource_data
-                .read_value::<u16>("Object Magic Number")
-                .reraise()?;
-            if magic == 0 {
-                // Indicates that we've gotten to the last object on the heap.
-                // Break out of the loop.
-                resource_data.seek_to(obj_start).unwrap(); // Rewind so the 0 can be read as part of the string table.
-                break;
+        let mut read_func = || {
+            let _ = resource_data.read_u16_le()?;
+            let num_locals = resource_data.read_value::<u16>("Num locals")?;
+            let locals = resource_data
+                .read_to_subreader("Splitting locals.", (num_locals * 2).into())?
+                .split_values::<u16>("Local variable IDs")?;
+            // Find all objects
+            loop {
+                let obj_start = resource_data.tell();
+                let magic = resource_data.read_value::<u16>("Object Magic Number")?;
+                if magic == 0 {
+                    // Indicates that we've gotten to the last object on the heap.
+                    // Break out of the loop.
+                    resource_data.seek_to(obj_start).unwrap(); // Rewind so the 0 can be read as part of the string table.
+                    break;
+                }
+
+                ensure!(magic == 0x1234u16, "Invalid object magic number");
+
+                let num_object_fields = resource_data.read_value::<u16>("Num Object Fields")?;
+
+                resource_data.seek_to(obj_start)?;
+
+                let object_data =
+                    resource_data.read_values("Object fields", num_object_fields.into())?;
+                // The size is based from the very start of the object, so we reuse the curr_heap_data.
+                let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
+                objects.push(new_obj);
             }
 
-            ensure!(magic == 0x1234u16, "Invalid object magic number");
+            Ok::<_, mem_reader::Error>(locals)
+        };
 
-            let num_object_fields = resource_data
-                .read_value::<u16>("Num Object Fields")
-                .reraise()?;
-
-            resource_data.seek_to(obj_start).reraise()?;
-
-            let object_data = resource_data
-                .read_values("Object fields", num_object_fields.into())
-                .reraise()?;
-            // The size is based from the very start of the object, so we reuse the curr_heap_data.
-            let new_obj = Object::from_block(selector_table, loaded_script, object_data)?;
-            objects.push(new_obj);
-        }
+        let locals = read_func().raise_err_with(diag!(|| "Failed to read heap data"))?;
 
         let mut strings = Vec::new();
         // Find all strings
         while !resource_data.is_empty() {
             let mut string_data = resource_data
                 .read_until::<u8>("string_obj", |b| *b == 0)
-                .reraise()?;
+                .raise_err_with(diag!(|| "Failed to read null terminated string"))?;
             string_data.pop(); // Remove the null terminator.
             let string = String::from_utf8(string_data)
                 .map_raise(diag!(|err| "Non-UTF8 string data: {err}"))?;
             strings.push(string);
         }
-
         Ok(Self {
             locals,
             objects,
@@ -144,7 +141,9 @@ impl Relocations {
 fn extract_relocation_block(data: &MemBlock) -> Result<(u16, MemBlock), AnyDiag> {
     let cloned_data = data.clone();
     let mut reader = BufferMemReader::new(cloned_data.as_fallible());
-    let relocation_offset = reader.read_value::<u16>("Relocation offset").reraise()?;
+    let relocation_offset = reader
+        .read_value::<u16>("Relocation offset")
+        .raise_err_with(diag!(|| "Could not read relocation offset"))?;
     ensure!(
         relocation_offset as usize <= cloned_data.size(),
         "Relocation offset out of bounds"

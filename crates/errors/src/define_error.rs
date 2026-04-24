@@ -30,7 +30,7 @@ macro_rules! define_error {
     } => {
         $(#[$meta])*
         $v struct $name {
-            diag: $crate::AnyDiag,
+            diag: $crate::__private::AnyWrapper,
         }
 
         impl std::fmt::Display for $name {
@@ -47,14 +47,14 @@ macro_rules! define_error {
 
         impl std::error::Error for $name {
             fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-                $crate::DiagLike::view(&self.diag).as_dyn_error().source()
+                Some(&self.diag)
             }
         }
 
         impl std::convert::From<$crate::AnyDiag> for $name {
             fn from(value: $crate::AnyDiag) -> Self {
                 Self {
-                    diag: value
+                    diag: $crate::__private::AnyWrapper::new(value),
                 }
             }
         }
@@ -63,29 +63,19 @@ macro_rules! define_error {
         // non-actionable.
         impl<E> std::convert::From<$crate::Diag<E>> for $name where E: $crate::Kind {
             fn from(value: $crate::Diag<E>) -> Self {
+                let diag: $crate::AnyDiag = value.into();
                 Self {
-                    diag: value.into()
+                    diag: $crate::__private::AnyWrapper::new(diag),
                 }
             }
         }
 
         impl<E> std::convert::From<$crate::MaybeDiag<E>> for $name where E: $crate::Kind {
             fn from(value: $crate::MaybeDiag<E>) -> Self {
+                let diag: $crate::AnyDiag = value.into();
                 Self {
-                    diag: value.into()
+                    diag: $crate::__private::AnyWrapper::new(diag),
                 }
-            }
-        }
-
-        impl $crate::DiagStdError<$crate::AnyDiag> for $name {
-            fn into_diag(self) -> $crate::AnyDiag {
-                self.diag
-            }
-        }
-
-        impl $crate::AnyDiagStdError for $name {
-            fn into_any_diag(self) -> $crate::AnyDiag {
-                self.diag.into()
             }
         }
     };
@@ -96,12 +86,12 @@ macro_rules! define_error {
     } => {
         $(#[$meta])*
         $v struct $name {
-            diag: $crate::Diag<$kind>,
+            diag: $crate::__private::AnyWrapper,
         }
 
         impl $name {
             $v fn kind(&self) -> &$kind {
-                self.diag.kind()
+                self.diag.downcast_get::<$crate::Diag<$kind>>().kind()
             }
         }
 
@@ -119,14 +109,14 @@ macro_rules! define_error {
 
         impl std::error::Error for $name {
             fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-                $crate::DiagLike::view(&self.diag).as_dyn_error().source()
+                Some(&self.diag)
             }
         }
 
         impl std::convert::From<$crate::Diag<$kind>> for $name {
             fn from(value: $crate::Diag<$kind>) -> Self {
                 Self {
-                    diag: value
+                    diag: $crate::__private::AnyWrapper::new(value),
                 }
             }
         }
@@ -136,20 +126,8 @@ macro_rules! define_error {
             #[track_caller]
             fn from(value: $kind) -> Self {
                 Self {
-                    diag: $crate::Diag::new().kind(value)
+                    diag: $crate::__private::AnyWrapper::new($crate::Diag::new().kind(value)),
                 }
-            }
-        }
-
-        impl $crate::DiagStdError<$crate::Diag<$kind>> for $name {
-            fn into_diag(self) -> $crate::Diag<$kind> {
-                self.diag
-            }
-        }
-
-        impl $crate::AnyDiagStdError for $name {
-            fn into_any_diag(self) -> $crate::AnyDiag {
-                self.diag.into()
             }
         }
     };
@@ -160,12 +138,12 @@ macro_rules! define_error {
     } => {
         $(#[$meta])*
         $v struct $name {
-            diag: $crate::MaybeDiag<$kind>
+            diag: $crate::__private::AnyWrapper
         }
 
         impl $name {
             $v fn opt_kind(&self) -> Option<&$kind> {
-                self.diag.opt_kind()
+                self.diag.downcast_get::<$crate::MaybeDiag<$kind>>().opt_kind()
             }
         }
 
@@ -183,22 +161,24 @@ macro_rules! define_error {
 
         impl std::error::Error for $name {
             fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-                $crate::DiagLike::view(&self.diag).as_dyn_error().source()
+                Some(&self.diag)
             }
         }
 
         impl std::convert::From<$crate::AnyDiag> for $name {
             fn from(value: $crate::AnyDiag) -> Self {
+                let maybe_diag: $crate::MaybeDiag<$kind> = value.into();
                 Self {
-                    diag: value.into()
+                    diag: $crate::__private::AnyWrapper::new(maybe_diag)
                 }
             }
         }
 
         impl std::convert::From<$crate::Diag<$kind>> for $name {
             fn from(value: $crate::Diag<$kind>) -> Self {
+                let maybe_diag: $crate::MaybeDiag<$kind> = value.into();
                 Self {
-                    diag: value.into()
+                    diag: $crate::__private::AnyWrapper::new(maybe_diag)
                 }
             }
         }
@@ -206,20 +186,8 @@ macro_rules! define_error {
         impl std::convert::From<$crate::MaybeDiag<$kind>> for $name {
             fn from(value: $crate::MaybeDiag<$kind>) -> Self {
                 Self {
-                    diag: value
+                    diag: $crate::__private::AnyWrapper::new(value)
                 }
-            }
-        }
-
-        impl $crate::DiagStdError<$crate::MaybeDiag<$kind>> for $name {
-            fn into_diag(self) -> $crate::MaybeDiag<$kind> {
-                self.diag
-            }
-        }
-
-        impl $crate::AnyDiagStdError for $name {
-            fn into_any_diag(self) -> $crate::AnyDiag {
-                self.diag.into()
             }
         }
     };

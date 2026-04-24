@@ -12,10 +12,13 @@ use std::{borrow::Cow, io::Read as _, path::Path};
 use atomic_dir::{AtomicDir, CreateMode, UpdateBuilder, UpdateInitMode};
 use scidev::{
     resources::{ExtraData, Resource, ResourceId, ResourceProvenance},
-    utils::{block::Block, compression::dcl::DecompressFactory},
+    utils::{
+        block::{self, Block},
+        compression::dcl::DecompressFactory,
+    },
 };
 
-use scidev_errors::{define_error, prelude::*};
+use scidev_errors::{define_error, diag, prelude::*};
 
 use crate::respack::{
     err_helpers::{io_bail, io_err_map},
@@ -36,7 +39,9 @@ define_error! {
 type Result<T> = std::result::Result<T, RespackError>;
 
 fn buffer_info_from_lazy_block(block: &Block) -> Result<schema::BufferInfo> {
-    let buffer = block.open_mem(..).reraise_any()?;
+    let buffer = block
+        .open_mem(..)
+        .raise_err_with(diag!(|| "Failed to open block for buffering"))?;
 
     let size = u64::try_from(buffer.len()).unwrap();
     let hash = Sha256Hash::from_data_hash(&*buffer);
@@ -65,8 +70,11 @@ impl ResPack {
     pub fn from_resource(resource: &Resource) -> Result<Self> {
         let raw_data = resource.data().clone();
 
-        let raw_buffer_info = BufferInfo::from_stream(raw_data.open_reader(..).reraise_any()?)?;
-
+        let raw_buffer_info = BufferInfo::from_stream(
+            raw_data
+                .open_reader(..)
+                .raise_err_with(diag!(|| "Failed to open raw data buffer"))?,
+        )?;
         // Get provenance info from the contents.
         let source = match resource.provenance() {
             ResourceProvenance::Volume(volume_source) => {
@@ -75,34 +83,39 @@ impl ResPack {
                     volume_source.archive_offset(),
                 )))
             }
-            ResourceProvenance::PatchFile(patch_source) => {
+            ResourceProvenance::PatchFile(patch_source) => (|| {
                 let header_data = match patch_source.extra_data() {
                     ExtraData::Simple(data) => {
-                        let data = data.open_mem(..).reraise_any()?;
+                        let data = data.open_mem(..)?;
                         schema::HeaderData::Simple(schema::Base64Data::new(data.to_vec()))
                     }
                     ExtraData::Composite {
                         ext_header,
                         extra_data,
                     } => {
-                        let ext_header = ext_header.open_mem(..).reraise_any()?;
-                        let extra_data = extra_data.open_mem(..).reraise_any()?;
+                        let ext_header = ext_header.open_mem(..)?;
+                        let extra_data = extra_data.open_mem(..)?;
                         schema::HeaderData::Composite {
                             ext_header_data: schema::Base64Data::new(ext_header.to_vec()),
                             extra_data: schema::Base64Data::new(extra_data.to_vec()),
                         }
                     }
                 };
-                Some(schema::SourceInfo::Patch(schema::PatchSource::new(
-                    header_data,
+                Ok::<_, block::OpenError>(Some(schema::SourceInfo::Patch(
+                    schema::PatchSource::new(header_data),
                 )))
-            }
+            })()
+            .raise_err_with(diag!(|| "Failed to read patch source"))?,
             ResourceProvenance::New => None,
         };
 
         let (compressed_info, compressed_data) = if let Some(compressed) = resource.compressed() {
             let block = compressed.compressed_block().clone();
-            let compressed_info = BufferInfo::from_stream(block.open_reader(..).reraise_any()?)?;
+            let compressed_info = BufferInfo::from_stream(
+                block
+                    .open_reader(..)
+                    .raise_err_with(diag!(|| "Failed to open compressed data buffer"))?,
+            )?;
             (
                 Some(schema::CompressedInfo::new(compressed_info)),
                 Some(block),
@@ -122,12 +135,14 @@ impl ResPack {
             source,
         };
 
-        Ok(ResPack {
+        Ok::<_, block::OpenError>(ResPack {
             metadata: Dirty::new_stored(metadata),
             compressed_data: Dirty::new_stored(compressed_data),
             raw_data: Dirty::new_stored(Some(raw_data)),
             disk_backing: None,
         })
+        .raise_err_with(diag!(|| "Failed to create respack from resource"))
+        .map_err(Into::into)
     }
 
     pub fn load_from_path<'a, P>(path: P) -> std::io::Result<Self>

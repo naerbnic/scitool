@@ -1,5 +1,5 @@
 use crate::{
-    AnyDiag, ContextBinder, DiagLike, RaisedMessage, Raiser,
+    ContextBinder, DiagLike, RaisedMessage, Raiser,
     binders::{
         Bind, ContextBind, ErrResultBind, IntoCause, OptionBind, RaiseBinder, ResultBind,
         ResultContextBind,
@@ -7,16 +7,6 @@ use crate::{
     out,
     raiser::RaisedToDiag,
 };
-
-/// A trait that marks specific `std::error::Error` types that can be converted
-/// back to Diags if requested.
-pub trait DiagStdError<D>: std::error::Error + Send + Sync + 'static {
-    fn into_diag(self) -> D;
-}
-
-pub trait AnyDiagStdError: std::error::Error + Send + Sync + 'static {
-    fn into_any_diag(self) -> AnyDiag;
-}
 
 /// An extension trait for [`Result<T, E>`], providing different kinds of error
 /// dispatching depending on the bounds of `E`
@@ -61,14 +51,6 @@ pub trait ResultExt: Sized {
     where
         Self::Error: IntoCause,
         R: RaisedToDiag;
-
-    fn reraise<D>(self) -> Result<Self::Value, D>
-    where
-        Self::Error: DiagStdError<D>;
-
-    fn reraise_any(self) -> Result<Self::Value, AnyDiag>
-    where
-        Self::Error: AnyDiagStdError;
 
     fn raise_err_with<R>(
         self,
@@ -158,20 +140,6 @@ impl<T, E> ResultExt for Result<T, E> {
         self.map_raise_err(|_, r| raise_fn(r))
     }
 
-    fn reraise<D>(self) -> Result<Self::Value, D>
-    where
-        Self::Error: DiagStdError<D>,
-    {
-        self.map_err(DiagStdError::into_diag)
-    }
-
-    fn reraise_any(self) -> Result<Self::Value, AnyDiag>
-    where
-        Self::Error: AnyDiagStdError,
-    {
-        self.map_err(AnyDiagStdError::into_any_diag)
-    }
-
     #[track_caller]
     fn map_raise<R>(
         self,
@@ -194,7 +162,7 @@ impl<T, E> ResultExt for Result<T, E> {
         R: RaisedToDiag,
     {
         let raiser = Raiser::new();
-        self.map_err(|err| func(&err, raiser).into_diag_with_appended(err))
+        self.map_err(|err| func(&err, raiser).into_diag_with_err(err))
     }
 }
 

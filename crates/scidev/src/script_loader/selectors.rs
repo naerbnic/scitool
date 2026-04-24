@@ -9,9 +9,9 @@ use std::{
     sync::Arc,
 };
 
-use scidev_errors::{AnyDiag, prelude::*};
+use scidev_errors::{AnyDiag, diag, prelude::*};
 
-use crate::utils::mem_reader::MemReader;
+use crate::utils::mem_reader::{self, MemReader};
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -87,16 +87,15 @@ impl SelectorTable {
     pub(crate) fn load_from<M: MemReader>(data: &M) -> Result<Self, AnyDiag> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
-
-        let mut index_table = data
-            .sub_reader_range("Selector index table", ..)
-            .reraise()?;
-
-        let num_entries_minus_one = index_table.read_value::<u16>("Selector Count").reraise()?;
-        let num_entries = num_entries_minus_one + 1;
-        let selector_offsets = index_table
-            .read_values::<u16>("Selector offsets", num_entries.into())
-            .reraise()?;
+        let selector_offsets = (|| {
+            let mut index_table = data.sub_reader_range("Selector index table", ..)?;
+            let num_entries_minus_one = index_table.read_value::<u16>("Selector Count")?;
+            let num_entries = num_entries_minus_one + 1;
+            let selector_offsets =
+                index_table.read_values::<u16>("Selector offsets", num_entries.into())?;
+            Ok::<_, mem_reader::Error>(selector_offsets)
+        })()
+        .raise_err_with(diag!(|| "Failed to read selector offsets"))?;
 
         let mut entries: HashMap<_, Vec<_>> = HashMap::new();
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();
@@ -105,19 +104,23 @@ impl SelectorTable {
             let name = match offset_map.entry(selector_offset) {
                 hash_map::Entry::Occupied(occupied_entry) => occupied_entry.get().clone(),
                 hash_map::Entry::Vacant(vacant_entry) => {
-                    let mut entry_data = data
-                        .sub_reader_range("Selector entry", usize::from(selector_offset)..)
-                        .reraise()?;
-                    let string_length = entry_data
-                        .read_value::<u16>("Selector string length")
-                        .reraise()?;
-                    let mut entry_buffer = entry_data
-                        .sub_reader_range("Selector string data", ..usize::from(string_length))
-                        .reraise()?;
-                    let name = SharedString::from_utf8(entry_buffer.read_remaining().reraise()?)
-                        .map_raise(|err, r| {
-                            r.args(format_args!("Invalid selector string data: {err}"))
-                        })?;
+                    let remaining_buffer = (|| {
+                        let mut entry_data = data
+                            .sub_reader_range("Selector entry", usize::from(selector_offset)..)?;
+                        let string_length =
+                            entry_data.read_value::<u16>("Selector string length")?;
+                        let mut entry_buffer = entry_data.sub_reader_range(
+                            "Selector string data",
+                            ..usize::from(string_length),
+                        )?;
+                        entry_buffer.read_remaining()
+                    })()
+                    .raise_err_with(diag!(
+                        || "Failed to read selector entry at offset {}",
+                        selector_offset
+                    ))?;
+                    let name = SharedString::from_utf8(remaining_buffer)
+                        .map_raise(diag!(|e| "Invalid selector string data: {e}"))?;
                     vacant_entry.insert(name).clone()
                 }
             };

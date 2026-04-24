@@ -7,7 +7,7 @@ use std::{
 
 use volume::VolumeFile;
 
-use scidev_errors::{AnyDiag, Kind, RaisedMaybe, Raiser, bail, prelude::*};
+use scidev_errors::{AnyDiag, Kind, RaisedMaybe, Raiser, bail, diag, prelude::*};
 
 use self::patch::try_patch_from_file;
 use crate::{
@@ -56,7 +56,10 @@ pub(super) fn read_resources(
 ) -> Result<ResourceSet, AnyDiag> {
     let map_file =
         MapFile::from_read_seek(File::open(map_file).map_raise(FileIoKind::from_error)?)?;
-    let data_file = VolumeFile::new(Block::from_path(data_file.to_path_buf()).reraise_any()?);
+    let data_file = VolumeFile::new(
+        Block::from_path(data_file.to_path_buf())
+            .raise_err_with(diag!(|| "Failed to create volume"))?,
+    );
 
     let mut entries = BTreeMap::new();
 

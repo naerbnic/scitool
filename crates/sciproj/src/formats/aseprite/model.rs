@@ -14,7 +14,7 @@ use crate::formats::aseprite::{
 };
 
 use scidev::utils::block::MemBlock;
-use scidev_errors::{ensure, prelude::*};
+use scidev_errors::{diag, ensure, prelude::*};
 
 /// A readonly view of an Aseprite sprite.
 ///
@@ -520,7 +520,7 @@ impl CelPixels<'_> {
             .inner
             .cached_data
             .get_or_else(|| self.inner.data.open_mem(..))
-            .reraise_any()?)
+            .raise_err_with(diag!(|| "Failed to open raw bytes"))?)
     }
 
     /// Returns the pixels as an RGBA slice, if the color mode matches.

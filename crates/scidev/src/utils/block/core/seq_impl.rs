@@ -1,6 +1,6 @@
 use std::io;
 
-use scidev_errors::{ResultExt, bail, ensure};
+use scidev_errors::{ResultExt, bail, diag, ensure};
 
 use crate::utils::{
     block::{
@@ -36,7 +36,11 @@ impl BlockBase for SequenceBlockImpl {
             && let Some(curr_block) = iter.next()
         {
             if let Some(curr_range) = remaining_range.intersect(0..curr_block.len()) {
-                data.push(curr_block.open_mem(curr_range).reraise()?);
+                data.push(
+                    curr_block
+                        .open_mem(curr_range)
+                        .raise_err_with(diag!(|| "Could not open block in sequence"))?,
+                );
             }
             remaining_range = remaining_range.shift_down_by(curr_block.len());
         }
@@ -118,7 +122,7 @@ impl BlockBase for SequenceBlockImpl {
 
         let initial_reader = first_block
             .open_reader(remaining_range.intersect(0..first_block.len()).unwrap())
-            .reraise()?;
+            .raise_err_with(diag!(|| "Failed to open initial reader"))?;
 
         Ok(Box::new(SequenceReader {
             remaining_size: remaining_range.size(),

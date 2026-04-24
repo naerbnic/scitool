@@ -3,6 +3,7 @@ use std::{marker::PhantomData, panic::Location};
 use crate::{
     AnyDiag, Diag, DiagLike, Kind, MaybeDiag, Reportable,
     binders::IntoCause,
+    dyn_err_conversion::try_convert_to_any_diag,
     finding::{KindFinding, MessageFinding},
     frame::Frame,
 };
@@ -112,6 +113,16 @@ pub trait RaisedToDiag: Sized {
 
     fn into_new_diag(self) -> Self::Diag {
         self.into_diag(std::iter::empty::<std::convert::Infallible>())
+    }
+
+    fn into_diag_with_err<E>(self, err: E) -> Self::Diag
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        match try_convert_to_any_diag(err) {
+            Ok(any_diag) => self.into_diag([any_diag]),
+            Err(err) => self.into_diag_with_appended(err),
+        }
     }
 }
 

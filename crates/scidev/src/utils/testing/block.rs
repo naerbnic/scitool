@@ -1,4 +1,4 @@
-use scidev_errors::{ensure, prelude::*};
+use scidev_errors::{diag, ensure, prelude::*};
 
 use crate::utils::{
     block::MemBlock,
@@ -21,7 +21,7 @@ where
     T: Parse,
 {
     let mut reader = mem_reader_from_bytes(data.as_ref());
-    let value = T::parse(&mut reader).reraise()?;
+    let value = T::parse(&mut reader).raise_err_with(diag!(|| "Failed to parse"))?;
     ensure!(
         reader.tell() == data.as_ref().len(),
         "Expected to parse entire buffer, but {} bytes remain",

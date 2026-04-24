@@ -1,4 +1,4 @@
-use scidev_errors::{AnyDiag, ensure, prelude::*};
+use scidev_errors::{AnyDiag, diag, ensure, prelude::*};
 
 use crate::{
     resources::file::{map::ResourceLocation, volume::raw_contents::RawContents},
@@ -24,7 +24,7 @@ impl VolumeFile {
 
         let (header, rest) =
             RawEntryHeader::from_block_source(&self.data.subblock(u64::from(offset)..))
-                .reraise()?;
+                .raise_err_with(diag!(|| "Could not get header"))?;
 
         let packed_size = u64::from(header.packed_size());
 
@@ -45,7 +45,7 @@ impl VolumeFile {
             location.id(),
             raw_contents.id(),
         );
-        Ok(Contents::from_raw(raw_contents).reraise()?)
+        Contents::from_raw(raw_contents).raise_err_with(diag!(|| "Could not read contents"))
     }
 }
 

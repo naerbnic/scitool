@@ -151,11 +151,7 @@ where
     {
         match self.value {
             Ok(value) => Ok(value),
-            Err(error) => {
-                let raised = func(self.raiser);
-                let diag = raised.into_diag_with_appended(error);
-                Err(diag)
-            }
+            Err(error) => Err(func(self.raiser).into_diag_with_err(error)),
         }
     }
 }

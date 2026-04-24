@@ -5,13 +5,13 @@ use std::{
 };
 
 use bytes::{Buf as _, BufMut as _};
-use scidev_errors::{AnyDiag, define_error, prelude::*};
+use scidev_errors::{AnyDiag, define_error, diag, prelude::*};
 
 use crate::{
     resources::types::palette::Palette,
     utils::{
         block::Block,
-        mem_reader::{BufferMemReader, MemReader},
+        mem_reader::{self, BufferMemReader, MemReader},
         range::BoundedRange,
     },
 };
@@ -74,27 +74,28 @@ pub struct ViewHeader {
 
 impl ViewHeader {
     pub fn read_from<M: MemReader>(reader: &mut M) -> Result<ViewHeader, AnyDiag> {
-        let header_size = reader.read_u16_le().reraise()?;
-        let mut header_data = reader
-            .read_to_subreader("view_header", header_size.into())
-            .reraise()?;
-        let loop_count = header_data.read_u8().reraise()?;
-        let flags = header_data.read_u8().reraise()?;
-        let mut reserved = [0u8; 4];
-        header_data.read_exact(&mut reserved).reraise()?;
-        let pal_offset = header_data.read_u32_le().reraise()?;
-        let loop_size = header_data.read_u8().reraise()?;
-        let cel_size = header_data.read_u8().reraise()?;
+        let mut read_header = || {
+            let header_size = reader.read_u16_le()?;
+            let mut header_data = reader.read_to_subreader("view_header", header_size.into())?;
+            let loop_count = header_data.read_u8()?;
+            let flags = header_data.read_u8()?;
+            let mut reserved = [0u8; 4];
+            header_data.read_exact(&mut reserved)?;
+            let pal_offset = header_data.read_u32_le()?;
+            let loop_size = header_data.read_u8()?;
+            let cel_size = header_data.read_u8()?;
 
-        Ok(ViewHeader {
-            loop_count,
-            flags,
-            reserved: reserved.into(),
-            pal_offset,
-            loop_size,
-            cel_size,
-            rest: header_data.read_remaining().reraise()?.into(),
-        })
+            Ok::<_, mem_reader::Error>(ViewHeader {
+                loop_count,
+                flags,
+                reserved: reserved.into(),
+                pal_offset,
+                loop_size,
+                cel_size,
+                rest: header_data.read_remaining()?.into(),
+            })
+        };
+        read_header().map_raise_err(diag!(|err| "Failed to read view header"))
     }
 }
 
@@ -110,20 +111,23 @@ pub struct LoopEntry {
 
 impl LoopEntry {
     pub fn read_from<M: MemReader>(reader: &mut M) -> Result<LoopEntry, AnyDiag> {
-        let seek_entry = reader.read_u8().reraise()?;
-        let reserved1 = reader.read_u8().reraise()?;
-        let cel_count = reader.read_u8().reraise()?;
-        let mut reserved2 = [0u8; 9];
-        reader.read_exact(&mut reserved2).reraise()?;
-        let cel_offset = reader.read_u32_le().reraise()?;
-        Ok(LoopEntry {
-            seek_entry,
-            reserved1,
-            cel_count,
-            reserved2: reserved2.into(),
-            cel_offset,
-            rest: reader.read_remaining().reraise()?.into(),
-        })
+        let mut read_func = || {
+            let seek_entry = reader.read_u8()?;
+            let reserved1 = reader.read_u8()?;
+            let cel_count = reader.read_u8()?;
+            let mut reserved2 = [0u8; 9];
+            reader.read_exact(&mut reserved2)?;
+            let cel_offset = reader.read_u32_le()?;
+            Ok::<_, mem_reader::Error>(LoopEntry {
+                seek_entry,
+                reserved1,
+                cel_count,
+                reserved2: reserved2.into(),
+                cel_offset,
+                rest: reader.read_remaining()?.into(),
+            })
+        };
+        read_func().map_raise_err(diag!(|err| "Failed to read loop entry"))
     }
 }
 
@@ -142,27 +146,30 @@ pub struct CelEntry {
 
 impl CelEntry {
     pub fn read_from<M: MemReader>(reader: &mut M) -> Result<CelEntry, AnyDiag> {
-        let width = reader.read_u16_le().reraise()?;
-        let height = reader.read_u16_le().reraise()?;
-        let displace_x = reader.read_i16_le().reraise()?;
-        let displace_y = reader.read_i16_le().reraise()?;
-        let clear_key = reader.read_u8().reraise()?;
-        let mut reserved1 = [0u8; 15];
-        reader.read_exact(&mut reserved1).reraise()?;
-        let rle_offset = reader.read_u32_le().reraise()?;
-        let literal_offset = reader.read_u32_le().reraise()?;
-        let rest = reader.read_remaining().reraise()?;
-        Ok(CelEntry {
-            width,
-            height,
-            displace_x,
-            displace_y,
-            clear_key,
-            reserved1: reserved1.into(),
-            rle_offset,
-            literal_offset,
-            rest: rest.into(),
-        })
+        let mut read_func = || {
+            let width = reader.read_u16_le()?;
+            let height = reader.read_u16_le()?;
+            let displace_x = reader.read_i16_le()?;
+            let displace_y = reader.read_i16_le()?;
+            let clear_key = reader.read_u8()?;
+            let mut reserved1 = [0u8; 15];
+            reader.read_exact(&mut reserved1)?;
+            let rle_offset = reader.read_u32_le()?;
+            let literal_offset = reader.read_u32_le()?;
+            let rest = reader.read_remaining()?;
+            Ok::<_, mem_reader::Error>(CelEntry {
+                width,
+                height,
+                displace_x,
+                displace_y,
+                clear_key,
+                reserved1: reserved1.into(),
+                rle_offset,
+                literal_offset,
+                rest: rest.into(),
+            })
+        };
+        read_func().map_raise_err(diag!(|err| "Failed to read cel entry"))
     }
 }
 
@@ -396,7 +403,7 @@ impl LoopState {
             let entry = CelEntry::read_from(
                 &mut cel_reader
                     .read_to_subreader(format!("{i}"), usize::from(header.cel_size))
-                    .reraise()?,
+                    .map_raise_err(diag!(|err| "Failed to read cel entry {i}"))?,
             )?;
             cels.push(CelState {
                 data: CelData {
@@ -443,7 +450,7 @@ impl View {
         let loop_size = usize::from(header.loop_size);
         let mut loop_reader = reader
             .read_to_subreader("loop_data", loop_count * loop_size)
-            .reraise()?;
+            .map_raise_err(diag!(|e| "Failed to read loop data"))?;
         let palette_range = if header.pal_offset != 0 {
             Some(ranges.add_range_start(header.pal_offset))
         } else {
@@ -457,7 +464,7 @@ impl View {
                 &header,
                 &mut loop_reader
                     .read_to_subreader(format!("{i}"), loop_size)
-                    .reraise()?,
+                    .map_raise_err(diag!(|e| "Failed to read loop state at index {i}"))?,
                 &mut ranges,
             )?;
             loop_states.push(loop_state);

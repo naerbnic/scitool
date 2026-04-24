@@ -1,4 +1,4 @@
-use scidev_errors::{AnyDiag, ensure, prelude::*};
+use scidev_errors::{AnyDiag, diag, ensure, prelude::*};
 
 use crate::{
     script_loader::selectors::{Selector, SelectorTable},
@@ -47,22 +47,26 @@ impl ObjectData {
                 "Var selector table",
                 var_selector_offfset as usize..method_record_offset as usize,
             )
-            .reraise()?;
+            .map_raise_err(diag!(
+                |e| "Failed to read var selector table at offset {method_record_offset}"
+            ))?;
 
         let property_ids = var_selectors
             .split_values::<u16>("Property IDs")
-            .reraise()?;
+            .map_raise_err(diag!(|e| "Failed to parse property ids"))?;
 
         let mut method_record_remainder = loaded_data
             .sub_reader_range("Method record remainder", method_record_offset as usize..)
-            .reraise()?;
+            .map_raise_err(diag!(
+                |e| "Failed to read method record remainder at offset {method_record_offset}"
+            ))?;
 
         let mut method_records = method_record_remainder
             .read_length_delimited_block("Method records", 4)
-            .reraise()?;
+            .map_raise_err(diag!(|e| "Failed to extract method records block"))?;
         let method_records = method_records
             .split_values::<MethodRecord>("Method records")
-            .reraise()?;
+            .map_raise_err(diag!(|e| "Failed to split method records"))?;
 
         Ok(Self {
             selector_table: selector_table.clone(),

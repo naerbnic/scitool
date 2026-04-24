@@ -1,4 +1,9 @@
-use std::{any::Any, fmt, marker::PhantomData, panic::Location};
+use std::{
+    any::Any,
+    fmt::{self, Debug, Display},
+    marker::PhantomData,
+    panic::Location,
+};
 
 use crate::{
     ContextBinder, IntoCause, RaisedMessage, Reportable,
@@ -447,7 +452,7 @@ where
     }
 }
 
-pub trait DiagLike: DiagLikePriv + Sized {
+pub trait DiagLike: DiagLikePriv + Display + Debug + Send + Sync + Sized + 'static {
     type Kind: Kind;
 
     /// Adds a reportable value as a context, return a value of the same
