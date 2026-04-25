@@ -1,11 +1,12 @@
-use std::{marker::PhantomData, panic::Location};
+use std::marker::PhantomData;
 
 use crate::{
     AnyDiag, Diag, DiagLike, Kind, MaybeDiag, Reportable,
-    binders::IntoCause,
+    causes::IntoCause,
     dyn_err_conversion::try_convert_to_any_diag,
     finding::{KindFinding, MessageFinding},
     frame::Frame,
+    locations::SourceLoc,
 };
 
 #[must_use]
@@ -14,17 +15,14 @@ where
     K: Kind,
 {
     finding: KindFinding<K>,
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
 }
 
 impl<K> RaisedKind<K>
 where
     K: Kind,
 {
-    pub(crate) fn from_finding(
-        finding: KindFinding<K>,
-        created_at: &'static Location<'static>,
-    ) -> Self {
+    pub(crate) fn from_finding(finding: KindFinding<K>, created_at: SourceLoc) -> Self {
         Self {
             finding,
             created_at,
@@ -39,14 +37,11 @@ where
 #[must_use]
 pub struct RaisedMessage {
     finding: MessageFinding,
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
 }
 
 impl RaisedMessage {
-    pub(crate) fn from_finding(
-        finding: MessageFinding,
-        created_at: &'static Location<'static>,
-    ) -> Self {
+    pub(crate) fn from_finding(finding: MessageFinding, created_at: SourceLoc) -> Self {
         Self {
             finding,
             created_at,
@@ -78,7 +73,7 @@ where
     K: Kind,
 {
     finding: Result<KindFinding<K>, MessageFinding>,
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
 }
 
 impl<K> From<RaisedMessage> for RaisedMaybe<K>
@@ -185,7 +180,7 @@ where
 #[must_use]
 pub struct Raiser<'a> {
     // A field to prevent users from creating in in situ.
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
     _phantom: PhantomData<&'a ()>,
 }
 
@@ -193,7 +188,7 @@ impl Raiser<'_> {
     #[track_caller]
     pub(crate) fn new() -> Self {
         Self {
-            created_at: Location::caller(),
+            created_at: SourceLoc::current(),
             _phantom: PhantomData,
         }
     }

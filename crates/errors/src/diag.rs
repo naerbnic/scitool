@@ -2,14 +2,15 @@ use std::{
     any::Any,
     fmt::{self, Debug, Display},
     marker::PhantomData,
-    panic::Location,
 };
 
 use crate::{
     ContextBinder, IntoCause, RaisedMessage, Reportable,
-    binders::{Bind, Cause, ContextBind, RaiseBinder, ValueBind, ValueContextBind},
+    binders::{Bind, ContextBind, RaiseBinder, ValueBind, ValueContextBind},
+    causes::Cause,
     finding::{KindFinding, MessageFinding},
     frame::{ErrorView, Frame},
+    locations::SourceLoc,
     out,
     sealed::DiagLikePriv,
 };
@@ -29,7 +30,7 @@ impl Kind for std::convert::Infallible {}
 #[must_use]
 pub struct DiagBuilder<K> {
     frames: Vec<Frame>,
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
     _phantom: PhantomData<K>,
 }
 
@@ -42,13 +43,13 @@ where
     where
         C: IntoCause,
     {
-        let created_at = Location::caller();
+        let created_at = SourceLoc::current();
         Self {
             frames: causes
                 .into_iter()
-                .map(|c| c.into_cause(created_at).into_frame())
+                .map(|c| c.into_cause(created_at.clone()).into_frame())
                 .collect(),
-            created_at: Location::caller(),
+            created_at,
             _phantom: PhantomData,
         }
     }
@@ -120,13 +121,13 @@ where
     pub(crate) fn from_finding_and_causes<C: IntoCause>(
         fnd: KindFinding<K>,
         causes: impl IntoIterator<Item = C>,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
     ) -> Self {
         Self::from_finding_and_frames(
             fnd,
             causes
                 .into_iter()
-                .map(|c| c.into_cause(created_at).into_frame())
+                .map(|c| c.into_cause(created_at.clone()).into_frame())
                 .collect(),
             created_at,
         )
@@ -135,9 +136,9 @@ where
     pub(crate) fn from_finding_with_appended_cause<C: IntoCause>(
         fnd: KindFinding<K>,
         cause: C,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
     ) -> Self {
-        let cause = cause.into_cause(created_at);
+        let cause = cause.into_cause(created_at.clone());
         let weak_cause_msg = cause.msg_clone_weak();
         Self::from_finding_and_frames(
             fnd.append_reportable(weak_cause_msg),
@@ -149,7 +150,7 @@ where
     pub(crate) fn from_finding_and_frames(
         fnd: KindFinding<K>,
         causes: Vec<Frame>,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
     ) -> Self {
         Self {
             root: Frame::new(fnd.into_handle(), created_at, causes),
@@ -192,7 +193,7 @@ impl<T> IntoCause for Diag<T>
 where
     T: Kind,
 {
-    fn into_cause(self, _created_at: &'static Location<'static>) -> Cause {
+    fn into_cause(self, _created_at: SourceLoc) -> Cause {
         Cause::from_frame(self.root)
     }
 }
@@ -218,7 +219,7 @@ where
 #[must_use]
 pub struct AnyDiagBuilder {
     causes: Vec<Frame>,
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
 }
 
 impl AnyDiagBuilder {
@@ -227,13 +228,13 @@ impl AnyDiagBuilder {
     where
         C: IntoCause,
     {
-        let created_at = Location::caller();
+        let created_at = SourceLoc::current();
         Self {
             causes: causes
                 .into_iter()
-                .map(|c| c.into_cause(created_at).into_frame())
+                .map(|c| c.into_cause(created_at.clone()).into_frame())
                 .collect(),
-            created_at: Location::caller(),
+            created_at,
         }
     }
 
@@ -286,7 +287,7 @@ impl AnyDiag {
     pub(crate) fn from_finding_and_causes<C>(
         fnd: MessageFinding,
         causes: impl IntoIterator<Item = C>,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
     ) -> Self
     where
         C: IntoCause,
@@ -295,7 +296,7 @@ impl AnyDiag {
             fnd,
             causes
                 .into_iter()
-                .map(|c| c.into_cause(created_at).into_frame())
+                .map(|c| c.into_cause(created_at.clone()).into_frame())
                 .collect(),
             created_at,
         )
@@ -304,9 +305,9 @@ impl AnyDiag {
     pub(crate) fn from_finding_with_appended_cause<C: IntoCause>(
         fnd: MessageFinding,
         cause: C,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
     ) -> Self {
-        let cause = cause.into_cause(created_at);
+        let cause = cause.into_cause(created_at.clone());
         let weak_cause_msg = cause.msg_clone_weak();
         Self::from_finding_and_frames(
             fnd.append_reportable(weak_cause_msg),
@@ -318,7 +319,7 @@ impl AnyDiag {
     pub(crate) fn from_finding_and_frames(
         fnd: MessageFinding,
         causes: Vec<Frame>,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
     ) -> Self {
         Self {
             root: Frame::new(fnd.into_err_like(), created_at, causes),
@@ -327,7 +328,7 @@ impl AnyDiag {
 }
 
 impl IntoCause for AnyDiag {
-    fn into_cause(self, _created_at: &'static Location<'static>) -> Cause {
+    fn into_cause(self, _created_at: SourceLoc) -> Cause {
         Cause::from_frame(self.root)
     }
 }
@@ -403,7 +404,7 @@ impl<K> IntoCause for MaybeDiag<K>
 where
     K: Kind,
 {
-    fn into_cause(self, _created_at: &'static Location<'static>) -> Cause {
+    fn into_cause(self, _created_at: SourceLoc) -> Cause {
         Cause::from_frame(self.root)
     }
 }

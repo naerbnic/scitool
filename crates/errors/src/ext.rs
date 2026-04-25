@@ -1,9 +1,9 @@
 use crate::{
     ContextBinder, DiagLike, RaisedMessage, Raiser,
     binders::{
-        Bind, ContextBind, ErrResultBind, IntoCause, OptionBind, RaiseBinder, ResultBind,
-        ResultContextBind,
+        Bind, ContextBind, ErrResultBind, OptionBind, RaiseBinder, ResultBind, ResultContextBind,
     },
+    causes::IntoCause,
     out,
     raiser::RaisedToDiag,
 };

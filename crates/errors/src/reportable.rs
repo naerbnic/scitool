@@ -267,6 +267,8 @@ impl Debug for ReportableHandle {
     }
 }
 
+/// A handle to a reportable that while live will display and debug the
+/// same way as the original reportable.
 #[derive(Clone)]
 pub(crate) struct WeakReportableHandle(MaybeWeak<dyn DynReportable>);
 

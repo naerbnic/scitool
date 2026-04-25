@@ -2,19 +2,19 @@ use std::{
     error::Error as StdError,
     fmt::{self, Debug, Display},
     marker::PhantomData,
-    panic::Location,
 };
 
 use crate::{
     Kind,
     finding::MessageFinding,
     fmt_helpers::Indent,
+    locations::SourceLoc,
     reportable::{Reportable, ReportableHandle, WeakReportableHandle},
 };
 
 #[derive(Debug)]
 struct Context {
-    created_at: &'static Location<'static>,
+    created_at: SourceLoc,
     message: ReportableHandle,
 }
 
@@ -61,7 +61,7 @@ pub(crate) struct Frame {
 impl Frame {
     pub(crate) fn new(
         root_reportable: ReportableHandle,
-        created_at: &'static Location<'static>,
+        created_at: SourceLoc,
         causes: Vec<Frame>,
     ) -> Self {
         let code_context = Context {
@@ -81,11 +81,7 @@ impl Frame {
         self.inner.base_context.message.clone_weak()
     }
 
-    pub(crate) fn add_context(
-        &mut self,
-        msg: MessageFinding,
-        created_at: &'static Location<'static>,
-    ) {
+    pub(crate) fn add_context(&mut self, msg: MessageFinding, created_at: SourceLoc) {
         self.inner.additional_contexts.push(Context {
             created_at,
             message: msg.into_err_like(),
@@ -213,19 +209,19 @@ impl Frame {
         &self.inner.causes
     }
 
-    pub(crate) fn location(&self) -> &'static Location<'static> {
+    pub(crate) fn location(&self) -> &SourceLoc {
         if let Some(context) = self.inner.additional_contexts.last() {
-            context.created_at
+            &context.created_at
         } else {
-            self.inner.base_context.created_at
+            &self.inner.base_context.created_at
         }
     }
 
     /// Returns the root source of this frame's error. If this is a
     /// context-based frame, then this is the location of the originating
     /// context.
-    pub(crate) fn kind_location(&self) -> &'static Location<'static> {
-        self.inner.base_context.created_at
+    pub(crate) fn kind_location(&self) -> &SourceLoc {
+        &self.inner.base_context.created_at
     }
 
     #[expect(unsafe_code, reason = "For casts between transparent types.")]
@@ -340,8 +336,8 @@ impl ContextView<'_> {
 
     /// The code location that the message was created and/or added at.
     #[must_use]
-    pub fn location(&self) -> &'static Location<'static> {
-        self.context.created_at
+    pub fn location(&self) -> &SourceLoc {
+        &self.context.created_at
     }
 }
 
@@ -367,13 +363,13 @@ where
 
     /// Returns the last location that context was added.
     #[must_use]
-    pub fn location(&self) -> &'static Location<'static> {
+    pub fn location(&self) -> &SourceLoc {
         self.error.location()
     }
 
     /// Returns the initial location that this error was raised at.
     #[must_use]
-    pub fn err_location(&self) -> &'static Location<'static> {
+    pub fn err_location(&self) -> &SourceLoc {
         self.error.kind_location()
     }
 
@@ -463,13 +459,13 @@ impl<'a> ErrorView<'a> {
 
     /// Returns the last code location that the error had context added to.
     #[must_use]
-    pub fn location(&self) -> &'static Location<'static> {
+    pub fn location(&self) -> &SourceLoc {
         self.error.location()
     }
 
     /// Returns the initial location that this error was raised at.
     #[must_use]
-    pub fn kind_location(&self) -> &'static Location<'static> {
+    pub fn kind_location(&self) -> &SourceLoc {
         self.error.kind_location()
     }
 

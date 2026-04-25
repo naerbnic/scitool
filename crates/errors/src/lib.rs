@@ -1,6 +1,7 @@
 #![doc = include_str!("lib_docs.md")]
 
 mod binders;
+mod causes;
 mod define_error;
 mod diag;
 mod dyn_err_conversion;
@@ -8,13 +9,16 @@ mod ext;
 mod finding;
 mod fmt_helpers;
 mod frame;
+mod helpers;
+mod locations;
 mod raiser;
 mod reportable;
 mod sealed;
 
 pub mod out;
 
-pub use binders::{ContextBinder, IntoCause, RaiseBinder};
+pub use binders::{ContextBinder, RaiseBinder};
+pub use causes::IntoCause;
 
 pub use diag::{AnyDiag, Diag, DiagLike, Kind, MaybeDiag};
 pub use ext::{OptionExt, ResultExt};
