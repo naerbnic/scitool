@@ -1,4 +1,7 @@
-use std::fmt::{self, Write as _};
+use std::{
+    cell::Cell,
+    fmt::{self, Write as _},
+};
 
 struct IndentWriter<'a, W> {
     writer: &'a mut W,
@@ -132,6 +135,41 @@ where
         } else {
             write!(IndentWriter::new(f, self.indent), "{}", self.value)
         }
+    }
+}
+
+struct FmtWrapper<F>(Cell<Option<F>>);
+
+impl<F> fmt::Display for FmtWrapper<F>
+where
+    F: FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let fmt_func = self.0.take().expect("Formatted exactly once");
+        (fmt_func)(f)
+    }
+}
+
+pub(crate) fn indent_fmt<F>(
+    f: &mut std::fmt::Formatter<'_>,
+    indent: usize,
+    body: F,
+) -> std::fmt::Result
+where
+    F: FnOnce(&mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+{
+    if f.alternate() {
+        write!(
+            IndentWriter::new(f, indent),
+            "{:#}",
+            FmtWrapper(Cell::new(Some(body)))
+        )
+    } else {
+        write!(
+            IndentWriter::new(f, indent),
+            "{}",
+            FmtWrapper(Cell::new(Some(body)))
+        )
     }
 }
 

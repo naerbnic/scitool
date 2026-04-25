@@ -159,3 +159,11 @@ pub(crate) fn try_convert_to_any_diag<E: std::error::Error + Send + Sync + 'stat
     // references to the source.
     Ok(unsafe { any_wrap.take_any() })
 }
+
+pub(crate) fn try_cast_to_any_diag_ref<'a>(
+    err: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a AnyDiag> {
+    err.source()?
+        .downcast_ref::<AnyWrapper>()
+        .map(AnyWrapper::downcast_get)
+}

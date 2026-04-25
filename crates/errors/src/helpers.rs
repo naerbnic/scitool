@@ -1,13 +1,12 @@
 //! Utilities that assist in error reporting.
 
-use crate::{AnyDiag, Diag, Kind, MaybeDiag, causes::Cause};
+use crate::{AnyDiag, Diag, Kind, MaybeDiag, Raiser, raiser::RaisedToDiag};
 
 enum CaughtError<T> {
     /// Indicates the diag type that is intended to be rethrown transparently.
     Diag(T),
-    /// Indicates a type that should be used as a cause, but must have another
-    /// error put on top of it.
-    Cause(Cause),
+    /// Indicates an error that was able to be unwrapped as an `AnyDiag`.
+    UnwrappedErr(AnyDiag),
     Error(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -99,8 +98,62 @@ where
     }
 }
 
-// pub fn in_err_context<T>(f: impl FnOnce() -> Result<T, AnyDiagErrorCatcher>) -> T {
-//     f()
-// }
+pub fn in_err_context<T>(
+    f: impl FnOnce() -> Result<T, AnyDiagErrorCatcher>,
+) -> ErrorContextBinder<T> {
+    let result = f();
 
-// pub struct ErrorContextBinder<T> {}
+    ErrorContextBinder {
+        result: result.map_err(|e| e.err),
+    }
+}
+
+pub struct ErrorContextBinder<T> {
+    result: Result<T, CaughtError<AnyDiag>>,
+}
+
+impl<T> ErrorContextBinder<T> {
+    pub fn or_raise_err_with<F, R>(self, body: F) -> Result<T, R::Diag>
+    where
+        F: FnOnce(&dyn std::error::Error, Raiser) -> R,
+        R: RaisedToDiag,
+    {
+        let err = match self.result {
+            Ok(ok) => return Ok(ok),
+            Err(err) => err,
+        };
+        let raiser = Raiser::new();
+        todo!()
+        // let err = match err {
+        //     CaughtError::Diag(diag) => diag.into(),
+        //     CaughtError::UnwrappedErr(diag) => diag.into(),
+        //     CaughtError::Error(err) => {
+        //         todo!()
+        //     }
+        // };
+        // Err(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{bail, diag};
+
+    use super::*;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("Error 1")]
+    struct ErrorTypeOne;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("Error 2")]
+    struct ErrorTypeTwo;
+
+    // #[test]
+    // fn can_bail_out_of_err_fn() {
+    //     let result: Result<(), AnyDiag> = in_err_context(|| {
+    //         bail!("TestError");
+    //     })
+    //     .or_raise_err_with(diag!(|e| "General Error"));
+    // }
+}

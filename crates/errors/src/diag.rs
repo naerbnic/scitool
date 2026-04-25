@@ -276,6 +276,16 @@ impl AnyDiag {
         AnyDiagBuilder::new(std::iter::empty::<std::convert::Infallible>())
     }
 
+    #[track_caller]
+    pub fn from_std_error<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self {
+            root: Frame::from_box_std_error(Box::new(err), SourceLoc::current()),
+        }
+    }
+
     /// Creates a new Diag error based on the given message-like value.
     ///
     /// The caller of this function is recorded as the source of the error.
@@ -324,6 +334,10 @@ impl AnyDiag {
         Self {
             root: Frame::new(fnd.into_err_like(), created_at, causes),
         }
+    }
+
+    pub(crate) fn frame(&self) -> &Frame {
+        &self.root
     }
 }
 

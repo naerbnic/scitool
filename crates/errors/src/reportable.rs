@@ -272,7 +272,11 @@ impl Debug for ReportableHandle {
 #[derive(Clone)]
 pub(crate) struct WeakReportableHandle(MaybeWeak<dyn DynReportable>);
 
-impl WeakReportableHandle {}
+impl WeakReportableHandle {
+    pub(crate) fn new_dangling() -> Self {
+        Self(MaybeWeak::Weak(Weak::<std::convert::Infallible>::new()))
+    }
+}
 
 impl Display for WeakReportableHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

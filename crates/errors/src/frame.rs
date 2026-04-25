@@ -1,3 +1,5 @@
+mod cursor;
+
 use std::{
     error::Error as StdError,
     fmt::{self, Debug, Display},
@@ -7,10 +9,12 @@ use std::{
 use crate::{
     Kind,
     finding::MessageFinding,
-    fmt_helpers::Indent,
+    fmt_helpers::{Indent, indent_fmt},
     locations::SourceLoc,
     reportable::{Reportable, ReportableHandle, WeakReportableHandle},
 };
+
+use cursor::FrameCursor;
 
 #[derive(Debug)]
 struct Context {
@@ -18,25 +22,141 @@ struct Context {
     message: ReportableHandle,
 }
 
-/// Helper for frames, giving a generalized structure of printable
-/// values
-struct FrameFormatContext<'a> {
-    base_context: &'a Context,
-    additional_contexts: &'a [Context],
-    causes: &'a [Frame],
-}
-
-struct FrameFormatWrapper<'a>(&'a Frame);
-
-impl Display for FrameFormatWrapper<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.display_fmt(f)
+fn format_frame_report(
+    fmt_ctxt: &FrameCursor,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result {
+    fmt_ctxt.write_message_to(f)?;
+    if let Some(created_at) = fmt_ctxt.created_at() {
+        write!(f, "\n  at {created_at}")?;
     }
+    let additional_contexts = fmt_ctxt.additional_contexts();
+    if additional_contexts.len() == 1 {
+        let ctxt = &additional_contexts[0];
+        write!(
+            f,
+            "\n  with context: {:#?}",
+            Indent::new(&ctxt.message).indent(16)
+        )?;
+        write!(f, "\n    at {}", ctxt.created_at)?;
+    } else if !additional_contexts.is_empty() {
+        write!(f, "\n  with contexts:")?;
+        for ctxt in additional_contexts {
+            write!(f, "\n  - {:#?}", Indent::new(&ctxt.message).indent(4))?;
+            write!(f, "\n    at {}", ctxt.created_at)?;
+        }
+    }
+
+    let mut causes = fmt_ctxt.causes();
+    if causes.len() == 1 {
+        let cause = causes.next().unwrap();
+        write!(f, "\n  Caused by:\n    ",)?;
+        indent_fmt(f, 4, |f| format_frame_report(&cause, f))?;
+    } else if causes.len() > 0 {
+        // We are going to number the entries, so we need to know the
+        // character width to make everything line up nicely.
+        let max_cause_index = causes.len() - 1;
+        // This could be more efficient, but we just print the number - 1,
+        // and count the chars.
+        let cause_char_len = format!("{max_cause_index}").chars().count();
+        write!(f, "\n  Causes:")?;
+        for (i, cause) in causes.enumerate() {
+            write!(f, "\n    {i:>cause_char_len$}: ")?;
+            indent_fmt(f, 6 + cause_char_len, |f| format_frame_report(&cause, f))?;
+        }
+    }
+    Ok(())
 }
 
-impl Debug for FrameFormatWrapper<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.debug_fmt(f)
+/// The root error used for the Frame.
+#[derive(Debug)]
+enum FrameRoot {
+    DiagRoot {
+        base_context: Context,
+        causes: Vec<Frame>,
+    },
+    StdErrorRoot {
+        source_loc: SourceLoc,
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+}
+
+impl FrameRoot {
+    fn from_diag(
+        root_reportable: ReportableHandle,
+        created_at: SourceLoc,
+        causes: Vec<Frame>,
+    ) -> Self {
+        Self::DiagRoot {
+            base_context: Context {
+                created_at,
+                message: root_reportable,
+            },
+            causes,
+        }
+    }
+
+    fn from_box_std_error(
+        err: Box<dyn std::error::Error + Send + Sync + 'static>,
+        created_at: SourceLoc,
+    ) -> Self {
+        Self::StdErrorRoot {
+            source_loc: created_at,
+            source: err,
+        }
+    }
+
+    fn message_clone_weak(&self) -> WeakReportableHandle {
+        match self {
+            FrameRoot::DiagRoot { base_context, .. } => base_context.message.clone_weak(),
+            FrameRoot::StdErrorRoot { .. } => WeakReportableHandle::new_dangling(),
+        }
+    }
+
+    fn downcast_ref<K>(&self) -> Option<&K>
+    where
+        K: Kind,
+    {
+        match self {
+            FrameRoot::DiagRoot { base_context, .. } => base_context.message.downcast_ref(),
+            FrameRoot::StdErrorRoot { .. } => None,
+        }
+    }
+
+    fn try_extract_kind<K>(&mut self) -> Option<K>
+    where
+        K: Kind,
+    {
+        match self {
+            FrameRoot::DiagRoot { base_context, .. } => {
+                let placeholder = ReportableHandle::from_report_only("<extracted>");
+                let error =
+                    std::mem::replace(&mut base_context.message, placeholder).downcast::<K>()?;
+                Some(error)
+            }
+            FrameRoot::StdErrorRoot { .. } => None,
+        }
+    }
+
+    fn created_at(&self) -> &SourceLoc {
+        match self {
+            FrameRoot::DiagRoot { base_context, .. } => &base_context.created_at,
+            FrameRoot::StdErrorRoot { source_loc, .. } => source_loc,
+        }
+    }
+
+    fn message(&self) -> &dyn fmt::Display {
+        match self {
+            FrameRoot::DiagRoot { base_context, .. } => &base_context.message,
+            FrameRoot::StdErrorRoot { source, .. } => &**source,
+        }
+    }
+
+    fn causes(&self) -> &[Frame] {
+        match self {
+            FrameRoot::DiagRoot { causes, .. } => causes,
+            FrameRoot::StdErrorRoot { .. } => &[],
+        }
     }
 }
 
@@ -45,12 +165,14 @@ struct Inner {
     /// Contexts on top of the given error. In reverse order of creation.
     additional_contexts: Vec<Context>,
 
-    /// The payload of this frame. This may or may not contain a value that
-    /// can be queried, but it will be reportable regardless.
-    base_context: Context,
+    /// The root error of this frame.
+    frame_root: FrameRoot,
+}
 
-    /// The children of this Frame, if any.
-    causes: Vec<Frame>,
+impl Inner {
+    fn get_cursor(&self) -> FrameCursor<'_> {
+        FrameCursor::from_frame(self)
+    }
 }
 
 #[derive(Debug)]
@@ -64,21 +186,28 @@ impl Frame {
         created_at: SourceLoc,
         causes: Vec<Frame>,
     ) -> Self {
-        let code_context = Context {
-            created_at,
-            message: root_reportable,
-        };
         Self {
             inner: Box::new(Inner {
                 additional_contexts: Vec::new(),
-                base_context: code_context,
-                causes,
+                frame_root: FrameRoot::from_diag(root_reportable, created_at, causes),
+            }),
+        }
+    }
+
+    pub(crate) fn from_box_std_error(
+        err: Box<dyn std::error::Error + Send + Sync + 'static>,
+        created_at: SourceLoc,
+    ) -> Self {
+        Self {
+            inner: Box::new(Inner {
+                additional_contexts: Vec::new(),
+                frame_root: FrameRoot::from_box_std_error(err, created_at),
             }),
         }
     }
 
     pub(crate) fn clone_msg_weak(&self) -> WeakReportableHandle {
-        self.inner.base_context.message.clone_weak()
+        self.inner.frame_root.message_clone_weak()
     }
 
     pub(crate) fn add_context(&mut self, msg: MessageFinding, created_at: SourceLoc) {
@@ -92,82 +221,29 @@ impl Frame {
     where
         E: Kind,
     {
-        self.inner
-            .base_context
-            .message
-            .downcast_ref::<E>()
-            .is_some()
+        self.inner.frame_root.downcast_ref::<E>().is_some()
     }
 
     pub(crate) fn try_kind_ref<E>(&self) -> Option<&E>
     where
         E: Kind,
     {
-        self.inner.base_context.message.downcast_ref()
+        self.inner.frame_root.downcast_ref()
     }
 
     pub(crate) fn try_extract_kind<E>(&mut self) -> Option<E>
     where
         E: Kind,
     {
-        let placeholder = ReportableHandle::from_report_only("<extracted>");
-        let error =
-            std::mem::replace(&mut self.inner.base_context.message, placeholder).downcast::<E>()?;
-        Some(error)
+        self.inner.frame_root.try_extract_kind()
     }
 
-    fn get_format_context(&self) -> FrameFormatContext<'_> {
-        FrameFormatContext {
-            base_context: &self.inner.base_context,
-            additional_contexts: &self.inner.additional_contexts[..],
-            causes: &self.inner.causes,
-        }
+    fn get_cursor(&self) -> FrameCursor<'_> {
+        self.inner.get_cursor()
     }
 
     pub(crate) fn report_fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let fmt_ctxt = self.get_format_context();
-        fmt.write_fmt(format_args!("{:#?}", fmt_ctxt.base_context.message))?;
-        fmt.write_fmt(format_args!("\n  at {}", fmt_ctxt.base_context.created_at))?;
-        if fmt_ctxt.additional_contexts.len() == 1 {
-            let ctxt = &fmt_ctxt.additional_contexts[0];
-            fmt.write_fmt(format_args!(
-                "\n  with context: {:#?}",
-                Indent::new(&ctxt.message).indent(16)
-            ))?;
-            fmt.write_fmt(format_args!("\n    at {}", ctxt.created_at))?;
-        } else if !fmt_ctxt.additional_contexts.is_empty() {
-            fmt.write_str("\n  with contexts:")?;
-            for ctxt in fmt_ctxt.additional_contexts {
-                fmt.write_fmt(format_args!(
-                    "\n  - {:#?}",
-                    Indent::new(&ctxt.message).indent(4)
-                ))?;
-                fmt.write_fmt(format_args!("\n    at {}", ctxt.created_at))?;
-            }
-        }
-
-        if fmt_ctxt.causes.len() == 1 {
-            let cause = &fmt_ctxt.causes[0];
-            fmt.write_fmt(format_args!(
-                "\n  Caused by:\n    {:#?}",
-                Indent::new(&FrameFormatWrapper(cause)).indent(4)
-            ))?;
-        } else if !fmt_ctxt.causes.is_empty() {
-            // We are going to number the entries, so we need to know the
-            // character width to make everything line up nicely.
-            let max_cause_index = fmt_ctxt.causes.len() - 1;
-            // This could be more efficient, but we just print the number - 1,
-            // and count the chars.
-            let cause_char_len = format!("{max_cause_index}").chars().count();
-            fmt.write_str("\n  Causes:")?;
-            for (i, cause) in fmt_ctxt.causes.iter().enumerate() {
-                fmt.write_fmt(format_args!(
-                    "\n    {i:>cause_char_len$}: {:#?}",
-                    Indent::new(&FrameFormatWrapper(cause)).indent(6 + cause_char_len)
-                ))?;
-            }
-        }
-        Ok(())
+        format_frame_report(&self.get_cursor(), fmt)
     }
 
     pub(crate) fn debug_fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -179,41 +255,41 @@ impl Frame {
     }
 
     pub(crate) fn display_fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let fmt_ctxt = self.get_format_context();
+        let fmt_ctxt = self.get_cursor();
+        fmt_ctxt.write_message_to(fmt)?; // TODO: Check if we need to differentiate between display and debug
 
         if fmt.alternate() {
             // Print as "<primary message> (<context #1>, <context #2>, ...)"
-            fmt.write_fmt(format_args!("{}", fmt_ctxt.base_context.message))?;
 
-            if !fmt_ctxt.additional_contexts.is_empty() {
+            let additional_contexts = fmt_ctxt.additional_contexts();
+
+            if !additional_contexts.is_empty() {
                 fmt.write_str(" (")?;
                 let mut first = true;
-                for ctxt in fmt_ctxt.additional_contexts {
+                for ctxt in additional_contexts {
                     if first {
                         first = false;
                     } else {
                         fmt.write_str(", ")?;
                     }
-
-                    fmt.write_fmt(format_args!("{}", ctxt.message))?;
+                    write!(fmt, "{}", ctxt.message)?;
                 }
                 fmt.write_str(")")?;
             }
-            Ok(())
-        } else {
-            fmt.write_fmt(format_args!("{}", fmt_ctxt.base_context.message))
         }
+
+        Ok(())
     }
 
     pub(crate) fn causes(&self) -> &[Frame] {
-        &self.inner.causes
+        self.inner.frame_root.causes()
     }
 
     pub(crate) fn location(&self) -> &SourceLoc {
         if let Some(context) = self.inner.additional_contexts.last() {
             &context.created_at
         } else {
-            &self.inner.base_context.created_at
+            self.inner.frame_root.created_at()
         }
     }
 
@@ -221,7 +297,7 @@ impl Frame {
     /// context-based frame, then this is the location of the originating
     /// context.
     pub(crate) fn kind_location(&self) -> &SourceLoc {
-        &self.inner.base_context.created_at
+        self.inner.frame_root.created_at()
     }
 
     #[expect(unsafe_code, reason = "For casts between transparent types.")]
@@ -251,7 +327,7 @@ impl Frame {
     /// Returns an iterator over all causes of this frame, including the cause
     /// represented by the current [`Frame`]
     pub(crate) fn all_causes(&self) -> impl Iterator<Item = ErrorView<'_>> {
-        FrameIter::from_frame_slice(&self.inner.causes).map(Frame::view)
+        FrameIter::from_frame_slice(self.inner.frame_root.causes()).map(Frame::view)
     }
 }
 
