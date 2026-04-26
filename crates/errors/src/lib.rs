@@ -26,6 +26,8 @@ pub use frame::{ContextView, ErrorView, TypedErrorView};
 pub use raiser::{RaisedKind, RaisedMaybe, RaisedMessage, Raiser};
 pub use reportable::Reportable;
 
+pub use helpers::{AnyDiagErrorCatcher, ErrorContextBinder, in_err_context};
+
 /// A "prelude" module for users of the `scidev-errors` crate.
 ///
 /// This module only imports traits that are typically used by this crate, but

@@ -286,6 +286,14 @@ impl AnyDiag {
         }
     }
 
+    #[must_use]
+    #[track_caller]
+    pub fn from_boxed_std_error(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        Self {
+            root: Frame::from_box_std_error(err, SourceLoc::current()),
+        }
+    }
+
     /// Creates a new Diag error based on the given message-like value.
     ///
     /// The caller of this function is recorded as the source of the error.
@@ -338,6 +346,10 @@ impl AnyDiag {
 
     pub(crate) fn frame(&self) -> &Frame {
         &self.root
+    }
+
+    pub(crate) fn into_frame(self) -> Frame {
+        self.root
     }
 }
 
@@ -909,13 +921,13 @@ mod tests {
                 errors
                     .iter()
                     .map(TypedErrorView::err_location)
-                    .all(|loc| loc.file().ends_with("diag.rs"))
+                    .all(|loc| loc.unwrap().file().ends_with("diag.rs"))
             );
             assert!(
                 errors
                     .iter()
                     .map(TypedErrorView::location)
-                    .all(|loc| loc.file().ends_with("diag.rs"))
+                    .all(|loc| loc.unwrap().file().ends_with("diag.rs"))
             );
             // We will find one context on NeedleError. The other is not found
             // because it is on a different error kind.
@@ -969,7 +981,7 @@ mod tests {
             assert!(
                 errors
                     .iter()
-                    .all(|err| err.location().file().ends_with("diag.rs"))
+                    .all(|err| err.location().unwrap().file().ends_with("diag.rs"))
             );
         }
 

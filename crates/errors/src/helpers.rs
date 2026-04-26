@@ -5,9 +5,16 @@ use crate::{AnyDiag, Diag, Kind, MaybeDiag, Raiser, raiser::RaisedToDiag};
 enum CaughtError<T> {
     /// Indicates the diag type that is intended to be rethrown transparently.
     Diag(T),
-    /// Indicates an error that was able to be unwrapped as an `AnyDiag`.
-    UnwrappedErr(AnyDiag),
     Error(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl<T> CaughtError<T> {
+    fn from_std_error<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        CaughtError::Error(Box::new(err))
+    }
 }
 
 /// An error type used in functions that are intended to capture multiple
@@ -22,7 +29,7 @@ where
 {
     fn from(value: E) -> Self {
         AnyDiagErrorCatcher {
-            err: CaughtError::Error(Box::new(value)),
+            err: CaughtError::from_std_error(value),
         }
     }
 }
@@ -57,50 +64,9 @@ where
     }
 }
 
-pub struct DiagErrorCatcher<K>
-where
-    K: Kind,
-{
-    err: CaughtError<Diag<K>>,
-}
-
-impl<K, E> From<E> for DiagErrorCatcher<K>
-where
-    K: Kind,
-    E: std::error::Error + Send + Sync + 'static,
-{
-    fn from(value: E) -> Self {
-        DiagErrorCatcher {
-            err: CaughtError::Error(Box::new(value)),
-        }
-    }
-}
-
-// impl<K> From<AnyDiag> for DiagErrorCatcher<K>
-// where
-//     K: Kind,
-// {
-//     fn from(value: AnyDiag) -> Self {
-//         DiagErrorCatcher {
-//             err: CaughtError::Diag(value),
-//         }
-//     }
-// }
-
-impl<K> From<Diag<K>> for DiagErrorCatcher<K>
-where
-    K: Kind,
-{
-    fn from(value: Diag<K>) -> Self {
-        DiagErrorCatcher {
-            err: CaughtError::Diag(value),
-        }
-    }
-}
-
 pub fn in_err_context<T>(
     f: impl FnOnce() -> Result<T, AnyDiagErrorCatcher>,
-) -> ErrorContextBinder<T> {
+) -> ErrorContextBinder<T, AnyDiag> {
     let result = f();
 
     ErrorContextBinder {
@@ -108,30 +74,45 @@ pub fn in_err_context<T>(
     }
 }
 
-pub struct ErrorContextBinder<T> {
-    result: Result<T, CaughtError<AnyDiag>>,
+pub struct ErrorContextBinder<T, E> {
+    result: Result<T, CaughtError<E>>,
 }
 
-impl<T> ErrorContextBinder<T> {
-    pub fn or_raise_err_with<F, R>(self, body: F) -> Result<T, R::Diag>
+impl<T, E> ErrorContextBinder<T, E> {
+    pub fn map_raise_err<F, R>(self, body: F) -> Result<T, E>
     where
         F: FnOnce(&dyn std::error::Error, Raiser) -> R,
-        R: RaisedToDiag,
+        R: RaisedToDiag<Diag = E>,
     {
         let err = match self.result {
             Ok(ok) => return Ok(ok),
             Err(err) => err,
         };
         let raiser = Raiser::new();
-        todo!()
-        // let err = match err {
-        //     CaughtError::Diag(diag) => diag.into(),
-        //     CaughtError::UnwrappedErr(diag) => diag.into(),
-        //     CaughtError::Error(err) => {
-        //         todo!()
-        //     }
-        // };
-        // Err(err)
+        let err = match err {
+            // A value that was intended to be caught directly, and doesn't
+            // need further updating.
+            CaughtError::Diag(diag) => return Err(diag),
+            CaughtError::Error(err) => {
+                let result = body(err.as_ref(), raiser);
+                result.into_diag([AnyDiag::from_boxed_std_error(err)])
+            }
+        };
+
+        Err(err)
+    }
+
+    pub fn reraise(self) -> Result<T, E>
+    where
+        E: From<AnyDiag>,
+    {
+        match self.result {
+            Ok(ok) => Ok(ok),
+            Err(err) => Err(match err {
+                CaughtError::Diag(diag) => diag,
+                CaughtError::Error(error) => E::from(AnyDiag::from_boxed_std_error(error)),
+            }),
+        }
     }
 }
 
@@ -149,11 +130,39 @@ mod tests {
     #[error("Error 2")]
     struct ErrorTypeTwo;
 
-    // #[test]
-    // fn can_bail_out_of_err_fn() {
-    //     let result: Result<(), AnyDiag> = in_err_context(|| {
-    //         bail!("TestError");
-    //     })
-    //     .or_raise_err_with(diag!(|e| "General Error"));
-    // }
+    #[test]
+    fn can_bail_out_of_err_fn() {
+        // Bailing escapes with an error of the bailed message, rather than
+        // the wrapped error.
+        let result: Result<(), AnyDiag> = in_err_context(|| {
+            bail!("TestError");
+        })
+        .map_raise_err(diag!(|_e| "General Error"));
+        assert_eq!(&*format!("{}", result.unwrap_err()), "TestError");
+    }
+
+    #[test]
+    fn can_raise_different_error_types() {
+        // Bailing escapes with an error of the bailed message, rather than
+        // the wrapped error.
+        let err_generating_fn = |flag| {
+            let result: Result<(), AnyDiag> = in_err_context(|| {
+                if flag {
+                    Err(ErrorTypeOne.into())
+                } else {
+                    Err(ErrorTypeTwo.into())
+                }
+            })
+            .map_raise_err(diag!(|e| "General Error: {e}"));
+            result.unwrap_err()
+        };
+        assert_eq!(
+            &*format!("{}", err_generating_fn(true)),
+            "General Error: Error 1"
+        );
+        assert_eq!(
+            &*format!("{}", err_generating_fn(false)),
+            "General Error: Error 2"
+        );
+    }
 }

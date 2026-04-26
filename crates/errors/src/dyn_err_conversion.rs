@@ -160,6 +160,22 @@ pub(crate) fn try_convert_to_any_diag<E: std::error::Error + Send + Sync + 'stat
     Ok(unsafe { any_wrap.take_any() })
 }
 
+#[allow(unsafe_code)]
+pub(crate) fn try_convert_box_to_any_diag(
+    err: Box<dyn std::error::Error + Send + Sync>,
+) -> Result<AnyDiag, Box<dyn std::error::Error + Send + Sync>> {
+    let Some(source) = err.source() else {
+        return Err(err);
+    };
+    let Some(any_wrap) = source.downcast_ref::<AnyWrapper>() else {
+        return Err(err);
+    };
+
+    // SAFETY: We own `err`, so we know that there are no other synchronous
+    // references to the source.
+    Ok(unsafe { any_wrap.take_any() })
+}
+
 pub(crate) fn try_cast_to_any_diag_ref<'a>(
     err: &'a (dyn std::error::Error + 'static),
 ) -> Option<&'a AnyDiag> {
