@@ -175,7 +175,7 @@ impl<'a> FrameCursor<'a> {
         let mut causes = self.causes();
         if causes.len() == 1 {
             let cause = causes.next().unwrap();
-            write!(f, "\n  Caused by:\n    ",)?;
+            write!(f, "\n  Caused by:\n    ")?;
             indent_fmt(f, 4, |f| cause.report_fmt(f))?;
         } else if causes.len() > 0 {
             // We are going to number the entries, so we need to know the

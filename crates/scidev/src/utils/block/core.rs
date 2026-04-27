@@ -89,10 +89,12 @@ trait BlockBase: Debug {
     ) -> OpenBaseResult<Box<dyn io::Read + 'a>>;
 }
 
+/// A base for blocks that operate by loading the entire block into memory.
 trait MemBlockBase: Debug {
     fn load_mem_block(&self) -> OpenBaseResult<MemBlock>;
 }
 
+/// A base for blocks that operate by being able to open a stream to a range of the block.
 trait RangeStreamBase: Debug {
     type Reader<'a>: io::Read + 'a
     where
@@ -100,6 +102,7 @@ trait RangeStreamBase: Debug {
     fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>>;
 }
 
+/// A base for blocks that operate by being able to open a stream for the entire block.
 trait FullStreamBase: Debug {
     type Reader<'a>: io::Read + 'a
     where

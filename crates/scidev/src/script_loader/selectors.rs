@@ -9,9 +9,9 @@ use std::{
     sync::Arc,
 };
 
-use scidev_errors::{AnyDiag, diag, prelude::*};
+use scidev_errors::{AnyDiag, diag, in_err_context, prelude::*};
 
-use crate::utils::mem_reader::{self, MemReader};
+use crate::utils::mem_reader::MemReader;
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct SharedString(Arc<String>);
@@ -87,15 +87,15 @@ impl SelectorTable {
     pub(crate) fn load_from<M: MemReader>(data: &M) -> Result<Self, AnyDiag> {
         // A weird property: The number of entries given in Vocab 997 appears to be one
         // _less_ than the actual number of entries.
-        let selector_offsets = (|| {
+        let selector_offsets = in_err_context(|| {
             let mut index_table = data.sub_reader_range("Selector index table", ..)?;
             let num_entries_minus_one = index_table.read_value::<u16>("Selector Count")?;
             let num_entries = num_entries_minus_one + 1;
             let selector_offsets =
                 index_table.read_values::<u16>("Selector offsets", num_entries.into())?;
-            Ok::<_, mem_reader::Error>(selector_offsets)
-        })()
-        .raise_err_with(diag!(|| "Failed to read selector offsets"))?;
+            Ok(selector_offsets)
+        })
+        .reraise()?;
 
         let mut entries: HashMap<_, Vec<_>> = HashMap::new();
         let mut offset_map: HashMap<u16, SharedString> = HashMap::new();

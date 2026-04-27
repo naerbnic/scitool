@@ -1,12 +1,12 @@
 use crate::utils::{
     block::MemBlock,
     buffer::{Buffer, Splittable as _},
-    mem_reader::{self, BufferMemReader, MemReader},
+    mem_reader::{BufferMemReader, MemReader},
 };
 
 use super::selectors::SelectorTable;
 use bytes::BufMut;
-use scidev_errors::{AnyDiag, define_error, diag, ensure, prelude::*};
+use scidev_errors::{AnyDiag, define_error, diag, ensure, in_err_context, prelude::*};
 
 mod object;
 
@@ -70,8 +70,8 @@ impl Heap {
     where
         M: MemReader,
     {
-        let mut objects = Vec::new();
-        let mut read_func = || {
+        in_err_context(|| {
+            let mut objects = Vec::new();
             let _ = resource_data.read_u16_le()?;
             let num_locals = resource_data.read_value::<u16>("Num locals")?;
             let locals = resource_data
@@ -101,27 +101,24 @@ impl Heap {
                 objects.push(new_obj);
             }
 
-            Ok::<_, mem_reader::Error>(locals)
-        };
-
-        let locals = read_func().raise_err_with(diag!(|| "Failed to read heap data"))?;
-
-        let mut strings = Vec::new();
-        // Find all strings
-        while !resource_data.is_empty() {
-            let mut string_data = resource_data
-                .read_until::<u8>("string_obj", |b| *b == 0)
-                .raise_err_with(diag!(|| "Failed to read null terminated string"))?;
-            string_data.pop(); // Remove the null terminator.
-            let string = String::from_utf8(string_data)
-                .map_raise(diag!(|err| "Non-UTF8 string data: {err}"))?;
-            strings.push(string);
-        }
-        Ok(Self {
-            locals,
-            objects,
-            strings,
+            let mut strings = Vec::new();
+            // Find all strings
+            while !resource_data.is_empty() {
+                let mut string_data = resource_data
+                    .read_until::<u8>("string_obj", |b| *b == 0)
+                    .raise_err_with(diag!(|| "Failed to read null terminated string"))?;
+                string_data.pop(); // Remove the null terminator.
+                let string = String::from_utf8(string_data)
+                    .map_raise(diag!(|err| "Non-UTF8 string data: {err}"))?;
+                strings.push(string);
+            }
+            Ok(Self {
+                locals,
+                objects,
+                strings,
+            })
         })
+        .reraise()
     }
 }
 
