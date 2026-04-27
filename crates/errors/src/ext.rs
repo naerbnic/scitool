@@ -1,9 +1,10 @@
 use crate::{
-    ContextBinder, DiagLike, RaisedMessage, Raiser,
+    AnyDiag, ContextBinder, DiagLike, RaisedMessage, Raiser,
     binders::{
         Bind, ContextBind, ErrResultBind, OptionBind, RaiseBinder, ResultBind, ResultContextBind,
     },
     causes::IntoCause,
+    locations::SourceLoc,
     out,
     raiser::RaisedToDiag,
 };
@@ -40,6 +41,13 @@ pub trait ResultExt: Sized {
     /// This is part of a fluent API. Calling a method on the returned object
     /// will return the new Result with the new error.
     fn raise(self) -> RaiseBinder<impl Bind<Out = out::Result<Self::Value>>>
+    where
+        Self::Error: IntoCause;
+
+    /// Converts the error into an [`AnyDiag`] and returns it without further
+    /// further modification. For errors defined using [`crate::define_error`],
+    /// it will unwrap the diag and return it instead.
+    fn reraise(self) -> Result<Self::Value, AnyDiag>
     where
         Self::Error: IntoCause;
 
@@ -109,6 +117,20 @@ impl<T, E> ResultExt for Result<T, E> {
         Self::Error: IntoCause,
     {
         RaiseBinder::new(ResultBind::new(self))
+    }
+
+    #[track_caller]
+    fn reraise(self) -> Result<Self::Value, AnyDiag>
+    where
+        Self::Error: IntoCause,
+    {
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(err) => {
+                let cause = err.into_cause(SourceLoc::current());
+                Err(AnyDiag::from_frame(cause.into_frame()))
+            }
+        }
     }
 
     #[track_caller]

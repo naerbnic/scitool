@@ -344,6 +344,10 @@ impl AnyDiag {
         }
     }
 
+    pub(crate) fn from_frame(frame: Frame) -> Self {
+        Self { root: frame }
+    }
+
     pub(crate) fn frame(&self) -> &Frame {
         &self.root
     }

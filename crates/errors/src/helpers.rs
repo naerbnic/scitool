@@ -2,6 +2,9 @@
 
 use crate::{AnyDiag, Diag, Kind, MaybeDiag, Raiser, raiser::RaisedToDiag};
 
+/// Internal type representing how a given error was caught, either through
+/// the generic `std::error::Error` handler, or through the propagation of a
+/// Diag variant.
 enum CaughtError<T> {
     /// Indicates the diag type that is intended to be rethrown transparently.
     Diag(T),
@@ -19,6 +22,8 @@ impl<T> CaughtError<T> {
 
 /// An error type used in functions that are intended to capture multiple
 /// errors.
+///
+/// See [`in_err_context`] for details.
 pub struct AnyDiagErrorCatcher {
     err: CaughtError<AnyDiag>,
 }
@@ -74,11 +79,18 @@ pub fn in_err_context<T>(
     }
 }
 
+/// The result of an [`in_err_context`] call, used to fluently process the
+/// result of an error block.
+///
+/// See [`in_err_context`] for more details.
 pub struct ErrorContextBinder<T, E> {
     result: Result<T, CaughtError<E>>,
 }
 
 impl<T, E> ErrorContextBinder<T, E> {
+    /// If the error thrown from the context was a Diag variant, propagates that
+    /// variant. If it is a `std::error::Error`, raises the error using the
+    /// attached mapping function.
     pub fn map_raise_err<F, R>(self, body: F) -> Result<T, E>
     where
         F: FnOnce(&dyn std::error::Error, Raiser) -> R,
@@ -102,6 +114,9 @@ impl<T, E> ErrorContextBinder<T, E> {
         Err(err)
     }
 
+    /// If the underlying error is convertible to the Diag type `E`, then
+    /// simply propagate that error. For other cases, convert the error directly
+    /// into a Diag, and return that as the error case of the result.
     pub fn reraise(self) -> Result<T, E>
     where
         E: From<AnyDiag>,
