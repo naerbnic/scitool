@@ -1,11 +1,8 @@
-use anyhow::anyhow;
 use scidev::{
     resources::{ResourceId, ResourceSet, ResourceType},
     utils::debug::hex_dump_to,
 };
 use std::path::Path;
-
-use sciproj::respack::ResPack;
 
 pub(crate) fn dump_resource(
     root_dir: &Path,
@@ -102,38 +99,13 @@ pub(crate) fn list_resources(
 }
 
 pub(crate) fn export(
-    root_dir: &Path,
-    resource_id: ResourceId,
-    output_path: &Path,
+    _root_dir: &Path,
+    _resource_id: ResourceId,
+    _output_path: &Path,
 ) -> anyhow::Result<()> {
-    let resource_set = ResourceSet::from_root_dir(root_dir)?;
-    let mut respack = ResPack::from_resource(
-        &resource_set
-            .get_resource(&resource_id)
-            .ok_or_else(|| anyhow!("Resource not found: {resource_id:?}"))?,
-    )?;
-
-    respack.save_to(output_path)?;
-
-    Ok(())
+    panic!("Unimplemented")
 }
 
-pub(crate) fn export_all(root_dir: &Path, output_root: &Path) -> anyhow::Result<()> {
-    let resource_set = ResourceSet::from_root_dir(root_dir)?;
-    for resource in resource_set.resources() {
-        let mut respack = ResPack::from_resource(&resource)?;
-        let output_path = output_root.join(format!(
-            "{}.{:03}.respack",
-            resource.id().resource_num(),
-            resource.id().type_id().to_file_ext(),
-        ));
-        eprintln!(
-            "Exporting resource {:?} to {}",
-            resource.id(),
-            output_path.display()
-        );
-        respack.save_to(&output_path)?;
-    }
-
-    Ok(())
+pub(crate) fn export_all(_root_dir: &Path, _output_root: &Path) -> anyhow::Result<()> {
+    panic!("Unimplemented");
 }

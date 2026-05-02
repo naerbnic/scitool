@@ -22,7 +22,7 @@ mod plat {
 
     pub(crate) fn binary_name(path: &Path) -> &OsStr {
         path.file_name()
-            .unwrap_or_else(|| panic!("Path {} does not have a file name", path.display(),))
+            .unwrap_or_else(|| panic!("Path {} does not have a file name", path.display()))
     }
 }
 

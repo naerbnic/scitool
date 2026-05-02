@@ -129,11 +129,7 @@ impl FromStr for Segment {
 
         let mut literal_buffer = String::new();
 
-        loop {
-            let Some(c) = chars.next() else {
-                break;
-            };
-
+        while let Some(c) = chars.next() {
             let new_component = match c {
                 '*' => {
                     // '*' must always be followed by a non-'*'
