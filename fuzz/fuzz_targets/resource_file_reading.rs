@@ -1,14 +1,16 @@
-#![no_main]
+#![cfg_attr(not(windows), no_main)]
 
-use libfuzzer_sys::fuzz_target;
+#[cfg(not(windows))]
 use scidev::resources::ResourceSet;
 
+#[cfg(not(windows))]
 fn body(root_dir: &std::path::Path) -> anyhow::Result<()> {
     let _resources = ResourceSet::from_root_dir(root_dir)?;
     Ok(())
 }
 
-fuzz_target!(|data: &[u8]| {
+#[cfg(not(windows))]
+libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     if data.len() < 8 {
         return;
     }
@@ -26,3 +28,8 @@ fuzz_target!(|data: &[u8]| {
 
     let _ = body(tempdir.path());
 });
+
+#[cfg(windows)]
+fn main() {
+    eprintln!("Fuzz target is only available on non-windows platforms.")
+}
