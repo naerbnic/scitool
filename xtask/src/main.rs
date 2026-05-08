@@ -4,9 +4,10 @@ use std::{
     io::{Read, Write as _},
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
-use clap::Parser as _;
+use clap::{CommandFactory as _, Parser as _};
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::Digest;
 
@@ -16,14 +17,19 @@ use anyhow::Context as _;
 use url::Url;
 
 #[derive(clap::Parser)]
-struct Setup {}
+struct Env {
+    #[arg(trailing_var_arg = true)]
+    cmd_args: Vec<String>,
+}
 
 #[derive(clap::Subcommand)]
 enum Command {
-    Setup(Setup),
+    Setup,
+    Env(Env),
 }
 
 #[derive(clap::Parser)]
+#[command(bin_name = "cargo x")]
 struct Cli {
     #[clap(subcommand)]
     command: Command,
@@ -294,20 +300,33 @@ fn download_archive(
     Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
+fn ensure_remove_file(path: impl AsRef<Path>) -> std::io::Result<()> {
+    std::fs::remove_file(path).or_else(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Ok(())
+        } else {
+            Err(e)
+        }
+    })
+}
+
+fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
-
-    // Set up some basics.
-    let mut term = console::Term::buffered_stderr();
-    let multi_progress = indicatif::MultiProgress::with_draw_target(
-        indicatif::ProgressDrawTarget::term(term.clone(), 60),
-    );
-
     let Some(manifest_path) = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from) else {
-        panic!("CARGO_MANIFEST_DIR not set. Please execute via \"cargo x ...\"");
+        Cli::command()
+            .error(
+                clap::error::ErrorKind::DisplayHelp,
+                "Could not determine CARGO_MANIFEST_DIR, Run using `cargo x ...`",
+            )
+            .exit();
     };
     let Some(workspace_path) = manifest_path.parent() else {
-        unreachable!("Cargo.toml is at the root of the workspace");
+        Cli::command()
+            .error(
+                clap::error::ErrorKind::DisplayHelp,
+                "Cargo.toml is at the root of the workspace",
+            )
+            .exit();
     };
 
     let app_name = format!("xtask-{}", hash_directory(workspace_path, 8));
@@ -317,10 +336,15 @@ fn main() -> anyhow::Result<()> {
 
     let cache_dir = CacheDir::new(base_dirs.cache_dir())?;
 
-    println!("{:?}, {base_dirs:?}", workspace_path.display());
     match cli.command {
-        Command::Setup(_setup) => {
+        Command::Setup => {
+            // Set up some basics.
+            let mut term = console::Term::buffered_stderr();
+            let multi_progress = indicatif::MultiProgress::with_draw_target(
+                indicatif::ProgressDrawTarget::term(term.clone(), 60),
+            );
             term.write_fmt(format_args!("Running setup\n"))?;
+            term.flush()?;
             download_archive(
                 &cache_dir,
                 workspace_path,
@@ -330,8 +354,68 @@ fn main() -> anyhow::Result<()> {
                 "wine-bin.tar.xz",
                 ".tools/dist/wine",
             )?;
+            // Link the wine binary into the tools prefix
+            std::fs::create_dir_all(workspace_path.join(".tools/bin"))?;
+            let wine_bin_path = workspace_path.join(".tools/bin/wine");
+            ensure_remove_file(&wine_bin_path)?;
+            std::os::unix::fs::symlink(
+                "../dist/wine/Wine Stable.app/Contents/Resources/wine/bin/wine",
+                wine_bin_path,
+            )?;
+        }
+        Command::Env(env) => {
+            let Some((cmd, args)) = env.cmd_args.split_first() else {
+                Cli::command()
+                    .error(
+                        clap::error::ErrorKind::TooFewValues,
+                        "Must provide at least one command to run in the environment.",
+                    )
+                    .exit();
+            };
+
+            let addl_path = [workspace_path.join(".tools/bin")];
+
+            let path_env = std::env::var_os("PATH").unwrap_or_default();
+
+            let new_path_elems = addl_path
+                .into_iter()
+                .chain(std::env::split_paths(&path_env));
+            let new_path_env = std::env::join_paths(new_path_elems)?;
+
+            let mut signals = signal_hook::iterator::Signals::new([
+                signal_hook::consts::SIGTERM,
+                signal_hook::consts::SIGCHLD,
+            ])?;
+            // Start the child
+            let mut child = std::process::Command::new(cmd)
+                .args(args)
+                .env("PATH", new_path_env)
+                .spawn()?;
+
+            // Wait for either a SIGTERM, or a signal that our child process
+            // has exited.
+            for signal in &mut signals {
+                match signal {
+                    signal_hook::consts::SIGTERM => {
+                        child.kill()?;
+                    }
+                    signal_hook::consts::SIGCHLD => {
+                        break;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            let status = child.wait()?;
+
+            if !status.success() {
+                return Ok(status
+                    .code()
+                    .and_then(|c| u8::try_from(c).ok())
+                    .map_or(ExitCode::FAILURE, ExitCode::from));
+            }
         }
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
