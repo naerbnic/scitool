@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "fuzz"]
+members = ["crates/*", "fuzz", "xtask"]
 
 [workspace.dependencies]
 scidev = { path = "crates/scidev" }
@@ -8,6 +8,7 @@ scidev-errors = { path = "crates/errors" }
 datalit = "0.1.0-alpha.4"
 thiserror = "2.0.17"
 itertools = "0.14.0"
+clap = { version = "4.5.32", features = ["derive"] }
 
 [workspace.lints.rust]
 single-use-lifetimes = "warn"

@@ -1,0 +1,22 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+private = true
+
+[dependencies]
+anyhow = "1.0.102"
+cap-std = "4.0.2"
+clap = { workspace = true }
+console = "0.16.3"
+directories = "6.0.0"
+hex = "0.4.3"
+indicatif = "0.18.4"
+reqwest = { version = "0.13.3", features = ["blocking"] }
+sha2 = "0.11.0"
+tar = "0.4.45"
+url = "2.5.8"
+xz2 = "0.1.7"
+
+[lints]
+workspace = true
