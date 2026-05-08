@@ -1,8 +1,15 @@
 //! A utility for setting up more complex build tasks.
 
-#[cfg_attr(target_os = "macos", path = "plat_macos.rs")]
-#[cfg_attr(not(target_os = "macos"), path = "plat_default.rs")]
-mod plat;
+cfg_select! {
+    target_os = "macos" => {
+        #[path = "plat_macos.rs"]
+        mod plat;
+    }
+    _ => {
+        #[path = "plat_default.rs"]
+        mod plat;
+    }
+}
 
 use std::{
     path::{Path, PathBuf},
