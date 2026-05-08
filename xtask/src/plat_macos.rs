@@ -298,14 +298,29 @@ pub(super) fn run_setup(base_dirs: &ProjectDirs, workspace_path: &Path) -> anyho
         "wine-bin.tar.xz",
         ".tools/dist/wine",
     )?;
-    // Link the wine binary into the tools prefix
+    // Link the binaries under the distribution's wine app to the tools bin directory.
     std::fs::create_dir_all(workspace_path.join(".tools/bin"))?;
-    let wine_bin_path = workspace_path.join(".tools/bin/wine");
-    ensure_remove_file(&wine_bin_path)?;
-    std::os::unix::fs::symlink(
-        "../dist/wine/Wine Stable.app/Contents/Resources/wine/bin/wine",
-        wine_bin_path,
-    )?;
+    let tools_path = workspace_path.join(".tools");
+    let dist_path = tools_path.join("dist");
+    let wine_dist_prefix = Path::new("Wine Stable.app/Contents/Resources/wine");
+
+    let wine_dist_bin_path = dist_path.join("wine").join(wine_dist_prefix).join("bin");
+    let tools_bin_path = tools_path.join("bin");
+
+    for entry in wine_dist_bin_path.read_dir().context(format!(
+        "Could not read dist path: {}",
+        wine_dist_bin_path.display()
+    ))? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_file() || file_type.is_symlink() {
+            let source_path = entry.path();
+            let target_path = tools_bin_path.join(source_path.file_name().unwrap());
+            ensure_remove_file(&target_path)?;
+            let dist_relative_path = source_path.strip_prefix(&dist_path)?;
+            std::os::unix::fs::symlink(Path::new("../dist").join(dist_relative_path), target_path)?;
+        }
+    }
 
     Ok(())
 }
@@ -347,6 +362,8 @@ pub(super) fn run_env(
             _ => unreachable!(),
         }
     }
+
+    drop(signals);
 
     let status = child.wait()?;
 
