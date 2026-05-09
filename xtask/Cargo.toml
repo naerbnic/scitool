@@ -2,7 +2,7 @@
 name = "xtask"
 version = "0.0.0"
 edition = "2024"
-private = true
+publish = false
 
 [dependencies]
 anyhow = "1.0.102"

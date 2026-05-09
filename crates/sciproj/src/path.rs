@@ -30,7 +30,7 @@ mod plat {
 mod plat {
     use std::{ffi::OsStr, path::Path};
 
-    pub fn is_executable(path: &Path) -> bool {
+    pub(super) fn is_executable(path: &Path) -> bool {
         if !path.is_file() {
             return false;
         }
@@ -46,7 +46,7 @@ mod plat {
         ext.eq_ignore_ascii_case("exe")
     }
 
-    pub fn binary_name(path: &Path) -> &OsStr {
+    pub(super) fn binary_name(path: &Path) -> &OsStr {
         let Some(stem) = path.file_stem() else {
             panic!("Path {:?} does not have a file name", path);
         };

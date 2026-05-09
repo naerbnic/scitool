@@ -214,11 +214,14 @@ impl<'a> FileLister<'a> {
 // Current problem is that resulting paths have backslash or forward slash
 // directory separators depending on platform.
 #[cfg(test)]
-#[cfg(not(windows))]
 mod tests {
     use crate::helpers::{iter::eq_unordered, test::build_files};
 
     use super::*;
+
+    fn to_local_path(path: impl AsRef<Path>) -> PathBuf {
+        path.as_ref().components().collect()
+    }
 
     #[test]
     fn test_default_file_lister() -> io::Result<()> {
@@ -231,8 +234,10 @@ mod tests {
 
         let files = FileLister::new(root.path()).list_all()?;
         assert!(eq_unordered(
-            files.iter().map(|p| p.to_str().unwrap()),
+            files.into_iter(),
             ["test.txt", "dir/f1.txt", "dir/f2.txt"]
+                .into_iter()
+                .map(to_local_path)
         ));
 
         Ok(())
@@ -251,8 +256,10 @@ mod tests {
             .set_dir_filter(|_| Ok(true))
             .list_all()?;
         assert!(eq_unordered(
-            files.iter().map(|p| p.to_str().unwrap()),
+            files.into_iter(),
             ["dir", "test.txt", "dir/f1.txt", "dir/f2.txt"]
+                .into_iter()
+                .map(to_local_path)
         ));
 
         Ok(())
