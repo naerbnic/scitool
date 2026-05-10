@@ -1,17 +1,20 @@
 use input::InputState;
 use output::OutputState;
 use probe::Probe;
-use tokio::io::AsyncBufReadExt;
 
 mod formats;
 mod input;
+mod next_version;
 mod output;
 mod probe;
 mod tcp;
 
 pub use formats::{OggVorbisOutputOptions, OutputFormat};
 pub use input::{Input, ReaderInput};
+pub use next_version::ConverterReader;
 pub use output::{Output, VecOutput};
+
+use crate::imp::futures::{self, prelude::*};
 
 fn split_key_value_line(line: &str) -> Option<(&str, &str)> {
     let eq_index = line.find('=')?;
@@ -51,7 +54,7 @@ impl FfmpegTool {
         }
     }
 
-    pub fn convert<I, O>(
+    pub async fn convert<I, O>(
         &self,
         input: I,
         output: O,
@@ -62,67 +65,61 @@ impl FfmpegTool {
         I: Input,
         O: Output,
     {
-        let duration = self.probe.read_duration(input.clone())?;
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let (status, output) = rt.block_on(async move {
-            let mut command = tokio::process::Command::new(&self.ffmpeg_path);
-            let input_state = input.create_state().await?;
-            let output_state = output.create_state().await?;
-            let output_format = output_format.into();
-            let mut child = command
-                .arg("-nostdin")
-                .arg("-progress")
-                .arg("pipe:1")
-                .arg("-hide_banner")
-                .arg("-i")
-                .arg(input_state.url())
-                .arg("-f")
-                .arg(output_format.format_name())
-                .args(output_format.get_options().to_flags(Some("a:0")))
-                .arg(output_state.url())
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            let stdout =
-                tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
-            let (status, output, _, ()) = futures::join!(
-                child.wait(),
-                output_state.wait(),
-                input_state.wait(),
-                async move {
-                    let mut lines = stdout.lines();
-                    let mut progress_info = Vec::new();
-                    let mut curr_out_time: u64 = 0;
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        if let Some((key, value)) = split_key_value_line(&line) {
-                            if key == "progress" {
-                                #[expect(clippy::cast_precision_loss)]
-                                let complete_ratio =
-                                    (curr_out_time as f64 / 1_000_000.0) / duration;
-                                #[expect(clippy::cast_possible_truncation)]
-                                progress.on_progress(complete_ratio as f32, progress_info);
-                                if value.trim() == "end" {
-                                    progress.on_done();
-                                }
-                                progress_info = Vec::new();
-                            } else {
-                                if key == "out_time_ms"
-                                    && let Ok(time) = value.parse::<u64>()
-                                {
-                                    curr_out_time = time;
-                                }
-                                let value = value.trim().to_string();
-                                progress_info.push((key.to_string(), value));
+        let duration = self.probe.read_duration(input.clone()).await?;
+        let input_state = input.create_state().await?;
+        let output_state = output.create_state().await?;
+        let output_format = output_format.into();
+        let mut child = tokio::process::Command::new(&self.ffmpeg_path)
+            .arg("-nostdin")
+            .arg("-progress")
+            .arg("pipe:1")
+            .arg("-hide_banner")
+            .arg("-i")
+            .arg(input_state.url())
+            .arg("-f")
+            .arg(output_format.format_name())
+            .args(output_format.get_options().to_flags(Some("a:0")))
+            .arg(output_state.url())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        let stdout =
+            tokio::io::BufReader::new(child.stdout.take().expect("Failed to create pipe."));
+        let (status, output, _, ()) = futures::join!(
+            child.wait(),
+            output_state.wait(),
+            input_state.wait(),
+            async move {
+                let mut lines = stdout.lines();
+                let mut progress_info = Vec::new();
+                let mut curr_out_time: u64 = 0;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if let Some((key, value)) = split_key_value_line(&line) {
+                        if key == "progress" {
+                            #[expect(clippy::cast_precision_loss)]
+                            let complete_ratio = (curr_out_time as f64 / 1_000_000.0) / duration;
+                            #[expect(clippy::cast_possible_truncation)]
+                            progress.on_progress(complete_ratio as f32, progress_info);
+                            if value.trim() == "end" {
+                                progress.on_done();
                             }
+                            progress_info = Vec::new();
+                        } else {
+                            if key == "out_time_ms"
+                                && let Ok(time) = value.parse::<u64>()
+                            {
+                                curr_out_time = time;
+                            }
+                            let value = value.trim().to_string();
+                            progress_info.push((key.to_string(), value));
                         }
                     }
                 }
-            );
-            Ok::<_, anyhow::Error>((status?, output))
-        })?;
+            }
+        );
+
+        let status = status?;
 
         anyhow::ensure!(
             status.success(),
@@ -130,5 +127,16 @@ impl FfmpegTool {
         );
 
         output
+    }
+
+    pub async fn create_convert_reader<R>(
+        &self,
+        reader: R,
+        output_format: impl Into<formats::OutputFormat>,
+    ) -> anyhow::Result<ConverterReader>
+    where
+        R: AsyncRead + Send + 'static,
+    {
+        Ok(ConverterReader::new(reader, &self.ffmpeg_path, output_format).await?)
     }
 }

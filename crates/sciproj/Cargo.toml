@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 anyhow = { version = "1.0.97", features = ["backtrace"] }
-clap = { version = "4.5.16", features = ["derive"] }
-futures = "0.3.31"
+clap = { workspace = true, features = ["derive"] }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
 itertools = "0.13"
 log = "0.4.27"
 rayon = "1.11.0"
@@ -33,6 +34,7 @@ slab = "0.4.11"
 im = "15.1.0"
 parking_lot = "0.12.5"
 hashbrown = "0.16.1"
+pin-project = "1.1.12"
 
 [lints]
 workspace = true

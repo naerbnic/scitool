@@ -3,12 +3,15 @@ resolver = "2"
 members = ["crates/*", "fuzz", "xtask"]
 
 [workspace.dependencies]
+clap = { version = "4.5.32", features = ["derive"] }
+datalit = "0.1.0-alpha.4"
+futures-core = "0.3.31"
+futures-util = "0.3.31"
 scidev = { path = "crates/scidev" }
 scidev-errors = { path = "crates/errors" }
-datalit = "0.1.0-alpha.4"
+sciproj = { path = "crates/sciproj" }
 thiserror = "2.0.17"
 itertools = "0.14.0"
-clap = { version = "4.5.32", features = ["derive"] }
 
 [workspace.lints.rust]
 single-use-lifetimes = "warn"

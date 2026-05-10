@@ -1,11 +1,9 @@
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     path::{Path, PathBuf},
 };
 
-use rayon::prelude::*;
-
-use futures::{prelude::*, stream::FuturesUnordered};
 use itertools::Itertools;
 use scidev::utils::block::TempStore;
 use scidev::{
@@ -22,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     file::AudioSampleScan,
+    imp::futures::{prelude::*, stream::FuturesUnordered},
     tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
 };
 
@@ -61,7 +60,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     result_buf
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AudioClip {
     pub start_us: Option<u64>,
     pub end_us: Option<u64>,
@@ -89,30 +88,39 @@ impl SampleSet {
             message_id: MessageId,
             data: Vec<u8>,
         }
-        let mut builder = Audio36ResourceBuilder::new();
-        let processed_samples = self
-            .0
-            .par_iter()
-            .map(|sample| {
-                let clip_path = normalize_path(&sample.clip.path);
-                anyhow::ensure!(
-                    clip_path.is_relative(),
-                    "A path for an audio clip must be relative to the root directory."
-                );
-                let result = ffmpeg.convert(
-                    base_path.join(&clip_path),
-                    ffmpeg::VecOutput,
-                    ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
-                    &mut ffmpeg::NullProgressListener,
-                )?;
-                Ok::<_, anyhow::Error>(ProcessedSample {
-                    room: sample.room,
-                    message_id: sample.message_id,
-                    data: result,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
 
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let processed_samples: Vec<ProcessedSample> = rt.block_on(async {
+            futures_util::stream::iter(self.0.iter())
+                .map(async |sample| {
+                    let clip_path = normalize_path(&sample.clip.path);
+                    anyhow::ensure!(
+                        clip_path.is_relative(),
+                        "A path for an audio clip must be relative to the root directory."
+                    );
+                    let result = ffmpeg
+                        .convert(
+                            base_path.join(&clip_path),
+                            ffmpeg::VecOutput,
+                            ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
+                            &mut ffmpeg::NullProgressListener,
+                        )
+                        .await?;
+                    Ok::<_, anyhow::Error>(ProcessedSample {
+                        room: sample.room,
+                        message_id: sample.message_id,
+                        data: result,
+                    })
+                })
+                .map(Ok::<_, anyhow::Error>)
+                .try_buffer_unordered(10)
+                .try_collect()
+                .await
+        })?;
+
+        let mut builder = Audio36ResourceBuilder::new();
         let mut temp_store = TempStore::create()?;
         for sample in processed_samples {
             let sample_source = temp_store.store_bytes(&sample.data[..])?;
@@ -121,6 +129,32 @@ impl SampleSet {
         }
         Ok(builder.build()?)
     }
+}
+
+pub fn legacy_load_dir(path: &Path) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
+    let samples_file = path.join("samples.json");
+    let samples_file_contents = std::fs::read(&samples_file)?;
+    let mut sample_set: SampleSet =
+        serde_json::from_reader(std::io::Cursor::new(samples_file_contents))?;
+    let mut clip_map = BTreeMap::new();
+    for sample in &mut sample_set.0 {
+        let Sample {
+            room,
+            message_id,
+            clip,
+        } = sample;
+        let line_id = LineId::from_parts(
+            RawRoomId::new(*room),
+            RawNounId::new(message_id.noun()),
+            RawVerbId::new(message_id.verb()),
+            RawConditionId::new(message_id.condition()),
+            RawSequenceId::new(message_id.sequence()),
+        );
+        let relative_path = std::mem::take(&mut clip.path);
+        clip.path = path.join(relative_path);
+        clip_map.insert(line_id, clip.clone());
+    }
+    Ok(clip_map)
 }
 
 pub struct SampleDir {

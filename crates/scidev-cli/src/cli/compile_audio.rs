@@ -31,7 +31,7 @@ pub(crate) struct CompileAudio {
 }
 
 impl CompileAudio {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    pub(crate) async fn run(&self) -> anyhow::Result<()> {
         compile_audio(
             match self.scan_type {
                 ScanTypeFlag::Legacy => ScanType::Legacy,
@@ -40,5 +40,9 @@ impl CompileAudio {
             &self.sample_dir,
             &self.output,
         )
+        .await
     }
 }
+
+#[derive(Parser)]
+pub(crate) struct CompileAudioMapping {}

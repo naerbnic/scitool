@@ -2,6 +2,8 @@ use std::{ffi::OsString, net::SocketAddr, path::Path};
 
 use super::tcp;
 
+use crate::imp::futures::{BoxFuture, io, prelude::*};
+
 /// A trait that maintains state for an `FFMpeg` input.
 ///
 /// Returns the URL of the input. This object should be alive during the
@@ -24,18 +26,18 @@ impl InputState for SimpleInputState {
 
 struct TcpInputState {
     /// Thread handling the TCP connection.
-    task: tokio::task::JoinHandle<anyhow::Result<()>>,
+    task: BoxFuture<'static, anyhow::Result<()>>,
     /// URL of the input.
     local_addr: SocketAddr,
 }
 
 impl TcpInputState {
-    async fn new<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+    async fn new<R: AsyncRead + Send + Unpin + 'static>(
         mut read: R,
         timeout: std::time::Instant,
     ) -> anyhow::Result<Self> {
         let (local_addr, task) = tcp::start_tcp(timeout, async move |mut stream| {
-            tokio::io::copy(&mut read, &mut stream).await?;
+            io::copy(&mut read, &mut stream).await?;
             Ok(())
         })
         .await?;
@@ -49,8 +51,7 @@ impl InputState for TcpInputState {
     }
 
     async fn wait(self) -> anyhow::Result<()> {
-        self.task.await??;
-        Ok(())
+        self.task.await
     }
 }
 
@@ -72,7 +73,7 @@ pub struct ReaderInput<R>(R);
 
 impl<R> ReaderInput<R>
 where
-    R: tokio::io::AsyncRead + Send + Unpin + 'static,
+    R: AsyncRead + Send + Unpin + 'static,
 {
     pub fn new(reader: R) -> Self {
         Self(reader)
@@ -81,7 +82,7 @@ where
 
 impl<R> Input for ReaderInput<R>
 where
-    R: tokio::io::AsyncRead + Clone + Send + Unpin + 'static,
+    R: AsyncRead + Clone + Send + Unpin + 'static,
 {
     async fn create_state(self) -> anyhow::Result<impl InputState> {
         TcpInputState::new(

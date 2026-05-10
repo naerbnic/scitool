@@ -1,9 +1,9 @@
 use std::{path::PathBuf, str::FromStr};
 
-use futures::TryFutureExt as _;
 use serde::Deserialize;
 
 use super::input::InputState;
+use crate::imp::futures::{self, prelude::*};
 
 fn de_from_string<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
@@ -58,33 +58,28 @@ impl Probe {
         Probe { path }
     }
 
-    pub(crate) fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(async move {
-            let in_state = input.create_state().await?;
-            let mut command = tokio::process::Command::new(&self.path);
-            command
-                .arg("-i")
-                .arg(in_state.url())
-                .args(["-v", "error"])
-                .args(["-show_entries", "format"])
-                .args(["-of", "json"]);
-            let (output, ()) = futures::try_join!(
-                command.output().map_err(anyhow::Error::from),
-                in_state.wait()
-            )?;
-            anyhow::ensure!(
-                output.status.success(),
-                "ffprobe failed with code {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr),
-            );
-            let out: ProbeOutput = serde_json::from_slice(&output.stdout)?;
-            out.format.map(|f| f.duration).ok_or_else(|| {
-                anyhow::anyhow!("ffprobe did not return format data: {}", output.status)
-            })
-        })
+    pub(crate) async fn read_duration(&self, input: impl super::Input) -> anyhow::Result<f64> {
+        let in_state = input.create_state().await?;
+        let mut command = tokio::process::Command::new(&self.path);
+        command
+            .arg("-i")
+            .arg(in_state.url())
+            .args(["-v", "error"])
+            .args(["-show_entries", "format"])
+            .args(["-of", "json"]);
+        let (output, ()) = futures::try_join!(
+            command.output().map_err(anyhow::Error::from),
+            in_state.wait()
+        )?;
+        anyhow::ensure!(
+            output.status.success(),
+            "ffprobe failed with code {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let out: ProbeOutput = serde_json::from_slice(&output.stdout)?;
+        out.format
+            .map(|f| f.duration)
+            .ok_or_else(|| anyhow::anyhow!("ffprobe did not return format data: {}", output.status))
     }
 }
