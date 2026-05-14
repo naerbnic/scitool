@@ -5,60 +5,16 @@ use std::{
 };
 
 use itertools::Itertools;
-use scidev::utils::block::TempStore;
 use scidev::{
     ids::{
         LineId,
         raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
     },
-    resources::types::{
-        audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
-        msg::MessageId,
-    },
+    resources::types::msg::MessageId,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    file::AudioSampleScan,
-    imp::futures::{prelude::*, stream::FuturesUnordered},
-    tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
-};
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut result_buf = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::Prefix(prefix) => {
-                // This should only happen with Windows paths, and will happen
-                // when a path starts with a drive letter.
-                result_buf.push(prefix.as_os_str());
-            }
-            std::path::Component::RootDir => {
-                result_buf.push(std::path::MAIN_SEPARATOR_STR);
-            }
-            std::path::Component::CurDir => {
-                // Should skip this component.
-            }
-            std::path::Component::ParentDir => {
-                // There is the possibility that foo/../bar isn't the same as
-                // bar, depending on the interpretation of symbolic links.
-                //
-                // To prevent this from being a problem, users of this should
-                // always use the normalized path instead of the original path,
-                // as they may be subtly semantically different.
-                if !result_buf.pop() {
-                    // We're at the top-level of the path, so, just append the
-                    // parent directory.
-                    result_buf.push("..");
-                }
-            }
-            std::path::Component::Normal(elem) => {
-                result_buf.push(elem);
-            }
-        }
-    }
-    result_buf
-}
+use crate::imp::futures::{prelude::*, stream::FuturesUnordered};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AudioClip {
@@ -75,61 +31,7 @@ pub struct Sample {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct SampleSet(Vec<Sample>);
-
-impl SampleSet {
-    pub fn to_audio_resources(
-        &self,
-        base_path: &Path,
-        ffmpeg: &FfmpegTool,
-    ) -> anyhow::Result<VoiceSampleResources> {
-        struct ProcessedSample {
-            room: u16,
-            message_id: MessageId,
-            data: Vec<u8>,
-        }
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let processed_samples: Vec<ProcessedSample> = rt.block_on(async {
-            futures_util::stream::iter(self.0.iter())
-                .map(async |sample| {
-                    let clip_path = normalize_path(&sample.clip.path);
-                    anyhow::ensure!(
-                        clip_path.is_relative(),
-                        "A path for an audio clip must be relative to the root directory."
-                    );
-                    let result = ffmpeg
-                        .convert(
-                            base_path.join(&clip_path),
-                            ffmpeg::VecOutput,
-                            ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
-                            &mut ffmpeg::NullProgressListener,
-                        )
-                        .await?;
-                    Ok::<_, anyhow::Error>(ProcessedSample {
-                        room: sample.room,
-                        message_id: sample.message_id,
-                        data: result,
-                    })
-                })
-                .map(Ok::<_, anyhow::Error>)
-                .try_buffer_unordered(10)
-                .try_collect()
-                .await
-        })?;
-
-        let mut builder = Audio36ResourceBuilder::new();
-        let mut temp_store = TempStore::create()?;
-        for sample in processed_samples {
-            let sample_source = temp_store.store_bytes(&sample.data[..])?;
-            let voice_sample = VoiceSample::new(AudioFormat::Ogg, sample_source);
-            builder.add_entry(sample.room, sample.message_id, &voice_sample)?;
-        }
-        Ok(builder.build()?)
-    }
-}
+struct SampleSet(Vec<Sample>);
 
 pub fn legacy_load_dir(path: &Path) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
     let samples_file = path.join("samples.json");
@@ -171,38 +73,6 @@ impl SampleDir {
         Ok(Self {
             base_path: path.to_path_buf(),
             samples: sample_set,
-        })
-    }
-
-    pub fn from_sample_scan(scan: &AudioSampleScan) -> anyhow::Result<Self> {
-        anyhow::ensure!(!scan.has_duplicates(), "Input scan must have no duplicates");
-        let mut samples = Vec::new();
-        for (line_id, entry) in scan.get_valid_entries() {
-            let msg_id = MessageId::new(
-                line_id.noun_num(),
-                line_id.verb_num(),
-                line_id.condition_num(),
-                line_id.sequence_num(),
-            );
-
-            let clip = AudioClip {
-                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                start_us: Some((entry.start() * 1_000_000.0) as u64),
-                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                end_us: entry.end().map(|end| (end * 1_000_000.0) as u64),
-                path: entry.path().to_path_buf(),
-            };
-
-            let sample = Sample {
-                room: line_id.room_num(),
-                message_id: msg_id,
-                clip,
-            };
-            samples.push(sample);
-        }
-        Ok(Self {
-            base_path: scan.base_path().to_path_buf(),
-            samples: SampleSet(samples),
         })
     }
 
@@ -272,9 +142,5 @@ impl SampleDir {
             result?;
         }
         Ok(())
-    }
-
-    pub fn to_audio_resources(&self, ffmpeg: &FfmpegTool) -> anyhow::Result<VoiceSampleResources> {
-        self.samples.to_audio_resources(&self.base_path, ffmpeg)
     }
 }

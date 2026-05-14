@@ -76,17 +76,6 @@ async fn generate_sample_resources(
     .await?
 }
 
-fn with_local_runtime<F, T, E>(fut: F) -> Result<T, E>
-where
-    F: Future<Output = Result<T, E>>,
-    E: From<std::io::Error>,
-{
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    rt.block_on(fut)
-}
-
 async fn try_spawn_blocking<F, T, E>(op: F) -> Result<T, E>
 where
     F: FnOnce() -> Result<T, E> + Send + 'static,
@@ -106,10 +95,6 @@ pub(crate) async fn compile_audio_base(
         system_path
             .find_binary("ffmpeg")
             .expect("ffmpeg not found in PATH")
-            .to_path_buf(),
-        system_path
-            .find_binary("ffprobe")
-            .expect("ffprobe not found in PATH")
             .to_path_buf(),
     );
     let resources = generate_sample_resources(line_mapping, &ffmpeg_tool).await?;

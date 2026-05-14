@@ -1,7 +1,6 @@
 pub mod book;
 pub mod file;
 pub mod formats;
-pub mod ndjson;
 pub mod path;
 pub mod project;
 pub mod resources;
