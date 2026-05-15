@@ -1,9 +1,13 @@
 use std::io;
 
 use scidev_errors::{define_error, diag, prelude::*};
+use tokio::io::AsyncWrite;
 
 use crate::{
-    resources::{ResourceId, file::write_resource_to_patch_file},
+    resources::{
+        ResourceId,
+        file::{write_resource_to_patch_file, write_resource_to_patch_file_async},
+    },
     utils::block::Block,
 };
 
@@ -207,5 +211,16 @@ impl Resource {
         Ok(write_resource_to_patch_file(self, writer).map_raise(diag!(
             |err| "Unable to write patch file for resource {self:?}"
         ))?)
+    }
+
+    pub async fn write_patch_async<W: AsyncWrite + Unpin>(
+        &self,
+        writer: W,
+    ) -> Result<(), PatchError> {
+        Ok(write_resource_to_patch_file_async(self, writer)
+            .await
+            .map_raise(diag!(
+                |err| "Unable to write patch file for resource {self:?}"
+            ))?)
     }
 }

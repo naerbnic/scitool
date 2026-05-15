@@ -76,15 +76,6 @@ async fn generate_sample_resources(
     .await?
 }
 
-async fn try_spawn_blocking<F, T, E>(op: F) -> Result<T, E>
-where
-    F: FnOnce() -> Result<T, E> + Send + 'static,
-    T: Send + 'static,
-    E: From<tokio::task::JoinError> + Send + 'static,
-{
-    tokio::task::spawn_blocking(op).await?
-}
-
 pub(crate) async fn compile_audio_base(
     line_mapping: &BTreeMap<LineId, AudioClip>,
     output_dir: &Path,
@@ -100,34 +91,30 @@ pub(crate) async fn compile_audio_base(
     let resources = generate_sample_resources(line_mapping, &ffmpeg_tool).await?;
     let aud_file_task = {
         let resources = resources.clone();
-        let output_dir = output_dir.to_path_buf();
-        try_spawn_blocking(move || {
-            let resource_aud_file = std::fs::File::create(output_dir.join("resource.aud"))?;
-            let mut reader = resources.audio_volume().open_reader(..)?;
-            std::io::copy(
-                &mut reader,
-                &mut std::io::BufWriter::new(&resource_aud_file),
-            )?;
-            Ok::<_, anyhow::Error>(())
-        })
+        async move {
+            tokio::io::copy(
+                &mut Box::into_pin(resources.audio_volume().open_async_reader(..)?),
+                &mut tokio::fs::File::create(output_dir.join("resource.aud")).await?,
+            )
+            .await?;
+            Ok(())
+        }
         .boxed()
     };
     let resource_tasks = futures::stream::iter(resources.map_resources().iter().cloned()).map({
         let output_dir = output_dir.to_path_buf();
         move |res| {
-            try_spawn_blocking({
-                let output_dir = output_dir.clone();
-                move || {
-                    let file = PathBuf::from(format!(
-                        "{}.{}",
-                        res.id().resource_num(),
-                        res.id().type_id().to_file_ext()
-                    ));
-                    let open_file = std::fs::File::create(output_dir.join(&file))?;
-                    res.write_patch(open_file)?;
-                    Ok::<_, anyhow::Error>(())
-                }
-            })
+            let output_dir = output_dir.clone();
+            async move {
+                let file = PathBuf::from(format!(
+                    "{}.{}",
+                    res.id().resource_num(),
+                    res.id().type_id().to_file_ext()
+                ));
+                let open_file = tokio::fs::File::create(output_dir.join(&file)).await?;
+                res.write_patch_async(open_file).await?;
+                Ok::<_, anyhow::Error>(())
+            }
             .boxed()
         }
     });

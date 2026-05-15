@@ -43,7 +43,7 @@ impl FileIoKind {
 
 use super::{ResourceId, ResourceType};
 
-pub(super) use self::patch::write_resource_to_patch_file;
+pub(super) use self::patch::{write_resource_to_patch_file, write_resource_to_patch_file_async};
 
 mod map;
 mod patch;

@@ -2,6 +2,7 @@ use std::io::Write;
 use std::{ffi::OsStr, path::Path};
 
 use scidev_errors::{AnyDiag, diag, ensure, prelude::*};
+use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 
 use crate::resources::file::ResourceContents;
 
@@ -154,6 +155,82 @@ pub(crate) fn write_resource_to_patch_file<W: Write>(
         .map_raise(diag!(|err| "Unable to open primary data: {err}"))?;
     writer
         .write_all(&data)
+        .map_raise(diag!(|err| "Unable to write primary data: {err}"))?;
+
+    Ok(())
+}
+
+pub(crate) async fn write_resource_to_patch_file_async<W: AsyncWrite + Unpin>(
+    resource: &Resource,
+    mut writer: W,
+) -> Result<(), AnyDiag> {
+    writer
+        .write_all(&[resource.id().type_id().into()])
+        .await
+        .map_raise(diag!(|err| "Unable to write resource ID: {err}"))?;
+    match &resource.contents().extra_data() {
+        Some(ExtraData::Simple(data)) => {
+            let data = data
+                .open_mem(..)
+                .map_raise(diag!(|err| "Unable to open extra data: {err}"))?;
+            ensure!(
+                data.len() <= 127,
+                "Simple extra data too large: {} bytes",
+                data.len()
+            );
+            writer
+                .write_all(&[data.len().try_into().unwrap()])
+                .await
+                .map_raise(diag!(|err| "Unable to write extra data length: {err}"))?;
+            writer
+                .write_all(&data)
+                .await
+                .map_raise(diag!(|err| "Unable to write extra data: {err}"))?;
+        }
+        Some(ExtraData::Composite {
+            ext_header,
+            extra_data,
+        }) => {
+            let ext_header = ext_header
+                .open_mem(..)
+                .map_raise(diag!(|err| "Unable to open composite extra data: {err}"))?;
+            ensure!(
+                ext_header.len() == 24,
+                "Extended header size incorrect: {} bytes",
+                ext_header.len()
+            );
+            writer
+                .write_all(&[128])
+                .await
+                .map_raise(diag!(|err| "Unable to write header extra data: {err}"))?;
+            writer
+                .write_all(&ext_header)
+                .await
+                .map_raise(diag!(|err| "Unable to write header extra data: {err}"))?;
+
+            let extra_data = extra_data
+                .open_mem(..)
+                .map_raise(diag!(|err| "Unable to open extra data: {err}"))?;
+            writer
+                .write_all(&extra_data)
+                .await
+                .map_raise(diag!(|err| "Unable to write extra data: {err}"))?;
+        }
+        None => {
+            writer
+                .write_all(&[0])
+                .await
+                .map_raise(diag!(|err| "Unable to null extra data: {err}"))?; // No extra data.
+        }
+    }
+
+    let data = resource
+        .data()
+        .open_mem(..)
+        .map_raise(diag!(|err| "Unable to open primary data: {err}"))?;
+    writer
+        .write_all(&data)
+        .await
         .map_raise(diag!(|err| "Unable to write primary data: {err}"))?;
 
     Ok(())
