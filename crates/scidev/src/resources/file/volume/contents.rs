@@ -1,10 +1,15 @@
 use std::io;
 
+use scidev_errors::{ResultExt as _, diag};
+
 use crate::{
     resources::{
         ConversionError, file::volume::raw_contents::RawContents, resource::CompressedData,
     },
-    utils::{block::Block, compression::dcl::DecompressFactory},
+    utils::{
+        block::{Block, OpenError},
+        compression::dcl::decompress_reader,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -23,7 +28,16 @@ impl Contents {
 
                 let decompressed_data = Block::builder()
                     .with_size(unpacked_size)
-                    .build_from_read_factory(DecompressFactory::new(raw_data.clone()))
+                    .build_from_read_factory({
+                        let raw_data = raw_data.clone();
+                        move || {
+                            let reader = raw_data
+                                .open_reader(..)
+                                .raise_err_with(diag!(|| "Failed to open block"))?;
+                            let decompressed_reader = decompress_reader(reader);
+                            Ok::<_, OpenError>(Box::new(decompressed_reader))
+                        }
+                    })
                     .map_err(ConversionError::new)?;
                 (
                     Some(CompressedData::new(compression_type, raw_data)),

@@ -8,8 +8,8 @@ mod read_seek_impl;
 mod seq_impl;
 
 use std::{
-    fmt::{Debug, Display},
-    io::{self, Read as _, Seek as _},
+    fmt::Debug,
+    io::{self, Read as _},
     num::TryFromIntError,
     ops::RangeBounds,
     path::Path,
@@ -18,10 +18,12 @@ use std::{
 
 use bytes::Buf;
 use scidev_errors::{AnyDiag, Diag, Kind, Reportable, define_error, diag, ensure, prelude::*};
+use tokio::io::AsyncRead;
 
 use crate::utils::{
     block::{
         MemBlock,
+        async_read::AsyncReadWrapper,
         core::{
             empty_impl::EmptyBlockImpl, error_impl::ErrorBlockImpl,
             mem_factory_impl::MemFactoryImpl, mem_impl::ContainedMemBlock,
@@ -75,17 +77,23 @@ define_error! {
 type OpenBaseResult<T> = Result<T, AnyDiag>;
 
 type BoxedRead = Box<dyn io::Read + Send>;
+type BoxedAsyncRead = Box<dyn AsyncRead + Send>;
 
 /// Implementation trait for Block sources.
 ///
 /// This is a dyn-compatible trait that provides the core functionality for
 /// Block sources.
 trait BlockBase: Debug {
-    // Open as loaded data, possibly shared.
+    /// Open as loaded data, possibly shared.
     fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock>;
 
-    /// Open as borrowed reader.
+    /// Open as a reader.
     fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead>;
+
+    /// Open as an async reader.
+    fn open_async_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedAsyncRead> {
+        Ok(Box::new(AsyncReadWrapper::new(self.open_reader(range)?)))
+    }
 }
 
 /// A base for blocks that operate by loading the entire block into memory.
@@ -183,75 +191,36 @@ where
     }
 }
 
-/// A helper trait for creating objects that borrow from the factory.
-pub trait RefFactory {
-    type Output;
-    type Error;
-
-    fn create_new(&self) -> Result<Self::Output, Self::Error>;
-}
-
-impl<F, T, E> RefFactory for F
-where
-    F: Fn() -> Result<T, E>,
-    E: Debug + Display + Send + Sync + 'static,
-{
-    type Output = T;
-    type Error = E;
-
-    fn create_new(&self) -> Result<Self::Output, Self::Error> {
-        self()
-    }
-}
-
-struct MapErrRefFactory<F, M, E> {
-    factory: F,
-    err_mapper: M,
-    _phantom: std::marker::PhantomData<fn() -> E>,
-}
-
-impl<F, M, E> RefFactory for MapErrRefFactory<F, M, E>
-where
-    F: RefFactory,
-    M: Fn(F::Error) -> E,
-    E: Display + Debug + Send + Sync + 'static,
-{
-    type Output = F::Output;
-    type Error = E;
-
-    fn create_new(&self) -> Result<Self::Output, Self::Error> {
-        self.factory.create_new().map_err(&self.err_mapper)
-    }
-}
-
 // Helpers for creating specific block types
 
-fn build_from_read_factory_size<F>(size: u64, factory: F) -> Block
+fn build_from_read_factory_size<F, Out, E>(size: u64, factory: F) -> Block
 where
-    F: RefFactory + Send + Sync + 'static,
-    F::Error: Into<AnyDiag>,
-    F::Output: io::Read + Send,
+    F: Fn() -> Result<Out, E> + Send + Sync + 'static,
+    E: Into<AnyDiag> + 'static,
+    Out: io::Read + Send + 'static,
 {
     Block::from_source_size(FullStreamBaseWrap(ReadFactoryImpl::new(factory)), size)
 }
 
-fn build_from_read_seek_factory_size<F>(size: u64, factory: F) -> Block
+fn build_from_read_seek_factory_size<F, Out, E>(size: u64, factory: F) -> Block
 where
-    F: RefFactory + Send + Sync + 'static,
-    F::Error: Into<AnyDiag>,
-    F::Output: io::Read + io::Seek + Send,
+    F: Fn() -> Result<Out, E> + Send + Sync + 'static,
+    E: Into<AnyDiag>,
+    Out: io::Read + io::Seek + Send + 'static,
 {
     Block::from_source_size(
-        RangeStreamBaseWrap(ReadSeekFactorySource::new(factory)),
+        RangeStreamBaseWrap(ReadSeekFactorySource::new(move || {
+            factory().map_err(Into::into)
+        })),
         size,
     )
 }
 
-fn build_from_mem_block_factory_size<F>(size: u64, factory: F) -> Block
+fn build_from_mem_block_factory_size<F, Out, E>(size: u64, factory: F) -> Block
 where
-    F: RefFactory + Send + Sync + 'static,
-    F::Error: Into<AnyDiag>,
-    F::Output: Into<MemBlock>,
+    F: Fn() -> Result<Out, E> + Send + Sync + 'static,
+    E: Into<AnyDiag> + 'static,
+    Out: Into<MemBlock> + 'static,
 {
     Block::from_source_size(MemBlockWrap(MemFactoryImpl::new(factory)), size)
 }
@@ -391,6 +360,16 @@ impl Block {
             .map_err(Into::into)
     }
 
+    pub fn open_async_reader<R>(&self, range: R) -> Result<Box<dyn AsyncRead + Send>, OpenError>
+    where
+        R: RangeBounds<u64>,
+    {
+        let range = Range::from_range(range);
+        self.source
+            .open_async_reader(self.range.new_relative(range))
+            .map_err(Into::into)
+    }
+
     /// Returns the length of the block in bytes.
     #[must_use]
     pub fn len(&self) -> u64 {
@@ -522,86 +501,69 @@ impl Builder {
         ))
     }
 
-    pub fn build_from_read_factory<F>(self, factory: F) -> Result<Block, OpenError>
+    pub fn build_from_read_factory<F, Out, E>(self, factory: F) -> Result<Block, OpenError>
     where
-        F: RefFactory + Send + Sync + 'static,
-        F::Error: std::error::Error + Send + Sync + 'static,
-        F::Output: io::Read + Send,
+        F: Fn() -> Result<Out, E> + Send + Sync + 'static,
+        E: std::error::Error + Send + Sync + 'static,
+        Out: io::Read + Send + 'static,
     {
         let size = if let Some(size) = self.size {
             size
         } else {
-            let mut probe_reader = factory
-                .create_new()
-                .raise_err_with(diag!(|| "Unable to create probe reader for sizing."))?;
+            let mut probe_reader =
+                factory().raise_err_with(diag!(|| "Unable to create probe reader for sizing."))?;
             // Count size by reading all data
             io::copy(&mut probe_reader, &mut io::sink())
                 .raise_err_with(diag!(|| "Unable to count size of block via reading."))?
         };
 
-        Ok(build_from_read_factory_size(
-            size,
-            MapErrRefFactory {
-                factory,
-                err_mapper: |e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."),
-                _phantom: std::marker::PhantomData,
-            },
-        ))
+        Ok(build_from_read_factory_size(size, move || {
+            factory()
+                .map_err(|e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."))
+        }))
     }
 
-    pub fn build_from_read_seek_factory<F>(self, factory: F) -> Result<Block, OpenError>
+    pub fn build_from_read_seek_factory<F, Out, E>(self, factory: F) -> Result<Block, OpenError>
     where
-        F: RefFactory + Send + Sync + 'static,
-        F::Error: std::error::Error + Send + Sync + 'static,
-        F::Output: io::Read + io::Seek + Send,
+        F: Fn() -> Result<Out, E> + Send + Sync + 'static,
+        E: std::error::Error + Send + Sync + 'static,
+        Out: io::Read + io::Seek + Send + 'static,
     {
         let size = if let Some(size) = self.size {
             size
         } else {
-            let mut probe_reader = factory
-                .create_new()
-                .raise_err_with(diag!(|| "Unable to create probe reader for sizing."))?;
+            let mut probe_reader =
+                factory().raise_err_with(diag!(|| "Unable to create probe reader for sizing."))?;
             probe_reader
                 .seek(io::SeekFrom::End(0))
                 .raise_err_with(diag!(|| "Unable to count size of block via seeking."))?
         };
 
-        Ok(build_from_read_seek_factory_size(
-            size,
-            MapErrRefFactory {
-                factory,
-                err_mapper: |e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."),
-                _phantom: std::marker::PhantomData,
-            },
-        ))
+        Ok(build_from_read_seek_factory_size(size, move || {
+            factory()
+                .map_err(|e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."))
+        }))
     }
 
-    pub fn build_from_mem_block_factory<F>(self, factory: F) -> Result<Block, OpenError>
+    pub fn build_from_mem_block_factory<F, Out, E>(self, factory: F) -> Result<Block, OpenError>
     where
-        F: RefFactory + Send + Sync + 'static,
-        F::Error: std::error::Error + Send + Sync + 'static,
-        F::Output: Into<MemBlock>,
+        F: Fn() -> Result<Out, E> + Send + Sync + 'static,
+        E: std::error::Error + Send + Sync + 'static,
+        Out: Into<MemBlock> + 'static,
     {
         let size = if let Some(size) = self.size {
             size
         } else {
-            let mem_block: MemBlock = factory
-                .create_new()
+            let mem_block: MemBlock = factory()
                 .raise_err_with(diag!(|| "Unable to create probe MemBlock for sizing."))?
                 .into();
             mem_block.len() as u64
         };
 
-        Ok(build_from_mem_block_factory_size(
-            size,
-            MapErrRefFactory {
-                factory,
-                err_mapper: |e| {
-                    AnyDiag::with_causes(Some(e)).msg("when opening memblock-based block.")
-                },
-                _phantom: std::marker::PhantomData,
-            },
-        ))
+        Ok(build_from_mem_block_factory_size(size, move || {
+            factory()
+                .map_err(|e| AnyDiag::with_causes(Some(e)).msg("when opening read-based block."))
+        }))
     }
 }
 

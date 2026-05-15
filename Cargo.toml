@@ -11,6 +11,7 @@ scidev = { path = "crates/scidev" }
 scidev-errors = { path = "crates/errors" }
 sciproj = { path = "crates/sciproj" }
 thiserror = "2.0.17"
+tokio = { version = "1.0", features = ["full"] }
 itertools = "0.14.0"
 
 [workspace.lints.rust]

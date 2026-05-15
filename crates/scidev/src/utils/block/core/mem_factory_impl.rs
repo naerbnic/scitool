@@ -1,34 +1,38 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, marker::PhantomData};
 
 use scidev_errors::{AnyDiag, ResultExt};
 
 use crate::utils::block::{
     MemBlock,
-    core::{MemBlockBase, OpenBaseResult, RefFactory},
+    core::{MemBlockBase, OpenBaseResult},
 };
 
-pub(super) struct MemFactoryImpl<F>(F);
+pub(super) struct MemFactoryImpl<F, Out, E> {
+    func: F,
+    _phantom: PhantomData<fn() -> Result<Out, E>>,
+}
 
-impl<F> MemFactoryImpl<F>
+impl<F, Out, E> MemFactoryImpl<F, Out, E>
 where
-    F: RefFactory,
-    F::Output: Into<MemBlock>,
+    F: Fn() -> Result<Out, E>,
+    Out: Into<MemBlock>,
 {
     pub(super) fn new(factory: F) -> Self {
-        Self(factory)
+        Self {
+            func: factory,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<F> MemBlockBase for MemFactoryImpl<F>
+impl<F, Out, E> MemBlockBase for MemFactoryImpl<F, Out, E>
 where
-    F: RefFactory,
-    F::Error: Into<AnyDiag>,
-    F::Output: Into<MemBlock>,
+    F: Fn() -> Result<Out, E>,
+    E: Into<AnyDiag>,
+    Out: Into<MemBlock>,
 {
     fn load_mem_block(&self) -> OpenBaseResult<MemBlock> {
-        Ok(self
-            .0
-            .create_new()
+        Ok((self.func)()
             .map_err(Into::into)
             .with_context()
             .msg("Error creating MemBlock")?
@@ -36,10 +40,11 @@ where
     }
 }
 
-impl<F> Debug for MemFactoryImpl<F>
+impl<F, Out, E> Debug for MemFactoryImpl<F, Out, E>
 where
-    F: RefFactory,
-    F::Output: Into<MemBlock>,
+    F: Fn() -> Result<Out, E>,
+    E: Into<AnyDiag>,
+    Out: Into<MemBlock>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemFactoryImpl").finish()
