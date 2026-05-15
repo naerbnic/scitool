@@ -1,11 +1,11 @@
-use std::io;
+use std::{collections::VecDeque, io};
 
 use scidev_errors::{ResultExt, bail, diag, ensure};
 
 use crate::utils::{
     block::{
         MemBlock,
-        core::{Block, BlockBase, OpenBaseResult},
+        core::{Block, BlockBase, BoxedRead, OpenBaseResult},
     },
     range::BoundedRange,
 };
@@ -47,35 +47,30 @@ impl BlockBase for SequenceBlockImpl {
         Ok(MemBlock::concat_blocks(data))
     }
 
-    fn open_reader<'a>(
-        &'a self,
-        range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
-        struct SequenceReader<'a> {
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
+        struct SequenceReader {
             remaining_size: u64,
-            remaining_blocks: &'a [Block],
-            current_reader: Option<Box<dyn io::Read + 'a>>,
+            remaining_blocks: VecDeque<Block>,
+            current_reader: Option<BoxedRead>,
         }
 
-        impl io::Read for SequenceReader<'_> {
+        impl io::Read for SequenceReader {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 if self.remaining_size == 0 {
                     self.current_reader = None;
-                    self.remaining_blocks = &[];
+                    self.remaining_blocks = VecDeque::new();
                     return Ok(0);
                 }
                 loop {
                     let reader = if let Some(r) = &mut self.current_reader {
                         r
                     } else {
-                        let Some((next_block, remaining)) = self.remaining_blocks.split_first()
-                        else {
+                        let Some(next_block) = self.remaining_blocks.pop_front() else {
                             return Err(io::Error::new(
                                 io::ErrorKind::UnexpectedEof,
                                 "no more blocks to read",
                             ));
                         };
-                        self.remaining_blocks = remaining;
                         // FIXME: This should be another error than OpenError, as OpenError is
                         // an unactionable error.
                         self.current_reader = Some(
@@ -126,7 +121,7 @@ impl BlockBase for SequenceBlockImpl {
 
         Ok(Box::new(SequenceReader {
             remaining_size: remaining_range.size(),
-            remaining_blocks: blocks,
+            remaining_blocks: blocks.iter().cloned().collect(),
             current_reader: Some(initial_reader),
         }))
     }

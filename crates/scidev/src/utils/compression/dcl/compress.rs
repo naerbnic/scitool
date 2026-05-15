@@ -176,7 +176,7 @@ pub fn compress_reader<'a, R>(
     reader: R,
 ) -> impl io::Read + 'a
 where
-    R: io::Read + Unpin + 'a,
+    R: io::Read + Unpin + Send + 'a,
 {
     let processor = CompressDclProcessor::new(mode, dict_type);
     processor.pull(reader, 8192)

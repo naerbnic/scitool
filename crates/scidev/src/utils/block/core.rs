@@ -74,6 +74,8 @@ define_error! {
 
 type OpenBaseResult<T> = Result<T, AnyDiag>;
 
+type BoxedRead = Box<dyn io::Read + Send>;
+
 /// Implementation trait for Block sources.
 ///
 /// This is a dyn-compatible trait that provides the core functionality for
@@ -83,10 +85,7 @@ trait BlockBase: Debug {
     fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock>;
 
     /// Open as borrowed reader.
-    fn open_reader<'a>(
-        &'a self,
-        range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>>;
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead>;
 }
 
 /// A base for blocks that operate by loading the entire block into memory.
@@ -96,18 +95,14 @@ trait MemBlockBase: Debug {
 
 /// A base for blocks that operate by being able to open a stream to a range of the block.
 trait RangeStreamBase: Debug {
-    type Reader<'a>: io::Read + 'a
-    where
-        Self: 'a;
-    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>>;
+    type Reader: io::Read + Send + 'static;
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader>;
 }
 
 /// A base for blocks that operate by being able to open a stream for the entire block.
 trait FullStreamBase: Debug {
-    type Reader<'a>: io::Read + 'a
-    where
-        Self: 'a;
-    fn open_full_reader(&self) -> OpenBaseResult<Self::Reader<'_>>;
+    type Reader: io::Read + Send + 'static;
+    fn open_full_reader(&self) -> OpenBaseResult<Self::Reader>;
 }
 
 #[derive(Debug)]
@@ -123,10 +118,7 @@ where
         Ok(mem_block.clone())
     }
 
-    fn open_reader<'a>(
-        &'a self,
-        range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
         let mem_block = self.0.load_mem_block()?;
         let mem_block = mem_block.sub_buffer(range.cast_to::<usize>());
         Ok(Box::new(io::Cursor::new(mem_block)))
@@ -149,10 +141,7 @@ where
         Ok(MemBlock::from_vec(data))
     }
 
-    fn open_reader<'a>(
-        &'a self,
-        range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
         let reader = self.0.open_range_reader(range)?;
         Ok(Box::new(reader))
     }
@@ -173,10 +162,7 @@ where
         Ok(MemBlock::from_vec(data))
     }
 
-    fn open_reader<'a>(
-        &'a self,
-        range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
         let mut reader = self.0.open_full_reader()?;
         let temp_buffer = &mut [0u8; 8192];
         let mut data_remaining = range.start();
@@ -199,12 +185,10 @@ where
 
 /// A helper trait for creating objects that borrow from the factory.
 pub trait RefFactory {
-    type Output<'a>
-    where
-        Self: 'a;
+    type Output;
     type Error;
 
-    fn create_new(&self) -> Result<Self::Output<'_>, Self::Error>;
+    fn create_new(&self) -> Result<Self::Output, Self::Error>;
 }
 
 impl<F, T, E> RefFactory for F
@@ -212,13 +196,10 @@ where
     F: Fn() -> Result<T, E>,
     E: Debug + Display + Send + Sync + 'static,
 {
-    type Output<'a>
-        = T
-    where
-        Self: 'a;
+    type Output = T;
     type Error = E;
 
-    fn create_new(&self) -> Result<Self::Output<'_>, E> {
+    fn create_new(&self) -> Result<Self::Output, Self::Error> {
         self()
     }
 }
@@ -235,13 +216,10 @@ where
     M: Fn(F::Error) -> E,
     E: Display + Debug + Send + Sync + 'static,
 {
-    type Output<'a>
-        = F::Output<'a>
-    where
-        Self: 'a;
+    type Output = F::Output;
     type Error = E;
 
-    fn create_new(&self) -> Result<Self::Output<'_>, Self::Error> {
+    fn create_new(&self) -> Result<Self::Output, Self::Error> {
         self.factory.create_new().map_err(&self.err_mapper)
     }
 }
@@ -252,7 +230,7 @@ fn build_from_read_factory_size<F>(size: u64, factory: F) -> Block
 where
     F: RefFactory + Send + Sync + 'static,
     F::Error: Into<AnyDiag>,
-    for<'a> F::Output<'a>: io::Read,
+    F::Output: io::Read + Send,
 {
     Block::from_source_size(FullStreamBaseWrap(ReadFactoryImpl::new(factory)), size)
 }
@@ -261,7 +239,7 @@ fn build_from_read_seek_factory_size<F>(size: u64, factory: F) -> Block
 where
     F: RefFactory + Send + Sync + 'static,
     F::Error: Into<AnyDiag>,
-    for<'a> F::Output<'a>: io::Read + io::Seek,
+    F::Output: io::Read + io::Seek + Send,
 {
     Block::from_source_size(
         RangeStreamBaseWrap(ReadSeekFactorySource::new(factory)),
@@ -273,7 +251,7 @@ fn build_from_mem_block_factory_size<F>(size: u64, factory: F) -> Block
 where
     F: RefFactory + Send + Sync + 'static,
     F::Error: Into<AnyDiag>,
-    for<'a> F::Output<'a>: Into<MemBlock>,
+    F::Output: Into<MemBlock>,
 {
     Block::from_source_size(MemBlockWrap(MemFactoryImpl::new(factory)), size)
 }
@@ -403,7 +381,7 @@ impl Block {
     }
 
     /// Open a subrange of the block as a reader.
-    pub fn open_reader<'a, R>(&'a self, range: R) -> Result<Box<dyn io::Read + 'a>, OpenError>
+    pub fn open_reader<R>(&self, range: R) -> Result<Box<dyn io::Read + Send>, OpenError>
     where
         R: RangeBounds<u64>,
     {
@@ -530,7 +508,7 @@ impl Builder {
 
     pub fn build_from_read_seek(
         self,
-        mut reader: impl io::Read + io::Seek + Send + 'static,
+        mut reader: impl io::Read + io::Seek + Send + Sync + 'static,
     ) -> io::Result<Block> {
         let size = if let Some(size) = self.size {
             size
@@ -548,7 +526,7 @@ impl Builder {
     where
         F: RefFactory + Send + Sync + 'static,
         F::Error: std::error::Error + Send + Sync + 'static,
-        for<'a> F::Output<'a>: io::Read,
+        F::Output: io::Read + Send,
     {
         let size = if let Some(size) = self.size {
             size
@@ -575,7 +553,7 @@ impl Builder {
     where
         F: RefFactory + Send + Sync + 'static,
         F::Error: std::error::Error + Send + Sync + 'static,
-        for<'a> F::Output<'a>: io::Read + io::Seek,
+        F::Output: io::Read + io::Seek + Send,
     {
         let size = if let Some(size) = self.size {
             size
@@ -602,7 +580,7 @@ impl Builder {
     where
         F: RefFactory + Send + Sync + 'static,
         F::Error: std::error::Error + Send + Sync + 'static,
-        for<'a> F::Output<'a>: Into<MemBlock>,
+        F::Output: Into<MemBlock>,
     {
         let size = if let Some(size) = self.size {
             size

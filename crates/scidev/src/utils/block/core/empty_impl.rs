@@ -5,7 +5,7 @@ use scidev_errors::ensure;
 use crate::utils::{
     block::{
         MemBlock,
-        core::{BlockBase, OpenBaseResult},
+        core::{BlockBase, BoxedRead, OpenBaseResult},
     },
     range::BoundedRange,
 };
@@ -19,10 +19,7 @@ impl BlockBase for EmptyBlockImpl {
         Ok(MemBlock::empty())
     }
 
-    fn open_reader<'a>(
-        &'a self,
-        range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
         ensure!(range.size() == 0, "Cannot read from empty block");
         Ok(Box::new(io::empty()))
     }

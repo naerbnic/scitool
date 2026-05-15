@@ -275,9 +275,9 @@ impl pipe::DataProcessor for DecompressDclProcessor {
     }
 }
 
-pub fn decompress_reader<'a, R>(reader: R) -> impl io::Read + 'a
+pub fn decompress_reader<'a, R>(reader: R) -> impl io::Read + Send + 'a
 where
-    R: io::Read + Unpin + 'a,
+    R: io::Read + Unpin + Send + 'a,
 {
     DecompressDclProcessor.pull(reader, 8192)
 }
@@ -306,14 +306,11 @@ impl DecompressFactory {
 }
 
 impl RefFactory for DecompressFactory {
-    type Output<'a>
-        = Box<dyn io::Read + 'a>
-    where
-        Self: 'a;
+    type Output = Box<dyn io::Read + Send>;
 
     type Error = OpenError;
 
-    fn create_new(&self) -> Result<Self::Output<'_>, OpenError> {
+    fn create_new(&self) -> Result<Self::Output, OpenError> {
         let reader = self
             .0
             .open_reader(..)

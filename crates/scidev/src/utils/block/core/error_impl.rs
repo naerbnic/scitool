@@ -1,11 +1,11 @@
-use std::{fmt::Debug, io};
+use std::fmt::Debug;
 
 use scidev_errors::AnyDiag;
 
 use crate::utils::{
     block::{
         MemBlock,
-        core::{BlockBase, OpenBaseResult},
+        core::{BlockBase, BoxedRead, OpenBaseResult},
     },
     range::BoundedRange,
 };
@@ -31,10 +31,7 @@ where
         Err((self.error)())
     }
 
-    fn open_reader<'a>(
-        &'a self,
-        _range: BoundedRange<u64>,
-    ) -> OpenBaseResult<Box<dyn io::Read + 'a>> {
+    fn open_reader(&self, _range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
         Err((self.error)())
     }
 }

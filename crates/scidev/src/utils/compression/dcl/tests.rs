@@ -10,8 +10,8 @@ use proptest::prelude::*;
 
 fn process_sync<R, W>(mut reader: R, mut writer: W) -> Result<(), DecompressionError>
 where
-    R: io::Read,
-    W: io::Write,
+    R: io::Read + Send,
+    W: io::Write + Send,
 {
     let mut processor = DecompressDclProcessor.push(&mut writer, 1024);
     io::copy(&mut reader, &mut processor)?;
@@ -21,8 +21,8 @@ where
 
 fn process_pull<R, W>(mut reader: R, mut writer: W) -> Result<(), DecompressionError>
 where
-    R: io::Read,
-    W: io::Write,
+    R: io::Read + Send,
+    W: io::Write + Send,
 {
     let mut reader = DecompressDclProcessor.pull(&mut reader, 1024);
     io::copy(&mut reader, &mut writer)?;
@@ -32,8 +32,8 @@ where
 
 fn process_push<R, W>(mut reader: R, mut writer: W) -> Result<(), DecompressionError>
 where
-    R: io::Read,
-    W: io::Write,
+    R: io::Read + Send,
+    W: io::Write + Send,
 {
     let mut writer = DecompressDclProcessor.push(&mut writer, 1024);
     io::copy(&mut reader, &mut writer)?;

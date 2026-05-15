@@ -9,16 +9,20 @@ use futures::{
     io::{AsyncRead, AsyncWrite},
 };
 pub(super) trait DataProcessor {
-    fn process<R, W>(self, reader: R, writer: W) -> impl Future<Output = Result<(), io::Error>>
+    fn process<R, W>(
+        self,
+        reader: R,
+        writer: W,
+    ) -> impl Future<Output = Result<(), io::Error>> + Send
     where
-        R: AsyncRead + Unpin,
-        W: AsyncWrite + Unpin;
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send;
 
     fn process_sync<R, W>(self, reader: R, writer: W) -> Result<(), io::Error>
     where
         Self: Sized,
-        R: io::Read + Unpin,
-        W: io::Write + Unpin,
+        R: io::Read + Unpin + Send,
+        W: io::Write + Unpin + Send,
     {
         let waker = std::task::Waker::noop();
         let mut cx = std::task::Context::from_waker(waker);
@@ -35,16 +39,16 @@ pub(super) trait DataProcessor {
     #[allow(dead_code, reason = "Will be used in lazy block")]
     fn pull<'a, R>(self, reader: R, buffer_capacity: usize) -> Reader<'a>
     where
-        Self: Sized + 'static,
-        R: io::Read + Unpin + 'a,
+        Self: Sized + Send + 'static,
+        R: io::Read + Unpin + Send + 'a,
     {
         inv_writer::pull_mode(self, reader, buffer_capacity)
     }
 
     fn push<'a, W>(self, writer: W, buffer_capacity: usize) -> Writer<'a>
     where
-        Self: Sized + 'a,
-        W: io::Write + Unpin + 'a,
+        Self: Sized + Send + 'a,
+        W: io::Write + Unpin + Send + 'a,
     {
         inv_reader::push_mode(self, writer, buffer_capacity)
     }
@@ -123,10 +127,9 @@ where
 
 mod inv_reader {
     use std::{
-        cell::RefCell,
         collections::VecDeque,
         io,
-        rc::Rc,
+        sync::{Arc, Mutex},
         task::{Context, Poll},
     };
 
@@ -142,7 +145,7 @@ mod inv_reader {
 
     struct InvertedReader {
         channel: Channel<super::DataNeeded, super::DataReady>,
-        inner: Rc<RefCell<Inner>>,
+        inner: Arc<Mutex<Inner>>,
         read_op: Option<ChannelYield<super::DataNeeded, super::DataReady>>,
     }
 
@@ -157,7 +160,7 @@ mod inv_reader {
                 let read_op = if let Some(read_op) = &mut this.read_op {
                     read_op
                 } else {
-                    let mut inner = this.inner.borrow_mut();
+                    let mut inner = this.inner.lock().unwrap();
                     if buf.is_empty() {
                         // Nothing to do.
                         return Poll::Ready(Ok(0));
@@ -191,7 +194,7 @@ mod inv_reader {
     }
 
     pub(crate) struct Writer<'a> {
-        reader_state: Rc<RefCell<Inner>>,
+        reader_state: Arc<Mutex<Inner>>,
         continuation: Continuation<'a, super::DataReady, super::DataNeeded, io::Result<()>>,
         bytes_requested: usize,
     }
@@ -211,7 +214,7 @@ mod inv_reader {
         /// Closes the writer, ensuring that all data is flushed to the reader.
         pub(crate) fn close(mut self) -> io::Result<()> {
             {
-                let mut inner = self.reader_state.borrow_mut();
+                let mut inner = self.reader_state.lock().unwrap();
                 assert!(!inner.closed);
                 inner.closed = true;
             }
@@ -234,7 +237,7 @@ mod inv_reader {
                 return;
             }
             {
-                let mut inner = self.reader_state.borrow_mut();
+                let mut inner = self.reader_state.lock().unwrap();
                 if inner.closed {
                     // We're already closed, so nothing more we can do.
                     return;
@@ -272,7 +275,7 @@ mod inv_reader {
             let bytes_written;
             let curr_buffer_len;
             {
-                let mut inner = self.reader_state.borrow_mut();
+                let mut inner = self.reader_state.lock().unwrap();
                 if inner.closed {
                     return Err(io::Error::new(
                         io::ErrorKind::BrokenPipe,
@@ -301,7 +304,7 @@ mod inv_reader {
         fn flush(&mut self) -> io::Result<()> {
             // Ensure all of the buffer is written.
             {
-                let guard = self.reader_state.borrow_mut();
+                let guard = self.reader_state.lock().unwrap();
                 if guard.buffer.is_empty() {
                     return Ok(());
                 }
@@ -312,7 +315,7 @@ mod inv_reader {
             match self.pump_continuation() {
                 ContinuationResult::Yield(data_needed) => {
                     self.bytes_requested = data_needed.requested_data_size;
-                    let inner = self.reader_state.borrow();
+                    let inner = self.reader_state.lock().unwrap();
                     assert!(inner.buffer.is_empty());
                     Ok(())
                 }
@@ -323,10 +326,10 @@ mod inv_reader {
 
     pub(crate) fn push_mode<'a, P, W>(processor: P, writer: W, buffer_capacity: usize) -> Writer<'a>
     where
-        P: super::DataProcessor + 'a,
-        W: io::Write + Unpin + 'a,
+        P: super::DataProcessor + Send + 'a,
+        W: io::Write + Unpin + Send + 'a,
     {
-        let inner = Rc::new(RefCell::new(Inner {
+        let inner = Arc::new(Mutex::new(Inner {
             buffer: VecDeque::with_capacity(buffer_capacity),
             closed: false,
         }));
@@ -356,11 +359,10 @@ mod inv_reader {
 
 mod inv_writer {
     use std::{
-        cell::RefCell,
         collections::VecDeque,
         io,
         pin::Pin,
-        rc::Rc,
+        sync::{Arc, Mutex},
         task::{Context, Poll},
     };
 
@@ -381,7 +383,7 @@ mod inv_writer {
 
     struct InvertedWriter {
         channel: Channel<super::DataNeeded, super::DataReady>,
-        inner: Rc<RefCell<Inner>>,
+        inner: Arc<Mutex<Inner>>,
         yield_op: Option<ChannelYield<super::DataNeeded, super::DataReady>>,
     }
 
@@ -402,7 +404,7 @@ mod inv_writer {
                     std::task::ready!(write_op.poll_unpin(cx));
                     this.yield_op = None;
                 }
-                let mut inner = this.inner.borrow_mut();
+                let mut inner = this.inner.lock().unwrap();
 
                 if inner.closed {
                     return Poll::Ready(Err(io::Error::new(
@@ -435,7 +437,7 @@ mod inv_writer {
                 }
 
                 {
-                    let inner = self.inner.borrow();
+                    let inner = self.inner.lock().unwrap();
                     if inner.closed {
                         return Poll::Ready(Err(io::Error::new(
                             io::ErrorKind::BrokenPipe,
@@ -445,7 +447,7 @@ mod inv_writer {
                 }
 
                 let capacity = {
-                    let inner = self.inner.borrow();
+                    let inner = self.inner.lock().unwrap();
                     if inner.buffer.is_empty() {
                         return Poll::Ready(Ok(()));
                     }
@@ -459,14 +461,14 @@ mod inv_writer {
         }
 
         fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            let mut inner = self.inner.borrow_mut();
+            let mut inner = self.inner.lock().unwrap();
             inner.closed = true;
             Poll::Ready(Ok(()))
         }
     }
 
     pub(crate) struct Reader<'a> {
-        writer_state: Rc<RefCell<Inner>>,
+        writer_state: Arc<Mutex<Inner>>,
         continuation: Continuation<'a, super::DataReady, super::DataNeeded, io::Result<()>>,
     }
 
@@ -476,7 +478,7 @@ mod inv_writer {
             // Technically, it's safe to drop the reader, but make a reasonable
             // attempt in case the decoder has *shudder* side effects...
             {
-                self.writer_state.borrow_mut().closed = true;
+                self.writer_state.lock().unwrap().closed = true;
             }
 
             if self.continuation.is_finished() {
@@ -507,7 +509,7 @@ mod inv_writer {
             if !self.continuation.has_started() || self.continuation.is_finished() {
                 return;
             }
-            self.writer_state.borrow_mut().closed = true;
+            self.writer_state.lock().unwrap().closed = true;
             // If we have started but not finished, we need to close
             // the writer side.
             match self.continuation.next(super::DataReady) {
@@ -528,7 +530,7 @@ mod inv_writer {
 
             loop {
                 {
-                    let mut inner = self.writer_state.borrow_mut();
+                    let mut inner = self.writer_state.lock().unwrap();
                     if !inner.buffer.is_empty() {
                         let to_read = std::cmp::min(buf.len(), inner.buffer.len());
                         for (dst, src) in
@@ -576,10 +578,10 @@ mod inv_writer {
 
     pub(crate) fn pull_mode<'a, P, R>(processor: P, reader: R, buffer_capacity: usize) -> Reader<'a>
     where
-        P: super::DataProcessor + 'a,
-        R: io::Read + Unpin + 'a,
+        P: super::DataProcessor + Send + 'a,
+        R: io::Read + Unpin + Send + 'a,
     {
-        let inner = Rc::new(RefCell::new(Inner {
+        let inner = Arc::new(Mutex::new(Inner {
             buffer: VecDeque::with_capacity(buffer_capacity),
             closed: false,
         }));
@@ -619,8 +621,8 @@ mod tests {
     impl DataProcessor for IdentityProcessor {
         async fn process<R, W>(self, mut reader: R, mut writer: W) -> io::Result<()>
         where
-            R: AsyncRead + Unpin,
-            W: AsyncWrite + Unpin,
+            R: AsyncRead + Unpin + Send,
+            W: AsyncWrite + Unpin + Send,
         {
             let mut buf = [0u8; 1024];
             loop {

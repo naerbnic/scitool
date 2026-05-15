@@ -9,13 +9,13 @@ use crate::utils::{
     range::BoundedRange,
 };
 
-pub(super) struct BorrowedReader<'a, R> {
-    reader: &'a Mutex<R>,
+pub(super) struct BorrowedReader<R> {
+    reader: Arc<Mutex<R>>,
     position: u64,
     remaining_length: u64,
 }
 
-impl<R> io::Read for BorrowedReader<'_, R>
+impl<R> io::Read for BorrowedReader<R>
 where
     R: io::Read + io::Seek,
 {
@@ -48,16 +48,12 @@ where
 
 impl<R> RangeStreamBase for ReadSeekImpl<R>
 where
-    R: io::Read + io::Seek,
+    R: io::Read + io::Seek + Send + Sync + 'static,
 {
-    type Reader<'a>
-        = BorrowedReader<'a, R>
-    where
-        Self: 'a;
-    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>> {
-        let reader = &*self.0;
+    type Reader = BorrowedReader<R>;
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader> {
         Ok(BorrowedReader {
-            reader,
+            reader: self.0.clone(),
             position: range.start(),
             remaining_length: range.size(),
         })

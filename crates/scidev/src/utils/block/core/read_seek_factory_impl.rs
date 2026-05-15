@@ -15,7 +15,7 @@ pub(super) struct ReadSeekFactorySource<F>(F);
 impl<F> ReadSeekFactorySource<F>
 where
     F: RefFactory,
-    for<'a> F::Output<'a>: io::Read + io::Seek,
+    F::Output: io::Read + io::Seek + Send + 'static,
 {
     pub(super) fn new(factory: F) -> Self {
         Self(factory)
@@ -26,13 +26,10 @@ impl<F> RangeStreamBase for ReadSeekFactorySource<F>
 where
     F: RefFactory,
     F::Error: Into<AnyDiag>,
-    for<'a> F::Output<'a>: io::Read + io::Seek,
+    F::Output: io::Read + io::Seek + Send + 'static,
 {
-    type Reader<'a>
-        = io::Take<F::Output<'a>>
-    where
-        Self: 'a;
-    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader<'_>> {
+    type Reader = io::Take<F::Output>;
+    fn open_range_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<Self::Reader> {
         let mut reader = self
             .0
             .create_new()
@@ -49,7 +46,7 @@ where
 impl<F> Debug for ReadSeekFactorySource<F>
 where
     F: RefFactory,
-    for<'a> F::Output<'a>: io::Read + io::Seek,
+    F::Output: io::Read + io::Seek + Send + 'static,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadSeekFactorySource").finish()

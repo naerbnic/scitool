@@ -1,7 +1,5 @@
 use std::{
-    cell::RefCell,
     pin::Pin,
-    rc::Rc,
     sync::{Arc, Mutex},
     task::{Context, Poll, Wake},
     thread::Thread,
@@ -138,7 +136,7 @@ struct Inner<In, Out> {
 pub(crate) struct Channel<In, Out> {
     /// Note that we explicitly reverse the direction of In and Out here, since
     /// from the perspective of the continuation, it is receiving Out and sending In.
-    inner: Rc<RefCell<Inner<Out, In>>>,
+    inner: Arc<Mutex<Inner<Out, In>>>,
 }
 
 impl<In, Out> Channel<In, Out> {
@@ -162,7 +160,7 @@ impl<In, Out> Channel<In, Out> {
 /// A future that waits for a response from the channel.
 pub(crate) struct ChannelYield<In, Out> {
     /// The channel context we are waiting on.
-    inner: Rc<RefCell<Inner<Out, In>>>,
+    inner: Arc<Mutex<Inner<Out, In>>>,
     input: Option<In>,
     is_handled: bool,
 }
@@ -176,7 +174,7 @@ where
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Out> {
         let this = &mut *self;
-        let mut guard = this.inner.borrow_mut();
+        let mut guard = this.inner.lock().unwrap();
         let flow_state = &mut guard.flow_state;
 
         if let Some(value) = this.input.take() {
@@ -212,7 +210,7 @@ impl<In, Out> Drop for ChannelYield<In, Out> {
         if self.is_handled {
             return;
         }
-        let guard = self.inner.borrow();
+        let guard = self.inner.lock().unwrap();
         let flow_state = &guard.flow_state;
 
         // If this is dropped while paused, then this is due to future
@@ -264,8 +262,8 @@ enum ContinuationPoll<Out, Result> {
 }
 
 pub(crate) struct Continuation<'a, In, Out, Result> {
-    state: Rc<RefCell<Inner<In, Out>>>,
-    curr_future: Option<Pin<Box<dyn Future<Output = Result> + 'a>>>,
+    state: Arc<Mutex<Inner<In, Out>>>,
+    curr_future: Option<Pin<Box<dyn Future<Output = Result> + Send + 'a>>>,
 }
 
 impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
@@ -273,7 +271,7 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
     fn poll_continuation(&mut self) -> Option<ContinuationPoll<Out, Result>> {
         let curr_future = self.curr_future.as_mut()?;
         {
-            let mut guard = self.state.borrow_mut();
+            let mut guard = self.state.lock().unwrap();
             let flow_state = &mut guard.flow_state;
 
             match std::mem::replace(flow_state, FlowState::Running) {
@@ -300,7 +298,7 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
         let mut cx = Context::from_waker(&waker);
         match curr_future.as_mut().poll(&mut cx) {
             Poll::Ready(result) => {
-                let mut guard = self.state.borrow_mut();
+                let mut guard = self.state.lock().unwrap();
                 guard.flow_state = FlowState::Finished;
                 self.curr_future = None;
                 Some(ContinuationPoll::Ready(ContinuationResult::Complete(
@@ -311,7 +309,7 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
                 // We have to check our state to see if this is intended to
                 // be a yield, or if some other future registered the waker
                 // elsewhere.
-                let mut guard = self.state.borrow_mut();
+                let mut guard = self.state.lock().unwrap();
                 let flow_state = &mut guard.flow_state;
                 match std::mem::replace(flow_state, FlowState::Paused) {
                     FlowState::Running => {
@@ -353,9 +351,9 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
     pub(crate) fn new<F, Fut>(future_fn: F) -> Self
     where
         F: FnOnce(Channel<Out, In>) -> Fut,
-        Fut: Future<Output = Result> + 'a,
+        Fut: Future<Output = Result> + Send + 'a,
     {
-        let state = Rc::new(RefCell::new(Inner {
+        let state = Arc::new(Mutex::new(Inner {
             flow_state: FlowState::BeforeStarted,
         }));
 
@@ -373,13 +371,13 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
 
     #[must_use]
     pub(crate) fn has_started(&self) -> bool {
-        let guard = self.state.borrow();
+        let guard = self.state.lock().unwrap();
         !matches!(guard.flow_state, FlowState::BeforeStarted)
     }
 
     pub(crate) fn start(&mut self) -> ContinuationResult<Out, Result> {
         {
-            let mut guard = self.state.borrow_mut();
+            let mut guard = self.state.lock().unwrap();
             assert!(
                 matches!(guard.flow_state, FlowState::BeforeStarted),
                 "Continuation already started"
@@ -392,13 +390,13 @@ impl<'a, In, Out, Result> Continuation<'a, In, Out, Result> {
 
     #[must_use]
     pub(crate) fn is_finished(&self) -> bool {
-        let guard = self.state.borrow();
+        let guard = self.state.lock().unwrap();
         matches!(guard.flow_state, FlowState::Finished)
     }
 
     pub(crate) fn next(&mut self, input: In) -> ContinuationResult<Out, Result> {
         {
-            let mut guard = self.state.borrow_mut();
+            let mut guard = self.state.lock().unwrap();
             let flow_state = &mut guard.flow_state;
 
             assert!(
