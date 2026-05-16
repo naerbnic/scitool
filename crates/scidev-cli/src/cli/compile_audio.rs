@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use crate::cmds::compile_audio::{ScanType, compile_audio};
+use crate::cmds::compile_audio::compile_audio;
 use clap::Parser;
+use sciproj::resources::ScanType;
 
 #[derive(clap::ValueEnum, Copy, Clone, Debug, Default)]
 enum ScanTypeFlag {

@@ -16,7 +16,7 @@ pub(crate) mod futures {
 
     pub(crate) mod stream {
         pub(crate) use futures_util::stream::FuturesUnordered;
-        pub(crate) use futures_util::stream::{Stream, StreamExt, TryStream, TryStreamExt};
+        pub(crate) use futures_util::stream::{Stream, StreamExt, TryStream, TryStreamExt, iter};
     }
 
     pub(crate) use tokio::io;

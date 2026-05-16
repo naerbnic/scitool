@@ -1,20 +1,27 @@
 use std::{
     collections::BTreeMap,
-    ffi::OsString,
+    io,
     path::{Path, PathBuf},
 };
 
-use itertools::Itertools;
 use scidev::{
     ids::{
         LineId,
         raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
     },
-    resources::types::msg::MessageId,
+    resources::types::{
+        audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
+        msg::MessageId,
+    },
+    utils::block::TempStore,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::imp::futures::{prelude::*, stream::FuturesUnordered};
+use crate::{
+    file::AudioSampleScan,
+    imp::futures::{self, prelude::*},
+    tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
+};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AudioClip {
@@ -33,7 +40,7 @@ pub struct Sample {
 #[derive(Serialize, Deserialize, Debug)]
 struct SampleSet(Vec<Sample>);
 
-pub fn legacy_load_dir(path: &Path) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
+fn legacy_load_dir(path: &Path) -> io::Result<BTreeMap<LineId, AudioClip>> {
     let samples_file = path.join("samples.json");
     let samples_file_contents = std::fs::read(&samples_file)?;
     let mut sample_set: SampleSet =
@@ -59,88 +66,93 @@ pub fn legacy_load_dir(path: &Path) -> anyhow::Result<BTreeMap<LineId, AudioClip
     Ok(clip_map)
 }
 
-pub struct SampleDir {
-    base_path: PathBuf,
-    samples: SampleSet,
+pub async fn generate_sample_resources(
+    line_mapping: &BTreeMap<LineId, AudioClip>,
+    ffmpeg: &FfmpegTool,
+) -> anyhow::Result<VoiceSampleResources> {
+    struct ProcessedSample {
+        room: u16,
+        message_id: MessageId,
+        data: Vec<u8>,
+    }
+    let mut builder = Audio36ResourceBuilder::new();
+    let processed_samples: Vec<ProcessedSample> = futures::stream::iter(line_mapping)
+        .map(async |(line_id, clip)| {
+            let input_file = tokio::fs::File::open(&clip.path).await?;
+            let mut data = Vec::new();
+            ffmpeg
+                .create_convert_reader(
+                    input_file,
+                    ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
+                )
+                .await?
+                .read_to_end(&mut data)
+                .await?;
+            Ok::<_, anyhow::Error>(ProcessedSample {
+                room: line_id.room_num(),
+                message_id: MessageId::new(
+                    line_id.noun_num(),
+                    line_id.verb_num(),
+                    line_id.condition_num(),
+                    line_id.sequence_num(),
+                ),
+                data,
+            })
+        })
+        .map(Ok)
+        .try_buffer_unordered(10)
+        .try_collect()
+        .await?;
+
+    tokio::task::spawn_blocking(|| {
+        let mut temp_store = TempStore::create()?;
+        for sample in processed_samples {
+            let sample_source = temp_store.store_bytes(&sample.data[..])?;
+            let voice_sample = VoiceSample::new(AudioFormat::Ogg, sample_source);
+            builder.add_entry(sample.room, sample.message_id, &voice_sample)?;
+        }
+        Ok(builder.build()?)
+    })
+    .await?
 }
 
-impl SampleDir {
-    pub fn load_dir(path: &Path) -> anyhow::Result<Self> {
-        let samples_file = path.join("samples.json");
-        let samples_file_contents = std::fs::read(&samples_file)?;
-        let sample_set: SampleSet =
-            serde_json::from_reader(std::io::Cursor::new(samples_file_contents))?;
-        Ok(Self {
-            base_path: path.to_path_buf(),
-            samples: sample_set,
-        })
+#[derive(Copy, Clone, Debug)]
+pub enum ScanType {
+    Legacy,
+    Scannable,
+}
+
+pub fn load_config_from_directory(
+    scan_type: ScanType,
+    base_dir: impl AsRef<Path>,
+) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
+    let base_dir = base_dir.as_ref();
+    match scan_type {
+        ScanType::Legacy => map_from_legacy_dir(base_dir),
+        ScanType::Scannable => map_from_sample_scan(base_dir),
     }
+}
 
-    pub async fn save_to_scannable_dir(&self, path: &Path) -> anyhow::Result<()> {
-        // Check that all files contain a single message ID.
-        let path_list = self
-            .samples
-            .0
-            .iter()
-            .map(|sample| {
-                let clip = &sample.clip;
-                anyhow::ensure!(clip.start_us.is_none_or(|off| off == 0));
-                anyhow::ensure!(clip.end_us.is_none());
-                Ok(&sample.clip.path)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let multi_path_counts = path_list
-            .into_iter()
-            .map(|path| (path, 1))
-            .into_grouping_map()
-            .sum()
-            .into_iter()
-            .filter(|(_, count)| *count > 1)
-            .collect::<Vec<_>>();
-        if !multi_path_counts.is_empty() {
-            return Err(anyhow::anyhow!(
-                "The following paths have multiple message IDs: {multi_path_counts:?}"
-            ));
-        }
+fn map_from_legacy_dir(base_dir: &Path) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
+    legacy_load_dir(base_dir).map_err(Into::into)
+}
 
-        // Go through all of the clips, and copy the files with the line ID
-        // as the file name.
-        let mut copy_operations = self
-            .samples
-            .0
-            .iter()
-            .map(async |sample| {
-                let line_id = LineId::from_parts(
-                    RawRoomId::new(sample.room),
-                    RawNounId::new(sample.message_id.noun()),
-                    RawVerbId::new(sample.message_id.verb()),
-                    RawConditionId::new(sample.message_id.condition()),
-                    RawSequenceId::new(sample.message_id.sequence()),
-                );
-                let clip = &sample.clip;
-                let current_path = &clip.path;
-                let mut file_name: OsString = line_id.to_string().into();
-                if let Some(ext) = current_path.extension() {
-                    file_name.push(".");
-                    file_name.push(ext);
-                }
-                let mut new_path = current_path.clone();
-                new_path.set_file_name(file_name);
-                let source_path = self.base_path.join(current_path);
-                let target_path = path.join(new_path);
-                // Create the target directory if it doesn't exist.
-                let target_dir = target_path.parent().unwrap();
-                tokio::fs::create_dir_all(target_dir).await?;
-                // Copy the file to the new location.
-                tokio::fs::create_dir_all(target_dir).await?;
-                tokio::fs::copy(source_path, target_path).await?;
-                Ok::<_, anyhow::Error>(())
-            })
-            .collect::<FuturesUnordered<_>>();
-
-        while let Some(result) = copy_operations.next().await {
-            result?;
-        }
-        Ok(())
+fn map_from_sample_scan(base_dir: &Path) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
+    let scan = AudioSampleScan::read_from_dir(base_dir)?;
+    anyhow::ensure!(
+        !scan.has_duplicates(),
+        "Duplicate files found in scan directory",
+    );
+    let mut clip_map = BTreeMap::new();
+    for (line_id, entry) in scan.get_valid_entries() {
+        let clip = AudioClip {
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            start_us: Some((entry.start() * 1_000_000.0) as u64),
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            end_us: entry.end().map(|end| (end * 1_000_000.0) as u64),
+            path: scan.base_path().join(entry.path()),
+        };
+        clip_map.insert(line_id, clip);
     }
+    Ok(clip_map)
 }
