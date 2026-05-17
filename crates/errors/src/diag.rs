@@ -294,6 +294,16 @@ impl AnyDiag {
         }
     }
 
+    #[must_use]
+    pub fn from_boxed_std_error_with_loc(
+        err: Box<dyn std::error::Error + Send + Sync>,
+        loc: SourceLoc,
+    ) -> Self {
+        Self {
+            root: Frame::from_box_std_error(err, loc),
+        }
+    }
+
     /// Creates a new Diag error based on the given message-like value.
     ///
     /// The caller of this function is recorded as the source of the error.

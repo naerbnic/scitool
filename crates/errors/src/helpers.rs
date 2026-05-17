@@ -1,6 +1,6 @@
 //! Utilities that assist in error reporting.
 
-use crate::{AnyDiag, Diag, Kind, MaybeDiag, Raiser, raiser::RaisedToDiag};
+use crate::{AnyDiag, Diag, Kind, MaybeDiag, Raiser, locations::SourceLoc, raiser::RaisedToDiag};
 
 /// Internal type representing how a given error was caught, either through
 /// the generic `std::error::Error` handler, or through the propagation of a
@@ -20,29 +20,57 @@ impl<T> CaughtError<T> {
     }
 }
 
+struct ErrorContext<T> {
+    loc: SourceLoc,
+    error: CaughtError<T>,
+}
+
+impl<T> ErrorContext<T> {
+    #[track_caller]
+    fn from_std_error<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self {
+            loc: SourceLoc::current(),
+            error: CaughtError::from_std_error(err),
+        }
+    }
+
+    #[track_caller]
+    fn from_diag(diag: T) -> Self {
+        Self {
+            loc: SourceLoc::current(),
+            error: CaughtError::Diag(diag),
+        }
+    }
+}
+
 /// An error type used in functions that are intended to capture multiple
 /// errors.
 ///
 /// See [`in_err_context`] for details.
 pub struct AnyDiagErrorCatcher {
-    err: CaughtError<AnyDiag>,
+    err: ErrorContext<AnyDiag>,
 }
 
 impl<E> From<E> for AnyDiagErrorCatcher
 where
     E: std::error::Error + Send + Sync + 'static,
 {
+    #[track_caller]
     fn from(value: E) -> Self {
         AnyDiagErrorCatcher {
-            err: CaughtError::from_std_error(value),
+            err: ErrorContext::from_std_error(value),
         }
     }
 }
 
 impl From<AnyDiag> for AnyDiagErrorCatcher {
+    #[track_caller]
     fn from(value: AnyDiag) -> Self {
         AnyDiagErrorCatcher {
-            err: CaughtError::Diag(value),
+            err: ErrorContext::from_diag(value),
         }
     }
 }
@@ -51,9 +79,10 @@ impl<K> From<Diag<K>> for AnyDiagErrorCatcher
 where
     K: Kind,
 {
+    #[track_caller]
     fn from(value: Diag<K>) -> Self {
         AnyDiagErrorCatcher {
-            err: CaughtError::Diag(value.into()),
+            err: ErrorContext::from_diag(value.into()),
         }
     }
 }
@@ -62,9 +91,10 @@ impl<K> From<MaybeDiag<K>> for AnyDiagErrorCatcher
 where
     K: Kind,
 {
+    #[track_caller]
     fn from(value: MaybeDiag<K>) -> Self {
         AnyDiagErrorCatcher {
-            err: CaughtError::Diag(value.into()),
+            err: ErrorContext::from_diag(value.into()),
         }
     }
 }
@@ -84,7 +114,7 @@ pub fn in_err_context<T>(
 ///
 /// See [`in_err_context`] for more details.
 pub struct ErrorContextBinder<T, E> {
-    result: Result<T, CaughtError<E>>,
+    result: Result<T, ErrorContext<E>>,
 }
 
 impl<T, E> ErrorContextBinder<T, E> {
@@ -101,13 +131,16 @@ impl<T, E> ErrorContextBinder<T, E> {
             Err(err) => err,
         };
         let raiser = Raiser::new();
-        let err = match err {
+        let err = match err.error {
             // A value that was intended to be caught directly, and doesn't
             // need further updating.
             CaughtError::Diag(diag) => return Err(diag),
-            CaughtError::Error(err) => {
-                let result = body(err.as_ref(), raiser);
-                result.into_diag([AnyDiag::from_boxed_std_error(err)])
+            CaughtError::Error(caught_error) => {
+                let result = body(caught_error.as_ref(), raiser);
+                result.into_diag([AnyDiag::from_boxed_std_error_with_loc(
+                    caught_error,
+                    err.loc,
+                )])
             }
         };
 
@@ -123,9 +156,11 @@ impl<T, E> ErrorContextBinder<T, E> {
     {
         match self.result {
             Ok(ok) => Ok(ok),
-            Err(err) => Err(match err {
+            Err(err) => Err(match err.error {
                 CaughtError::Diag(diag) => diag,
-                CaughtError::Error(error) => E::from(AnyDiag::from_boxed_std_error(error)),
+                CaughtError::Error(error) => {
+                    E::from(AnyDiag::from_boxed_std_error_with_loc(error, err.loc))
+                }
             }),
         }
     }
