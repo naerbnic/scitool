@@ -16,7 +16,7 @@ pub(super) struct ErrorBlockImpl<F> {
 
 impl<F> ErrorBlockImpl<F>
 where
-    F: Fn() -> AnyDiag + Clone,
+    F: Fn() -> AnyDiag + Clone + Sync,
 {
     pub(super) fn new(error: F) -> Self {
         Self { error }
@@ -25,7 +25,7 @@ where
 
 impl<F> BlockBase for ErrorBlockImpl<F>
 where
-    F: Fn() -> AnyDiag + Clone,
+    F: Fn() -> AnyDiag + Clone + Sync,
 {
     fn open_mem(&self, _range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         Err((self.error)())

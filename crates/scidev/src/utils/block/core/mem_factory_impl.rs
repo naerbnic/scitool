@@ -14,7 +14,7 @@ pub(super) struct MemFactoryImpl<F, Out, E> {
 
 impl<F, Out, E> MemFactoryImpl<F, Out, E>
 where
-    F: Fn() -> Result<Out, E>,
+    F: Fn() -> Result<Out, E> + Sync,
     Out: Into<MemBlock>,
 {
     pub(super) fn new(factory: F) -> Self {
@@ -27,7 +27,7 @@ where
 
 impl<F, Out, E> MemBlockBase for MemFactoryImpl<F, Out, E>
 where
-    F: Fn() -> Result<Out, E>,
+    F: Fn() -> Result<Out, E> + Sync,
     E: Into<AnyDiag>,
     Out: Into<MemBlock>,
 {

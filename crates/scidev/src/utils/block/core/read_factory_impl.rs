@@ -11,7 +11,7 @@ pub(super) struct ReadFactoryImpl<F, Out, E> {
 
 impl<F, Out, E> ReadFactoryImpl<F, Out, E>
 where
-    F: Fn() -> Result<Out, E>,
+    F: Fn() -> Result<Out, E> + Sync,
     Out: io::Read + Send + 'static,
     E: Into<AnyDiag>,
 {
@@ -25,7 +25,7 @@ where
 
 impl<F, Out, E> FullStreamBase for ReadFactoryImpl<F, Out, E>
 where
-    F: Fn() -> Result<Out, E>,
+    F: Fn() -> Result<Out, E> + Sync,
     Out: io::Read + Send + 'static,
     E: Into<AnyDiag>,
 {

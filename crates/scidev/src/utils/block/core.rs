@@ -13,6 +13,7 @@ use std::{
     num::TryFromIntError,
     ops::RangeBounds,
     path::Path,
+    pin::Pin,
     sync::Arc,
 };
 
@@ -87,12 +88,74 @@ trait BlockBase: Debug {
     /// Open as loaded data, possibly shared.
     fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock>;
 
+    fn open_mem_async(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> impl Future<Output = OpenBaseResult<MemBlock>> {
+        async move { tokio::task::block_in_place(|| self.open_mem(range)) }
+    }
+
     /// Open as a reader.
     fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead>;
 
     /// Open as an async reader.
-    fn open_async_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedAsyncRead> {
-        Ok(Box::new(AsyncReadWrapper::new(self.open_reader(range)?)))
+    fn open_async_reader(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> impl Future<Output = OpenBaseResult<BoxedAsyncRead>> {
+        async move {
+            let reader: BoxedAsyncRead = Box::new(AsyncReadWrapper::new(self.open_reader(range)?));
+            Ok(reader)
+        }
+    }
+}
+
+trait DynBlockBase: Debug {
+    /// Open as loaded data, possibly shared.
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock>;
+
+    fn open_mem_async(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<MemBlock>> + '_>>;
+
+    /// Open as a reader.
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead>;
+
+    /// Open as an async reader.
+    fn open_async_reader(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<BoxedAsyncRead>> + '_>>;
+}
+
+#[derive(Debug)]
+struct BlockBaseWrapper<B>(B);
+
+impl<B> DynBlockBase for BlockBaseWrapper<B>
+where
+    B: BlockBase,
+{
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
+        self.0.open_mem(range)
+    }
+
+    fn open_mem_async(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<MemBlock>> + '_>> {
+        Box::pin(self.0.open_mem_async(range))
+    }
+
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
+        self.0.open_reader(range)
+    }
+
+    fn open_async_reader(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<BoxedAsyncRead>> + '_>> {
+        Box::pin(self.0.open_async_reader(range))
     }
 }
 
@@ -236,7 +299,7 @@ where
 /// blocks can be concatenated to form a new block.
 #[derive(Clone, Debug)]
 pub struct Block {
-    source: Arc<dyn BlockBase + Send + Sync>,
+    source: Arc<dyn DynBlockBase + Send + Sync>,
     range: BoundedRange<u64>,
 }
 
@@ -247,7 +310,7 @@ impl Block {
         B: BlockBase + Send + Sync + 'static,
     {
         Self {
-            source: Arc::new(source),
+            source: Arc::new(BlockBaseWrapper(source)),
             range: BoundedRange::from_size(size),
         }
     }
@@ -349,6 +412,17 @@ impl Block {
             .map_err(Into::into)
     }
 
+    pub async fn open_mem_async<R>(&self, range: R) -> Result<MemBlock, OpenError>
+    where
+        R: RangeBounds<u64>,
+    {
+        let range = Range::from_range(range);
+        self.source
+            .open_mem_async(self.range.new_relative(range))
+            .await
+            .map_err(Into::into)
+    }
+
     /// Open a subrange of the block as a reader.
     pub fn open_reader<R>(&self, range: R) -> Result<Box<dyn io::Read + Send>, OpenError>
     where
@@ -360,13 +434,17 @@ impl Block {
             .map_err(Into::into)
     }
 
-    pub fn open_async_reader<R>(&self, range: R) -> Result<Box<dyn AsyncRead + Send>, OpenError>
+    pub async fn open_async_reader<R>(
+        &self,
+        range: R,
+    ) -> Result<Box<dyn AsyncRead + Send>, OpenError>
     where
         R: RangeBounds<u64>,
     {
         let range = Range::from_range(range);
         self.source
             .open_async_reader(self.range.new_relative(range))
+            .await
             .map_err(Into::into)
     }
 
