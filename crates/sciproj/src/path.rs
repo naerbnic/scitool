@@ -1,6 +1,8 @@
 //! Tools for working with system paths, such as looking up a binary in the PATH
 //! environment variable.
 
+mod relpath;
+
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
