@@ -10,7 +10,8 @@ pub(crate) fn export_book(
     output: impl std::io::Write,
 ) -> anyhow::Result<()> {
     let config = if config_path.exists() {
-        let config: BookConfig = serde_norway::from_reader(std::fs::File::open(config_path)?)?;
+        let config_text = std::fs::read(config_path)?;
+        let config: BookConfig = toml::from_slice(&config_text)?;
         config
     } else {
         BookConfig::default()

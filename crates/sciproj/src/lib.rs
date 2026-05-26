@@ -1,4 +1,5 @@
 pub mod book;
+pub mod build;
 pub mod file;
 pub mod formats;
 pub mod path;

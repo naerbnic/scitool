@@ -1,7 +1,7 @@
 //! Tools for working with system paths, such as looking up a binary in the PATH
 //! environment variable.
 
-mod relpath;
+pub mod relpath;
 
 use std::{
     collections::HashMap,

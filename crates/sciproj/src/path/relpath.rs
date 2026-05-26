@@ -8,9 +8,11 @@
 //!
 //! These are true for all platforms.
 #![expect(unsafe_code)]
-#![expect(unreachable_pub)]
 
-use std::{ffi::OsStr, ops::Deref, path::Component};
+use serde::{Deserialize, de::Error as _};
+use std::{
+    borrow::Cow, collections::HashSet, ffi::OsStr, ops::Deref, path::Component, sync::LazyLock,
+};
 
 use itertools::{EitherOrBoth, Itertools as _};
 
@@ -28,8 +30,15 @@ const INVALID_SEGMENTS: &[&str] = &[
     ".", "..", // Common current directory/previous directory chars.
 ];
 
+static INVALID_SEGMENTS_SET: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| INVALID_SEGMENTS.iter().copied().collect());
+
 fn is_normal_path_segment(segment: &str) -> bool {
     if segment.is_empty() {
+        return false;
+    }
+
+    if INVALID_SEGMENTS_SET.contains(segment) {
         return false;
     }
 
@@ -157,6 +166,7 @@ impl<'a> Iterator for Ancestors<'a> {
 pub struct Segment(str);
 
 impl Segment {
+    #[must_use]
     pub fn new(segment: &str) -> &Self {
         let Some(seg) = Self::try_new(segment) else {
             panic!("Invalid relative path: {segment}");
@@ -164,6 +174,7 @@ impl Segment {
         seg
     }
 
+    #[must_use]
     pub fn try_new(segment: &str) -> Option<&Self> {
         if is_normal_path_segment(segment) {
             Some(Self::from_str_unchecked(segment))
@@ -178,6 +189,7 @@ impl Segment {
         unsafe { (std::ptr::from_ref(path) as *const Self).as_ref().unwrap() }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -202,6 +214,7 @@ impl AsRef<RelPath> for Segment {
 pub struct RelPath(str);
 
 impl RelPath {
+    #[must_use]
     pub fn new(path: &str) -> &Self {
         let Some(rel_path) = Self::try_new(path) else {
             panic!("Invalid relative path: {path}");
@@ -209,6 +222,7 @@ impl RelPath {
         rel_path
     }
 
+    #[must_use]
     pub fn try_new(path: &str) -> Option<&Self> {
         if validate_rel_path(path) {
             Some(Self::from_str_unchecked(path))
@@ -223,6 +237,7 @@ impl RelPath {
         unsafe { (std::ptr::from_ref(path) as *const Self).as_ref().unwrap() }
     }
 
+    #[must_use]
     pub fn parent(&self) -> Option<&Self> {
         if self.0.is_empty() {
             return None;
@@ -250,18 +265,22 @@ impl RelPath {
         root.join(self)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    #[must_use]
     pub fn components(&self) -> Components<'_> {
         Components { path: &self.0 }
     }
 
+    #[must_use]
     pub fn ancestors(&self) -> Ancestors<'_> {
         Ancestors { path: Some(self) }
     }
 
+    #[must_use]
     pub fn file_name(&self) -> Option<&'_ Segment> {
         self.components().next_back()
     }
@@ -336,6 +355,7 @@ impl RelPath {
         Ok(Self::from_str_unchecked(remaining))
     }
 
+    #[must_use]
     pub fn to_buf(&self) -> RelPathBuf {
         RelPathBuf(self.as_str().to_string())
     }
@@ -412,9 +432,37 @@ impl AsRef<OsStr> for RelPath {
     }
 }
 
+impl<'de> Deserialize<'de> for &'de RelPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let plain_str: &'de str = Deserialize::deserialize(deserializer)?;
+        RelPath::try_new(plain_str).ok_or_else(|| D::Error::custom(FromStdPathError(())))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RelPathBuf(String);
 
 impl RelPathBuf {
+    #[must_use]
+    #[expect(single_use_lifetimes)]
+    pub fn new<'a>(path: impl Into<Cow<'a, str>>) -> Self {
+        Self::try_new(path).unwrap()
+    }
+
+    #[must_use]
+    #[expect(single_use_lifetimes)]
+    pub fn try_new<'a>(path: impl Into<Cow<'a, str>>) -> Option<Self> {
+        let path = path.into().into_owned();
+        if validate_rel_path(&path) {
+            Some(Self(path))
+        } else {
+            None
+        }
+    }
+
     pub fn from_std_path<P>(path: P) -> Result<Self, FromStdPathError>
     where
         P: AsRef<std::path::Path>,
@@ -493,6 +541,7 @@ impl RelPathBuf {
         self.0.push_str(rel_path.as_str());
     }
 
+    #[must_use]
     pub fn as_path(&self) -> &RelPath {
         RelPath::from_str_unchecked(&self.0)
     }
@@ -509,6 +558,16 @@ impl Deref for RelPathBuf {
 impl AsRef<RelPath> for RelPathBuf {
     fn as_ref(&self) -> &RelPath {
         RelPath::from_str_unchecked(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for RelPathBuf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let plain_str: String = Deserialize::deserialize(deserializer)?;
+        RelPathBuf::try_new(plain_str).ok_or_else(|| D::Error::custom(FromStdPathError(())))
     }
 }
 

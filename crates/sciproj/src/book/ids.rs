@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 use scidev::ids::raw::RawVerbId;
@@ -79,6 +81,22 @@ impl RoleId {
     #[must_use]
     pub fn raw_id(&self) -> &RawRoleId {
         &self.0
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Error parsing RoleId")]
+pub struct ParseRoleError;
+
+impl FromStr for RoleId {
+    type Err = ParseRoleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(role_str) = s.strip_prefix("role-") {
+            Ok(RoleId(RawRoleId(role_str.to_string())))
+        } else {
+            Err(ParseRoleError)
+        }
     }
 }
 

@@ -9,15 +9,19 @@ use scidev::{
         LineId,
         raw::{RawConditionId, RawNounId, RawRoomId, RawSequenceId, RawVerbId},
     },
-    resources::types::{
-        audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
-        msg::MessageId,
+    resources::{
+        ResourceSet, ResourceType,
+        types::{
+            audio36::{Audio36ResourceBuilder, AudioFormat, VoiceSample, VoiceSampleResources},
+            msg::{MessageId, parse_message_resource},
+        },
     },
     utils::block::TempStore,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    book::{Book, builder::BookBuilder, config::BookConfig},
     file::AudioSampleScan,
     imp::futures::{self, prelude::*},
     tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
@@ -155,4 +159,20 @@ fn map_from_sample_scan(base_dir: &Path) -> anyhow::Result<BTreeMap<LineId, Audi
         clip_map.insert(line_id, clip);
     }
     Ok(clip_map)
+}
+
+pub fn load_book_from_resources(config: &BookConfig, game_path: &Path) -> anyhow::Result<Book> {
+    let resource_set = ResourceSet::from_root_dir(game_path)?;
+    let mut builder = BookBuilder::new(config.clone())?;
+
+    // Extra testing for building a conversation.
+
+    for res in resource_set.resources_of_type(ResourceType::Message) {
+        let msg_resources = parse_message_resource(&res.data().open_mem(..)?)?;
+        for (msg_id, record) in msg_resources.messages() {
+            builder.add_message(res.id().resource_num(), msg_id, record)?;
+        }
+    }
+    let book = builder.build()?;
+    Ok(book)
 }

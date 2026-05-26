@@ -1,0 +1,1421 @@
+project_name = "Space Quest V: The Fan Dub"
+
+[roles.roger]
+name = "Roger Wilco"
+short_name = "Roger"
+
+[roles.quirk]
+name = "Captain William T. Quirk"
+short_name = "Quirk"
+
+[roles.help]
+name = "Help Text Narrator"
+short_name = "Help"
+
+[roles.rotunda-guard-left]
+name = "Rotunda Guard (Left)"
+short_name = "Guard (L)"
+
+[roles.rotunda-guard-right]
+name = "Rotunda Guard (Right)"
+short_name = "Guard (R)"
+
+# TODO: Split into multiple for tracking later
+[roles.students]
+name = "Hallway Students"
+short_name = "Students"
+
+[roles.big-brain]
+name = "Big-Brain Student"
+short_name = "Big Brain"
+
+[roles.cliffy]
+name = "Cliffy"
+short_name = "Cliffy"
+
+# TODO: Split into multiple for tracking later
+[roles.extras]
+name = "Extras (One Line)"
+short_name = "Extra"
+
+[roles.admiral]
+name = "Starcon Admiral"
+short_name = "Admiral"
+
+[roles.droole]
+name = "Subcorporal Droole"
+short_name = "Droole"
+
+[roles.flo]
+name = "Com Specialist Flo"
+short_name = "Flo"
+
+[roles.wd-40]
+name = "WD-40"
+short_name = "WD-40"
+
+[roles.beatrice]
+name = "Ambassador Beatrice Wankmeister"
+short_name = "Beatrice"
+
+[roles.dumb]
+name = "Schleppo (Dumb Student)"
+short_name = "Schleppo"
+
+[roles.failing]
+name = "Failing Student"
+short_name = "Failing"
+
+[roles.slep]
+name = "Slep"
+short_name = "Slep"
+
+[roles.crumpella]
+name = "Crumpella"
+short_name = "Crumpella"
+
+[roles.waitress]
+name = "Spacebar Waitress"
+short_name = "Waitress"
+
+[roles.merchant]
+name = "Nelo Jones, Merchant of Venus"
+short_name = "Nelo"
+
+[roles.brig-guard-1]
+name = "Spacebar Brig Guard #1"
+short_name = "Brig Guard #1"
+
+[roles.brig-guard-2]
+name = "Spacebar Brig Guard #2"
+short_name = "Brig Guard #2"
+
+[roles.colonist]
+name = "Colonist Mutant"
+short_name = "Colonist Mutant"
+
+[roles.maggot]
+name = "Maggot"
+short_name = "Maggot"
+
+[roles.patron-1]
+name = "Spacebar Patron #1"
+short_name = "Patron #1"
+
+[roles.narrator]
+name = "Narrator"
+short_name = "Narrator"
+
+[[talkers]]
+id = 1
+role = "quirk"
+
+[[talkers]]
+id = 3
+role = "quirk"
+
+[[talkers]]
+id = 4
+role = "help"
+
+[[talkers]]
+id = 5
+role = "rotunda-guard-right"
+
+[[talkers]]
+id = 6
+role = "rotunda-guard-left"
+
+[[talkers]]
+id = 7
+role = "roger"
+
+# TODO: Split to different students
+[[talkers]]
+id = 8
+role = "students"
+
+[[talkers]]
+id = 9
+role = "cliffy"
+
+[[talkers]]
+id = 17
+role = "extras"
+
+[[talkers]]
+id = 18
+role = "admiral"
+
+[[talkers]]
+id = 19
+role = "roger"
+
+[[talkers]]
+id = 21
+role = "droole"
+
+[[talkers]]
+id = 22
+role = "flo"
+
+[[talkers]]
+id = 23
+role = "cliffy"
+
+[[talkers]]
+id = 24
+role = "wd-40"
+
+[[talkers]]
+id = 25
+role = "quirk"
+
+[[talkers]]
+id = 26
+role = "beatrice"
+
+[[talkers]]
+id = 27
+role = "dumb"
+
+[[talkers]]
+id = 28
+role = "big-brain"
+
+[[talkers]]
+id = 29
+role = "failing"
+
+[[talkers]]
+id = 36
+role = "slep"
+
+[[talkers]]
+id = 37
+role = "crumpella"
+
+[[talkers]]
+id = 38
+role = "merchant"
+
+[[talkers]]
+id = 42
+role = "brig-guard-1"
+
+[[talkers]]
+id = 43
+role = "brig-guard-2"
+
+[[talkers]]
+id = 45
+role = "waitress"
+
+[[talkers]]
+id = 46
+role = "colonist"
+
+[[talkers]]
+id = 47
+role = "maggot"
+
+[[talkers]]
+id = 49
+role = "patron-1"
+
+# UI Help Text
+[[talkers]]
+id = 97
+role = "help"
+
+# System Messages
+[[talkers]]
+id = 98
+role = "help"
+
+# TODO: Sort through lines, as not all are the narrator.
+# May be separated by room
+[[talkers]]
+id = 99
+role = "narrator"
+
+[[verbs]]
+id = 1
+name = "Look"
+
+[[verbs]]
+id = 2
+name = "Talk"
+
+[[verbs]]
+id = 3
+name = "Walk"
+
+[[verbs]]
+id = 4
+name = "Use"
+
+[[verbs]]
+id = 5
+name = "Get Help"
+
+[[verbs]]
+id = 6
+name = "Ship Opener"
+
+[[verbs]]
+id = 7
+name = "Generic Use Item / Settings (?)"
+
+[[verbs]]
+id = 8
+name = "Control Panel Action"
+
+[[verbs]]
+id = 17
+name = "Use Buckazoids"
+
+[[verbs]]
+id = 18
+name = "Use Floor Scrubber"
+
+[[verbs]]
+id = 19
+name = "Use Distributor Cap"
+
+[[verbs]]
+id = 20
+name = "Safety Cones"
+
+[[verbs]]
+id = 21
+name = "Use Kiz-Urazgubi Branch"
+
+[[verbs]]
+id = 22
+name = "Use Kiz-Urazgubi Fruit"
+
+[[verbs]]
+id = 23
+name = "Use Frock"
+
+[[verbs]]
+id = 24
+name = "Command"
+
+[[verbs]]
+id = 25
+name = "Use Oxygen Tank"
+
+[[verbs]]
+id = 26
+name = "Use Cloaking Device"
+
+[[verbs]]
+id = 27
+name = "??? (27)"
+
+[[verbs]]
+id = 28
+name = "Use Transporter Fuse"
+
+[[verbs]]
+id = 29
+name = "Use Antacid"
+
+[[verbs]]
+id = 30
+name = "Use Cutting Torch"
+
+[[verbs]]
+id = 31
+name = "Use Spike"
+
+[[verbs]]
+id = 32
+name = "Use Communicator"
+
+[[verbs]]
+id = 33
+name = "Use Hole Punch"
+
+[[verbs]]
+id = 34
+name = "Use Space Monkeys"
+
+[[verbs]]
+id = 35
+name = "Use Business Card"
+
+[[verbs]]
+id = 36
+name = "Use Genetix Canister"
+
+[[verbs]]
+id = 37
+name = "Use Liquid Nitro Tank"
+
+[[verbs]]
+id = 38
+name = "Use WD-40 Head"
+
+[[verbs]]
+id = 39
+name = "Use Oxygen Mask"
+
+[[verbs]]
+id = 41
+name = "Use Frock"
+
+[[verbs]]
+id = 42
+name = "Use Paper"
+
+[[verbs]]
+id = 43
+name = "??? (43)"
+
+[[rooms]]
+id = 0
+name = "General Text"
+
+[[rooms.nouns]]
+id = 0
+desc = "Generic Object Responses"
+
+[[rooms.nouns]]
+id = 1
+desc = "Information Button"
+
+[[rooms.nouns]]
+id = 2
+desc = "Command Button"
+
+[[rooms.nouns]]
+id = 3
+desc = "Options Button"
+
+[[rooms.nouns]]
+id = 4
+desc = "Inventory Panel"
+
+[[rooms.nouns]]
+id = 5
+desc = "Detail Slider"
+
+[[rooms.nouns]]
+id = 6
+desc = "Use Button"
+
+[[rooms.nouns]]
+id = 7
+desc = "Help Button"
+
+[[rooms.nouns]]
+id = 8
+desc = "Main Menu"
+
+[[rooms.nouns]]
+id = 9
+desc = "Inventory Use Button"
+
+[[rooms.nouns]]
+id = 10
+desc = "Inventory Button"
+
+[[rooms.nouns]]
+id = 11
+desc = "Inventory Help Button"
+
+[[rooms.nouns]]
+id = 12
+desc = "Inventory Arrow Button"
+
+[[rooms.nouns]]
+id = 13
+desc = "Inventory Look Button"
+
+[[rooms.nouns]]
+id = 14
+desc = "Inventory OK Button"
+
+[[rooms.nouns]]
+id = 15
+desc = "Inventory Array Button (#2?)"
+
+[[rooms.nouns]]
+id = 16
+desc = "Look Button"
+
+[[rooms.nouns]]
+id = 17
+desc = "Settings Back Button"
+
+[[rooms.nouns]]
+id = 18
+desc = "Score String (X OUT OF Y)"
+hidden = true
+
+[[rooms.nouns]]
+id = 19
+desc = "Quit Button"
+
+[[rooms.nouns]]
+id = 20
+desc = "Restart Button"
+
+[[rooms.nouns]]
+id = 21
+desc = "Restore Button"
+
+[[rooms.nouns]]
+id = 22
+desc = "Roger"
+
+[[rooms.nouns]]
+id = 23
+desc = "Save Button"
+
+[[rooms.nouns]]
+id = 24
+desc = "Volume Slider"
+
+[[rooms.nouns]]
+id = 25
+desc = "Speed Slider"
+
+[[rooms.nouns]]
+id = 26
+desc = "Talk Button"
+
+[[rooms.nouns]]
+id = 28
+desc = "Walk Button"
+
+[[rooms.nouns]]
+id = 29
+desc = "Score Bar"
+
+[[rooms.nouns]]
+id = 30
+desc = "Roger (as fly)"
+
+[[rooms]]
+id = 1
+name = "Roger Verb Responses"
+
+[[rooms]]
+id = 13
+name = "Settings Credits"
+hidden = true
+
+[[rooms]]
+id = 15
+name = "Inventory"
+
+[[rooms]]
+id = 20
+name = "Deaths"
+
+[[rooms]]
+id = 24
+name = "Settings Descriptions"
+
+[[rooms]]
+id = 100
+name = "Technobabble"
+hidden = true
+
+[[rooms]]
+id = 104
+name = "Introduction"
+
+[[rooms.nouns]]
+id = 1
+is_cutscene = true
+desc = "Roger's Captains Log"
+
+[[rooms.nouns]]
+id = 2
+is_cutscene = true
+desc = "Roger at the Helm (Simulator)"
+
+[[rooms.nouns]]
+id = 3
+desc = "Copyright Notice"
+hidden = true
+
+[[rooms]]
+id = 109
+name = "Starcon Hallways (General)"
+
+[[rooms.conditions]]
+id = 0
+desc = "Hall Section 1"
+
+[[rooms.conditions]]
+id = 1
+desc = "Hall Section 2"
+
+[[rooms.conditions]]
+id = 2
+desc = "Hall Section 3"
+
+[[rooms.conditions]]
+id = 3
+desc = "Hall Section 4"
+
+[[rooms]]
+id = 110
+name = "Bridge Simulator Room"
+
+[[rooms]]
+id = 115
+name = "Rotunda Walkway R"
+
+[[rooms]]
+id = 117
+name = "Rotunda Walkway L"
+
+[[rooms]]
+id = 119
+name = "Rotunda Floor"
+
+[[rooms.conditions]]
+id = 0
+desc = "Before Cleaning"
+
+[[rooms.conditions]]
+id = 1
+desc = "Scrubber Activated"
+
+[[rooms.conditions]]
+id = 2
+desc = "Sitting on Scrubber"
+
+[[rooms.conditions]]
+id = 3
+desc = "Clean Crest, On Scrubber"
+
+[[rooms.conditions]]
+id = 4
+desc = "Crest is Clean and Wet"
+
+[[rooms.conditions]]
+id = 5
+desc = "Crest is Clean and Dry"
+
+[[rooms.conditions]]
+id = 6
+desc = ""
+
+[[rooms]]
+id = 121
+name = "Starcon Hallway #1"
+
+[[rooms]]
+id = 122
+name = "Starcon Hallway #2"
+
+[[rooms.conditions]]
+id = 1
+desc = "Janitor's Closet Open"
+
+[[rooms.conditions]]
+id = 2
+desc = "Janitor's Closet Closed"
+
+[[rooms.conditions]]
+id = 3
+desc = "Before Meeting Beatrice"
+
+[[rooms.conditions]]
+id = 4
+desc = "After Meeting Beatrice"
+
+[[rooms.nouns]]
+id = 1
+desc = "Floor Scrubber"
+
+[[rooms.nouns]]
+id = 2
+desc = "Janitor's Closet"
+
+[[rooms.nouns]]
+id = 3
+desc = "Safety Cones"
+
+[[rooms.nouns]]
+id = 4
+desc = "Broken Academy Schematic"
+
+[[rooms.nouns]]
+id = 5
+desc = "Beatrice's Ship"
+
+[[rooms.nouns]]
+id = 6
+desc = "Ship #1"
+
+[[rooms.nouns]]
+id = 7
+desc = "Ship #2"
+
+[[rooms.nouns]]
+id = 8
+desc = "Simulator Door"
+
+[[rooms.nouns]]
+id = 9
+desc = "Astro-techs"
+
+[[rooms]]
+id = 123
+name = "Starcon Hallway #3"
+
+[[rooms.conditions]]
+id = 1
+desc = "After Taking SATs"
+
+[[rooms.conditions]]
+id = 2
+desc = "Before Taking SATs"
+
+[[rooms.nouns]]
+id = 1
+desc = "Bulletin Board"
+
+[[rooms.nouns]]
+id = 2
+desc = "Classroom Door"
+
+[[rooms.nouns]]
+id = 3
+desc = "Locker"
+
+[[rooms.nouns]]
+id = 4
+desc = "Ship #1"
+
+[[rooms.nouns]]
+id = 5
+desc = "Ship #2"
+
+[[rooms.nouns]]
+id = 6
+desc = "Ship #3"
+
+[[rooms.nouns]]
+id = 7
+desc = "Astro-mechs"
+
+[[rooms.nouns]]
+id = 8
+desc = "Post-SAT Student Crowd"
+
+[[rooms]]
+id = 125
+name = "Starcon Hallway #4"
+
+[[rooms.nouns]]
+id = 1
+desc = "Bummed Student"
+
+[[rooms.nouns]]
+id = 2
+desc = "Failing Dialogue"
+is_cutscene = true
+
+[[rooms.nouns]]
+id = 3
+desc = "Conference Room Door"
+
+[[rooms.nouns]]
+id = 4
+desc = "Conference Room Window"
+
+[[rooms.nouns]]
+id = 5
+desc = "Mysterious Panel"
+
+[[rooms.nouns]]
+id = 6
+desc = "Ship #1"
+
+[[rooms.nouns]]
+id = 7
+desc = "Ship #2"
+
+[[rooms.nouns]]
+id = 8
+desc = "Ship #3"
+
+[[rooms.nouns]]
+id = 9
+desc = "Astro-mechs"
+
+[[rooms]]
+id = 127
+name = "Starcon Conference Room"
+
+[[rooms.nouns]]
+id = 1
+desc = "Beatrice's Presentation"
+is_cutscene = true
+
+[[rooms]]
+id = 133
+name = "Grade Master 2000"
+hidden = true
+
+[[rooms]]
+id = 135
+name = "Classroom"
+
+[[rooms]]
+id = 137
+name = "SAT Questions"
+
+[[rooms]]
+id = 165
+name = "Starcon Ship Bay (Cutscene)"
+
+[[rooms]]
+id = 166
+name = "SAT Results Letter"
+
+[[rooms]]
+id = 200
+name = "Eureka Bridge - Standing"
+
+[[rooms]]
+id = 201
+name = "Eureka Bridge - In Chair"
+
+[[rooms.nouns]]
+id = 1
+desc = "Abandon Ship"
+
+[[rooms.nouns]]
+id = 2
+desc = "Activate RRS (Fail)"
+
+[[rooms.nouns]]
+id = 3
+desc = "Belay That Order (WD-40)"
+
+[[rooms.nouns]]
+id = 4
+desc = "Cancel Order (Flo)"
+
+[[rooms.nouns]]
+id = 5
+desc = "Commander's Chair"
+
+[[rooms.nouns]]
+id = 6
+desc = "Cliffy"
+
+[[rooms.nouns]]
+id = 7
+desc = "Cloak Ship"
+
+[[rooms.nouns]]
+id = 8
+desc = "Status Report (Cliffy)"
+
+[[rooms.nouns]]
+id = 9
+desc = "Navigation Console"
+
+[[rooms.nouns]]
+id = 10
+desc = "Decloak Ship"
+
+[[rooms.nouns]]
+id = 11
+# Condition 41 = Coordinates Locked
+desc = "Droole"
+
+[[rooms.nouns]]
+id = 12
+desc = "Status Report (Droole)"
+
+[[rooms.nouns]]
+id = 13
+desc = "Evasive Action"
+
+[[rooms.nouns]]
+id = 14
+desc = "Communications Console"
+
+[[rooms.nouns]]
+id = 15
+desc = "Fire Weapons"
+
+[[rooms.nouns]]
+id = 16
+desc = "Flo"
+
+[[rooms.nouns]]
+id = 17
+desc = "Forget it (Cliffy)"
+
+[[rooms.nouns]]
+id = 18
+desc = "Status Report (Flo)"
+
+[[rooms.nouns]]
+id = 19
+desc = "Hailing"
+
+[[rooms.nouns]]
+id = 20
+desc = "Hail Ship"
+
+[[rooms.nouns]]
+id = 21
+desc = "Hail Planet"
+
+[[rooms.nouns]]
+id = 22
+desc = "Hail Starcon"
+
+[[rooms.nouns]]
+id = 23
+desc = "Lay in a Course"
+
+[[rooms.nouns]]
+id = 24
+desc = "Lite Speed (no course laid in)"
+
+[[rooms.nouns]]
+id = 25
+desc = "Lower Shields"
+
+[[rooms.nouns]]
+id = 26
+desc = "More Power!"
+
+[[rooms.nouns]]
+id = 27
+desc = "Never Mind (Droole)"
+
+[[rooms.nouns]]
+id = 28
+desc = "Act Busy"
+
+[[rooms.nouns]]
+id = 29
+desc = "Raise Shields"
+
+[[rooms.nouns]]
+id = 30
+desc = "Recommendation (WD-40)"
+
+[[rooms.nouns]]
+id = 31
+desc = "Regular Speed (When at Regular Speed)"
+
+[[rooms.nouns]]
+id = 32
+desc = "Bridge"
+
+[[rooms.nouns]]
+id = 33
+desc = "Scan Planet"
+
+[[rooms.nouns]]
+id = 34
+desc = "Scan for Ships"
+
+[[rooms.nouns]]
+id = 35
+desc = "Standard Orbit"
+
+[[rooms.nouns]]
+id = 36
+desc = "Monitors"
+
+[[rooms.nouns]]
+id = 39
+desc = "Waste Beacon Detected"
+
+[[rooms.nouns]]
+id = 40
+desc = "WD-40 Screen"
+
+[[rooms.nouns]]
+id = 41
+desc = "Status Report (WD-40)"
+
+[[rooms.nouns]]
+id = 42
+desc = "Command Success"
+
+[[rooms.nouns]]
+id = 43
+desc = "Anything Else (Engineering)"
+
+[[rooms.conditions]]
+id = 1
+desc = "No Self Destruct"
+
+[[rooms.conditions]]
+id = 2
+desc = "Self Destruct Running"
+
+[[rooms.conditions]]
+id = 3
+desc = "Respectful Crew"
+
+[[rooms.conditions]]
+id = 4
+desc = "Disrespectful Crew"
+
+[[rooms.conditions]]
+id = 5
+desc = "WD-40 Repaired"
+
+[[rooms.conditions]]
+id = 6
+desc = "Bea Dies (Thrakus)"
+
+[[rooms.conditions]]
+id = 7
+desc = "Bea Dies (Not Thrakus)"
+
+[[rooms.conditions]]
+id = 8
+desc = "Cliffy Manning Engineering"
+
+[[rooms.conditions]]
+id = 9
+desc = "Currently Cloaked"
+
+[[rooms.conditions]]
+id = 10
+desc = "Cloak Being Installed"
+
+[[rooms.conditions]]
+id = 11
+desc = "Ship Damaged (Goliath)"
+
+[[rooms.conditions]]
+id = 12
+desc = "Spike is Loose"
+
+[[rooms.conditions]]
+id = 13
+desc = "Ship Damaged (WD-40)"
+
+[[rooms.conditions]]
+id = 14
+desc = "Approaching Destination"
+
+[[rooms.conditions]]
+id = 15
+desc = "Goliath Damaged"
+
+[[rooms.conditions]]
+id = 16
+desc = "Blob Vacuumed"
+
+[[rooms.conditions]]
+id = 17
+desc = "At Regular Speed"
+
+[[rooms.conditions]]
+id = 18
+desc = "Blob Visible"
+
+[[rooms.conditions]]
+id = 19
+desc = "Ship Cloaked (Goliath)"
+
+[[rooms.conditions]]
+id = 20
+desc = "Goliath Attack"
+
+[[rooms.conditions]]
+id = 21
+desc = "Goliath Attack"
+
+[[rooms.conditions]]
+id = 22
+desc = "Goliath Attack"
+
+[[rooms.conditions]]
+id = 23
+desc = "At Starcon Base"
+
+[[rooms.conditions]]
+id = 24
+desc = "Goliath Attack"
+
+[[rooms.conditions]]
+id = 25
+desc = "Intercepted Message"
+
+[[rooms.conditions]]
+id = 26
+desc = "Spike in Waste Compartment"
+
+[[rooms.conditions]]
+id = 27
+desc = "At Klorox II"
+
+[[rooms.conditions]]
+id = 28
+desc = "At Genetix"
+
+[[rooms.conditions]]
+id = 29
+desc = "Garbage Run Reminder"
+
+[[rooms.conditions]]
+id = 30
+desc = "At Thrakus"
+
+[[rooms.conditions]]
+id = 31
+desc = "At Generic Planet"
+
+[[rooms.conditions]]
+id = 32
+desc = "At Starcon Base"
+
+[[rooms.conditions]]
+id = 33
+desc = "Goliath Jamming"
+
+[[rooms.conditions]]
+id = 34
+desc = "Hailing Goliath (Peaceful)"
+
+[[rooms.conditions]]
+id = 35
+desc = "Goliath Hail (Peaceful)"
+
+[[rooms.conditions]]
+id = 36
+desc = "Laying In a Course"
+
+[[rooms.conditions]]
+id = 37
+desc = "At Starcon Base"
+
+[[rooms.conditions]]
+id = 38
+desc = "Ship Needs Repairs"
+
+[[rooms.conditions]]
+id = 39
+desc = "Nothing"
+
+[[rooms]]
+id = 202
+name = "Eureka Bridge - Location Specific"
+
+[[rooms]]
+id = 205
+name = "Eureka Bridge - Crew Commands"
+
+[[rooms]]
+id = 206
+name = "Eureka Bridge - Maggot/Dung Heep Cutscene"
+
+[[rooms]]
+id = 208
+name = "Eureka Bridge - WD-40 Attack"
+
+[[rooms]]
+id = 225
+name = "Eureka Hallway"
+
+[[rooms]]
+id = 226
+name = "Cliffy's Toolbox"
+
+[[rooms]]
+id = 228
+name = "Eureka Fusebox"
+
+[[rooms]]
+id = 230
+name = "Eureka Hallway - Meeting Spike"
+
+[[rooms]]
+id = 240
+name = "Engineering"
+
+[[rooms.nouns]]
+id = 11
+desc = "Cryo-Chef"
+
+[[rooms.conditions]]
+id = 11
+desc = "Cryo-Chamber Closed"
+
+[[rooms.conditions]]
+id = 12
+desc = "Cryo-Chamber Open"
+
+[[rooms.conditions]]
+id = 13
+desc = "Holding Beatrice"
+
+[[rooms]]
+id = 241
+name = "Engineering - Cryo-Chef Inset"
+
+[[rooms]]
+id = 246
+name = "Engineeering - Infiltration Planning"
+
+[[rooms]]
+id = 250
+name = "EVA Bay"
+
+[[rooms]]
+id = 300
+name = "Kiz-Urazgubi - Waterfall Pool"
+
+[[rooms]]
+id = 301
+name = "Kiz-Urazgubi - General Messages"
+
+[[rooms]]
+id = 305
+name = "Kiz-Urazgubi - Log Bridge"
+
+[[rooms]]
+id = 310
+name = "Kiz-Urazgubi - Lower Cliffs"
+
+[[rooms]]
+id = 315
+name = "Kiz-Urazgubi - Upper Cliffs"
+
+[[rooms]]
+id = 320
+name = "Kiz-Urazgubi - Side Cave"
+
+[[rooms]]
+id = 325
+name = "Kiz-Urazgubi - Outside WD-40's Ship"
+
+[[rooms]]
+id = 330
+name = "Kiz-Urazgubi - Inside WD-40's Ship"
+
+[[rooms]]
+id = 335
+name = "Kiz-Urazgubi - Cloaking Device Hatch"
+
+[[rooms]]
+id = 400
+name = "Klorox II - Canister"
+
+[[rooms]]
+id = 401
+name = "Klorox II - Beam Up Messages"
+
+[[rooms]]
+id = 410
+name = "Klorox II - Vista"
+
+[[rooms.nouns]]
+id = 3
+desc = "X"
+hidden = true
+
+[[rooms.nouns]]
+id = 4
+desc = "X"
+hidden = true
+
+[[rooms.nouns]]
+id = 5
+desc = "X"
+hidden = true
+
+[[rooms]]
+id = 420
+name = "Klorox II - Greenhouse"
+
+[[rooms]]
+id = 440
+name = "Klorox II - Mutant Attack"
+
+[[rooms]]
+id = 450
+name = "Klorox II - After Attack"
+
+[[rooms]]
+id = 460
+name = "Klorox II - Computer Console"
+
+[[rooms]]
+id = 500
+name = "SpaceBar - Lounge"
+
+[[rooms]]
+id = 501
+name = "SpaceBar - Explosion Warnings"
+
+[[rooms]]
+id = 510
+name = "SpaceBar - Brig"
+
+[[rooms]]
+id = 520
+name = "SpaceBar - Table"
+
+[[rooms]]
+id = 530
+name = "SpaceBar - Cliffy's Cell"
+
+[[rooms]]
+id = 620
+name = "Thrakus - Bea's Pod (Interior/Exterior)"
+
+[[rooms]]
+id = 640
+name = "Thrakus - Exterior"
+
+[[rooms]]
+id = 660
+name = "Thrakus - Ledge Hanging"
+
+[[rooms]]
+id = 701
+name = "Genetix - Transporter"
+
+[[rooms]]
+id = 730
+name = "Genetix - Lab Exterior"
+
+[[rooms]]
+id = 740
+name = "Genetix - Dumpster"
+
+[[rooms]]
+id = 750
+name = "Genetix - Security Log"
+
+[[rooms.nouns]]
+id = 2
+desc = "Status Log"
+hidden = true
+
+[[rooms.nouns]]
+id = 3
+desc = "Headers"
+hidden = true
+
+[[rooms.nouns]]
+id = 4
+desc = "Log Contents"
+hidden = true
+
+[[rooms]]
+id = 751
+name = "Genetix - Computer Budget"
+hidden = true
+
+[[rooms]]
+id = 752
+name = "Genetix - Science Log"
+
+[[rooms]]
+id = 753
+name = "Genetix - Surveillance Camera"
+
+[[rooms]]
+id = 760
+name = "Genetix - Pond"
+
+[[rooms]]
+id = 770
+name = "Genetix - Door Lock"
+
+[[rooms]]
+id = 790
+name = "Genetix - Lab Interior"
+
+[[rooms]]
+id = 800
+name = "EVA Pod - Attached to Goliath"
+
+[[rooms]]
+id = 801
+name = "EVA Pod - Saving Cliffy"
+
+[[rooms]]
+id = 802
+name = "EVA Pod - Approaching Goliath"
+
+[[rooms]]
+id = 850
+name = "SpaceBar - Playing Battle Cruiser"
+
+# TODO: I don't know the difference between these rooms
+[[rooms]]
+id = 990
+name = "Save/Load Messages"
+hidden = true
+
+[[rooms]]
+id = 994
+name = "Save/Load UI"
+
+[[rooms]]
+id = 1000
+name = "Goliath - Engine Room #1"
+
+# TODO: This seems to have the same messages as room 1000, with a few extra
+[[rooms]]
+id = 1001
+name = "Goliath - Engine Room #2"
+
+[[rooms]]
+id = 1005
+name = "Goliath - Starburator"
+
+[[rooms]]
+id = 1010
+name = "Goliath - Hallway"
+
+[[rooms]]
+id = 1020
+name = "Goliath - Crawlspace"
+
+[[rooms]]
+id = 1025
+name = "Goliath - Shield Power Crawlspace"
+
+[[rooms]]
+id = 1030
+name = "Goliath - Turbolift Shaft (Upper)"
+
+[[rooms]]
+id = 1035
+name = "Goliath - Turbolift Shaft (Lower)"
+
+[[rooms]]
+id = 1040
+name = "Goliath - Bridge"
+
+[[rooms]]
+id = 1041
+name = "Game End/Credits"
+
+[[rooms.nouns]]
+id = 1
+desc = "Credits"
+hidden = true
+
+[[rooms]]
+id = 1050
+name = "Goliath - Transporter Room"

@@ -9,7 +9,16 @@ impl Sha256Hash {
     pub fn from_stream_hash<R: std::io::Read>(mut reader: R) -> io::Result<(Self, u64)> {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
-        let size = std::io::copy(&mut reader, &mut hasher)?;
+        let mut buf = [0u8; 8 * 1024];
+        let mut size = 0u64;
+        loop {
+            let bytes_read = reader.read(&mut buf)?;
+            if bytes_read == 0 {
+                break;
+            }
+            size += u64::try_from(bytes_read).unwrap();
+            hasher.update(&buf[..bytes_read]);
+        }
         Ok((Sha256Hash(hasher.finalize().into()), size))
     }
 
