@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, fmt::Display, path::PathBuf, str::FromStr, time::Duration};
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use scidev::{ids::LineId, utils::serde::Sha256Hash};
 use sciproj::{
@@ -351,7 +352,7 @@ impl ExportBook {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(transparent)]
-struct Manifest(BTreeMap<PathBuf, Sha256Hash>);
+struct Manifest(BTreeMap<RelPathBuf, Sha256Hash>);
 
 const MANIFEST_FILE_NAME: &str = "scidub.manifest.json";
 
@@ -365,6 +366,7 @@ impl GameData {
     fn run(self) -> anyhow::Result<()> {
         match self.command {
             GameDataSubcommand::CreateManifest(c) => c.run(),
+            GameDataSubcommand::Validate(v) => v.run(),
         }
     }
 }
@@ -372,6 +374,7 @@ impl GameData {
 #[derive(Debug, Subcommand)]
 enum GameDataSubcommand {
     CreateManifest(CreateManifest),
+    Validate(ValidateManifest),
 }
 
 #[derive(Debug, Parser)]
@@ -391,18 +394,80 @@ impl CreateManifest {
         let mut manifest = Manifest(BTreeMap::new());
         for entry in walker {
             let entry = entry?;
-            if entry.file_type().is_file() {
-                let file = std::fs::File::open(entry.path())?;
-                let (hash, _) = Sha256Hash::from_stream_hash(file)?;
-                let relative_path = entry.path().strip_prefix(&env.game_path)?;
-                manifest.0.insert(relative_path.to_path_buf(), hash);
+            if !entry.file_type().is_file() {
+                continue;
             }
+            let file = std::fs::File::open(entry.path())?;
+            let (hash, _) = Sha256Hash::from_stream_hash(file)?;
+            let relative_path = entry.path().strip_prefix(&env.game_path)?;
+            manifest
+                .0
+                .insert(RelPathBuf::try_from(relative_path)?, hash);
         }
 
         let manifest_path = env.project_root.join(MANIFEST_FILE_NAME);
 
         let mut output = std::fs::File::create(&manifest_path)?;
         serde_json::to_writer_pretty(&mut output, &manifest)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Parser)]
+struct ValidateManifest {
+    #[command(flatten)]
+    env: GlobalConfigArgs,
+}
+
+impl ValidateManifest {
+    fn run(self) -> anyhow::Result<()> {
+        let env = self
+            .env
+            .load_env()
+            .context("while loading project".to_string())?;
+        let manifest_path = env.project_root.join(MANIFEST_FILE_NAME);
+        let mut manifest: Manifest =
+            serde_json::from_reader(std::fs::File::open(&manifest_path).context(format!(
+                "Error opening manifest at {}",
+                manifest_path.display()
+            ))?)
+            .context("Error parsing manifest".to_string())?;
+
+        let walker = walkdir::WalkDir::new(&env.game_path)
+            .follow_links(false)
+            .follow_root_links(false);
+
+        for entry in walker {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let file = std::fs::File::open(entry.path())
+                .context(format!("Could not open file {}", entry.path().display()))?;
+            let (file_hash, _) = Sha256Hash::from_stream_hash(file)?;
+            let relative_path: &RelPath = entry.path().strip_prefix(&env.game_path)?.try_into()?;
+            let Some(manifest_hash) = manifest.0.remove(relative_path) else {
+                anyhow::bail!("Found game file not in manifest: {relative_path}");
+            };
+
+            if manifest_hash != file_hash {
+                anyhow::bail!("Game file {relative_path} is different from version in manifest.");
+            }
+        }
+
+        if !manifest.0.is_empty() {
+            anyhow::bail!(
+                "The following files are present in the manifest but not found in the game directory: {}",
+                manifest
+                    .0
+                    .keys()
+                    .map(ToString::to_string)
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+        }
+
+        eprintln!("Files at {} match the manifest.", env.game_path.display());
         Ok(())
     }
 }

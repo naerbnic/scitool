@@ -1,8 +1,8 @@
 use bytes::Buf;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, io};
+use std::{borrow::Cow, fmt::Debug, io};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sha256Hash([u8; 32]);
 
 impl Sha256Hash {
@@ -62,8 +62,8 @@ impl<'de> Deserialize<'de> for Sha256Hash {
     where
         D: serde::Deserializer<'de>,
     {
-        let s: &'de str = serde::Deserialize::deserialize(deserializer)?;
-        Sha256Hash::from_hex_str(s).map_err(serde::de::Error::custom)
+        let s: Cow<'de, str> = serde::Deserialize::deserialize(deserializer)?;
+        Sha256Hash::from_hex_str(&s).map_err(serde::de::Error::custom)
     }
 }
 

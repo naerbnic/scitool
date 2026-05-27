@@ -1,6 +1,9 @@
 use std::{ffi::OsStr, path::PathBuf};
 
+pub mod espeak;
 pub mod ffmpeg;
+
+mod util;
 
 pub struct Tool {
     binary_path: PathBuf,

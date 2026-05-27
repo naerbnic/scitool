@@ -9,9 +9,15 @@
 //! These are true for all platforms.
 #![expect(unsafe_code)]
 
-use serde::{Deserialize, de::Error as _};
+use serde::{Deserialize, Serialize, de::Error as _};
 use std::{
-    borrow::Cow, collections::HashSet, ffi::OsStr, ops::Deref, path::Component, sync::LazyLock,
+    borrow::{Borrow, Cow},
+    collections::HashSet,
+    ffi::OsStr,
+    fmt::Display,
+    ops::Deref,
+    path::Component,
+    sync::LazyLock,
 };
 
 use itertools::{EitherOrBoth, Itertools as _};
@@ -106,6 +112,10 @@ pub struct StripPrefixError(());
 #[derive(Debug, thiserror::Error)]
 #[error("invalid relpath conversion")]
 pub struct FromStdPathError(());
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid relpath conversion")]
+pub struct TryFromPathError(());
 
 #[derive(Debug)]
 pub struct Components<'a> {
@@ -442,6 +452,19 @@ impl<'de> Deserialize<'de> for &'de RelPath {
     }
 }
 
+impl<'a> TryFrom<&'a std::path::Path> for &'a RelPath {
+    type Error = TryFromPathError;
+    fn try_from(value: &'a std::path::Path) -> Result<Self, Self::Error> {
+        RelPath::try_new(value.to_str().ok_or(TryFromPathError(()))?).ok_or(TryFromPathError(()))
+    }
+}
+
+impl Display for &RelPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RelPathBuf(String);
 
@@ -557,7 +580,16 @@ impl Deref for RelPathBuf {
 
 impl AsRef<RelPath> for RelPathBuf {
     fn as_ref(&self) -> &RelPath {
-        RelPath::from_str_unchecked(&self.0)
+        self.as_path()
+    }
+}
+
+impl Serialize for RelPathBuf {
+    fn serialize<D>(&self, serializer: D) -> Result<D::Ok, D::Error>
+    where
+        D: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0)
     }
 }
 
@@ -566,8 +598,27 @@ impl<'de> Deserialize<'de> for RelPathBuf {
     where
         D: serde::Deserializer<'de>,
     {
-        let plain_str: String = Deserialize::deserialize(deserializer)?;
+        let plain_str: Cow<'de, str> = Deserialize::deserialize(deserializer)?;
         RelPathBuf::try_new(plain_str).ok_or_else(|| D::Error::custom(FromStdPathError(())))
+    }
+}
+
+impl TryFrom<&std::path::Path> for RelPathBuf {
+    type Error = TryFromPathError;
+    fn try_from(value: &std::path::Path) -> Result<Self, Self::Error> {
+        Self::try_new(value.to_str().ok_or(TryFromPathError(()))?).ok_or(TryFromPathError(()))
+    }
+}
+
+impl Display for RelPathBuf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Borrow<RelPath> for RelPathBuf {
+    fn borrow(&self) -> &RelPath {
+        self.as_path()
     }
 }
 
