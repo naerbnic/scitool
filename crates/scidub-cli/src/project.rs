@@ -64,6 +64,7 @@ pub(crate) struct Project {
     root: PathBuf,
     config_path: OnceCell<PathBuf>,
     config: OnceCell<ProjectConfig>,
+    build_dir: OnceCell<PathBuf>,
     manifest_path: OnceCell<PathBuf>,
     manifest: OnceCell<Option<Manifest>>,
     game_path: OnceCell<Option<PathBuf>>,
@@ -84,6 +85,7 @@ impl Project {
             root,
             config_path: OnceCell::new(),
             config: OnceCell::new(),
+            build_dir: OnceCell::new(),
             manifest_path: OnceCell::new(),
             manifest: OnceCell::new(),
             game_path: OnceCell::new(),
@@ -120,11 +122,7 @@ impl Project {
             if !path.is_file() {
                 return Ok(None);
             }
-            let manifest_bytes = std::fs::read(path).context(anyhow::format_err!(
-                "Unable to open manifest file {}",
-                path.display()
-            ))?;
-            let manifest: Manifest = toml::from_slice(&manifest_bytes)
+            let manifest: Manifest = serde_json::from_reader(std::fs::File::open(path)?)
                 .context(format!("Unable to parse manifest file {}", path.display()))?;
             Ok::<_, anyhow::Error>(Some(manifest))
         })?;
@@ -148,6 +146,17 @@ impl Project {
             ))?;
             Ok(config)
         })
+    }
+
+    pub(crate) fn build_dir(&self) -> anyhow::Result<&Path> {
+        let build_dir = get_or_init(&self.build_dir, || {
+            let config = self.config()?;
+            let config_build_dir = config.build_dir();
+            let rel_path = config_build_dir.unwrap_or(RelPath::new("build"));
+            Ok::<_, anyhow::Error>(rel_path.to_std_path(self.root()))
+        })?;
+
+        Ok(build_dir)
     }
 
     pub(crate) fn game_path_opt(&self) -> anyhow::Result<Option<&Path>> {
@@ -254,6 +263,18 @@ impl Manifest {
         let (hash, _) = Sha256Hash::from_stream_hash(reader)?;
         self.add(path, hash);
         Ok(())
+    }
+
+    pub(crate) fn match_file<R>(&self, path: impl AsRef<RelPath>, data: R) -> anyhow::Result<bool>
+    where
+        R: Read,
+    {
+        let Some(hash) = self.0.get(path.as_ref()) else {
+            return Ok(false);
+        };
+
+        let (file_hash, _) = Sha256Hash::from_stream_hash(data)?;
+        Ok(file_hash == *hash)
     }
 
     pub(crate) fn entries(&self) -> &BTreeMap<RelPathBuf, Sha256Hash> {

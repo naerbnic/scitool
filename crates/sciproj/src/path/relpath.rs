@@ -219,6 +219,12 @@ impl AsRef<RelPath> for Segment {
     }
 }
 
+impl AsRef<std::path::Path> for Segment {
+    fn as_ref(&self) -> &std::path::Path {
+        std::path::Path::new(self.as_str())
+    }
+}
+
 #[repr(transparent)]
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct RelPath(str);
@@ -592,6 +598,12 @@ impl Deref for RelPathBuf {
 impl AsRef<RelPath> for RelPathBuf {
     fn as_ref(&self) -> &RelPath {
         self.as_path()
+    }
+}
+
+impl AsRef<std::path::Path> for RelPathBuf {
+    fn as_ref(&self) -> &std::path::Path {
+        self.as_str().as_ref()
     }
 }
 
