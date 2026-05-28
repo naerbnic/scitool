@@ -6,11 +6,13 @@ use std::{
 };
 
 use anyhow::Context;
+use sciproj::formats::ndjson::{parse_ndjson, serialize_ndjson};
 
 #[derive(Clone)]
 pub(crate) enum DataFormat {
     Json,
     Csv,
+    NdJson,
 }
 
 impl DataFormat {
@@ -18,6 +20,7 @@ impl DataFormat {
         Some(match ext {
             "json" => DataFormat::Json,
             "csv" => DataFormat::Csv,
+            "ndjson" => DataFormat::NdJson,
             _ => return None,
         })
     }
@@ -36,7 +39,16 @@ where
         .and_then(|ext| ext.to_str().and_then(DataFormat::from_ext))
         .unwrap_or_else(|| default_format.clone());
 
-    let file = std::fs::File::open(path)?;
+    load_data_as(path, &format)
+}
+
+pub(crate) fn load_data_as<T>(path: impl AsRef<Path>, format: &DataFormat) -> anyhow::Result<Vec<T>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let path = path.as_ref();
+
+    let mut file = std::fs::File::open(path)?;
 
     let data = match format {
         DataFormat::Json => serde_json::from_reader(file).context(format!(
@@ -48,6 +60,12 @@ where
                 .has_headers(true)
                 .from_reader(file);
             reader.into_deserialize().collect::<Result<Vec<_>, _>>()?
+        }
+        DataFormat::NdJson => {
+            let mut contents = Vec::new();
+            file.read_to_end(&mut contents)
+                .context(format!("Could not read data file: {}", path.display()))?;
+            parse_ndjson(&contents)?
         }
     };
 
@@ -78,6 +96,14 @@ where
                 writer.serialize(item)?;
             }
             writer.flush().context("Error flushing CSV writer")?;
+        }
+        DataFormat::NdJson => {
+            let bytes = serialize_ndjson(data).context(format!(
+                "Could not serialize data to NDJSON format: {}",
+                path.display()
+            ))?;
+            std::fs::write(path, bytes)
+                .context(format!("Could not write data file: {}", path.display()))?;
         }
     }
 
@@ -114,6 +140,14 @@ where
         .extension()
         .and_then(|ext| ext.to_str().and_then(ConfigFormat::from_ext))
         .unwrap_or_else(|| default_format.clone());
+    load_config_as(path, &format)
+}
+
+pub(crate) fn load_config_as<T>(path: impl AsRef<Path>, format: &ConfigFormat) -> anyhow::Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let path = path.as_ref();
 
     let mut file = std::fs::File::open(path)?;
 

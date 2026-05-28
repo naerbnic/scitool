@@ -7,7 +7,7 @@ define_error! {
     pub struct NdJsonError;
 }
 
-pub(crate) fn parse_ndjson<'de, T>(data: &'de [u8]) -> Result<Vec<T>, NdJsonError>
+pub fn parse_ndjson<'de, T>(data: &'de [u8]) -> Result<Vec<T>, NdJsonError>
 where
     T: serde::Deserialize<'de>,
 {
@@ -34,7 +34,7 @@ where
     Ok(result)
 }
 
-pub(crate) fn serialize_ndjson<T>(items: &[T]) -> Result<Vec<u8>, NdJsonError>
+pub fn serialize_ndjson<T>(items: &[T]) -> Result<Vec<u8>, NdJsonError>
 where
     T: serde::Serialize,
 {
