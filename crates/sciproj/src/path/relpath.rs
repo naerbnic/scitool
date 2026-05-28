@@ -233,6 +233,17 @@ impl RelPath {
     }
 
     #[must_use]
+    pub fn from_std_path(path: &impl AsRef<std::path::Path>) -> &Self {
+        Self::try_from_std_path(path).expect("Not a valid relative path")
+    }
+    #[must_use]
+    pub fn try_from_std_path(path: &impl AsRef<std::path::Path>) -> Option<&Self> {
+        let path = path.as_ref();
+        let path_str = path.to_str()?;
+        Self::try_new(path_str)
+    }
+
+    #[must_use]
     pub fn try_new(path: &str) -> Option<&Self> {
         if validate_rel_path(path) {
             Some(Self::from_str_unchecked(path))
