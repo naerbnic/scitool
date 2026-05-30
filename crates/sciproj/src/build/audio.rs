@@ -5,9 +5,10 @@ use std::{
 };
 
 use crate::{
+    book::Book,
     path::LookupPath,
     resources::{AudioClip, generate_sample_resources},
-    tools::ffmpeg::FfmpegTool,
+    tools::{espeak::EspeakTool, ffmpeg::FfmpegTool},
 };
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use scidev::ids::LineId;
@@ -20,6 +21,7 @@ where
 }
 
 pub async fn compile_audio_base(
+    book: &Book,
     line_mapping: &BTreeMap<LineId, AudioClip>,
     output_dir: &Path,
 ) -> anyhow::Result<()> {
@@ -31,7 +33,13 @@ pub async fn compile_audio_base(
             .expect("ffmpeg not found in PATH")
             .to_path_buf(),
     );
-    let resources = generate_sample_resources(line_mapping, &ffmpeg_tool).await?;
+    let synth_tool = system_path
+        .find_binary("espeak")
+        .map(Path::to_path_buf)
+        .map(EspeakTool::from_path);
+
+    let resources =
+        generate_sample_resources(book, line_mapping, &ffmpeg_tool, synth_tool.as_ref()).await?;
     let aud_file_task = {
         let resources = resources.clone();
         box_dyn_future(async move {

@@ -175,7 +175,7 @@ impl Project {
             .ok_or_else(|| anyhow::anyhow!("No game path configured for the project"))
     }
 
-    pub(crate) fn resources(&self) -> anyhow::Result<Option<&ResourceSet>> {
+    pub(crate) fn resources_opt(&self) -> anyhow::Result<Option<&ResourceSet>> {
         Ok(get_or_init(&self.resources, || {
             let Some(game_path) = self.game_path_opt()? else {
                 return Ok(None);
@@ -211,7 +211,7 @@ impl Project {
 
     pub(crate) fn book_opt(&self) -> anyhow::Result<Option<&Book>> {
         Ok(get_or_init(&self.book_opt, || {
-            let Some(resource_set) = self.resources()? else {
+            let Some(resource_set) = self.resources_opt()? else {
                 return Ok(None);
             };
 

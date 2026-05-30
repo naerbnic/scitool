@@ -37,10 +37,15 @@ impl FfmpegTool {
         &self,
         reader: R,
         output_format: impl Into<formats::OutputFormat>,
+        start_ns: Option<u64>,
+        end_ns: Option<u64>,
     ) -> anyhow::Result<ConverterReader>
     where
         R: AsyncRead + Send + 'static,
     {
-        Ok(ConverterReader::new(reader, &self.ffmpeg_path, output_format).await?)
+        Ok(
+            ConverterReader::new(reader, &self.ffmpeg_path, output_format, start_ns, end_ns)
+                .await?,
+        )
     }
 }

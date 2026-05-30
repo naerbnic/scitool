@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     io,
     path::{Path, PathBuf},
+    pin::Pin,
 };
 
 use scidev::{
@@ -24,7 +25,10 @@ use crate::{
     book::{Book, builder::BookBuilder, config::BookConfig},
     file::AudioSampleScan,
     imp::futures::{self, prelude::*},
-    tools::ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
+    tools::{
+        espeak::EspeakTool,
+        ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
+    },
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -70,50 +74,87 @@ fn legacy_load_dir(path: &Path) -> io::Result<BTreeMap<LineId, AudioClip>> {
     Ok(clip_map)
 }
 
+fn to_dyn_async_read<R: AsyncRead + Send + 'static>(data: R) -> Pin<Box<dyn AsyncRead + Send>> {
+    Box::pin(data)
+}
+
 pub async fn generate_sample_resources(
+    book: &Book,
     line_mapping: &BTreeMap<LineId, AudioClip>,
     ffmpeg: &FfmpegTool,
+    espeak: Option<&EspeakTool>,
 ) -> anyhow::Result<VoiceSampleResources> {
     struct ProcessedSample {
-        room: u16,
-        message_id: MessageId,
+        line_id: LineId,
         data: Vec<u8>,
     }
+
+    struct PreparedInput {
+        line_id: LineId,
+        data: Pin<Box<dyn AsyncRead + Send>>,
+        start_ns: Option<u64>,
+        end_ns: Option<u64>,
+    }
     let mut builder = Audio36ResourceBuilder::new();
-    let processed_samples: Vec<ProcessedSample> = futures::stream::iter(line_mapping)
-        .map(async |(line_id, clip)| {
-            let input_file = tokio::fs::File::open(&clip.path).await?;
+    let processed_samples: Vec<ProcessedSample> = futures::stream::iter(book.lines())
+        .map(Ok::<_, anyhow::Error>)
+        .try_filter_map(async |line| {
+            let line_id = line.id();
+            let (source_data, start_ns, end_ns) = if let Some(clip) = line_mapping.get(&line_id) {
+                (
+                    to_dyn_async_read(tokio::fs::File::open(&clip.path).await?),
+                    clip.start_us,
+                    clip.end_us,
+                )
+            } else if let Some(espeak) = espeak {
+                let synthesized = espeak.synthesize(&line.text().to_plain_text()).await?;
+                (to_dyn_async_read(synthesized), None, None)
+            } else {
+                return Ok(None);
+            };
+
+            Ok(Some(PreparedInput {
+                line_id,
+                data: source_data,
+                start_ns,
+                end_ns,
+            }))
+        })
+        .map(async |source_data| {
+            let source_data = source_data?;
             let mut data = Vec::new();
             ffmpeg
                 .create_convert_reader(
-                    input_file,
+                    source_data.data,
                     ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
+                    source_data.start_ns,
+                    source_data.end_ns,
                 )
                 .await?
                 .read_to_end(&mut data)
                 .await?;
             Ok::<_, anyhow::Error>(ProcessedSample {
-                room: line_id.room_num(),
-                message_id: MessageId::new(
-                    line_id.noun_num(),
-                    line_id.verb_num(),
-                    line_id.condition_num(),
-                    line_id.sequence_num(),
-                ),
+                line_id: source_data.line_id,
                 data,
             })
         })
-        .map(Ok)
-        .try_buffer_unordered(10)
+        .buffer_unordered(10)
         .try_collect()
         .await?;
 
     tokio::task::spawn_blocking(|| {
         let mut temp_store = TempStore::create()?;
         for sample in processed_samples {
+            let line_id = sample.line_id;
+            let message_id = MessageId::new(
+                line_id.noun_num(),
+                line_id.verb_num(),
+                line_id.condition_num(),
+                line_id.sequence_num(),
+            );
             let sample_source = temp_store.store_bytes(&sample.data[..])?;
             let voice_sample = VoiceSample::new(AudioFormat::Ogg, sample_source);
-            builder.add_entry(sample.room, sample.message_id, &voice_sample)?;
+            builder.add_entry(line_id.room_num(), message_id, &voice_sample)?;
         }
         Ok(builder.build()?)
     })

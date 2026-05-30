@@ -7,6 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use pin_project::pin_project;
 use tokio::{io::ReadBuf, process::Child, task::JoinSet};
 
 use crate::{imp::futures::prelude::*, tools::ffmpeg::formats};
@@ -17,15 +18,24 @@ const FFMPEG_INPUT_FLAGS: &[&str] = &["-i", "pipe:0"];
 async fn start_ffmpeg(
     ffmpeg_path: &Path,
     output_format: impl Into<formats::OutputFormat>,
+    start_ns: Option<u64>,
+    end_ns: Option<u64>,
 ) -> std::io::Result<Child> {
     let output_format = output_format.into();
+    let mut opts = output_format.get_options();
+    if let Some(start_ns) = start_ns {
+        opts = opts.add_flag("ss", start_ns.to_string());
+    }
+    if let Some(end_ns) = end_ns {
+        opts = opts.add_flag("to", end_ns.to_string());
+    }
     let child = tokio::process::Command::new(ffmpeg_path)
         .args(FFMPEG_INIT_FLAGS)
         // The input comes from stdin
         .args(FFMPEG_INPUT_FLAGS)
         .arg("-f")
         .arg(output_format.format_name())
-        .args(output_format.get_options().to_flags(Some("a:0")))
+        .args(opts.to_flags(Some("a:0")))
         // The output comes from stdout
         .arg("pipe:1")
         .stdin(std::process::Stdio::piped())
@@ -41,7 +51,9 @@ trait ProcessCreator {
     async fn create_process(&self) -> tokio::process::Child;
 }
 
+#[pin_project]
 pub struct ConverterReader {
+    #[pin]
     reader: tokio::io::ReadHalf<tokio::io::SimplexStream>,
     join_set: JoinSet<std::io::Result<()>>,
 }
@@ -51,13 +63,15 @@ impl ConverterReader {
         input: R,
         ffmpeg_path: impl AsRef<Path>,
         output_format: impl Into<formats::OutputFormat>,
+        start_ns: Option<u64>,
+        end_ns: Option<u64>,
     ) -> std::io::Result<Self>
     where
         R: AsyncRead + Send + 'static,
     {
         // Start the process. It will have stdin and stdout handles
         // available.
-        let mut child = start_ffmpeg(ffmpeg_path.as_ref(), output_format).await?;
+        let mut child = start_ffmpeg(ffmpeg_path.as_ref(), output_format, start_ns, end_ns).await?;
         let mut proc_in = child.stdin.take().unwrap();
         let mut proc_out = child.stdout.take().unwrap();
         assert!(child.stderr.is_none());
@@ -114,15 +128,6 @@ impl ConverterReader {
             join_set: tasks,
         })
     }
-
-    /// Helper to call `poll_read()` on the reader without Pin munging.
-    fn poll_reader(
-        &mut self,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.reader).poll_read(cx, buf)
-    }
 }
 
 impl AsyncRead for ConverterReader {
@@ -131,7 +136,7 @@ impl AsyncRead for ConverterReader {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let self_mut = self.get_mut();
+        let self_mut = self.project();
         while let Poll::Ready(result) = self_mut.join_set.poll_join_next(cx) {
             let Some(task_result) = result else {
                 // If we get None here, that means that there are no more
@@ -167,6 +172,6 @@ impl AsyncRead for ConverterReader {
                 }
             }
         }
-        self_mut.poll_reader(cx, buf)
+        self_mut.reader.poll_read(cx, buf)
     }
 }

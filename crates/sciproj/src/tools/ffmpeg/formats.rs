@@ -105,6 +105,10 @@ impl From<OggVorbisOutputOptions> for OutputFormat {
 pub struct AVOptions(BTreeMap<Cow<'static, str>, String>);
 
 impl AVOptions {
+    pub fn add_flag(mut self, key: impl Into<Cow<'static, str>>, value: impl Into<String>) -> Self {
+        assert!(self.0.insert(key.into(), value.into()).is_none());
+        self
+    }
     pub fn to_flags(&self, stream_spec: Option<&str>) -> Vec<OsString> {
         let mut flags = Vec::new();
         for (key, value) in &self.0 {

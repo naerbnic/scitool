@@ -384,10 +384,11 @@ pub(crate) struct Build {
     #[arg(long)]
     audio_files: Option<PathBuf>,
 
-    /// The directory to write the generated patch files to. If not provided,
-    /// the configured target path will be used. If not specified in the
-    /// project, the "build/" directory under the project directory will be
-    /// used.
+    /// The directory to write the generated patch files to.
+    ///
+    /// If not provided, the configured target path will be used. If not
+    /// specified in the project, the "build/" directory under the project
+    /// directory will be used.
     #[arg(short, long)]
     output: Option<PathBuf>,
 
@@ -507,7 +508,7 @@ impl Build {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
-        rt.block_on(compile_audio_base(&line_map, &base_output_dir))?;
+        rt.block_on(compile_audio_base(book, &line_map, &base_output_dir))?;
 
         rt.shutdown_timeout(Duration::from_secs(1));
 

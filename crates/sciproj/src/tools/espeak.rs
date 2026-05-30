@@ -14,7 +14,10 @@ impl EspeakTool {
         EspeakTool { espeak_path }
     }
 
-    pub async fn synthesize(&self, text: &str) -> anyhow::Result<impl tokio::io::AsyncRead> {
+    pub async fn synthesize(
+        &self,
+        text: &str,
+    ) -> anyhow::Result<impl tokio::io::AsyncRead + 'static> {
         let mut child = tokio::process::Command::new(&self.espeak_path)
             .arg("--stdout")
             .arg("--")

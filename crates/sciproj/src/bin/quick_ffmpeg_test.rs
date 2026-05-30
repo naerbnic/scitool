@@ -16,6 +16,8 @@ async fn main() -> anyhow::Result<()> {
         wav_input,
         "/opt/homebrew/bin/ffmpeg",
         sciproj::tools::ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, None)),
+        None,
+        None,
     )
     .await?;
 
