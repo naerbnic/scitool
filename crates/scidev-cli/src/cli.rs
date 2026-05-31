@@ -1,5 +1,4 @@
 mod book;
-mod compile_audio;
 mod generate_csv;
 mod messages;
 mod project;
@@ -18,7 +17,6 @@ pub(crate) struct Cli {
 impl Cli {
     pub(crate) async fn run(&self) -> anyhow::Result<()> {
         match &self.command {
-            Cmd::CompileAudio(compile_audio) => compile_audio.run().await?,
             Cmd::TryScan(try_scan) => try_scan.run()?,
             Cmd::GenerateCsv(generate_csv) => generate_csv.run()?,
             Cmd::Book(book) => book.run()?,
@@ -33,8 +31,6 @@ impl Cli {
 
 #[derive(clap::Subcommand)]
 enum Cmd {
-    #[clap(name = "compile-audio")]
-    CompileAudio(compile_audio::CompileAudio),
     #[clap(name = "try-scan")]
     TryScan(try_scan::TryScan),
     #[clap(name = "generate-csv")]

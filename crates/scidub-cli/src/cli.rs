@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
+    io::Write as _,
     path::{Path, PathBuf},
     str::FromStr,
     time::Duration,
@@ -535,6 +536,7 @@ impl Build {
     }
 }
 
+/// Export the game script or related data.
 #[derive(Debug, Parser)]
 struct ExportScript {
     #[clap(subcommand)]
@@ -546,6 +548,7 @@ impl ExportScript {
         match self.command {
             ExportScriptSubcommand::Lines(export_lines) => export_lines.run(),
             ExportScriptSubcommand::Book(export_book) => export_book.run(),
+            ExportScriptSubcommand::Schema(export_schema) => export_schema.run(),
         }
     }
 }
@@ -554,6 +557,7 @@ impl ExportScript {
 enum ExportScriptSubcommand {
     Lines(ExportLines),
     Book(ExportBook),
+    Schema(ExportSchema),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -612,6 +616,7 @@ struct ExportBook {
     #[command(flatten)]
     env: GlobalConfigArgs,
 
+    /// The file to write the book to.
     #[clap(short = 'o', long, required = true)]
     output: PathBuf,
 }
@@ -624,6 +629,35 @@ impl ExportBook {
         let output = std::fs::File::create(&self.output)?;
 
         file_format::serialize_book(book, &mut serde_json::Serializer::new(output))?;
+        Ok(())
+    }
+}
+
+/// Write the JSON Schema of the book format to stdout or a given file.
+///
+/// This is used by other packages to generate code to read the format.
+#[derive(Debug, Parser)]
+struct ExportSchema {
+    /// If set, pretty-prints the schema output.
+    #[clap(short, long, default_value = "false")]
+    pretty: bool,
+
+    /// If set, the schema is written to the given file.
+    #[clap(short, long)]
+    output: Option<PathBuf>,
+}
+
+impl ExportSchema {
+    fn run(self) -> anyhow::Result<()> {
+        let json_schema = file_format::json_schema(self.pretty);
+        let writer: Box<dyn std::io::Write> = if let Some(out_path) = self.output.as_ref() {
+            Box::new(std::fs::File::create(out_path)?)
+        } else {
+            Box::new(std::io::stdout())
+        };
+        let mut writer = std::io::BufWriter::new(writer);
+        writer.write_all(json_schema.as_bytes())?;
+        writer.flush()?;
         Ok(())
     }
 }

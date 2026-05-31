@@ -1,5 +1,4 @@
 pub(crate) mod book;
-pub(crate) mod compile_audio;
 pub(crate) mod generate_csv;
 pub(crate) mod messages;
 pub(crate) mod project;
