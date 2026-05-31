@@ -11,11 +11,11 @@ hex = "0.4.3"
 log = "0.4.27"
 num = "0.4.3"
 pin-project = "1.1.10"
+scidev-errors = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 tempfile = "3.19.1"
 thiserror = { workspace = true }
-scidev-errors = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
