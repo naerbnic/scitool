@@ -1,6 +1,10 @@
 [workspace]
+members = [
+    "crates/*",
+    "fuzz",
+    "xtask",
+]
 resolver = "2"
-members = ["crates/*", "fuzz", "xtask"]
 
 [workspace.dependencies]
 anyhow = { version = "1.0", features = ["backtrace"] }

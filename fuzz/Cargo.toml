@@ -1,25 +1,25 @@
 [package]
-name = "scidev-fuzz"
-version = "0.0.0"
-publish = false
 edition = "2024"
+name = "scidev-fuzz"
+publish = false
+version = "0.0.0"
 
 [package.metadata]
 cargo-fuzz = true
 
 [[bin]]
+bench = false
+doc = false
 name = "compress_roundtrip"
 path = "fuzz_targets/compress_roundtrip.rs"
 test = false
-doc = false
-bench = false
 
 [[bin]]
+bench = false
+doc = false
 name = "resource_file_reading"
 path = "fuzz_targets/resource_file_reading.rs"
 test = false
-doc = false
-bench = false
 
 [dependencies]
 anyhow = { workspace = true }
