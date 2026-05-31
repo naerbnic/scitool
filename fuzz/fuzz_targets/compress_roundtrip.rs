@@ -7,7 +7,6 @@ use scidev::utils::compression::dcl::{
 
 #[cfg(not(windows))]
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    
     let mut output = Vec::new();
     let mut reader = decompress_reader(compress_reader(
         CompressionMode::Binary,

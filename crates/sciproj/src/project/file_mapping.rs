@@ -159,5 +159,3 @@ pub(crate) struct FileCollection {
     #[expect(dead_code, reason = "in progress")]
     entries: BTreeSet<FileEntry>,
 }
-
-
