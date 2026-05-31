@@ -4,22 +4,22 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
-anyhow = { version = "1.0.97", features = ["backtrace"] }
-clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+clap = { workspace = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-itertools = "0.13"
+itertools = { workspace = true }
 log = "0.4.27"
 schemars = "1.0.4"
-scidev = { path = "../scidev" }
+scidev = { workspace = true }
 scidev-errors = { workspace = true }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-thiserror = "2.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
-walkdir = "2.5.0"
+walkdir = { workspace = true }
 tempfile = "3.19.1"
-toml = "0.9.8"
+toml = { workspace = true }
 bitflags = "2.10.0"
 bytes = "1.10.1"
 num = "0.4.3"

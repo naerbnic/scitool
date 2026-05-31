@@ -22,9 +22,7 @@ doc = false
 bench = false
 
 [dependencies]
-anyhow = "1.0.91"
+anyhow = { workspace = true }
 libfuzzer-sys = "0.4"
 tempfile = "3.19.1"
-
-[dependencies.scidev]
-path = "../crates/scidev"
+scidev = { workspace = true }

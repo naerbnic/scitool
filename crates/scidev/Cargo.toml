@@ -11,15 +11,15 @@ hex = "0.4.3"
 log = "0.4.27"
 num = "0.4.3"
 pin-project = "1.1.10"
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { workspace = true }
 sha2 = { workspace = true }
 tempfile = "3.19.1"
 thiserror = { workspace = true }
-scidev-errors = { path = "../errors" }
+scidev-errors = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
-anyhow = "1.0.91"
+anyhow = { workspace = true }
 datalit = { workspace = true }
 proptest = "1.7.0"
 
