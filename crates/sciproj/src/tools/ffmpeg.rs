@@ -33,7 +33,7 @@ impl FfmpegTool {
         FfmpegTool { ffmpeg_path }
     }
 
-    pub async fn create_convert_reader<R>(
+    pub fn create_convert_reader<R>(
         &self,
         reader: R,
         output_format: impl Into<formats::OutputFormat>,
@@ -43,9 +43,12 @@ impl FfmpegTool {
     where
         R: AsyncRead + Send + 'static,
     {
-        Ok(
-            ConverterReader::new(reader, &self.ffmpeg_path, output_format, start_ns, end_ns)
-                .await?,
-        )
+        Ok(ConverterReader::new(
+            reader,
+            &self.ffmpeg_path,
+            output_format,
+            start_ns,
+            end_ns,
+        )?)
     }
 }

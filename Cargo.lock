@@ -2009,7 +2009,6 @@ dependencies = [
  "bitflags",
  "bytes",
  "castaway",
- "clap",
  "console",
  "futures-core",
  "futures-util",

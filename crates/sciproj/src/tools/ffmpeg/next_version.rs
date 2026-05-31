@@ -15,7 +15,7 @@ use crate::{imp::futures::prelude::*, tools::ffmpeg::formats};
 const FFMPEG_INIT_FLAGS: &[&str] = &["-hide_banner"];
 const FFMPEG_INPUT_FLAGS: &[&str] = &["-i", "pipe:0"];
 
-async fn start_ffmpeg(
+fn start_ffmpeg(
     ffmpeg_path: &Path,
     output_format: impl Into<formats::OutputFormat>,
     start_ns: Option<u64>,
@@ -59,7 +59,7 @@ pub struct ConverterReader {
 }
 
 impl ConverterReader {
-    pub async fn new<R>(
+    pub fn new<R>(
         input: R,
         ffmpeg_path: impl AsRef<Path>,
         output_format: impl Into<formats::OutputFormat>,
@@ -71,7 +71,7 @@ impl ConverterReader {
     {
         // Start the process. It will have stdin and stdout handles
         // available.
-        let mut child = start_ffmpeg(ffmpeg_path.as_ref(), output_format, start_ns, end_ns).await?;
+        let mut child = start_ffmpeg(ffmpeg_path.as_ref(), output_format, start_ns, end_ns)?;
         let mut proc_in = child.stdin.take().unwrap();
         let mut proc_out = child.stdout.take().unwrap();
         assert!(child.stderr.is_none());

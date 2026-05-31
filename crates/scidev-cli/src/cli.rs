@@ -12,7 +12,7 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
-    pub(crate) async fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self) -> anyhow::Result<()> {
         match &self.command {
             Cmd::Project(project) => project.run()?,
             Cmd::Resource(res) => res.run()?,

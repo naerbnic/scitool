@@ -41,7 +41,6 @@ pedantic = { level = "warn", priority = -1 }
 # Disable some pedantic lints, at least for now
 missing-errors-doc = "allow"
 missing-panics-doc = "allow"
-unused-async = "allow"
 
 # Useful restrictions that we want to enforce
 dbg-macro = "warn"

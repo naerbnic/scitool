@@ -82,8 +82,7 @@ pub async fn generate_sample_resources(
             let synthesized = espeak
                 .as_ref()
                 .unwrap()
-                .synthesize(&line.text().to_plain_text())
-                .await?;
+                .synthesize(&line.text().to_plain_text())?;
             Ok::<_, anyhow::Error>(PreparedInput {
                 line_id: line.id(),
                 data: to_dyn_async_read(synthesized),
@@ -108,8 +107,7 @@ pub async fn generate_sample_resources(
                         ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
                         source_data.start_ns,
                         source_data.end_ns,
-                    )
-                    .await?
+                    )?
                     .read_to_end(&mut data)
                     .await?;
                 generate_clip_progress.inc(1);

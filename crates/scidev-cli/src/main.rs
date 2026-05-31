@@ -11,6 +11,6 @@ use clap::Parser;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    Cli::parse().run().await?;
+    Cli::parse().run()?;
     Ok(())
 }
