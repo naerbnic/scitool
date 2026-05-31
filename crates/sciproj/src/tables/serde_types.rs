@@ -1,3 +1,5 @@
+#![expect(dead_code, reason = "Development in progress")]
+
 #[derive(Clone, Debug, serde::Deserialize)]
 pub(crate) struct EnumType {
     values: Vec<String>,
