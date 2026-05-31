@@ -1,10 +1,7 @@
-mod book;
-mod generate_csv;
 mod messages;
 mod project;
 mod resources;
 mod scripts;
-mod try_scan;
 
 use clap::Parser;
 
@@ -17,9 +14,6 @@ pub(crate) struct Cli {
 impl Cli {
     pub(crate) async fn run(&self) -> anyhow::Result<()> {
         match &self.command {
-            Cmd::TryScan(try_scan) => try_scan.run()?,
-            Cmd::GenerateCsv(generate_csv) => generate_csv.run()?,
-            Cmd::Book(book) => book.run()?,
             Cmd::Project(project) => project.run()?,
             Cmd::Resource(res) => res.run()?,
             Cmd::Message(msg) => msg.run()?,
@@ -31,12 +25,6 @@ impl Cli {
 
 #[derive(clap::Subcommand)]
 enum Cmd {
-    #[clap(name = "try-scan")]
-    TryScan(try_scan::TryScan),
-    #[clap(name = "generate-csv")]
-    GenerateCsv(generate_csv::GenerateCsv),
-    #[clap(name = "book")]
-    Book(book::BookCommand),
     #[clap(name = "project", alias = "proj", alias = "p")]
     Project(project::Cmd),
 
