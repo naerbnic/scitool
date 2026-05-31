@@ -10,6 +10,7 @@ pub(crate) struct ProjectConfig {
     game_files: Option<RelPathBuf>,
     audio_files_root: Option<RelPathBuf>,
     build_dir: Option<RelPathBuf>,
+    script_url: Option<String>,
     #[serde(default)]
     targets: HashMap<String, Target>,
 }
@@ -34,6 +35,10 @@ impl ProjectConfig {
 
     pub(crate) fn build_dir(&self) -> Option<&RelPath> {
         self.build_dir.as_deref()
+    }
+
+    pub(crate) fn script_url(&self) -> Option<&str> {
+        self.script_url.as_deref()
     }
 
     pub(crate) fn targets(&self) -> &HashMap<String, Target> {

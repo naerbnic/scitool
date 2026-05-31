@@ -11,7 +11,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use csv::WriterBuilder;
 use indicatif::ProgressFinish;
-use scidev::ids::LineId;
+use scidev::ids::{ConversationId, LineId};
 use sciproj::{
     book::{RoleId, file_format},
     build::audio::{ProgressFactory, compile_audio_base},
@@ -561,12 +561,27 @@ enum ExportScriptSubcommand {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct ScriptLineUrlRecords {
+    #[serde(with = "ToFromStringSerde")]
+    id: LineId,
+    #[serde(with = "ToFromStringSerde")]
+    conv_id: ConversationId,
+    #[serde(with = "ToFromStringSerde")]
+    role_id: RoleId,
+    line_url: String,
+    conv_url: String,
+    line_text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ScriptLineRecord {
     #[serde(with = "ToFromStringSerde")]
     id: LineId,
-    line_text: String,
+    #[serde(with = "ToFromStringSerde")]
+    conv_id: ConversationId,
     #[serde(with = "ToFromStringSerde")]
     role_id: RoleId,
+    line_text: String,
 }
 
 /// Exports all spoken lines in a tabular format.
@@ -589,20 +604,37 @@ impl ExportLines {
     fn run(self) -> anyhow::Result<()> {
         let project = self.env.load_project()?;
 
-        let book = project
-            .book_opt()?
-            .ok_or_else(|| anyhow::anyhow!("No book is configured for the project."))?;
+        let config = project.config()?;
+        let book = project.book()?;
+        if let Some(script_url) = config.script_url() {
+            let mut script_lines = Vec::new();
+            for line in book.lines() {
+                let conv = line.conversation();
+                script_lines.push(ScriptLineUrlRecords {
+                    id: line.id(),
+                    conv_id: conv.id(),
+                    line_url: format!("{}#{}", script_url, line.id()),
+                    conv_url: format!("{}#{}", script_url, conv.id()),
+                    role_id: line.role().id(),
+                    line_text: line.text().to_plain_text(),
+                });
+            }
 
-        let mut script_lines = Vec::new();
-        for line in book.lines() {
-            script_lines.push(ScriptLineRecord {
-                id: line.id(),
-                line_text: line.text().to_plain_text(),
-                role_id: line.role().id(),
-            });
+            store_data(&self.output, &script_lines[..], &DataFormat::Csv)?;
+        } else {
+            let mut script_lines = Vec::new();
+            for line in book.lines() {
+                let conv = line.conversation();
+                script_lines.push(ScriptLineRecord {
+                    id: line.id(),
+                    conv_id: conv.id(),
+                    role_id: line.role().id(),
+                    line_text: line.text().to_plain_text(),
+                });
+            }
+
+            store_data(&self.output, &script_lines[..], &DataFormat::Csv)?;
         }
-
-        store_data(&self.output, &script_lines[..], &DataFormat::Csv)?;
         Ok(())
     }
 }
