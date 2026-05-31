@@ -1,11 +1,12 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, io};
 
 use scidev_errors::AnyDiag;
+use tokio::io::AsyncRead;
 
 use crate::utils::{
     block::{
         MemBlock,
-        core::{BlockBase, BoxedRead, OpenBaseResult},
+        core::{BlockBase, OpenBaseResult},
     },
     range::BoundedRange,
 };
@@ -31,8 +32,22 @@ where
         Err((self.error)())
     }
 
-    fn open_reader(&self, _range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
+    fn open_reader(
+        &self,
+        _range: BoundedRange<u64>,
+    ) -> OpenBaseResult<impl io::Read + Send + 'static> {
+        Err::<&'static [u8], _>((self.error)())
+    }
+
+    async fn open_mem_async(&self, _range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         Err((self.error)())
+    }
+
+    async fn open_async_reader(
+        &self,
+        _range: BoundedRange<u64>,
+    ) -> OpenBaseResult<impl AsyncRead + Send + 'static> {
+        Err::<&'static [u8], _>((self.error)())
     }
 }
 

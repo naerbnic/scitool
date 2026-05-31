@@ -78,7 +78,45 @@ define_error! {
 type OpenBaseResult<T> = Result<T, AnyDiag>;
 
 type BoxedRead = Box<dyn io::Read + Send>;
-type BoxedAsyncRead = Box<dyn AsyncRead + Send>;
+type BoxedAsyncRead = Box<dyn AsyncRead + Send + Unpin>;
+
+trait SyncBlockBase {
+    /// Open as loaded data, possibly shared.
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock>;
+
+    /// Open as a reader.
+    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead>;
+}
+
+#[derive(Debug)]
+struct SyncBlockBaseWrap<T>(T);
+
+impl<T> BlockBase for SyncBlockBaseWrap<T>
+where
+    T: SyncBlockBase + Debug + Sync,
+{
+    fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
+        self.0.open_mem(range)
+    }
+
+    async fn open_mem_async(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
+        tokio::task::block_in_place(|| self.open_mem(range))
+    }
+
+    fn open_reader(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<impl io::Read + Send + 'static> {
+        self.0.open_reader(range)
+    }
+
+    async fn open_async_reader(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<impl AsyncRead + Send + 'static> {
+        Ok(AsyncReadWrapper::new(self.open_reader(range)?))
+    }
+}
 
 /// Implementation trait for Block sources.
 ///
@@ -91,23 +129,19 @@ trait BlockBase: Debug {
     fn open_mem_async(
         &self,
         range: BoundedRange<u64>,
-    ) -> impl Future<Output = OpenBaseResult<MemBlock>> {
-        async move { tokio::task::block_in_place(|| self.open_mem(range)) }
-    }
+    ) -> impl Future<Output = OpenBaseResult<MemBlock>>;
 
     /// Open as a reader.
-    fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead>;
+    fn open_reader(
+        &self,
+        range: BoundedRange<u64>,
+    ) -> OpenBaseResult<impl io::Read + Send + 'static>;
 
     /// Open as an async reader.
     fn open_async_reader(
         &self,
         range: BoundedRange<u64>,
-    ) -> impl Future<Output = OpenBaseResult<BoxedAsyncRead>> {
-        async move {
-            let reader: BoxedAsyncRead = Box::new(AsyncReadWrapper::new(self.open_reader(range)?));
-            Ok(reader)
-        }
-    }
+    ) -> impl Future<Output = OpenBaseResult<impl AsyncRead + Send + Unpin + 'static>> + Send;
 }
 
 trait DynBlockBase: Debug {
@@ -126,7 +160,7 @@ trait DynBlockBase: Debug {
     fn open_async_reader(
         &self,
         range: BoundedRange<u64>,
-    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<BoxedAsyncRead>> + '_>>;
+    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<BoxedAsyncRead>> + Send + '_>>;
 }
 
 #[derive(Debug)]
@@ -134,7 +168,7 @@ struct BlockBaseWrapper<B>(B);
 
 impl<B> DynBlockBase for BlockBaseWrapper<B>
 where
-    B: BlockBase,
+    B: BlockBase + Sync,
 {
     fn open_mem(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         self.0.open_mem(range)
@@ -148,14 +182,17 @@ where
     }
 
     fn open_reader(&self, range: BoundedRange<u64>) -> OpenBaseResult<BoxedRead> {
-        self.0.open_reader(range)
+        let reader = self.0.open_reader(range)?;
+        Ok(Box::new(reader))
     }
 
     fn open_async_reader(
         &self,
         range: BoundedRange<u64>,
-    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<BoxedAsyncRead>> + '_>> {
-        Box::pin(self.0.open_async_reader(range))
+    ) -> Pin<Box<dyn Future<Output = OpenBaseResult<BoxedAsyncRead>> + Send + '_>> {
+        Box::pin(
+            async move { Ok(Box::new(self.0.open_async_reader(range).await?) as BoxedAsyncRead) },
+        )
     }
 }
 
@@ -179,7 +216,7 @@ trait FullStreamBase: Debug {
 #[derive(Debug)]
 struct MemBlockWrap<T>(T);
 
-impl<T> BlockBase for MemBlockWrap<T>
+impl<T> SyncBlockBase for MemBlockWrap<T>
 where
     T: MemBlockBase,
 {
@@ -199,7 +236,7 @@ where
 #[derive(Debug)]
 struct RangeStreamBaseWrap<T>(T);
 
-impl<T> BlockBase for RangeStreamBaseWrap<T>
+impl<T> SyncBlockBase for RangeStreamBaseWrap<T>
 where
     T: RangeStreamBase,
 {
@@ -221,7 +258,7 @@ where
 #[derive(Debug)]
 struct FullStreamBaseWrap<T>(T);
 
-impl<T> BlockBase for FullStreamBaseWrap<T>
+impl<T> SyncBlockBase for FullStreamBaseWrap<T>
 where
     T: FullStreamBase,
 {
@@ -262,7 +299,10 @@ where
     E: Into<AnyDiag> + 'static,
     Out: io::Read + Send + 'static,
 {
-    Block::from_source_size(FullStreamBaseWrap(ReadFactoryImpl::new(factory)), size)
+    Block::from_source_size(
+        SyncBlockBaseWrap(FullStreamBaseWrap(ReadFactoryImpl::new(factory))),
+        size,
+    )
 }
 
 fn build_from_read_seek_factory_size<F, Out, E>(size: u64, factory: F) -> Block
@@ -272,9 +312,9 @@ where
     Out: io::Read + io::Seek + Send + 'static,
 {
     Block::from_source_size(
-        RangeStreamBaseWrap(ReadSeekFactorySource::new(move || {
+        SyncBlockBaseWrap(RangeStreamBaseWrap(ReadSeekFactorySource::new(move || {
             factory().map_err(Into::into)
-        })),
+        }))),
         size,
     )
 }
@@ -285,7 +325,10 @@ where
     E: Into<AnyDiag> + 'static,
     Out: Into<MemBlock> + 'static,
 {
-    Block::from_source_size(MemBlockWrap(MemFactoryImpl::new(factory)), size)
+    Block::from_source_size(
+        SyncBlockBaseWrap(MemBlockWrap(MemFactoryImpl::new(factory))),
+        size,
+    )
 }
 
 /// A logical block of data of a given size.
@@ -384,7 +427,10 @@ impl Block {
     #[must_use]
     pub fn from_mem_block(mem_block: MemBlock) -> Self {
         let len = mem_block.len() as u64;
-        Self::from_source_size(MemBlockWrap(ContainedMemBlock::new(mem_block)), len)
+        Self::from_source_size(
+            SyncBlockBaseWrap(MemBlockWrap(ContainedMemBlock::new(mem_block))),
+            len,
+        )
     }
 
     /// Create a block by concatenating multiple blocks together.
@@ -437,7 +483,7 @@ impl Block {
     pub async fn open_async_reader<R>(
         &self,
         range: R,
-    ) -> Result<Box<dyn AsyncRead + Send>, OpenError>
+    ) -> Result<Box<dyn AsyncRead + Send + Unpin>, OpenError>
     where
         R: RangeBounds<u64>,
     {
@@ -574,7 +620,7 @@ impl Builder {
         };
 
         Ok(Block::from_source_size(
-            RangeStreamBaseWrap(ReadSeekImpl::new(reader)),
+            SyncBlockBaseWrap(RangeStreamBaseWrap(ReadSeekImpl::new(reader))),
             size,
         ))
     }

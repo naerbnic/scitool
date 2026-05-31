@@ -1,11 +1,15 @@
 use std::{
     io,
+    pin::Pin,
     sync::{Arc, Mutex},
-    task::Poll,
+    task::{Context, Poll},
 };
 
 use futures::FutureExt;
-use tokio::{io::AsyncRead, task::JoinHandle};
+use tokio::{
+    io::{AsyncRead, ReadBuf},
+    task::JoinHandle,
+};
 
 struct Inner<R> {
     reader: R,
@@ -43,10 +47,10 @@ where
     R: io::Read + Send + 'static,
 {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         let amount_to_read = buf.remaining();
         let pending = this.pending.get_or_insert_with(|| {
