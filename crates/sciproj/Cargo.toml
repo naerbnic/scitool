@@ -10,7 +10,6 @@ futures-core = { workspace = true }
 futures-util = { workspace = true }
 itertools = "0.13"
 log = "0.4.27"
-rayon = "1.11.0"
 schemars = "1.0.4"
 scidev = { path = "../scidev" }
 scidev-errors = { workspace = true }
@@ -35,7 +34,6 @@ im = "15.1.0"
 parking_lot = "0.12.5"
 hashbrown = "0.16.1"
 pin-project = "1.1.12"
-chrono = "0.4"
 console = "0.16.3"
 indicatif = { version = "0.18.4", features = ["tokio"] }
 
