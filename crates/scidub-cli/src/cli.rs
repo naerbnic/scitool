@@ -9,10 +9,11 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use csv::WriterBuilder;
+use indicatif::ProgressFinish;
 use scidev::ids::LineId;
 use sciproj::{
     book::{RoleId, file_format},
-    build::audio::compile_audio_base,
+    build::audio::{ProgressFactory, compile_audio_base},
     path::relpath::{RelPath, RelPathBuf, Segment},
     resources::AudioClip,
 };
@@ -361,6 +362,26 @@ struct MissingLine {
     missing_line_id: LineId,
 }
 
+#[expect(clippy::extra_unused_lifetimes)]
+fn line_mappings_to_clip_map<'a>(
+    line_mappings: impl IntoIterator<Item = LineMapping>,
+    audio_files_root: &Path,
+) -> anyhow::Result<BTreeMap<LineId, AudioClip>> {
+    let mut line_map = BTreeMap::new();
+    for line_mapping in line_mappings {
+        let clip = AudioClip {
+            start_us: line_mapping.clip_start_ns,
+            end_us: line_mapping.clip_end_ns,
+            path: line_mapping.clip_path.to_std_path(audio_files_root),
+        };
+
+        line_map
+            .insert(line_mapping.line_id, clip)
+            .ok_or_else(|| anyhow::anyhow!("Duplicate line from project."))?;
+    }
+    Ok(line_map)
+}
+
 /// Builds a resource patch from a target.
 #[derive(Debug, Parser)]
 pub(crate) struct Build {
@@ -429,18 +450,7 @@ impl Build {
                 .to_std_path(project.root())
         });
 
-        let mut line_map = BTreeMap::new();
-        for line_mapping in line_mappings {
-            let clip = AudioClip {
-                start_us: line_mapping.clip_start_ns,
-                end_us: line_mapping.clip_end_ns,
-                path: line_mapping.clip_path.to_std_path(&audio_files_root),
-            };
-
-            line_map
-                .insert(line_mapping.line_id, clip)
-                .ok_or_else(|| anyhow::anyhow!("Duplicate line from project."))?;
-        }
+        let clip_map = line_mappings_to_clip_map(line_mappings, &audio_files_root)?;
 
         let target_relpath = Segment::try_new(target_name)
             .ok_or_else(|| anyhow::anyhow!("Target name must be a valid relative path segment"))?;
@@ -457,13 +467,13 @@ impl Build {
 
         for line in book.lines() {
             let id = line.id();
-            if !line_map.contains_key(&id) {
+            if !clip_map.contains_key(&id) {
                 non_present_clips.push(id);
             }
         }
 
         let mut unused_clips = Vec::new();
-        for id in line_map.keys() {
+        for id in clip_map.keys() {
             if book.get_line(*id).is_none() {
                 unused_clips.push(*id);
             }
@@ -506,10 +516,18 @@ impl Build {
         let res_dir_path = base_output_dir.join("res");
         std::fs::create_dir_all(&res_dir_path)?;
 
+        let stderr_term = console::Term::buffered_stderr();
+        let progress_factory =
+            ProgressFactory::new(stderr_term).with_finish(ProgressFinish::AndLeave);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
-        rt.block_on(compile_audio_base(book, &line_map, &res_dir_path))?;
+        rt.block_on(compile_audio_base(
+            progress_factory,
+            book,
+            &clip_map,
+            &res_dir_path,
+        ))?;
 
         rt.shutdown_timeout(Duration::from_secs(1));
 

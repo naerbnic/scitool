@@ -37,6 +37,8 @@ hashbrown = "0.16.1"
 pin-project = "1.1.12"
 polars = { version = "0.53.0", features = ["lazy", "dtype-categorical", "dtype-datetime"], default-features = false }
 chrono = "0.4"
+console = "0.16.3"
+indicatif = { version = "0.18.4", features = ["tokio"] }
 
 [lints]
 workspace = true
