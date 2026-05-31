@@ -48,6 +48,7 @@ where
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<io::Result<()>> {
         let this = self.get_mut();
+        let amount_to_read = buf.remaining();
         let pending = this.pending.get_or_insert_with(|| {
             // We have a blocking read that is not pending. Create a blocking
             // spawn to handle the operation.
@@ -55,7 +56,7 @@ where
             tokio::task::spawn_blocking(move || {
                 let mut inner_guard = inner.try_lock().unwrap();
                 let inner = &mut *inner_guard;
-                inner.read_amount = inner.reader.read(&mut inner.buffer)?;
+                inner.read_amount = inner.reader.read(&mut inner.buffer[..amount_to_read])?;
                 Ok::<_, io::Error>(())
             })
         });

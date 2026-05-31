@@ -1,2 +1,5 @@
 voice_script_config = "data/sq5/book_config.toml"
 game_files = "game_files"
+
+[targets.default]
+line_mapping = "data/sq5/line_mapping.csv"

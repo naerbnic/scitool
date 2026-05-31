@@ -4,3 +4,4 @@
 /.jj
 /**/*.ase
 /.tools
+/build/

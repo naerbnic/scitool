@@ -9,7 +9,7 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use csv::WriterBuilder;
-use scidev::{ids::LineId, utils::serde::Sha256Hash};
+use scidev::ids::LineId;
 use sciproj::{
     book::{RoleId, file_format},
     build::audio::compile_audio_base,
@@ -442,7 +442,15 @@ impl Build {
                 .ok_or_else(|| anyhow::anyhow!("Duplicate line from project."))?;
         }
 
-        let build_dir = project.build_dir()?;
+        let target_relpath = Segment::try_new(target_name)
+            .ok_or_else(|| anyhow::anyhow!("Target name must be a valid relative path segment"))?;
+
+        let base_output_dir = if let Some(output_dir) = self.output {
+            output_dir
+        } else {
+            project.build_dir()?.join(target_relpath)
+        };
+        std::fs::create_dir_all(&base_output_dir)?;
 
         // Check that every line in the book is present in the line map.
         let mut non_present_clips = Vec::new();
@@ -461,9 +469,8 @@ impl Build {
             }
         }
 
-        // TODO: Have an option to generate a placeholder
         if !non_present_clips.is_empty() {
-            let missing_lines_path = build_dir.join("missing_lines.csv");
+            let missing_lines_path = base_output_dir.join("missing_lines.csv");
 
             non_present_clips.sort_unstable();
             eprintln!("There were lines in the project that are not provided in the mapping.");
@@ -492,23 +499,17 @@ impl Build {
             );
         }
 
-        let target_relpath = Segment::try_new(target_name)
-            .ok_or_else(|| anyhow::anyhow!("Target name must be a valid relative path segment"))?;
-
-        let base_output_dir = if let Some(output_dir) = self.output {
-            output_dir
-        } else {
-            project.build_dir()?.join(target_relpath)
-        };
-
         if self.dry_run {
             return Ok(());
         }
 
+        let res_dir_path = base_output_dir.join("res");
+        std::fs::create_dir_all(&res_dir_path)?;
+
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
-        rt.block_on(compile_audio_base(book, &line_map, &base_output_dir))?;
+        rt.block_on(compile_audio_base(book, &line_map, &res_dir_path))?;
 
         rt.shutdown_timeout(Duration::from_secs(1));
 
@@ -679,21 +680,6 @@ impl ValidateManifest {
 
         let result = validate_manifest_in_game_dir(game_path, manifest)?;
 
-        let mut entries = manifest.entries().clone();
-
-        for path in RelWalkDir::new(game_path) {
-            let path = path?;
-            let file = std::fs::File::open(game_path.join(&path))?;
-            let (file_hash, _) = Sha256Hash::from_stream_hash(file)?;
-            let Some(manifest_hash) = entries.remove(&path) else {
-                anyhow::bail!("Found game file not in manifest: {path}");
-            };
-
-            if manifest_hash != file_hash {
-                anyhow::bail!("Game file {path} is different from version in manifest.");
-            }
-        }
-
         result.validate_complete()?;
 
         if result.additional_files().next().is_some() {
@@ -703,17 +689,6 @@ impl ValidateManifest {
                     .additional_files()
                     .map(|p| p.to_string())
                     .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-
-        if !entries.is_empty() {
-            anyhow::bail!(
-                "The following files are present in the manifest but not found in the game directory: {}",
-                entries
-                    .keys()
-                    .map(ToString::to_string)
-                    .collect::<Vec<String>>()
                     .join(", ")
             );
         }
