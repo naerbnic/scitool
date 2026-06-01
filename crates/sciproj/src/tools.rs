@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf};
 
 pub mod espeak;
 pub mod ffmpeg;
@@ -7,27 +7,35 @@ mod util;
 
 pub struct Tool {
     binary_path: PathBuf,
+    prefix_args: Vec<String>,
+    env: BTreeMap<String, String>,
 }
 
 impl Tool {
     #[must_use]
     pub fn from_path(path: PathBuf) -> Self {
-        Tool { binary_path: path }
+        Tool {
+            binary_path: path,
+            prefix_args: vec![],
+            env: BTreeMap::new(),
+        }
     }
 
-    pub fn run<'args>(
-        &self,
-        args: impl IntoIterator<Item = &'args (impl AsRef<OsStr> + 'args)>,
-        envs: impl IntoIterator<
-            Item = (
-                &'args (impl AsRef<OsStr> + 'args),
-                &'args (impl AsRef<OsStr> + 'args),
-            ),
-        >,
-    ) -> anyhow::Result<()> {
-        let mut command = std::process::Command::new(&self.binary_path);
-        command.args(args);
-        command.envs(envs);
-        Ok(())
+    #[must_use]
+    pub fn with_prefix_args(mut self, args: impl IntoIterator<Item = String>) -> Self {
+        self.prefix_args.extend(args);
+        self
+    }
+
+    #[must_use]
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.insert(key.into(), value.into());
+        self
+    }
+
+    pub(crate) fn cmd_async(&self) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new(&self.binary_path);
+        cmd.envs(&self.env).args(&self.prefix_args);
+        cmd
     }
 }

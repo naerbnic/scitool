@@ -17,11 +17,13 @@ use sciproj::{
     build::audio::{ProgressFactory, compile_audio_base},
     path::relpath::{RelPath, RelPathBuf, Segment},
     resources::AudioClip,
+    tools::{espeak::EspeakTool, ffmpeg::FfmpegTool},
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 
 use crate::{
     data::{DataFormat, load_data, store_data},
+    dirs::DistEnv,
     project::{Manifest, Project},
 };
 
@@ -520,10 +522,19 @@ impl Build {
         let stderr_term = console::Term::buffered_stderr();
         let progress_factory =
             ProgressFactory::new(stderr_term).with_finish(ProgressFinish::AndLeave);
+
+        let dist_env = DistEnv::builder()
+            .set_use_system_path(true)
+            .build_from_current_exe()?;
+
+        let ffmpeg_tool = FfmpegTool::from_tool(dist_env.ffmpeg_tool());
+        let espeak_tool = dist_env.espeak_tool().map(EspeakTool::from_tool);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
         rt.block_on(compile_audio_base(
+            &ffmpeg_tool,
+            espeak_tool.as_ref(),
             progress_factory,
             book,
             &clip_map,

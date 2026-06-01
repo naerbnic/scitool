@@ -1,21 +1,26 @@
-use std::{path::PathBuf, process::Stdio};
+use std::process::Stdio;
 
 use tokio::select;
 
-use crate::tools::util::{CancelToken, ProcessAsyncReader};
+use crate::tools::{
+    Tool,
+    util::{CancelToken, ProcessAsyncReader},
+};
 
 pub struct EspeakTool {
-    espeak_path: PathBuf,
+    tool: Tool,
 }
 
 impl EspeakTool {
     #[must_use]
-    pub fn from_path(espeak_path: PathBuf) -> Self {
-        EspeakTool { espeak_path }
+    pub fn from_tool(tool: Tool) -> Self {
+        EspeakTool { tool }
     }
 
     pub fn synthesize(&self, text: &str) -> anyhow::Result<impl tokio::io::AsyncRead + 'static> {
-        let mut child = tokio::process::Command::new(&self.espeak_path)
+        let mut child = self
+            .tool
+            .cmd_async()
             .arg("--stdout")
             .arg("--")
             .arg(text)

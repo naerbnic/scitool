@@ -12,6 +12,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 console = "0.16.3"
 csv = { workspace = true }
+fs-mistrust = "0.14.2"
 indicatif = { version = "0.18.4", features = ["tokio"] }
 scidev = { workspace = true }
 sciproj = { workspace = true }

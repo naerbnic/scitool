@@ -56,6 +56,11 @@ mod plat {
     }
 }
 
+#[must_use]
+pub fn is_executable(path: &Path) -> bool {
+    plat::is_executable(path)
+}
+
 pub struct LookupPath {
     path_entries: HashMap<OsString, PathBuf>,
 }
@@ -89,7 +94,7 @@ impl LookupPath {
                         continue;
                     };
                     let path = entry.path();
-                    if plat::is_executable(&path) {
+                    if is_executable(&path) {
                         let bin_name = plat::binary_name(&path).to_os_string();
                         path_entries.entry(bin_name).or_insert(path);
                     }

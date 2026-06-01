@@ -7,7 +7,6 @@ use std::{
 
 use crate::{
     book::Book,
-    path::LookupPath,
     resources::{AudioClip, generate_sample_resources},
     tools::{espeak::EspeakTool, ffmpeg::FfmpegTool},
 };
@@ -87,30 +86,19 @@ where
 }
 
 pub async fn compile_audio_base(
+    ffmpeg_tool: &FfmpegTool,
+    espeak_tool: Option<&EspeakTool>,
     progress: ProgressFactory,
     book: &Book,
     line_mapping: &BTreeMap<LineId, AudioClip>,
     output_dir: &Path,
 ) -> anyhow::Result<()> {
-    let system_path = LookupPath::from_env();
-    log::info!("System PATH: {:?}", system_path.find_binary("ffmpeg"));
-    let ffmpeg_tool = FfmpegTool::from_path(
-        system_path
-            .find_binary("ffmpeg")
-            .expect("ffmpeg not found in PATH")
-            .to_path_buf(),
-    );
-    let synth_tool = system_path
-        .find_binary("espeak")
-        .map(Path::to_path_buf)
-        .map(EspeakTool::from_path);
-
     let resources = generate_sample_resources(
         progress.clone(),
         book,
         line_mapping,
-        &ffmpeg_tool,
-        synth_tool.as_ref(),
+        ffmpeg_tool,
+        espeak_tool,
     )
     .await?;
     let aud_file_task = {

@@ -4,7 +4,7 @@ mod next_version;
 pub use formats::{OggVorbisOutputOptions, OutputFormat};
 pub use next_version::ConverterReader;
 
-use crate::imp::futures::prelude::*;
+use crate::{imp::futures::prelude::*, tools::Tool};
 
 pub trait ProgressListener {
     fn on_progress(&mut self, complete_ratio: f32, progress_info: Vec<(String, String)>);
@@ -24,13 +24,13 @@ impl ProgressListener for NullProgressListener {
 }
 
 pub struct FfmpegTool {
-    ffmpeg_path: std::path::PathBuf,
+    tool: Tool,
 }
 
 impl FfmpegTool {
     #[must_use]
-    pub fn from_path(ffmpeg_path: std::path::PathBuf) -> Self {
-        FfmpegTool { ffmpeg_path }
+    pub fn from_tool(tool: Tool) -> Self {
+        FfmpegTool { tool }
     }
 
     pub fn create_convert_reader<R>(
@@ -45,7 +45,7 @@ impl FfmpegTool {
     {
         Ok(ConverterReader::new(
             reader,
-            &self.ffmpeg_path,
+            &self.tool,
             output_format,
             start_ns,
             end_ns,
