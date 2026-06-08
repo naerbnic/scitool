@@ -1,0 +1,125 @@
+on: workflow_dispatch
+jobs:
+  download_ffmpeg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: download_ffmpeg
+        run: |
+          set -e
+
+          curl -L -o ffmpeg-win.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-07-13-55/ffmpeg-n8.1.1-11-ge4c7fbf6c0-win64-lgpl-8.1.zip
+          curl -L -o ffmpeg-linux.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-07-13-55/ffmpeg-n8.1.1-11-ge4c7fbf6c0-linux64-lgpl-8.1.tar.xz
+          curl -L -o ffmpeg-mac.zip https://www.osxexperts.net/ffmpeg81arm.zip
+
+          # Check SHA256 for each archive
+          sha256 -c "6acbc93d4470ae9ce110a7b97c8eea0db99df4b6d630dbb084aad201c4a45717" ffmpeg-win.zip > /dev/null
+          sha256 -c "07bee3eb79bf26f29143780ae272004df19117621428469fd035f2e7cfcaa771" ffmpeg-linux.tar.xz > /dev/null
+          sha256 -c "ebb82529562b71170807bbc6b0e7eb4f0b13af8cbb0e085bb9e8f6fe709598ad" ffmpeg-mac.zip > /dev/null
+
+          unzip ffmpeg-win.zip
+          tar -xf ffmpeg-linux.tar.xz
+          unzip ffmpeg-mac.zip
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ffmpeg-linux
+          path: ffmpeg-n8.1.1-11-ge4c7fbf6c0-linux64-lgpl-8.1/bin/ffmpeg
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ffmpeg-windows
+          path: ffmpeg-n8.1.1-11-ge4c7fbf6c0-win64-lgpl-8.1/bin/ffmpeg.exe
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ffmpeg-macos
+          path: ffmpeg
+
+  build_espeak:
+    strategy:
+      matrix:
+        platform: [windows, linux, macos]
+        include:
+          - platform: windows
+            exe_suffix: .exe
+          - platform: linux
+            exe_suffix: 
+          - platform: macos
+            exe_suffix: 
+    runs-on: ${{ matrix.platform }}-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: "espeak-ng/espeak-ng"
+          ref: "fbe4b3764285c35b1f035cb8d09ad9fc19f71c30"
+          path: "espeak-ng"
+      - working-directory: espeak-ng
+        run: |
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DUSE_LIBPCAUDIO=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build build
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: espeak-bin-${{ matrix.platform }}
+          path: build/src/espeak-ng${{ matrix.exe_suffix }}
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: espeak-data-${{ matrix.platform }}
+          path: build/espeak-ng-data/**
+
+  build_scidub:
+    strategy:
+      matrix:
+          platform: [windows, linux, macos]
+          include:
+            - platform: windows
+              exe_suffix: .exe
+            - platform: linux
+              exe_suffix: 
+            - platform: macos
+              exe_suffix: 
+    runs-on: ${{ matrix.platform }}-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: scidev
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+        with:
+          toolchain: 1.96.0
+      - working-directory: scidev
+        run: cargo build --bin scidev
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: scidev-bin-${{ matrix.platform }}
+          path: target/debug/scidev${{ matrix.exe_suffix }}
+  
+  create_dist:
+    needs: [download_ffmpeg, build_espeak, build_scidub]
+    strategy:
+      matrix:
+        platform: [windows, linux, macos]
+        include:
+          - platform: windows
+          - platform: linux
+          - platform: macos
+    runs-on: ${{ matrix.platform }}-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: scidev-bin-${{ matrix.platform }}
+          path: root/bin
+      - uses: actions/download-artifact@v8
+        with:
+          name: ffmpeg-${{ matrix.platform }}
+          path: root/libexec
+      - uses: actions/download-artifact@v8
+        with:
+          name: espeak-bin-${{ matrix.platform }}
+          path: root/libexec
+      - uses: actions/download-artifact@v8
+        with:
+          name: espeak-data-${{ matrix.platform }}
+          path: root/share/espeak-ng
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: scidub-dist-${{ matrix.platform }}
+          path: root
+
+      
+
