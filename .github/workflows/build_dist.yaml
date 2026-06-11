@@ -1,4 +1,6 @@
 on: workflow_dispatch
+permissions:
+  contents: read
 jobs:
   # This may be insane, but I found it a lot easier to cross-compile
   # ffmpeg for Windows than to use a Windows VM or Visual Studio.
