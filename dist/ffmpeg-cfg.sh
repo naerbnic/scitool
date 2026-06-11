@@ -1,0 +1,17 @@
+FFMPEG_CONF_ARGS+=(
+  "--target-os=${TARGET_OS}"
+  --disable-everything
+  --disable-doc
+  --enable-static
+  --disable-shared
+  --enable-ffmpeg
+  --enable-avcodec
+  --enable-avformat
+  --enable-encoder=flac,libvorbis,pcm
+  --enable-decoder=flac,libvorbis,pcm
+  --enable-muxer=wav,ogg,flac,raw
+  --enable-demuxer=wav,ogg,flac,raw
+  --enable-protocol=file,fd,tcp
+  --pkg-config-flags=--static
+  --enable-libvorbis
+)

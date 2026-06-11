@@ -1,0 +1,1 @@
+sudo apt-get install mingw-w64 nasm mingw-w64-tools

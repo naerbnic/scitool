@@ -1,36 +1,98 @@
 on: workflow_dispatch
 jobs:
-  download_ffmpeg:
-    runs-on: ubuntu-latest
+  # This may be insane, but I found it a lot easier to cross-compile
+  # ffmpeg for Windows than to use a Windows VM or Visual Studio.
+  build_ffmpeg:
+    strategy:
+      matrix:
+        platform: [windows, linux, macos]
+        include:
+          - platform: windows
+            host_os: ubuntu
+            target_os: win64
+            target_bin: ffmpeg.exe
+          - platform: linux
+            host_os: ubuntu
+            target_os: linux
+            target_bin: ffmpeg
+          - platform: macos
+            host_os: macos
+            target_os: darwin
+            target_bin: ffmpeg
+    runs-on: ${{ matrix.host_os }}-latest
+    env:
+      REPO_ROOT: "${{ github.workspace }}/src/scidub"
     steps:
-      - name: download_ffmpeg
+      - uses: actions/checkout@v6
+        with:
+          path: ${{ env.REPO_ROOT }}
+      - name: Setup envvars
         run: |
-          set -e
-
-          curl -L -o ffmpeg-win.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-07-13-55/ffmpeg-n8.1.1-11-ge4c7fbf6c0-win64-lgpl-8.1.zip
-          curl -L -o ffmpeg-linux.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-07-13-55/ffmpeg-n8.1.1-11-ge4c7fbf6c0-linux64-lgpl-8.1.tar.xz
-          curl -L -o ffmpeg-mac.zip https://www.osxexperts.net/ffmpeg81arm.zip
-
-          # Check SHA256 for each archive
-          sha256 -c "6acbc93d4470ae9ce110a7b97c8eea0db99df4b6d630dbb084aad201c4a45717" ffmpeg-win.zip > /dev/null
-          sha256 -c "07bee3eb79bf26f29143780ae272004df19117621428469fd035f2e7cfcaa771" ffmpeg-linux.tar.xz > /dev/null
-          sha256 -c "ebb82529562b71170807bbc6b0e7eb4f0b13af8cbb0e085bb9e8f6fe709598ad" ffmpeg-mac.zip > /dev/null
-
-          unzip ffmpeg-win.zip
-          tar -xf ffmpeg-linux.tar.xz
-          unzip ffmpeg-mac.zip
+          export DIST_ROOT="$REPO_ROOT/dist"
+          export PLAT_ROOT="$DIST_ROOT/plat/${{ matrix.platform }}"
+          export INSTALL_PREFIX="${{ github.workspace }}/install"
+          export TARGET_OS=${{ matrix.target_os }}
+          echo "DIST_ROOT=$DIST_ROOT" >> $GITHUB_ENV
+          echo "PLAT_ROOT=$PLAT_ROOT" >> $GITHUB_ENV
+          echo "INSTALL_PREFIX=$INSTALL_PREFIX" >> $GITHUB_ENV
+          echo "TARGET_OS=$TARGET_OS" >> $GITHUB_ENV
+      - name: Install dependencies
+        run: |
+          if [[ -f "$PLAT_ROOT/install-deps.sh" ]]; then
+            echo "Installing platform deps"
+            . "$PLAT_ROOT/install-deps.sh"
+          else
+            echo "No platform deps found at $PLAT_ROOT/install-deps.sh"
+          fi
+      - uses: actions/checkout@v6
+        with:
+          repository: "xiph/ogg"
+          path: "src/libogg"
+      - uses: actions/checkout@v6
+        with:
+          repository: "xiph/vorbis"
+          path: "src/libvorbis"
+      - uses: actions/checkout@v6
+        with:
+          repository: "FFmpeg/FFmpeg"
+          path: "src/ffmpeg"
+      - name: Build and install ogg
+        working-directory: src/libogg
+        run: |
+          declare -a CMAKE_ARGS
+          . "$DIST_ROOT/cmake-cfg.sh"
+          if [[ -f "$PLAT_ROOT/cmake-cfg.sh" ]]; then
+            . "$PLAT_ROOT/cmake-cfg.sh"
+          fi
+          cmake -Bbuild "${CMAKE_ARGS[@]}"
+          cmake --build build --config Release
+          cmake --install build --config Release
+      - name: Build and install vorbis
+        working-directory: src/libvorbis
+        run: |
+          declare -a CMAKE_ARGS
+          . "$DIST_ROOT/cmake-cfg.sh"
+          if [[ -f "$PLAT_ROOT/cmake-cfg.sh" ]]; then
+            . "$PLAT_ROOT/cmake-cfg.sh"
+          fi
+          cmake -Bbuild "${CMAKE_ARGS[@]}"
+          cmake --build build --config Release
+          cmake --install build --config Release
+      - name: Build and install ffmpeg
+        working-directory: src/ffmpeg
+        run: |
+          export PKG_CONFIG_PATH="$INSTALL_PREFIX/lib/pkgconfig"
+          declare -a FFMPEG_CONF_ARGS
+          . "$DIST_ROOT/ffmpeg-cfg.sh"
+          if [[ -f "$PLAT_ROOT/ffmpeg-cfg.sh" ]]; then
+            . "$PLAT_ROOT/ffmpeg-cfg.sh"
+          fi
+          ./configure "${FFMPEG_CONF_ARGS[@]}"
+          make -j8
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: ffmpeg-linux
-          path: ffmpeg-n8.1.1-11-ge4c7fbf6c0-linux64-lgpl-8.1/bin/ffmpeg
-      - uses: actions/upload-artifact@v7.0.1
-        with:
-          name: ffmpeg-windows
-          path: ffmpeg-n8.1.1-11-ge4c7fbf6c0-win64-lgpl-8.1/bin/ffmpeg.exe
-      - uses: actions/upload-artifact@v7.0.1
-        with:
-          name: ffmpeg-macos
-          path: ffmpeg
+          name: ffmpeg-bin-${{ matrix.platform }}
+          path: src/ffmpeg/${{ matrix.target_bin }}
 
   build_espeak:
     strategy:
@@ -38,12 +100,21 @@ jobs:
         platform: [windows, linux, macos]
         include:
           - platform: windows
-            exe_suffix: .exe
+            os: windows
+            espeak_bin: Release/espeak-ng.exe
+            shell: C:\msys64\usr\bin\bash.exe {0}
           - platform: linux
-            exe_suffix: 
+            os: ubuntu
+            espeak_bin: espeak-ng
+            shell: bash
           - platform: macos
-            exe_suffix: 
-    runs-on: ${{ matrix.platform }}-latest
+            os: macos
+            espeak_bin: espeak-ng
+            shell: bash
+    runs-on: ${{ matrix.os }}-latest
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -53,15 +124,15 @@ jobs:
       - working-directory: espeak-ng
         run: |
           cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DUSE_LIBPCAUDIO=OFF -DBUILD_SHARED_LIBS=OFF
-          cmake --build build
+          cmake --build build --config Release
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: espeak-bin-${{ matrix.platform }}
-          path: build/src/espeak-ng${{ matrix.exe_suffix }}
+          path: espeak-ng/build/src/${{ matrix.espeak_bin }}
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: espeak-data-${{ matrix.platform }}
-          path: build/espeak-ng-data/**
+          path: espeak-ng/build/espeak-ng-data/**
 
   build_scidub:
     strategy:
@@ -69,12 +140,15 @@ jobs:
           platform: [windows, linux, macos]
           include:
             - platform: windows
+              os: windows
               exe_suffix: .exe
             - platform: linux
+              os: ubuntu
               exe_suffix: 
             - platform: macos
+              os: macos
               exe_suffix: 
-    runs-on: ${{ matrix.platform }}-latest
+    runs-on: ${{ matrix.os }}-latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -83,22 +157,25 @@ jobs:
         with:
           toolchain: 1.96.0
       - working-directory: scidev
-        run: cargo build --bin scidev
+        run: cargo build --bin scidev --release
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: scidev-bin-${{ matrix.platform }}
-          path: target/debug/scidev${{ matrix.exe_suffix }}
+          path: scidev/target/release/scidev${{ matrix.exe_suffix }}
   
   create_dist:
-    needs: [download_ffmpeg, build_espeak, build_scidub]
+    needs: [build_ffmpeg, build_espeak, build_scidub]
     strategy:
       matrix:
         platform: [windows, linux, macos]
         include:
           - platform: windows
+            os: windows
           - platform: linux
+            os: ubuntu
           - platform: macos
-    runs-on: ${{ matrix.platform }}-latest
+            os: macos
+    runs-on: ${{ matrix.os }}-latest
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -106,7 +183,7 @@ jobs:
           path: root/bin
       - uses: actions/download-artifact@v8
         with:
-          name: ffmpeg-${{ matrix.platform }}
+          name: ffmpeg-bin-${{ matrix.platform }}
           path: root/libexec
       - uses: actions/download-artifact@v8
         with:
