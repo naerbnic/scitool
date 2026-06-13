@@ -15,7 +15,7 @@ indicatif = "0.18.4"
 reqwest = { version = "0.13.3", features = ["blocking"] }
 sha2 = { workspace = true }
 signal-hook = "0.4.4"
-tar = "0.4.45"
+tar = "0.4.46"
 url = "2.5.8"
 xz2 = "0.1.7"
 
