@@ -164,9 +164,36 @@ jobs:
         with:
           name: scidev-bin-${{ matrix.platform }}
           path: scidev/target/release/scidev${{ matrix.exe_suffix }}
+
+  build_scinc:
+    strategy:
+      matrix:
+          platform: [windows, linux, macos]
+          include:
+            - platform: windows
+              os: windows
+              exe_suffix: .exe
+            - platform: linux
+              os: ubuntu
+              exe_suffix: 
+            - platform: macos
+              os: macos
+              exe_suffix: 
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: naerbnic/sci-compiler
+          path: src/scinc
+      - working-directory: src/scinc
+        run: bazel build -c opt //scic/frontend:scic
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: scinc-bin-${{ matrix.platform }}
+          path: src/scinc/bazel-bin/scic/frontend/scic${{ matrix.exe_suffix }}
   
   create_dist:
-    needs: [build_ffmpeg, build_espeak, build_scidub]
+    needs: [build_ffmpeg, build_espeak, build_scidub, build_scinc]
     strategy:
       matrix:
         platform: [windows, linux, macos]
