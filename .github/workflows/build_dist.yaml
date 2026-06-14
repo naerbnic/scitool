@@ -197,17 +197,36 @@ jobs:
         with:
           repository: naerbnic/sci-compiler
           path: src/scinc
-      - working-directory: src/scinc
+      - name: Run Build
+        working-directory: src/scinc
         run: |
-          bazel build -c opt //scic/frontend:scic
-          mkdir -p ${{ github.workspace }}/output
-          cp bazel-bin/scic/frontend/scic${{ matrix.exe_suffix }} ${{ github.workspace }}/output/scinc${{ matrix.exe_suffix }}
+          bazel build -c opt //packaging:scinc_tgz
+      - uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: scinc-tgz-${{ matrix.platform }}
+          path: src/scinc/bazel-bin/packaging/scinc.tgz
+      - name: Repackage
+        shell: bash
+        run: |
+          mkdir -p output
+          cd output
+          tar xzf ../src/scinc/bazel-bin/packaging/scinc.tgz
+          # This is supposed to be a tool, so we move the binaries to libexec,
+          # and move the include directory under a package-specific share directory.
+          mv bin libexec
+          if [[ ! -z "${{ matrix.exe_suffix }}" ]]; then
+            mv libexec/scinc libexec/scinc${{ matrix.exe_suffix }}
+          fi
+          mkdir -p share/scinc
+          mv include share/scinc
+          ls -lR .
       - uses: pyTooling/upload-artifact@v1.10.0
         with:
           working-directory: output
           investigate: true
-          name: scinc-bin-${{ matrix.platform }}
-          path: scinc${{ matrix.exe_suffix }}
+          name: scinc-${{ matrix.platform }}
+          path: "**"
   
   build_dist:
     needs: [build_ffmpeg, build_espeak, build_scidub, build_scinc]
@@ -246,8 +265,8 @@ jobs:
           path: root/share/espeak-ng
       - uses: pyTooling/download-artifact@v1.9.0
         with:
-          name: scinc-bin-${{ matrix.platform }}
-          path: root/libexec
+          name: scinc-${{ matrix.platform }}
+          path: root
       - uses: pyTooling/upload-artifact@v1.10.0
         with:
           working-directory: root
