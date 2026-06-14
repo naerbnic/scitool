@@ -5,6 +5,7 @@ pub mod ffmpeg;
 
 mod util;
 
+#[derive(Debug)]
 pub struct Tool {
     binary_path: PathBuf,
     prefix_args: Vec<String>,
@@ -33,7 +34,8 @@ impl Tool {
         self
     }
 
-    pub(crate) fn cmd_async(&self) -> tokio::process::Command {
+    #[must_use]
+    pub fn cmd_async(&self) -> tokio::process::Command {
         let mut cmd = tokio::process::Command::new(&self.binary_path);
         cmd.envs(&self.env).args(&self.prefix_args);
         cmd

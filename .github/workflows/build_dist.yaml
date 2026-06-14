@@ -159,11 +159,11 @@ jobs:
         with:
           toolchain: 1.96.0
       - working-directory: scidev
-        run: cargo build --bin scidev --release
+        run: cargo build --bin scidub --release --no-default-features
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: scidev-bin-${{ matrix.platform }}
-          path: scidev/target/release/scidev${{ matrix.exe_suffix }}
+          name: scidub-bin-${{ matrix.platform }}
+          path: scidev/target/release/scidub${{ matrix.exe_suffix }}
 
   build_scinc:
     strategy:
@@ -186,29 +186,37 @@ jobs:
           repository: naerbnic/sci-compiler
           path: src/scinc
       - working-directory: src/scinc
-        run: bazel build -c opt //scic/frontend:scic
+        run: |
+          bazel build -c opt //scic/frontend:scic
+          mkdir -p ${{ github.workspace }}/output
+          cp bazel-bin/scic/frontend/scic${{ matrix.exe_suffix }} ${{ github.workspace }}/output/scinc${{ matrix.exe_suffix }}
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: scinc-bin-${{ matrix.platform }}
-          path: src/scinc/bazel-bin/scic/frontend/scic${{ matrix.exe_suffix }}
+          path: output/scinc${{ matrix.exe_suffix }}
   
   create_dist:
     needs: [build_ffmpeg, build_espeak, build_scidub, build_scinc]
     strategy:
+      fail-fast: false
       matrix:
         platform: [windows, linux, macos]
         include:
           - platform: windows
             os: windows
+            exe_suffix: .exe
           - platform: linux
             os: ubuntu
           - platform: macos
             os: macos
     runs-on: ${{ matrix.os }}-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: scidev-bin-${{ matrix.platform }}
+          name: scidub-bin-${{ matrix.platform }}
           path: root/bin
       - uses: actions/download-artifact@v8
         with:
@@ -222,10 +230,24 @@ jobs:
         with:
           name: espeak-data-${{ matrix.platform }}
           path: root/share/espeak-ng
+      - uses: actions/download-artifact@v8
+        with:
+          name: scinc-bin-${{ matrix.platform }}
+          path: root/libexec
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: scidub-dist-${{ matrix.platform }}
           path: root
+      - name: Test Distribution
+        run: |
+          chmod a+x root/bin/*
+          chmod a+x root/libexec/*
+          ls -lR root
+          echo "Smoke test: Running the tool directly"
+          root/bin/scidub${{ matrix.exe_suffix }} --version
+          echo "Running the check-distribution command"
+          root/bin/scidub${{ matrix.exe_suffix }} check-distribution \
+            --required-tools ffmpeg,espeak,scinc 
 
       
 

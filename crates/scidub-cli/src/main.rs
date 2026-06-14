@@ -3,10 +3,13 @@ use clap::Parser as _;
 mod cli;
 mod commands;
 mod data;
-mod dirs;
+mod dist_env;
 mod project;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     let cli = cli::Cli::parse();
-    cli.run()
+    if let Err(err) = cli.run() {
+        eprintln!("{err:#}");
+        std::process::exit(1);
+    }
 }

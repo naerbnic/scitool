@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use csv::WriterBuilder;
 use indicatif::ProgressFinish;
 use scidev::ids::{ConversationId, LineId};
@@ -20,10 +20,11 @@ use sciproj::{
     tools::{espeak::EspeakTool, ffmpeg::FfmpegTool},
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+use tracing::Level;
 
 use crate::{
     data::{DataFormat, load_data, store_data},
-    dirs::DistEnv,
+    dist_env::DistEnv,
     project::{Manifest, Project},
 };
 
@@ -47,6 +48,8 @@ enum Command {
     Script(ScriptSubCommand),
     Build(Build),
     GameData(GameData),
+    #[clap(hide = true)]
+    CheckDistribution(CheckDistribution),
 }
 
 impl Command {
@@ -56,6 +59,7 @@ impl Command {
             Self::Script(s) => s.run(),
             Self::Build(build) => build.run(),
             Self::GameData(game_data) => game_data.run(),
+            Self::CheckDistribution(c) => c.run(),
         }
     }
 }
@@ -523,9 +527,7 @@ impl Build {
         let progress_factory =
             ProgressFactory::new(stderr_term).with_finish(ProgressFinish::AndLeave);
 
-        let dist_env = DistEnv::builder()
-            .set_use_system_path(true)
-            .build_from_current_exe()?;
+        let dist_env = DistEnv::from_env();
 
         let ffmpeg_tool = FfmpegTool::from_tool(dist_env.ffmpeg_tool());
         let espeak_tool = dist_env.espeak_tool().map(EspeakTool::from_tool);
@@ -850,5 +852,118 @@ impl ImportGame {
         }
 
         Ok(())
+    }
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum RequiredTool {
+    #[clap(name = "espeak")]
+    EpeakNG,
+    #[clap(name = "ffmpeg")]
+    Ffmpeg,
+    #[clap(name = "scinc")]
+    Scinc,
+}
+
+/// Checks that the distribution environment is properly set up.
+/// Should generally not be necessary outside of building for distribution.
+#[derive(Debug, Parser)]
+struct CheckDistribution {
+    #[clap(long)]
+    test_fail: bool,
+
+    #[clap(long, value_delimiter = ',')]
+    required_tools: Vec<RequiredTool>,
+}
+
+impl CheckDistribution {
+    #[tracing::instrument]
+    async fn run_inner(self) -> anyhow::Result<()> {
+        let mut is_valid = true;
+        let env = DistEnv::try_load_env()?;
+        for req_tool in &self.required_tools {
+            match req_tool {
+                RequiredTool::EpeakNG => {
+                    if let Some(espeak) = env.espeak_tool() {
+                        eprintln!("espeak binary found. Execution params: {espeak:?}");
+                        let output = espeak.cmd_async().arg("--version").output().await?;
+                        if output.status.success() {
+                            eprintln!(
+                                "espeak-ng found. Version info:\n{}",
+                                String::from_utf8_lossy(&output.stdout)
+                            );
+                        } else {
+                            is_valid = false;
+                            eprintln!(
+                                "Unable to run espeak-ng: {}",
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    } else {
+                        is_valid = false;
+                        eprintln!("espeak-ng not found.");
+                    }
+                }
+                RequiredTool::Ffmpeg => {
+                    let ffmpeg = env.ffmpeg_tool();
+                    eprintln!("ffmpeg binary found. Execution params: {ffmpeg:?}");
+                    let output = ffmpeg.cmd_async().arg("-version").output().await?;
+                    if output.status.success() {
+                        eprintln!(
+                            "ffmpeg found. Version info:\n{}",
+                            String::from_utf8_lossy(&output.stdout)
+                        );
+                    } else {
+                        is_valid = false;
+                        eprintln!(
+                            "Unable to run ffmpeg: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+                RequiredTool::Scinc => {
+                    if let Some(scinc) = env.scinc_tool() {
+                        eprintln!("scinc binary found. Execution params: {scinc:?}");
+                        let output = scinc.cmd_async().arg("--version").output().await?;
+                        if output.status.success() {
+                            eprintln!(
+                                "scinc found. Version info:\n{}",
+                                String::from_utf8_lossy(&output.stdout)
+                            );
+                        } else {
+                            is_valid = false;
+                            eprintln!(
+                                "Unable to run scinc: {}",
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    } else {
+                        is_valid = false;
+                        eprintln!("scinc not found.");
+                    }
+                }
+            }
+        }
+
+        if self.test_fail {
+            is_valid = false;
+            eprintln!("Testing check fail");
+        }
+
+        anyhow::ensure!(is_valid, "Distribution environment is not properly set up.");
+        Ok(())
+    }
+    fn run(self) -> anyhow::Result<()> {
+        // We explicitly want to see any tracing steps during environment setup.
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .with_max_level(Level::INFO)
+                .finish(),
+        )?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        rt.block_on(self.run_inner())
     }
 }

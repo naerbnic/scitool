@@ -61,6 +61,7 @@ pub fn is_executable(path: &Path) -> bool {
     plat::is_executable(path)
 }
 
+#[derive(Clone, Debug)]
 pub struct LookupPath {
     path_entries: HashMap<OsString, PathBuf>,
 }
