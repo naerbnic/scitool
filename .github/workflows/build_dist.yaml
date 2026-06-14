@@ -91,10 +91,13 @@ jobs:
           fi
           ./configure "${FFMPEG_CONF_ARGS[@]}"
           make -j8
-      - uses: actions/upload-artifact@v7.0.1
+      - name: Upload ffmpeg bin
+        uses: pyTooling/upload-artifact@v1.10.0
         with:
+          working-directory: src/ffmpeg
+          investigate: true
           name: ffmpeg-bin-${{ matrix.platform }}
-          path: src/ffmpeg/${{ matrix.target_bin }}
+          path: ${{ matrix.target_bin }}
 
   build_espeak:
     strategy:
@@ -103,14 +106,17 @@ jobs:
         include:
           - platform: windows
             os: windows
-            espeak_bin: Release/espeak-ng.exe
+            espeak_base: espeak-ng/build/src/Release
+            espeak_bin: espeak-ng.exe
             shell: C:\msys64\usr\bin\bash.exe {0}
           - platform: linux
             os: ubuntu
+            espeak_base: espeak-ng/build/src
             espeak_bin: espeak-ng
             shell: bash
           - platform: macos
             os: macos
+            espeak_base: espeak-ng/build/src
             espeak_bin: espeak-ng
             shell: bash
     runs-on: ${{ matrix.os }}-latest
@@ -127,14 +133,18 @@ jobs:
         run: |
           cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DUSE_LIBPCAUDIO=OFF -DBUILD_SHARED_LIBS=OFF
           cmake --build build --config Release
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: pyTooling/upload-artifact@v1.10.0
         with:
+          working-directory: ${{ matrix.espeak_base }}
+          investigate: true
           name: espeak-bin-${{ matrix.platform }}
-          path: espeak-ng/build/src/${{ matrix.espeak_bin }}
-      - uses: actions/upload-artifact@v7.0.1
+          path: ${{ matrix.espeak_bin }}
+      - uses: pyTooling/upload-artifact@v1.10.0
         with:
+          working-directory: espeak-ng/build
+          investigate: true
           name: espeak-data-${{ matrix.platform }}
-          path: espeak-ng/build/espeak-ng-data/**
+          path: espeak-ng-data/**
 
   build_scidub:
     strategy:
@@ -160,10 +170,12 @@ jobs:
           toolchain: 1.96.0
       - working-directory: scidev
         run: cargo build --bin scidub --release --no-default-features
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: pyTooling/upload-artifact@v1.10.0
         with:
+          working-directory: scidev/target/release
+          investigate: true
           name: scidub-bin-${{ matrix.platform }}
-          path: scidev/target/release/scidub${{ matrix.exe_suffix }}
+          path: scidub${{ matrix.exe_suffix }}
 
   build_scinc:
     strategy:
@@ -190,12 +202,14 @@ jobs:
           bazel build -c opt //scic/frontend:scic
           mkdir -p ${{ github.workspace }}/output
           cp bazel-bin/scic/frontend/scic${{ matrix.exe_suffix }} ${{ github.workspace }}/output/scinc${{ matrix.exe_suffix }}
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: pyTooling/upload-artifact@v1.10.0
         with:
+          working-directory: output
+          investigate: true
           name: scinc-bin-${{ matrix.platform }}
-          path: output/scinc${{ matrix.exe_suffix }}
+          path: scinc${{ matrix.exe_suffix }}
   
-  create_dist:
+  build_dist:
     needs: [build_ffmpeg, build_espeak, build_scidub, build_scinc]
     strategy:
       fail-fast: false
@@ -214,40 +228,107 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: scidub-bin-${{ matrix.platform }}
           path: root/bin
-      - uses: actions/download-artifact@v8
+      - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: ffmpeg-bin-${{ matrix.platform }}
           path: root/libexec
-      - uses: actions/download-artifact@v8
+      - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: espeak-bin-${{ matrix.platform }}
           path: root/libexec
-      - uses: actions/download-artifact@v8
+      - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: espeak-data-${{ matrix.platform }}
           path: root/share/espeak-ng
-      - uses: actions/download-artifact@v8
+      - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: scinc-bin-${{ matrix.platform }}
           path: root/libexec
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: pyTooling/upload-artifact@v1.10.0
+        with:
+          working-directory: root
+          investigate: true
+          name: scidub-dist-${{ matrix.platform }}
+          path: "**"
+  test_dist:
+    needs:
+      - build_dist
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows, linux, macos]
+        include:
+          - platform: windows
+            os: windows
+            exe_suffix: .exe
+          - platform: linux
+            os: ubuntu
+          - platform: macos
+            os: macos
+    runs-on: ${{ matrix.os }}-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: scidub-dist-${{ matrix.platform }}
           path: root
       - name: Test Distribution
         run: |
-          chmod a+x root/bin/*
-          chmod a+x root/libexec/*
-          ls -lR root
           echo "Smoke test: Running the tool directly"
           root/bin/scidub${{ matrix.exe_suffix }} --version
           echo "Running the check-distribution command"
           root/bin/scidub${{ matrix.exe_suffix }} check-distribution \
             --required-tools ffmpeg,espeak,scinc 
+
+  create_dist:
+    needs:
+      - test_dist
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows, linux, macos]
+        include:
+          - platform: windows
+            os: windows
+            archive_ext: zip
+            exe_suffix: .exe
+            tar_bin: /c/Windows/System32/tar.exe
+          - platform: linux
+            os: ubuntu
+            archive_ext: tar.xz
+            tar_bin: tar
+          - platform: macos
+            os: macos
+            archive_ext: tar.xz
+            tar_bin: gtar
+    runs-on: ${{ matrix.os }}-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_FILE_NAME: scidub-release-${{ matrix.platform }}.${{ matrix.archive_ext }}
+    steps:
+      - uses: pyTooling/download-artifact@v1.9.0
+        with:
+          name: scidub-dist-${{ matrix.platform }}
+          path: root
+      - name: Create Release Archive
+        run: |
+          ${{ matrix.tar_bin }} -C root -a -cf "$GITHUB_WORKSPACE/$RELEASE_FILE_NAME" .
+      - uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          path: ${{ env.RELEASE_FILE_NAME }}
+          
+          
+        
+      
 
       
 
