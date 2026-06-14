@@ -23,5 +23,10 @@ tokio = { workspace = true }
 toml = { workspace = true }
 walkdir = { workspace = true }
 
+[features]
+default = ["search_system_path_for_tools"]
+# If enabled, searches the system path for tool names.
+search_system_path_for_tools = []
+
 [lints]
 workspace = true

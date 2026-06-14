@@ -1,7 +1,10 @@
 //! Functions to acquire the directories that are needed to load tool configuration,
 //! find distributed binaries, or load/store user-specific data.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use fs_mistrust::Mistrust;
 use sciproj::{
@@ -104,9 +107,11 @@ impl DefaultPaths {
             return Ok(None);
         }
 
-        mistrust.check_directory(root)?;
-        mistrust.check_directory(&ext_bin_dir)?;
-        mistrust.check_directory(&ext_data_dir)?;
+        let verifier = mistrust.verifier().permit_readable().require_directory();
+
+        verifier.check(root)?;
+        verifier.check(&ext_bin_dir)?;
+        verifier.check(&ext_data_dir)?;
         Ok(Some(DefaultPaths {
             _root: root.to_path_buf(),
             _config_path: config_path,
@@ -165,14 +170,23 @@ struct ExternalToolPaths {
     data: Option<PathBuf>,
 }
 
+static DIST_ENV: LazyLock<DistEnv> =
+    LazyLock::new(|| DistEnv::try_load_env().expect("Unable to build distribution environment"));
+
 pub(crate) struct DistEnv {
     sys_path: Option<LookupPath>,
     paths: Option<DefaultPaths>,
 }
 
 impl DistEnv {
-    pub(crate) fn builder() -> DistEnvBuilder {
+    pub(crate) fn try_load_env() -> anyhow::Result<Self> {
         DistEnvBuilder::new()
+            .set_use_system_path(cfg!(feature = "search_system_path_for_tools"))
+            .build_from_current_exe()
+    }
+
+    pub(crate) fn from_env() -> &'static Self {
+        &DIST_ENV
     }
 
     fn find_binary(&self, name: &str) -> Option<ExternalToolPaths> {
@@ -225,5 +239,10 @@ impl DistEnv {
             espeak = espeak.with_env("ESPEAK_DATA_PATH", data.to_str().unwrap());
         }
         Some(espeak)
+    }
+
+    pub(crate) fn scinc_tool(&self) -> Option<Tool> {
+        let tool_env = self.find_binary("scinc")?;
+        Some(Tool::from_path(tool_env.bin))
     }
 }
