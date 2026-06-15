@@ -7,18 +7,19 @@ use std::{
 };
 
 use pin_project::pin_project;
-use tokio::{io::ReadBuf, process::Child, task::JoinSet};
-
-use crate::{
-    imp::futures::prelude::*,
-    tools::{Tool, ffmpeg::formats},
+use tokio::{
+    io::ReadBuf,
+    process::{Child, Command},
+    task::JoinSet,
 };
+
+use crate::{imp::futures::prelude::*, path::abspath::AbsPath, tools::ffmpeg::formats};
 
 const FFMPEG_INIT_FLAGS: &[&str] = &["-hide_banner"];
 const FFMPEG_INPUT_FLAGS: &[&str] = &["-i", "pipe:0"];
 
 fn start_ffmpeg(
-    ffmpeg: &Tool,
+    ffmpeg_path: &AbsPath,
     output_format: impl Into<formats::OutputFormat>,
     start_ns: Option<u64>,
     end_ns: Option<u64>,
@@ -31,8 +32,7 @@ fn start_ffmpeg(
     if let Some(end_ns) = end_ns {
         opts = opts.add_flag("to", end_ns.to_string());
     }
-    let child = ffmpeg
-        .cmd_async()
+    let child = Command::new(ffmpeg_path)
         .args(FFMPEG_INIT_FLAGS)
         // The input comes from stdin
         .args(FFMPEG_INPUT_FLAGS)
@@ -64,7 +64,7 @@ pub struct ConverterReader {
 impl ConverterReader {
     pub fn new<R>(
         input: R,
-        ffmpeg: &Tool,
+        ffmpeg: &AbsPath,
         output_format: impl Into<formats::OutputFormat>,
         start_ns: Option<u64>,
         end_ns: Option<u64>,

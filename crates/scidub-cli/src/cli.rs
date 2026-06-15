@@ -15,9 +15,11 @@ use scidev::ids::{ConversationId, LineId};
 use sciproj::{
     book::{RoleId, file_format},
     build::audio::{ProgressFactory, compile_audio_base},
-    path::relpath::{RelPath, RelPathBuf, Segment},
+    path::{
+        relpath::{RelPath, RelPathBuf},
+        segment::Segment,
+    },
     resources::AudioClip,
-    tools::{espeak::EspeakTool, ffmpeg::FfmpegTool},
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use tracing::Level;
@@ -529,14 +531,16 @@ impl Build {
 
         let dist_env = DistEnv::from_env();
 
-        let ffmpeg_tool = FfmpegTool::from_tool(dist_env.ffmpeg_tool());
-        let espeak_tool = dist_env.espeak_tool().map(EspeakTool::from_tool);
+        let ffmpeg_tool = dist_env
+            .ffmpeg_tool()?
+            .ok_or_else(|| anyhow::anyhow!("Couldn't find the ffmpeg binary"))?;
+        let espeak_tool = dist_env.espeak_tool()?;
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
         rt.block_on(compile_audio_base(
-            &ffmpeg_tool,
-            espeak_tool.as_ref(),
+            &*ffmpeg_tool,
+            espeak_tool.as_deref(),
             progress_factory,
             book,
             &clip_map,
@@ -865,6 +869,13 @@ enum RequiredTool {
     Scinc,
 }
 
+#[derive(Debug)]
+enum ToolStatus {
+    Unavailable,
+    Invalid,
+    Valid,
+}
+
 /// Checks that the distribution environment is properly set up.
 /// Should generally not be necessary outside of building for distribution.
 #[derive(Debug, Parser)]
@@ -881,66 +892,85 @@ impl CheckDistribution {
     async fn run_inner(self) -> anyhow::Result<()> {
         let mut is_valid = true;
         let env = DistEnv::try_load_env()?;
+        let ffmpeg_tool = env.ffmpeg_tool()?;
+        let espeak_tool = env.espeak_tool()?;
+        let scinc_tool = env.scinc_tool()?;
+        let ffmpeg_status = if let Some(ffmpeg) = ffmpeg_tool.as_deref() {
+            eprintln!("ffmpeg binary found. Execution params: {ffmpeg:?}");
+            let output = ffmpeg.test_binary().await?;
+            if output.status.success() {
+                eprintln!(
+                    "ffmpeg found. Version info:\n{}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+            } else {
+                eprintln!(
+                    "Unable to run ffmpeg: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            if output.status.success() {
+                ToolStatus::Valid
+            } else {
+                ToolStatus::Invalid
+            }
+        } else {
+            ToolStatus::Unavailable
+        };
+        let espeak_status = if let Some(espeak) = espeak_tool.as_deref() {
+            eprintln!("espeak binary found. Execution params: {espeak:?}");
+            let output = espeak.test_binary().await?;
+            if output.status.success() {
+                eprintln!(
+                    "espeak-ng found. Version info:\n{}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+            } else {
+                eprintln!(
+                    "Unable to run espeak-ng: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            if output.status.success() {
+                ToolStatus::Valid
+            } else {
+                ToolStatus::Invalid
+            }
+        } else {
+            ToolStatus::Unavailable
+        };
+        let scinc_status = if let Some(scinc) = scinc_tool.as_deref() {
+            eprintln!("scinc binary found. Execution params: {scinc:?}");
+            let output = scinc.test_binary().await?;
+            if output.status.success() {
+                eprintln!(
+                    "scinc found. Version info:\n{}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+            } else {
+                eprintln!(
+                    "Unable to run scinc: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            if output.status.success() {
+                ToolStatus::Valid
+            } else {
+                ToolStatus::Invalid
+            }
+        } else {
+            ToolStatus::Unavailable
+        };
         for req_tool in &self.required_tools {
             match req_tool {
-                RequiredTool::EpeakNG => {
-                    if let Some(espeak) = env.espeak_tool() {
-                        eprintln!("espeak binary found. Execution params: {espeak:?}");
-                        let output = espeak.cmd_async().arg("--version").output().await?;
-                        if output.status.success() {
-                            eprintln!(
-                                "espeak-ng found. Version info:\n{}",
-                                String::from_utf8_lossy(&output.stdout)
-                            );
-                        } else {
-                            is_valid = false;
-                            eprintln!(
-                                "Unable to run espeak-ng: {}",
-                                String::from_utf8_lossy(&output.stderr)
-                            );
-                        }
-                    } else {
-                        is_valid = false;
-                        eprintln!("espeak-ng not found.");
-                    }
-                }
                 RequiredTool::Ffmpeg => {
-                    let ffmpeg = env.ffmpeg_tool();
-                    eprintln!("ffmpeg binary found. Execution params: {ffmpeg:?}");
-                    let output = ffmpeg.cmd_async().arg("-version").output().await?;
-                    if output.status.success() {
-                        eprintln!(
-                            "ffmpeg found. Version info:\n{}",
-                            String::from_utf8_lossy(&output.stdout)
-                        );
-                    } else {
-                        is_valid = false;
-                        eprintln!(
-                            "Unable to run ffmpeg: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                    }
+                    is_valid &= matches!(ffmpeg_status, ToolStatus::Valid);
+                }
+                RequiredTool::EpeakNG => {
+                    is_valid &= matches!(espeak_status, ToolStatus::Valid);
                 }
                 RequiredTool::Scinc => {
-                    if let Some(scinc) = env.scinc_tool() {
-                        eprintln!("scinc binary found. Execution params: {scinc:?}");
-                        let output = scinc.cmd_async().arg("--version").output().await?;
-                        if output.status.success() {
-                            eprintln!(
-                                "scinc found. Version info:\n{}",
-                                String::from_utf8_lossy(&output.stdout)
-                            );
-                        } else {
-                            is_valid = false;
-                            eprintln!(
-                                "Unable to run scinc: {}",
-                                String::from_utf8_lossy(&output.stderr)
-                            );
-                        }
-                    } else {
-                        is_valid = false;
-                        eprintln!("scinc not found.");
-                    }
+                    is_valid &= matches!(scinc_status, ToolStatus::Valid);
                 }
             }
         }
@@ -949,6 +979,11 @@ impl CheckDistribution {
             is_valid = false;
             eprintln!("Testing check fail");
         }
+
+        eprintln!("DEPENDENCY STATUSES:");
+        eprintln!("  FFmpeg: {ffmpeg_status:?}");
+        eprintln!("  espeak-ng: {espeak_status:?}");
+        eprintln!("  scinc: {scinc_status:?}");
 
         anyhow::ensure!(is_valid, "Distribution environment is not properly set up.");
         Ok(())

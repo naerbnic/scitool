@@ -12,18 +12,17 @@ jobs:
           - platform: windows
             host_os: ubuntu
             target_os: win64
-            target_bin: ffmpeg.exe
           - platform: linux
             host_os: ubuntu
             target_os: linux
-            target_bin: ffmpeg
           - platform: macos
             host_os: macos
             target_os: darwin
-            target_bin: ffmpeg
     runs-on: ${{ matrix.host_os }}-latest
     env:
       REPO_ROOT: "${{ github.workspace }}/src/scidub"
+      OUTPUT_SUBDIR: "output"
+      DEPS_SUBDIR: "deps"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -32,10 +31,12 @@ jobs:
         run: |
           export DIST_ROOT="$REPO_ROOT/dist"
           export PLAT_ROOT="$DIST_ROOT/plat/${{ matrix.platform }}"
-          export INSTALL_PREFIX="${{ github.workspace }}/install"
+          export DEPS_INSTALL_PREFIX="${{ github.workspace }}/$DEPS_SUBDIR"
+          export INSTALL_PREFIX="${{ github.workspace }}/$OUTPUT_SUBDIR"
           export TARGET_OS=${{ matrix.target_os }}
           echo "DIST_ROOT=$DIST_ROOT" >> $GITHUB_ENV
           echo "PLAT_ROOT=$PLAT_ROOT" >> $GITHUB_ENV
+          echo "DEPS_INSTALL_PREFIX=$DEPS_INSTALL_PREFIX" >> $GITHUB_ENV
           echo "INSTALL_PREFIX=$INSTALL_PREFIX" >> $GITHUB_ENV
           echo "TARGET_OS=$TARGET_OS" >> $GITHUB_ENV
       - name: Install dependencies
@@ -83,7 +84,7 @@ jobs:
       - name: Build and install ffmpeg
         working-directory: src/ffmpeg
         run: |
-          export PKG_CONFIG_PATH="$INSTALL_PREFIX/lib/pkgconfig"
+          export PKG_CONFIG_PATH="$DEPS_INSTALL_PREFIX/lib/pkgconfig"
           declare -a FFMPEG_CONF_ARGS
           . "$DIST_ROOT/ffmpeg-cfg.sh"
           if [[ -f "$PLAT_ROOT/ffmpeg-cfg.sh" ]]; then
@@ -91,13 +92,15 @@ jobs:
           fi
           ./configure "${FFMPEG_CONF_ARGS[@]}"
           make -j8
+          make install
+          ls -R "${INSTALL_PREFIX}"
       - name: Upload ffmpeg bin
         uses: pyTooling/upload-artifact@v1.10.0
         with:
-          working-directory: src/ffmpeg
+          working-directory: ${{ env.OUTPUT_SUBDIR }}
           investigate: true
-          name: ffmpeg-bin-${{ matrix.platform }}
-          path: ${{ matrix.target_bin }}
+          name: ffmpeg-${{ matrix.platform }}
+          path: bin/**
 
   build_espeak:
     strategy:
@@ -106,23 +109,19 @@ jobs:
         include:
           - platform: windows
             os: windows
-            espeak_base: espeak-ng/build/src/Release
-            espeak_bin: espeak-ng.exe
             shell: C:\msys64\usr\bin\bash.exe {0}
           - platform: linux
             os: ubuntu
-            espeak_base: espeak-ng/build/src
-            espeak_bin: espeak-ng
             shell: bash
           - platform: macos
             os: macos
-            espeak_base: espeak-ng/build/src
-            espeak_bin: espeak-ng
             shell: bash
     runs-on: ${{ matrix.os }}-latest
     defaults:
       run:
         shell: ${{ matrix.shell }}
+    env:
+      OUTPUT_SUBDIR: output
     steps:
       - uses: actions/checkout@v6
         with:
@@ -131,51 +130,17 @@ jobs:
           path: "espeak-ng"
       - working-directory: espeak-ng
         run: |
-          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DUSE_LIBPCAUDIO=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DUSE_LIBPCAUDIO=OFF -DBUILD_SHARED_LIBS=OFF "-DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/$OUTPUT_SUBDIR"
           cmake --build build --config Release
+          cmake --install build --config Release
       - uses: pyTooling/upload-artifact@v1.10.0
         with:
-          working-directory: ${{ matrix.espeak_base }}
+          working-directory: ${{ env.OUTPUT_SUBDIR }}
           investigate: true
-          name: espeak-bin-${{ matrix.platform }}
-          path: ${{ matrix.espeak_bin }}
-      - uses: pyTooling/upload-artifact@v1.10.0
-        with:
-          working-directory: espeak-ng/build
-          investigate: true
-          name: espeak-data-${{ matrix.platform }}
-          path: espeak-ng-data/**
-
-  build_scidub:
-    strategy:
-      matrix:
-          platform: [windows, linux, macos]
-          include:
-            - platform: windows
-              os: windows
-              exe_suffix: .exe
-            - platform: linux
-              os: ubuntu
-              exe_suffix: 
-            - platform: macos
-              os: macos
-              exe_suffix: 
-    runs-on: ${{ matrix.os }}-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          path: scidev
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
-        with:
-          toolchain: 1.96.0
-      - working-directory: scidev
-        run: cargo build --bin scidub --release --no-default-features
-      - uses: pyTooling/upload-artifact@v1.10.0
-        with:
-          working-directory: scidev/target/release
-          investigate: true
-          name: scidub-bin-${{ matrix.platform }}
-          path: scidub${{ matrix.exe_suffix }}
+          name: espeak-${{ matrix.platform }}
+          path: |
+            bin
+            share/espeak-ng-data
 
   build_scinc:
     strategy:
@@ -212,14 +177,6 @@ jobs:
           mkdir -p output
           cd output
           tar xzf ../src/scinc/bazel-bin/packaging/scinc.tgz
-          # This is supposed to be a tool, so we move the binaries to libexec,
-          # and move the include directory under a package-specific share directory.
-          mv bin libexec
-          if [[ ! -z "${{ matrix.exe_suffix }}" ]]; then
-            mv libexec/scinc libexec/scinc${{ matrix.exe_suffix }}
-          fi
-          mkdir -p share/scinc
-          mv include share/scinc
           ls -lR .
       - uses: pyTooling/upload-artifact@v1.10.0
         with:
@@ -228,6 +185,43 @@ jobs:
           name: scinc-${{ matrix.platform }}
           path: "**"
   
+  build_scidub:
+    strategy:
+      matrix:
+          platform: [windows, linux, macos]
+          include:
+            - platform: windows
+              os: windows
+              exe_suffix: .exe
+            - platform: linux
+              os: ubuntu
+              exe_suffix: 
+            - platform: macos
+              os: macos
+              exe_suffix: 
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: scidev
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+        with:
+          toolchain: 1.96.0
+          rust-src-dir: scidev
+      - working-directory: scidev
+        run: cargo build --bin scidub --release --no-default-features
+      - name: Assemble output
+        shell: bash
+        run: |
+          mkdir -p output/bin
+          cp scidev/target/release/scidub${{ matrix.exe_suffix }} output/bin/
+      - uses: pyTooling/upload-artifact@v1.10.0
+        with:
+          working-directory: output
+          investigate: true
+          name: scidub-${{ matrix.platform }}
+          path: "**"
+
   build_dist:
     needs: [build_ffmpeg, build_espeak, build_scidub, build_scinc]
     strategy:
@@ -249,30 +243,27 @@ jobs:
     steps:
       - uses: pyTooling/download-artifact@v1.9.0
         with:
-          name: scidub-bin-${{ matrix.platform }}
-          path: root/bin
+          name: scidub-${{ matrix.platform }}
+          path: root
       - uses: pyTooling/download-artifact@v1.9.0
         with:
-          name: ffmpeg-bin-${{ matrix.platform }}
-          path: root/libexec
+          name: ffmpeg-${{ matrix.platform }}
+          path: root/libexec/scidub
       - uses: pyTooling/download-artifact@v1.9.0
         with:
-          name: espeak-bin-${{ matrix.platform }}
-          path: root/libexec
-      - uses: pyTooling/download-artifact@v1.9.0
-        with:
-          name: espeak-data-${{ matrix.platform }}
-          path: root/share/espeak-ng
+          name: espeak-${{ matrix.platform }}
+          path: root/libexec/scidub
       - uses: pyTooling/download-artifact@v1.9.0
         with:
           name: scinc-${{ matrix.platform }}
-          path: root
+          path: root/libexec/scidub
       - uses: pyTooling/upload-artifact@v1.10.0
         with:
           working-directory: root
           investigate: true
           name: scidub-dist-${{ matrix.platform }}
           path: "**"
+
   test_dist:
     needs:
       - build_dist

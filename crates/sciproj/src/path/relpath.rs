@@ -12,58 +12,15 @@
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::{
     borrow::{Borrow, Cow},
-    collections::HashSet,
     ffi::OsStr,
     fmt::Display,
     ops::Deref,
     path::Component,
-    sync::LazyLock,
 };
 
 use itertools::{EitherOrBoth, Itertools as _};
 
-const SPECIAL_MEANING_CHARS: &[char] = &[
-    '/',  // On Windows, Unix, Mac.
-    '\\', // On Windows.
-    ':',  // Old mac separator, but also has special meanings as part of PATHs.
-    ';',  // On Windows, part of PATHs.
-    '<', '>', '|', // Shell redirection. Possible but uncommon on POSIX, forbidden on Windows.
-    '*', '?', // Wildcards.
-    '"', // Quote character forbidden on Windows
-];
-
-const INVALID_SEGMENTS: &[&str] = &[
-    ".", "..", // Common current directory/previous directory chars.
-];
-
-static INVALID_SEGMENTS_SET: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| INVALID_SEGMENTS.iter().copied().collect());
-
-fn is_normal_path_segment(segment: &str) -> bool {
-    if segment.is_empty() {
-        return false;
-    }
-
-    if INVALID_SEGMENTS_SET.contains(segment) {
-        return false;
-    }
-
-    if segment.find(SPECIAL_MEANING_CHARS).is_some() {
-        return false;
-    }
-
-    let mut components = std::path::Path::new(segment).components();
-
-    let Some(Component::Normal(parsed_segment)) = components.next() else {
-        return false;
-    };
-
-    if components.next().is_some() {
-        return false;
-    }
-
-    parsed_segment == segment
-}
+use crate::path::segment::{SPECIAL_MEANING_CHARS, Segment};
 
 fn validate_rel_path(path: &str) -> bool {
     if path.is_empty() {
@@ -172,60 +129,6 @@ impl<'a> Iterator for Ancestors<'a> {
 }
 
 #[repr(transparent)]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Segment(str);
-
-impl Segment {
-    #[must_use]
-    pub fn new(segment: &str) -> &Self {
-        let Some(seg) = Self::try_new(segment) else {
-            panic!("Invalid relative path: {segment}");
-        };
-        seg
-    }
-
-    #[must_use]
-    pub fn try_new(segment: &str) -> Option<&Self> {
-        if is_normal_path_segment(segment) {
-            Some(Self::from_str_unchecked(segment))
-        } else {
-            None
-        }
-    }
-
-    fn from_str_unchecked(path: &str) -> &Self {
-        // SAFETY: Cast is safe because str and RelPath have the same layout
-        // due to repr(transparent).
-        unsafe { (std::ptr::from_ref(path) as *const Self).as_ref().unwrap() }
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Deref for Segment {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_str()
-    }
-}
-
-impl AsRef<RelPath> for Segment {
-    fn as_ref(&self) -> &RelPath {
-        RelPath::from_str_unchecked(self.as_str())
-    }
-}
-
-impl AsRef<std::path::Path> for Segment {
-    fn as_ref(&self) -> &std::path::Path {
-        std::path::Path::new(self.as_str())
-    }
-}
-
-#[repr(transparent)]
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct RelPath(str);
 
@@ -239,11 +142,22 @@ impl RelPath {
     }
 
     #[must_use]
-    pub fn from_std_path(path: &impl AsRef<std::path::Path>) -> &Self {
+    pub const fn from_static(path: &'static str) -> &'static Self {
+        Self::from_str_unchecked(path)
+    }
+
+    #[must_use]
+    pub fn from_std_path<P>(path: &P) -> &Self
+    where
+        P: ?Sized + AsRef<std::path::Path>,
+    {
         Self::try_from_std_path(path).expect("Not a valid relative path")
     }
     #[must_use]
-    pub fn try_from_std_path(path: &impl AsRef<std::path::Path>) -> Option<&Self> {
+    pub fn try_from_std_path<P>(path: &P) -> Option<&Self>
+    where
+        P: ?Sized + AsRef<std::path::Path>,
+    {
         let path = path.as_ref();
         let path_str = path.to_str()?;
         Self::try_new(path_str)
@@ -258,7 +172,7 @@ impl RelPath {
         }
     }
 
-    fn from_str_unchecked(path: &str) -> &Self {
+    const fn from_str_unchecked(path: &str) -> &Self {
         // SAFETY: Cast is safe because str and RelPath have the same layout
         // due to repr(transparent).
         unsafe { (std::ptr::from_ref(path) as *const Self).as_ref().unwrap() }
@@ -482,6 +396,12 @@ impl Display for &RelPath {
     }
 }
 
+impl AsRef<RelPath> for Segment {
+    fn as_ref(&self) -> &RelPath {
+        RelPath::from_str_unchecked(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RelPathBuf(String);
 
@@ -584,6 +504,15 @@ impl RelPathBuf {
     #[must_use]
     pub fn as_path(&self) -> &RelPath {
         RelPath::from_str_unchecked(&self.0)
+    }
+
+    pub fn add_extension(&mut self, ext: &str) {
+        let std_path: &std::path::Path = self.as_ref();
+        self.0 = std_path
+            .with_added_extension(ext)
+            .into_os_string()
+            .into_string()
+            .unwrap();
     }
 }
 

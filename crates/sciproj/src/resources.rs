@@ -15,8 +15,8 @@ use crate::{
     build::audio::ProgressFactory,
     imp::futures::{self, prelude::*},
     tools::{
-        espeak::EspeakTool,
-        ffmpeg::{self, FfmpegTool, OggVorbisOutputOptions},
+        espeak::Espeak,
+        ffmpeg::{self, Ffmpeg, OggVorbisOutputOptions},
     },
 };
 
@@ -46,8 +46,8 @@ pub async fn generate_sample_resources(
     progress: ProgressFactory,
     book: &Book,
     line_mapping: &BTreeMap<LineId, AudioClip>,
-    ffmpeg: &FfmpegTool,
-    espeak: Option<&EspeakTool>,
+    ffmpeg: &dyn Ffmpeg,
+    espeak: Option<&(dyn Espeak + Send + Sync)>,
 ) -> anyhow::Result<VoiceSampleResources> {
     // Split the results into those that have a clip, and the others which are
     // not built, or synthesized.
@@ -102,7 +102,7 @@ pub async fn generate_sample_resources(
                 let source_data = source_data_fut.await?;
                 let mut data = Vec::new();
                 ffmpeg
-                    .create_convert_reader(
+                    .convert(
                         source_data.data,
                         ffmpeg::OutputFormat::Ogg(OggVorbisOutputOptions::new(4, Some(22050))),
                         source_data.start_ns,

@@ -1,15 +1,22 @@
 //! Functions to acquire the directories that are needed to load tool configuration,
 //! find distributed binaries, or load/store user-specific data.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
+use std::sync::LazyLock;
 
 use fs_mistrust::Mistrust;
 use sciproj::{
-    path::{LookupPath, is_executable},
-    tools::Tool,
+    path::{
+        LookupPath,
+        abspath::{AbsPath, AbsPathBuf},
+        is_executable,
+        relpath::{RelPath, RelPathBuf},
+    },
+    tools::{
+        espeak::{self, BoxEspeak},
+        ffmpeg::{self, BoxFfmpeg},
+        location::{DistLocation, SystemPathLocation, ToolLocation},
+        scinc::{self, BoxScinc},
+    },
 };
 use tracing::{info, instrument};
 
@@ -35,8 +42,8 @@ cfg_select! {
         const EXE_TO_ROOT_PATH: &str = "..";
         const BIN_PATH: &str = "bin/scidub.exe";
         const CONFIG_PATH: &str = "config.toml";
-        const EXTERNAL_BIN_PATH: &str = "libexec";
-        const EXTERNAL_DATA_PATH: &str = "share";
+        const EXTERNAL_ROOT_PATH: &str = "libexec/scidub";
+        const EXTERNAL_BIN_PATH: &str = "bin";
         const EXE_EXT: Option<&str> = Some("exe");
     }
 
@@ -66,14 +73,14 @@ cfg_select! {
         const EXE_TO_ROOT_PATH: &str = "..";
         const BIN_PATH: &str = "bin/scidub";
         const CONFIG_PATH: &str = "etc/scidub.toml";
-        const EXTERNAL_BIN_PATH: &str = "libexec";
-        const EXTERNAL_DATA_PATH: &str = "share";
+        const EXTERNAL_ROOT_PATH: &str = "libexec/scidub";
+        const EXTERNAL_BIN_PATH: &str = "bin";
         const EXE_EXT: Option<&str> = None;
     }
 }
 
 #[instrument]
-fn get_current_exe_root() -> anyhow::Result<Option<PathBuf>> {
+fn get_current_exe_root() -> anyhow::Result<Option<AbsPathBuf>> {
     // The defaults are to find a directory relative to the executable location.
     let exe_path = std::env::current_exe()?.canonicalize()?;
     tracing::info!("exe_path: {}", exe_path.display());
@@ -85,36 +92,41 @@ fn get_current_exe_root() -> anyhow::Result<Option<PathBuf>> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Can't find directory of executable."))?
         .join(EXE_TO_ROOT_PATH);
-    info!("Found valid exe root: {}", root.display());
-    Ok(Some(root))
+
+    // Recanonicalize, to make sure there are no intermediate ".." segments.
+    let root = root.canonicalize()?;
+    let Some(abs_root) = AbsPathBuf::try_from_std(root.as_path()) else {
+        anyhow::bail!("Invalid abs_root")
+    };
+    info!("Found valid exe root: {}", abs_root);
+    Ok(Some(abs_root))
 }
 
 #[derive(Debug, Clone)]
 struct DefaultPaths {
-    _root: PathBuf,
-    _config_path: PathBuf,
-    ext_bin_dir: PathBuf,
-    ext_data_dir: PathBuf,
+    _root: AbsPathBuf,
+    _config_path: AbsPathBuf,
+    ext_root_dir: AbsPathBuf,
+    ext_bin_dir: RelPathBuf,
 }
 
 impl DefaultPaths {
-    fn from_root(root: &Path) -> anyhow::Result<Option<Self>> {
+    fn from_root(root: &AbsPath) -> anyhow::Result<Option<Self>> {
         let mistrust = Mistrust::new();
         let config_path = root.join(CONFIG_PATH);
-        let ext_bin_dir = root.join(EXTERNAL_BIN_PATH);
-        let ext_data_dir = root.join(EXTERNAL_DATA_PATH);
+        let ext_root_dir = root.join(EXTERNAL_ROOT_PATH);
+        let ext_bin_dir = ext_root_dir.join(EXTERNAL_BIN_PATH);
 
         info!(
             "Checking paths: ext_bin_dir: {}, ext_data_dir: {}",
-            ext_bin_dir.display(),
-            ext_data_dir.display()
+            ext_root_dir, ext_bin_dir
         );
 
         if !ext_bin_dir.is_dir() {
             return Ok(None);
         }
 
-        if !ext_data_dir.is_dir() {
+        if !ext_root_dir.is_dir() {
             return Ok(None);
         }
 
@@ -122,19 +134,19 @@ impl DefaultPaths {
 
         verifier.check(root)?;
         verifier.check(&ext_bin_dir)?;
-        verifier.check(&ext_data_dir)?;
+        verifier.check(&ext_root_dir)?;
 
         info!("Checks succeeded");
         Ok(Some(DefaultPaths {
-            _root: root.to_path_buf(),
+            _root: root.to_buf(),
             _config_path: config_path,
-            ext_bin_dir,
-            ext_data_dir,
+            ext_root_dir,
+            ext_bin_dir: RelPathBuf::new(EXTERNAL_BIN_PATH),
         }))
     }
 }
 
-fn add_exec_extension(mut path: PathBuf) -> PathBuf {
+fn add_exec_extension(mut path: RelPathBuf) -> RelPathBuf {
     if let Some(ext) = EXE_EXT {
         path.add_extension(ext);
     }
@@ -163,7 +175,7 @@ impl DistEnvBuilder {
         Self::build_from_root(self, get_current_exe_root()?.as_deref())
     }
 
-    fn build_from_root(self, root: Option<&Path>) -> anyhow::Result<DistEnv> {
+    fn build_from_root(self, root: Option<&AbsPath>) -> anyhow::Result<DistEnv> {
         let paths = if let Some(root) = root {
             DefaultPaths::from_root(root)?
         } else {
@@ -178,11 +190,6 @@ impl DistEnvBuilder {
             paths,
         })
     }
-}
-
-struct ExternalToolPaths {
-    bin: PathBuf,
-    data: Option<PathBuf>,
 }
 
 static DIST_ENV: LazyLock<DistEnv> =
@@ -206,74 +213,73 @@ impl DistEnv {
     }
 
     #[instrument]
-    fn find_binary(&self, name: &str) -> Option<ExternalToolPaths> {
-        let name_path: &Path = name.as_ref();
-        let bin_filename = add_exec_extension(name_path.to_path_buf());
+    fn find_binary(&self, name: &str) -> Vec<ToolLocation> {
+        let mut found_locations = Vec::new();
+        let name_path: &RelPath = RelPath::new(name);
+        let bin_filename = add_exec_extension(name_path.to_buf());
 
-        info!("Searching for {}", bin_filename.display());
+        info!("Searching for {}", bin_filename);
 
         if let Some(paths) = &self.paths {
-            let possible_ext_bin_path = paths.ext_bin_dir.join(&bin_filename);
+            let possible_ext_bin_path = paths
+                .ext_root_dir
+                .join_rel(&paths.ext_bin_dir)
+                .join(&bin_filename);
             info!(
                 "Searching for {} in {:?}",
-                bin_filename.display(),
-                paths.ext_bin_dir
+                bin_filename, possible_ext_bin_path
             );
             if is_executable(&possible_ext_bin_path) {
-                return Some(ExternalToolPaths {
-                    bin: possible_ext_bin_path,
-                    data: self.find_data_dir(name),
-                });
+                found_locations.push(
+                    DistLocation::new(
+                        paths.ext_root_dir.clone(),
+                        paths.ext_bin_dir.join(&bin_filename),
+                    )
+                    .into(),
+                );
+            } else {
+                info!("{} not found", bin_filename);
             }
-            info!("{} not found", bin_filename.display());
         }
 
         if let Some(sys_path) = &self.sys_path {
             info!(
                 "Searching for {} in system path {:?}",
-                bin_filename.display(),
-                sys_path
+                bin_filename, sys_path
             );
             if let Some(bin_path) = sys_path.find_binary(name_path) {
-                info!("Found {} in system path", bin_filename.display());
-                return Some(ExternalToolPaths {
-                    bin: bin_path.to_path_buf(),
-                    data: None,
-                });
+                info!("Found {} in system path", bin_filename);
+                found_locations
+                    .push(SystemPathLocation::new(AbsPathBuf::from_std(bin_path)).into());
             }
         }
-        None
+        found_locations
     }
 
-    fn find_data_dir(&self, name: &str) -> Option<PathBuf> {
-        if let Some(paths) = &self.paths {
-            let possible_ext_bin_path = paths.ext_data_dir.join(name);
-            if is_executable(&possible_ext_bin_path) {
-                return Some(possible_ext_bin_path);
+    pub(crate) fn ffmpeg_tool(&self) -> anyhow::Result<Option<BoxFfmpeg>> {
+        let Some(ffmpeg_loc) = self.find_binary("ffmpeg").first().cloned() else {
+            return Ok(None);
+        };
+        Ok(Some(ffmpeg::from_tool_location(&ffmpeg_loc)?))
+    }
+
+    pub(crate) fn espeak_tool(&self) -> anyhow::Result<Option<BoxEspeak>> {
+        let Some(first_loc) = self.find_binary("espeak-ng").first().cloned() else {
+            return Ok(None);
+        };
+        Ok(Some(espeak::from_tool_location(&first_loc)?))
+    }
+
+    pub(crate) fn scinc_tool(&self) -> anyhow::Result<Option<BoxScinc>> {
+        let Some(dist_loc) = self.find_binary("scinc").into_iter().find_map(|loc| {
+            if let ToolLocation::Dist(dist) = loc {
+                Some(dist)
+            } else {
+                None
             }
-        }
-        None
-    }
-
-    pub(crate) fn try_get_ffmpeg_tool(&self) -> Option<Tool> {
-        Some(Tool::from_path(self.find_binary("ffmpeg")?.bin))
-    }
-
-    pub(crate) fn ffmpeg_tool(&self) -> Tool {
-        self.try_get_ffmpeg_tool().expect("Unable to find ffmpeg")
-    }
-
-    pub(crate) fn espeak_tool(&self) -> Option<Tool> {
-        let tool_env = self.find_binary("espeak-ng")?;
-        let mut espeak = Tool::from_path(tool_env.bin);
-        if let Some(data) = tool_env.data {
-            espeak = espeak.with_env("ESPEAK_DATA_PATH", data.to_str().unwrap());
-        }
-        Some(espeak)
-    }
-
-    pub(crate) fn scinc_tool(&self) -> Option<Tool> {
-        let tool_env = self.find_binary("scinc")?;
-        Some(Tool::from_path(tool_env.bin))
+        }) else {
+            return Ok(None);
+        };
+        Ok(Some(scinc::from_dist_location(&dist_loc)?))
     }
 }

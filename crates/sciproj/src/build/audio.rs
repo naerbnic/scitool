@@ -8,7 +8,7 @@ use std::{
 use crate::{
     book::Book,
     resources::{AudioClip, generate_sample_resources},
-    tools::{espeak::EspeakTool, ffmpeg::FfmpegTool},
+    tools::{espeak::Espeak, ffmpeg::Ffmpeg},
 };
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use indicatif::{MultiProgress, ProgressDrawTarget, ProgressFinish, ProgressStyle, TermLike};
@@ -86,8 +86,8 @@ where
 }
 
 pub async fn compile_audio_base(
-    ffmpeg_tool: &FfmpegTool,
-    espeak_tool: Option<&EspeakTool>,
+    ffmpeg_tool: &dyn Ffmpeg,
+    espeak_tool: Option<&(dyn Espeak + Send + Sync)>,
     progress: ProgressFactory,
     book: &Book,
     line_mapping: &BTreeMap<LineId, AudioClip>,

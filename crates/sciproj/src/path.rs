@@ -1,7 +1,9 @@
 //! Tools for working with system paths, such as looking up a binary in the PATH
 //! environment variable.
 
+pub mod abspath;
 pub mod relpath;
+pub mod segment;
 
 use std::{
     collections::HashMap,
@@ -57,8 +59,8 @@ mod plat {
 }
 
 #[must_use]
-pub fn is_executable(path: &Path) -> bool {
-    plat::is_executable(path)
+pub fn is_executable<P: AsRef<Path>>(path: P) -> bool {
+    plat::is_executable(path.as_ref())
 }
 
 #[derive(Clone, Debug)]

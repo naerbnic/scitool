@@ -1,43 +1,20 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{fmt::Debug, pin::Pin, process::Output};
+
+use crate::tools::location::ToolLocation;
 
 pub mod espeak;
 pub mod ffmpeg;
+pub mod location;
+pub mod scinc;
 
 mod util;
 
-#[derive(Debug)]
-pub struct Tool {
-    binary_path: PathBuf,
-    prefix_args: Vec<String>,
-    env: BTreeMap<String, String>,
+pub trait TestableTool: Debug {
+    fn test_binary<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Output>> + Send + 'a>>;
 }
 
-impl Tool {
-    #[must_use]
-    pub fn from_path(path: PathBuf) -> Self {
-        Tool {
-            binary_path: path,
-            prefix_args: vec![],
-            env: BTreeMap::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_prefix_args(mut self, args: impl IntoIterator<Item = String>) -> Self {
-        self.prefix_args.extend(args);
-        self
-    }
-
-    #[must_use]
-    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.env.insert(key.into(), value.into());
-        self
-    }
-
-    #[must_use]
-    pub fn cmd_async(&self) -> tokio::process::Command {
-        let mut cmd = tokio::process::Command::new(&self.binary_path);
-        cmd.envs(&self.env).args(&self.prefix_args);
-        cmd
-    }
+pub trait ToolSearcher {
+    fn find_tool_locations(&self, name: &str) -> anyhow::Result<Vec<ToolLocation>>;
 }

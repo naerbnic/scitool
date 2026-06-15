@@ -1,10 +1,12 @@
 FFMPEG_CONF_ARGS+=(
   "--target-os=${TARGET_OS}"
+  "--prefix=${INSTALL_PREFIX}"
   --disable-everything
   --disable-doc
   --enable-static
   --disable-shared
   --enable-ffmpeg
+  --disable-ffprobe
   --enable-avcodec
   --enable-avformat
   --enable-encoder=flac,libvorbis,pcm
