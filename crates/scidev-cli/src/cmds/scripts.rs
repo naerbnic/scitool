@@ -1,35 +1,36 @@
 use std::{
-    fs::File,
     io::{BufWriter, Write},
     path::Path,
 };
 
-use self::headers::SciScriptExports;
-mod headers;
+use scidev::resources::ResourceSet;
+use sciproj::scripts::SciScriptExports;
 
 pub(crate) fn generate_headers(
     game_dir: &Path,
     selectors_path: &Path,
     classdef_path: &Path,
 ) -> anyhow::Result<()> {
-    let exports = SciScriptExports::read_from_resources(game_dir)?;
+    let resource_set = ResourceSet::from_root_dir(game_dir)?;
+    let exports = SciScriptExports::read_from_resources(&resource_set)?;
 
-    exports.write_selector_header_to(BufWriter::new(File::create(selectors_path)?))?;
-    exports.write_classdef_header_to(BufWriter::new(File::create(classdef_path)?))?;
+    std::fs::write(selectors_path, exports.selectors_header())?;
+    std::fs::write(classdef_path, exports.class_defs_header())?;
 
     Ok(())
 }
 
 pub(crate) fn dump_headers(game_dir: &Path, mut output: impl std::io::Write) -> anyhow::Result<()> {
-    let exports = SciScriptExports::read_from_resources(game_dir)?;
+    let resource_set = ResourceSet::from_root_dir(game_dir)?;
+    let exports = SciScriptExports::read_from_resources(&resource_set)?;
 
     let mut output = BufWriter::new(&mut output);
 
     writeln!(output, "Selectors:")?;
-    exports.write_selector_header_to(&mut output)?;
+    output.write_all(exports.selectors_header().as_bytes())?;
 
     writeln!(output, "Class Definitions:")?;
-    exports.write_classdef_header_to(&mut output)?;
+    output.write_all(exports.class_defs_header().as_bytes())?;
 
     Ok(())
 }

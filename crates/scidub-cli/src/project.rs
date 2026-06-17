@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     commands::config::ProjectConfig,
     data::{ConfigFormat, load_config},
+    walkdir::RelWalkDir,
 };
 
 const PROJECT_FILE_NAME: &str = "scidub.toml";
@@ -279,5 +280,17 @@ impl Manifest {
 
     pub(crate) fn entries(&self) -> &BTreeMap<RelPathBuf, Sha256Hash> {
         &self.0
+    }
+
+    pub(crate) fn generate_from_game_dir(source: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let source = source.as_ref();
+        let walker = RelWalkDir::new(source);
+        let mut manifest = Manifest::new();
+        for path in walker {
+            let path = path?;
+            let file = std::fs::File::open(source.join(&path))?;
+            manifest.add_from_reader(path, file)?;
+        }
+        Ok(manifest)
     }
 }

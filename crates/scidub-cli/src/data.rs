@@ -1,12 +1,40 @@
 //! Functions for handling paths to data files, with multiple formats.
 
 use std::{
+    fmt::Display,
     io::{BufWriter, Read as _},
     path::Path,
+    str::FromStr,
 };
 
 use anyhow::Context;
 use sciproj::formats::ndjson::{parse_ndjson, serialize_ndjson};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+
+/// A serde-based wrapper for types that implement `ToString` and `FromStr`.
+///
+/// This can be provided for the `with` attribute on `Deserialize` and `Serialize`.
+pub(crate) struct ToFromStringSerde;
+
+impl ToFromStringSerde {
+    pub(crate) fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: ToString,
+        S: Serializer,
+    {
+        value.to_string().serialize(serializer)
+    }
+
+    pub(crate) fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+    where
+        T: FromStr,
+        T::Err: Display,
+        D: Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        T::from_str(s).map_err(D::Error::custom)
+    }
+}
 
 #[derive(Clone)]
 pub(crate) enum DataFormat {

@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap},
-    path::Path,
+    io::Cursor,
 };
 
 use itertools::Itertools;
@@ -195,68 +195,85 @@ fn dump_class_defs(resource_set: &ResourceSet) -> anyhow::Result<Vec<ClassDef>> 
     Ok(classes_out)
 }
 
+fn write_selector_header_to(
+    selectors: impl IntoIterator<Item = Selector>,
+    mut out: impl std::io::Write,
+) -> anyhow::Result<()> {
+    // Note that we leave the next write location at the end of the line,
+    // to write the correct closing paren.
+    write!(out, "(selectors")?;
+
+    for selector in selectors {
+        write!(out, "\n  {} {}", selector.name(), selector.id())?;
+    }
+    writeln!(out, ")\n")?;
+    Ok(())
+}
+
+fn write_classdef_header_to(
+    class_defs: impl IntoIterator<Item = ClassDef>,
+    mut out: impl std::io::Write,
+) -> anyhow::Result<()> {
+    // Note that we leave the next write location at the end of the line,
+    // to write the correct closing paren.
+
+    for class in class_defs {
+        writeln!(out, "(classdef {}", class.name())?;
+        writeln!(out, " script# {}", class.script_num())?;
+        writeln!(out, " class# {}", class.species())?;
+        writeln!(out, " super# {}", class.super_class().unwrap_or(0xFFFFu16))?;
+        writeln!(out, " file# \"script{}.sc\"\n", class.script_num())?;
+
+        writeln!(out, "\t(properties")?;
+        for property in class.properties() {
+            writeln!(out, "\t\t{} {}", property.name(), property.base_value())?;
+        }
+        writeln!(out, "\t)\n")?;
+
+        writeln!(out, "\t(methods")?;
+        for method in class.methods() {
+            writeln!(out, "\t\t{method}")?;
+        }
+        writeln!(out, "\t)")?;
+        writeln!(out, ")\n\n")?;
+    }
+    Ok(())
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
-pub(super) struct SciScriptExports {
-    pub(super) selectors: Vec<Selector>,
-    pub(super) class_defs: Vec<ClassDef>,
+pub struct SciScriptExports {
+    selectors_header: String,
+    class_defs_header: String,
 }
 
 impl SciScriptExports {
-    pub(super) fn read_from_resources(root_dir: &Path) -> anyhow::Result<Self> {
-        let resource_set = ResourceSet::from_root_dir(root_dir)?;
-
-        let selectors = dump_selectors(&resource_set)?;
-
-        let class_defs = dump_class_defs(&resource_set)?;
+    pub fn read_from_resources(resource_set: &ResourceSet) -> anyhow::Result<Self> {
+        let mut selectors_header = Vec::new();
+        let mut class_defs_header = Vec::new();
+        write_selector_header_to(
+            dump_selectors(resource_set)?,
+            Cursor::new(&mut selectors_header),
+        )?;
+        write_classdef_header_to(
+            dump_class_defs(resource_set)?,
+            Cursor::new(&mut class_defs_header),
+        )?;
 
         Ok(SciScriptExports {
-            selectors,
-            class_defs,
+            selectors_header: String::from_utf8(selectors_header)
+                .expect("Only generates valid utf8"),
+            class_defs_header: String::from_utf8(class_defs_header)
+                .expect("Only generates valid utf8"),
         })
     }
 
-    pub(super) fn write_selector_header_to(
-        &self,
-        mut out: impl std::io::Write,
-    ) -> anyhow::Result<()> {
-        // Note that we leave the next write location at the end of the line,
-        // to write the correct closing paren.
-        write!(out, "(selectors")?;
-
-        for selector in &self.selectors {
-            write!(out, "\n  {} {}", selector.name(), selector.id())?;
-        }
-        writeln!(out, ")\n")?;
-        Ok(())
+    #[must_use]
+    pub fn selectors_header(&self) -> &str {
+        &self.selectors_header
     }
 
-    pub(super) fn write_classdef_header_to(
-        &self,
-        mut out: impl std::io::Write,
-    ) -> anyhow::Result<()> {
-        // Note that we leave the next write location at the end of the line,
-        // to write the correct closing paren.
-
-        for class in &self.class_defs {
-            writeln!(out, "(classdef {}", class.name())?;
-            writeln!(out, " script# {}", class.script_num())?;
-            writeln!(out, " class# {}", class.species())?;
-            writeln!(out, " super# {}", class.super_class().unwrap_or(0xFFFFu16))?;
-            writeln!(out, " file# \"script{}.sc\"\n", class.script_num())?;
-
-            writeln!(out, "\t(properties")?;
-            for property in class.properties() {
-                writeln!(out, "\t\t{} {}", property.name(), property.base_value())?;
-            }
-            writeln!(out, "\t)\n")?;
-
-            writeln!(out, "\t(methods")?;
-            for method in class.methods() {
-                writeln!(out, "\t\t{method}")?;
-            }
-            writeln!(out, "\t)")?;
-            writeln!(out, ")\n\n")?;
-        }
-        Ok(())
+    #[must_use]
+    pub fn class_defs_header(&self) -> &str {
+        &self.class_defs_header
     }
 }
