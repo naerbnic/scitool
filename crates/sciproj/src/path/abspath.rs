@@ -144,6 +144,11 @@ impl AbsPath {
     }
 
     #[must_use]
+    pub fn is_file(&self) -> bool {
+        self.as_std().is_file()
+    }
+
+    #[must_use]
     pub fn is_dir(&self) -> bool {
         self.as_std().is_dir()
     }

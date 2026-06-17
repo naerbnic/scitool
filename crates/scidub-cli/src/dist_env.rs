@@ -1,7 +1,7 @@
 //! Functions to acquire the directories that are needed to load tool configuration,
 //! find distributed binaries, or load/store user-specific data.
 
-use std::sync::LazyLock;
+use std::{collections::BTreeMap, sync::LazyLock};
 
 use fs_mistrust::Mistrust;
 use sciproj::{
@@ -153,21 +153,33 @@ fn add_exec_extension(mut path: RelPathBuf) -> RelPathBuf {
     path
 }
 
+/// Non-default env vars that are used in the configuration of the distribution
+/// environment.
+static CAPTURED_ENV_VARS: &[&str] = &["SCINC_HOME"];
+
 #[derive(Debug)]
 pub(crate) struct DistEnvBuilder {
     use_system_path: bool,
+    env_vars: BTreeMap<String, String>,
 }
 
 impl DistEnvBuilder {
     pub(crate) fn new() -> Self {
         Self {
             use_system_path: false,
+            env_vars: BTreeMap::new(),
         }
     }
 
     pub(crate) fn set_use_system_path(mut self, use_system_path: bool) -> Self {
         self.use_system_path = use_system_path;
         self
+    }
+
+    fn add_env_var(mut self, var: &str, value: &str) -> anyhow::Result<Self> {
+        let old_value = self.env_vars.insert(var.to_string(), value.to_string());
+        anyhow::ensure!(old_value.is_none(), "Tried to set {var} twice");
+        Ok(self)
     }
 
     #[instrument]
@@ -188,6 +200,7 @@ impl DistEnvBuilder {
                 None
             },
             paths,
+            env_vars: self.env_vars,
         })
     }
 }
@@ -199,13 +212,27 @@ static DIST_ENV: LazyLock<DistEnv> =
 pub(crate) struct DistEnv {
     sys_path: Option<LookupPath>,
     paths: Option<DefaultPaths>,
+    env_vars: BTreeMap<String, String>,
 }
 
 impl DistEnv {
     pub(crate) fn try_load_env() -> anyhow::Result<Self> {
-        DistEnvBuilder::new()
-            .set_use_system_path(cfg!(feature = "search_system_path_for_tools"))
-            .build_from_current_exe()
+        let mut builder = DistEnvBuilder::new()
+            .set_use_system_path(cfg!(feature = "search_system_path_for_tools"));
+
+        if cfg!(feature = "use_env_vars_for_tools") {
+            for var in CAPTURED_ENV_VARS {
+                match std::env::var(var) {
+                    Ok(value) => builder = builder.add_env_var(var, &value)?,
+                    Err(std::env::VarError::NotPresent) => {}
+                    Err(std::env::VarError::NotUnicode(err)) => {
+                        anyhow::bail!("Unexpected non-unicode value: {}", err.display())
+                    }
+                }
+            }
+        }
+
+        builder.build_from_current_exe()
     }
 
     pub(crate) fn from_env() -> &'static Self {
@@ -270,7 +297,35 @@ impl DistEnv {
         Ok(Some(espeak::from_tool_location(&first_loc)?))
     }
 
+    pub(crate) fn get_env_var(&self, var: &str) -> Option<&str> {
+        if let Some(value) = self.env_vars.get(var) {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn scinc_tool(&self) -> anyhow::Result<Option<BoxScinc>> {
+        // Look at the SCINC_HOME env var. This is mostly used for local testing.
+        //
+        // The structure of the directory is expected to be the same as the produced scinc.tgz file
+        // in its repo.
+        if let Some(home) = self.get_env_var("SCINC_HOME") {
+            let home_path = AbsPath::new_opt(home)
+                .ok_or_else(|| anyhow::anyhow!("Invalid SCINC_HOME: {home}"))?;
+            let bin_path = home_path.join(format!("bin/scinc{}", std::env::consts::EXE_SUFFIX));
+            let include_path = home_path.join("include");
+            anyhow::ensure!(
+                bin_path.is_file(),
+                "Expected scinc binary does not exist. Path: {bin_path}, Home: {home}",
+            );
+            anyhow::ensure!(
+                include_path.is_dir(),
+                "Expected scinc include directory does not exist. Path: {include_path}, Home: {home}"
+            );
+            return Ok(Some(scinc::from_binary_include(bin_path, include_path)?));
+        }
+
         let Some(dist_loc) = self.find_binary("scinc").into_iter().find_map(|loc| {
             if let ToolLocation::Dist(dist) = loc {
                 Some(dist)

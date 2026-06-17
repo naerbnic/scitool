@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{cell::OnceCell, path::PathBuf, rc::Rc};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -48,31 +48,39 @@ impl Command {
 }
 
 /// Common flag arguments for all project-based commands.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, clap::Args, Clone)]
 struct GlobalConfigArgs {
     /// Provides an explicit root for the project.
     #[arg(long)]
     project_root: Option<PathBuf>,
+
+    #[arg(skip)]
+    project: Rc<OnceCell<Project>>,
 }
 
 impl GlobalConfigArgs {
     /// Load a project from the command line flags and/or current process
     /// environment.
-    fn load_project(self) -> anyhow::Result<Project> {
-        let project = if let Some(mut project_root) = self.project_root {
-            if !project_root.is_absolute() {
-                project_root = std::env::current_dir()?.join(&project_root);
-            }
-            let metadata = project_root.metadata().context(format!(
+    fn load_project(&self) -> anyhow::Result<&Project> {
+        if let Some(project) = self.project.get() {
+            return Ok(project);
+        }
+        let project = if let Some(project_root) = &self.project_root {
+            let project_root_buf = if project_root.is_absolute() {
+                project_root.clone()
+            } else {
+                std::env::current_dir()?.join(project_root)
+            };
+            let metadata = project_root_buf.metadata().context(format!(
                 "When looking for project root: {}",
                 project_root.display()
             ))?;
             anyhow::ensure!(metadata.is_dir(), "Provided project is not a directory");
-            Project::new(project_root)
+            Project::new(project_root_buf.clone())
         } else {
             Project::new_from_path(&std::env::current_dir()?)?
         };
-
-        Ok(project)
+        self.project.set(project).unwrap();
+        Ok(self.project.get().unwrap())
     }
 }

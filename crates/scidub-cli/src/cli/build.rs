@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    time::Duration,
+    pin::Pin,
 };
 
 use clap::Parser;
@@ -11,10 +11,13 @@ use scidev::ids::LineId;
 use sciproj::{
     build::audio::{ProgressFactory, compile_audio_base},
     path::{
+        abspath::AbsPath,
         relpath::{RelPath, RelPathBuf},
         segment::Segment,
     },
     resources::AudioClip,
+    scripts::SciScriptExports,
+    tools::scinc::{CompileEnv, CompilerInputs, SciVersion},
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +25,9 @@ use crate::{
     cli::GlobalConfigArgs,
     data::{ToFromStringSerde, load_data},
     dist_env::DistEnv,
+    project::Project,
+    rt::run_async,
+    walkdir::RelWalkDir,
 };
 
 #[derive(Debug, Deserialize)]
@@ -58,6 +64,8 @@ fn line_mappings_to_clip_map<'a>(
     }
     Ok(line_map)
 }
+
+const SCI_SCRIPT_EXT: &str = "sc";
 
 /// Builds a resource patch from a target.
 #[derive(Debug, Parser)]
@@ -96,14 +104,9 @@ pub(super) struct Build {
 }
 
 impl Build {
-    pub(super) fn run(self) -> anyhow::Result<()> {
-        let project = self.env.load_project()?;
-
-        let config = project.config()?;
-        let book = project.book()?;
-
-        let (line_mapping_path, target_name) = if let Some(target) = &self.target {
-            let Some(target_config) = config.targets().get(target) else {
+    fn find_target_info(&self, project: &Project) -> anyhow::Result<(PathBuf, &str)> {
+        let (line_mapping, target_name) = if let Some(target) = &self.target {
+            let Some(target_config) = project.config()?.targets().get(target) else {
                 anyhow::bail!("Target {target} not found")
             };
             (
@@ -116,14 +119,24 @@ impl Build {
             };
             (line_mapping.clone(), "default")
         };
+        Ok((line_mapping, target_name))
+    }
+
+    pub(super) fn run(self) -> anyhow::Result<()> {
+        let project = self.env.load_project()?;
+
+        let config = project.config()?;
+        let book = project.book()?;
+
+        let (line_mapping_path, target_name) = self.find_target_info(project)?;
 
         let line_mappings: Vec<LineMapping> =
             load_data(&line_mapping_path, &crate::data::DataFormat::Csv)?;
 
-        let audio_files_root = self.audio_files.unwrap_or_else(|| {
+        let audio_files_root = self.audio_files.clone().unwrap_or_else(|| {
             config
                 .audio_files_root()
-                .unwrap_or(RelPath::new(""))
+                .unwrap_or(RelPath::EMPTY)
                 .to_std_path(project.root())
         });
 
@@ -132,12 +145,11 @@ impl Build {
         let target_relpath = Segment::try_new(target_name)
             .ok_or_else(|| anyhow::anyhow!("Target name must be a valid relative path segment"))?;
 
-        let base_output_dir = if let Some(output_dir) = self.output {
-            output_dir
+        let base_output_dir = if let Some(output_dir) = &self.output {
+            output_dir.clone()
         } else {
             project.build_dir()?.join(target_relpath)
         };
-        std::fs::create_dir_all(&base_output_dir)?;
 
         // Check that every line in the book is present in the line map.
         let mut non_present_clips = Vec::new();
@@ -189,6 +201,7 @@ impl Build {
         if self.dry_run {
             return Ok(());
         }
+        std::fs::create_dir_all(&base_output_dir)?;
 
         let res_dir_path = base_output_dir.join("res");
         std::fs::create_dir_all(&res_dir_path)?;
@@ -203,20 +216,96 @@ impl Build {
             .ffmpeg_tool()?
             .ok_or_else(|| anyhow::anyhow!("Couldn't find the ffmpeg binary"))?;
         let espeak_tool = dist_env.espeak_tool()?;
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(compile_audio_base(
-            &*ffmpeg_tool,
-            espeak_tool.as_deref(),
-            progress_factory,
-            book,
-            &clip_map,
-            &res_dir_path,
-        ))?;
 
-        rt.shutdown_timeout(Duration::from_secs(1));
+        run_async(async {
+            let mut script_build_step: Vec<Pin<Box<dyn Future<Output = anyhow::Result<()>>>>> =
+                Vec::new();
+            script_build_step.push(Box::pin(compile_audio_base(
+                &*ffmpeg_tool,
+                espeak_tool.as_deref(),
+                progress_factory,
+                book,
+                &clip_map,
+                &res_dir_path,
+            )));
 
+            if let Some(scripts_dir) = project.scripts_dir_opt()? {
+                script_build_step.push(Box::pin(self.build_scripts(
+                    dist_env,
+                    project,
+                    scripts_dir,
+                    AbsPath::from_std(&res_dir_path),
+                )));
+            }
+
+            futures_util::future::join_all(script_build_step)
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, anyhow::Error>>()?;
+            Ok(())
+        })
+    }
+
+    async fn build_scripts(
+        &self,
+        env: &DistEnv,
+        proj: &Project,
+        scripts_dir: &AbsPath,
+        out_res_dir: &AbsPath,
+    ) -> anyhow::Result<()> {
+        let source_config = proj.config()?.source_config();
+        let header_exports = SciScriptExports::read_from_resources(
+            proj.resources_opt()?
+                .ok_or_else(|| anyhow::anyhow!("building scripts requires resources."))?,
+        )?;
+
+        let mut source_files = Vec::new();
+
+        for entry in RelWalkDir::new(scripts_dir) {
+            let entry = entry?;
+            if let Some(ext) = entry.extension()
+                && ext == SCI_SCRIPT_EXT
+            {
+                source_files.push(scripts_dir.join_rel(entry));
+            }
+        }
+
+        if source_files.is_empty() {
+            eprintln!("No script files found in {scripts_dir}");
+            return Ok(());
+        }
+
+        let scinc_tool = env
+            .scinc_tool()?
+            .ok_or_else(|| anyhow::anyhow!("Must have scinc available to build scripts."))?;
+
+        let global_includes = source_config
+            .global_includes()
+            .into_iter()
+            .map(|p| scripts_dir.join_rel(p))
+            .collect();
+
+        let include_dirs = source_config
+            .include_paths()
+            .into_iter()
+            .map(|p| scripts_dir.join_rel(p))
+            .collect();
+
+        let compile_env = CompileEnv {
+            class_defs: header_exports.class_defs_header().to_string(),
+            selectors: header_exports.selectors_header().to_string(),
+        };
+
+        let compile_inputs = CompilerInputs {
+            sci_version: SciVersion::V1_1,
+            global_includes,
+            include_dirs,
+            source_files,
+        };
+
+        scinc_tool
+            .compile_scripts(&compile_env, &compile_inputs, out_res_dir)
+            .await?;
         Ok(())
     }
 }

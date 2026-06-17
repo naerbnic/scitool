@@ -133,6 +133,8 @@ impl<'a> Iterator for Ancestors<'a> {
 pub struct RelPath(str);
 
 impl RelPath {
+    pub const EMPTY: &RelPath = Self::from_str_unchecked("");
+
     #[must_use]
     pub fn new(path: &str) -> &Self {
         let Some(rel_path) = Self::try_new(path) else {
@@ -209,6 +211,12 @@ impl RelPath {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Returns this path as a [`std::path::Path`]
+    #[must_use]
+    pub fn as_std(&self) -> &std::path::Path {
+        self.0.as_ref()
     }
 
     #[must_use]
@@ -299,6 +307,11 @@ impl RelPath {
     #[must_use]
     pub fn to_buf(&self) -> RelPathBuf {
         RelPathBuf(self.as_str().to_string())
+    }
+
+    #[must_use]
+    pub fn extension(&self) -> Option<&str> {
+        Some(self.as_std().extension()?.to_str().expect("Base is UTF-8"))
     }
 }
 

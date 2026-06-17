@@ -83,7 +83,7 @@ pub(super) fn read_resources(
     Ok(ResourceSet { entries })
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ResourceBlocks {
     data_contents: Option<ResourceContents>,
     patch_contents: Option<ResourceContents>,
@@ -153,6 +153,7 @@ scidev_errors::define_error! {
     }
 }
 
+#[derive(Debug)]
 pub struct ResourceSet {
     entries: BTreeMap<ResourceId, ResourceBlocks>,
 }
