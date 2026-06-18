@@ -76,7 +76,8 @@ where
 {
     let path = path.as_ref();
 
-    let mut file = std::fs::File::open(path)?;
+    let mut file = std::fs::File::open(path)
+        .context(format!("Could not open data file: {}", path.display()))?;
 
     let data = match format {
         DataFormat::Json => serde_json::from_reader(file).context(format!(

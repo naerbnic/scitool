@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 use crate::project::Project;
@@ -58,7 +59,15 @@ impl GlobalConfigArgs {
     /// Load a project from the command line flags and/or current process
     /// environment.
     fn load_project(self) -> anyhow::Result<Project> {
-        let project = if let Some(project_root) = self.project_root {
+        let project = if let Some(mut project_root) = self.project_root {
+            if !project_root.is_absolute() {
+                project_root = std::env::current_dir()?.join(&project_root);
+            }
+            let metadata = project_root.metadata().context(format!(
+                "When looking for project root: {}",
+                project_root.display()
+            ))?;
+            anyhow::ensure!(metadata.is_dir(), "Provided project is not a directory");
             Project::new(project_root)
         } else {
             Project::new_from_path(&std::env::current_dir()?)?

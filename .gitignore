@@ -5,3 +5,4 @@
 /**/*.ase
 /.tools
 /build/
+/**/.DS_Store
