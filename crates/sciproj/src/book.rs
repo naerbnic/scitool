@@ -33,39 +33,46 @@ use crate::book::{ids::RawTalkerId, rich_text::RichText};
 //
 // Public access is provided by the handle types below.
 
+#[derive(Debug)]
 struct ConditionEntry {
     /// If this was configured with a description in the input config file,
     /// this will be Some.
     desc: Option<String>,
 }
 
+#[derive(Debug)]
 struct LineEntry {
     text: RichText,
     talker: RawTalkerId,
     role: RawRoleId,
 }
 
+#[derive(Debug)]
 struct ConversationEntry {
     lines: BTreeMap<RawSequenceId, LineEntry>,
 }
 
+#[derive(Debug)]
 struct NounEntry {
     desc: Option<String>,
     is_cutscene: bool,
     conversations: BTreeMap<ConversationKey, ConversationEntry>,
 }
 
+#[derive(Debug)]
 struct RoomEntry {
     name: Option<String>,
     conditions: BTreeMap<RawConditionId, ConditionEntry>,
     nouns: BTreeMap<RawNounId, NounEntry>,
 }
 
+#[derive(Debug)]
 struct RoleEntry {
     name: String,
     short_name: String,
 }
 
+#[derive(Debug)]
 struct VerbEntry {
     name: String,
 }
@@ -420,6 +427,7 @@ impl Role<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct Book {
     project_name: String,
     roles: BTreeMap<RawRoleId, RoleEntry>,

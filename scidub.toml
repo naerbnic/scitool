@@ -1,6 +1,0 @@
-voice_script_config = "data/sq5/book_config.toml"
-game_files = "game_files"
-script_url = "https://sq5-fan-dub.github.io/script"
-
-[targets.default]
-line_mapping = "data/sq5/line_mapping.csv"

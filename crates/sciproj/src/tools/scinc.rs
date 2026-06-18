@@ -1,4 +1,4 @@
-use std::process::Output;
+use std::{pin::Pin, process::Output};
 
 use tokio::process::Command;
 
@@ -12,8 +12,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct CompileEnv {
-    class_defs: String,
-    selectors: String,
+    pub class_defs: String,
+    pub selectors: String,
 }
 
 #[derive(Debug)]
@@ -24,7 +24,7 @@ pub enum SciVersion {
 impl SciVersion {
     fn version_path(&self) -> &RelPath {
         match self {
-            Self::V1_1 => RelPath::from_static("sci1_1"),
+            Self::V1_1 => RelPath::from_static("sci_1_1"),
         }
     }
 
@@ -33,14 +33,20 @@ impl SciVersion {
             Self::V1_1 => "SCI_1_1",
         }
     }
+
+    fn version_define(&self) -> &str {
+        match self {
+            Self::V1_1 => "SCI_1_1",
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct CompilerInputs {
-    sci_version: SciVersion,
-    global_includes: Vec<AbsPathBuf>,
-    include_dirs: Vec<AbsPathBuf>,
-    source_files: Vec<AbsPathBuf>,
+    pub sci_version: SciVersion,
+    pub global_includes: Vec<AbsPathBuf>,
+    pub include_dirs: Vec<AbsPathBuf>,
+    pub source_files: Vec<AbsPathBuf>,
 }
 
 pub trait Scinc: TestableTool {
@@ -49,12 +55,22 @@ pub trait Scinc: TestableTool {
         env: &'a CompileEnv,
         inputs: &'a CompilerInputs,
         output_dir: &'a AbsPath,
-    ) -> Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>;
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
 }
 
 const INCLUDE_REL_PATH: &RelPath = RelPath::from_static("include");
 
 pub type BoxScinc = Box<dyn Scinc>;
+
+pub fn from_binary_include(
+    bin_path: AbsPathBuf,
+    include_root: AbsPathBuf,
+) -> anyhow::Result<Box<dyn Scinc>> {
+    Ok(Box::new(ScincTool {
+        bin_path,
+        includes_root: include_root,
+    }))
+}
 
 pub fn from_dist_location(dist: &DistLocation) -> anyhow::Result<Box<dyn Scinc>> {
     Ok(Box::new(ScincTool::from_dist(dist)))
@@ -99,12 +115,12 @@ impl ScincTool {
         let system_include_path = self
             .includes_root
             .join_rel(inputs.sci_version.version_path());
-        let system_header = system_include_path.join("system.sh");
         let mut include_paths: Vec<&AbsPath> = vec![&system_include_path];
         for input_inc_path in &inputs.include_dirs {
             include_paths.push(input_inc_path);
         }
 
+        let system_header = system_include_path.join("system.sh");
         let mut global_includes: Vec<&AbsPath> = vec![&system_header];
         for input_inc_path in &inputs.global_includes {
             global_includes.push(input_inc_path);
@@ -115,20 +131,28 @@ impl ScincTool {
             source_paths.push(input_src_path);
         }
 
+        let defines: Vec<&str> = vec![inputs.sci_version.version_define()];
+
         let mut cmd = Command::new(&self.bin_path);
         cmd.arg("-u")
             .arg("-a")
             .args(["-t", inputs.sci_version.version_arg()])
-            .args(["-o", output_dir.as_str()])
-            .args(["--selector_file", selector_file_path.as_str()])
-            .args(["--classdef_file", classdef_file_path.as_str()]);
+            .args(["-o", output_dir.as_str()]);
+
+        for define in defines {
+            cmd.args(["-D", define]);
+        }
 
         for include_path in include_paths {
             cmd.args(["--include_path", include_path.as_str()]);
         }
         for global_include in global_includes {
-            cmd.args(["-global_include", global_include.as_str()]);
+            cmd.args(["--global_include", global_include.as_str()]);
         }
+
+        cmd.args(["--selector_file", selector_file_path.as_str()])
+            .args(["--classdef_file", classdef_file_path.as_str()]);
+
         for src_path in source_paths {
             cmd.arg(src_path);
         }
@@ -164,7 +188,7 @@ impl Scinc for ScincTool {
         env: &'a CompileEnv,
         inputs: &'a CompilerInputs,
         output_dir: &'a AbsPath,
-    ) -> Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a> {
-        Box::new(self.compile_scripts_impl(env, inputs, output_dir))
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>> {
+        Box::pin(self.compile_scripts_impl(env, inputs, output_dir))
     }
 }

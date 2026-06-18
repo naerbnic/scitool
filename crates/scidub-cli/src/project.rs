@@ -12,17 +12,22 @@ use scidev::{
 };
 use sciproj::{
     book::{Book, builder::BookBuilder, config::BookConfig},
-    path::relpath::{RelPath, RelPathBuf},
+    path::{
+        abspath::{AbsPath, AbsPathBuf},
+        relpath::{RelPath, RelPathBuf},
+    },
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     commands::config::ProjectConfig,
     data::{ConfigFormat, load_config},
+    walkdir::RelWalkDir,
 };
 
 const PROJECT_FILE_NAME: &str = "scidub.toml";
 const MANIFEST_FILE_NAME: &str = "scidub.manifest.json";
+const SCRIPTS_DEFAULT_PATH: &str = "scripts";
 
 pub(crate) fn find_project_root(start_path: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
     let canon_path = start_path.as_ref().canonicalize()?;
@@ -60,6 +65,7 @@ where
     Ok(value)
 }
 
+#[derive(Debug)]
 pub(crate) struct Project {
     root: PathBuf,
     config_path: OnceCell<PathBuf>,
@@ -72,6 +78,7 @@ pub(crate) struct Project {
     book_config_path: OnceCell<Option<PathBuf>>,
     book_config: OnceCell<Option<BookConfig>>,
     book_opt: OnceCell<Option<Book>>,
+    scripts_dir_opt: OnceCell<Option<AbsPathBuf>>,
 }
 
 impl Project {
@@ -93,6 +100,7 @@ impl Project {
             book_config_path: OnceCell::new(),
             book_config: OnceCell::new(),
             book_opt: OnceCell::new(),
+            scripts_dir_opt: OnceCell::new(),
         }
     }
 
@@ -237,6 +245,23 @@ impl Project {
         self.book_opt()?
             .ok_or_else(|| anyhow::anyhow!("No book is configured for this project"))
     }
+
+    pub(crate) fn scripts_dir_opt(&self) -> anyhow::Result<Option<&AbsPath>> {
+        Ok(get_or_init(&self.scripts_dir_opt, || {
+            let scripts_rel_path = self
+                .config()?
+                .source_config()
+                .source_dir()
+                .unwrap_or(RelPath::new(SCRIPTS_DEFAULT_PATH));
+            let possible_scripts_dir = self.root().join(scripts_rel_path);
+            if possible_scripts_dir.is_dir() {
+                Ok::<_, anyhow::Error>(Some(AbsPathBuf::from_std(possible_scripts_dir)))
+            } else {
+                Ok(None)
+            }
+        })?
+        .as_deref())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -279,5 +304,17 @@ impl Manifest {
 
     pub(crate) fn entries(&self) -> &BTreeMap<RelPathBuf, Sha256Hash> {
         &self.0
+    }
+
+    pub(crate) fn generate_from_game_dir(source: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let source = source.as_ref();
+        let walker = RelWalkDir::new(source);
+        let mut manifest = Manifest::new();
+        for path in walker {
+            let path = path?;
+            let file = std::fs::File::open(source.join(&path))?;
+            manifest.add_from_reader(path, file)?;
+        }
+        Ok(manifest)
     }
 }

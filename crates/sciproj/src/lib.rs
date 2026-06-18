@@ -5,6 +5,7 @@ pub mod formats;
 pub mod path;
 pub mod project;
 pub mod resources;
+pub mod scripts;
 pub mod tables;
 pub mod tools;
 

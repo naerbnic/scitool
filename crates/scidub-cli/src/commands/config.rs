@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use sciproj::path::relpath::{RelPath, RelPathBuf};
 use serde::Deserialize;
 
+fn default_inc_paths() -> Vec<RelPathBuf> {
+    vec![RelPath::EMPTY.to_buf()]
+}
+
 /// Root project config schema.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProjectConfig {
@@ -12,12 +16,23 @@ pub(crate) struct ProjectConfig {
     build_dir: Option<RelPathBuf>,
     script_url: Option<String>,
     #[serde(default)]
+    source: SourceConfig,
+    #[serde(default)]
     targets: HashMap<String, Target>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Target {
     line_mapping: RelPathBuf,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub(crate) struct SourceConfig {
+    source_dir: Option<RelPathBuf>,
+    #[serde(default)]
+    global_includes: Vec<RelPathBuf>,
+    #[serde(default = "default_inc_paths")]
+    include_paths: Vec<RelPathBuf>,
 }
 
 impl ProjectConfig {
@@ -44,10 +59,28 @@ impl ProjectConfig {
     pub(crate) fn targets(&self) -> &HashMap<String, Target> {
         &self.targets
     }
+
+    pub(crate) fn source_config(&self) -> &SourceConfig {
+        &self.source
+    }
 }
 
 impl Target {
     pub(crate) fn line_mapping(&self) -> &RelPath {
         &self.line_mapping
+    }
+}
+
+impl SourceConfig {
+    pub(crate) fn source_dir(&self) -> Option<&RelPath> {
+        self.source_dir.as_deref()
+    }
+
+    pub(crate) fn global_includes(&self) -> Vec<&RelPath> {
+        self.global_includes.iter().map(|p| &**p).collect()
+    }
+
+    pub(crate) fn include_paths(&self) -> Vec<&RelPath> {
+        self.include_paths.iter().map(|p| &**p).collect()
     }
 }
