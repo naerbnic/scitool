@@ -25,26 +25,23 @@ cfg_select! {
         // The expected layout of a Windows distribution:
         //
         // scidub/
-        //   scidub.exe
-        //   config.toml  // Global config. If missing, use defaults.
-        //   tools/
-        //     ffmpeg.exe
-        //     espeak-ng.exe
-        //     scinc.exe
-        //     ...
-        //   share/
-        //     espeak-ng/
-        //       ...
-        //     scinc/
-        //       ...
+        //   bin/
+        //     scidub.exe
+        //   libexec/
+        //     scidub/
+        //       bin/
+        //         ffmpeg.exe
+        //         espeak-ng.exe
+        //         scinc.exe
+        //       share/
+        //         espeak-ng-data/
+        //         scinc/
+        //           includes/
 
-        // Root is same directory as the executable.
         const EXE_TO_ROOT_PATH: &str = "..";
         const BIN_PATH: &str = "bin/scidub.exe";
-        const CONFIG_PATH: &str = "config.toml";
         const EXTERNAL_ROOT_PATH: &str = "libexec/scidub";
         const EXTERNAL_BIN_PATH: &str = "bin";
-        const EXE_EXT: Option<&str> = Some("exe");
     }
 
     unix => {
@@ -53,17 +50,16 @@ cfg_select! {
         // scidub/
         //   bin/
         //     scidub
-        //   etc/
-        //     scidub.toml
         //   libexec/
-        //     ffmpeg
-        //     espeak-ng
-        //     scinc
-        //   share/
-        //     espeak-ng/
-        //       ...
-        //     scinc/
-        //       ...
+        //     scidub/
+        //       bin/
+        //         ffmpeg
+        //         espeak-ng
+        //         scinc
+        //       share/
+        //         espeak-ng-data/
+        //         scinc/
+        //           includes/
 
         // macOS and Linux follow standard FHS general approaches, where the
         // binary is in a "bin/" directory, and external tool dependencies
@@ -72,10 +68,8 @@ cfg_select! {
         // Root is the parent directory of the executable.
         const EXE_TO_ROOT_PATH: &str = "..";
         const BIN_PATH: &str = "bin/scidub";
-        const CONFIG_PATH: &str = "etc/scidub.toml";
         const EXTERNAL_ROOT_PATH: &str = "libexec/scidub";
         const EXTERNAL_BIN_PATH: &str = "bin";
-        const EXE_EXT: Option<&str> = None;
     }
 }
 
@@ -105,7 +99,6 @@ fn get_current_exe_root() -> anyhow::Result<Option<AbsPathBuf>> {
 #[derive(Debug, Clone)]
 struct DefaultPaths {
     _root: AbsPathBuf,
-    _config_path: AbsPathBuf,
     ext_root_dir: AbsPathBuf,
     ext_bin_dir: RelPathBuf,
 }
@@ -113,7 +106,6 @@ struct DefaultPaths {
 impl DefaultPaths {
     fn from_root(root: &AbsPath) -> anyhow::Result<Option<Self>> {
         let mistrust = Mistrust::new();
-        let config_path = root.join(CONFIG_PATH);
         let ext_root_dir = root.join(EXTERNAL_ROOT_PATH);
         let ext_bin_dir = ext_root_dir.join(EXTERNAL_BIN_PATH);
 
@@ -139,7 +131,6 @@ impl DefaultPaths {
         info!("Checks succeeded");
         Ok(Some(DefaultPaths {
             _root: root.to_buf(),
-            _config_path: config_path,
             ext_root_dir,
             ext_bin_dir: RelPathBuf::new(EXTERNAL_BIN_PATH),
         }))
@@ -147,8 +138,8 @@ impl DefaultPaths {
 }
 
 fn add_exec_extension(mut path: RelPathBuf) -> RelPathBuf {
-    if let Some(ext) = EXE_EXT {
-        path.add_extension(ext);
+    if !std::env::consts::EXE_EXTENSION.is_empty() {
+        path.add_extension(std::env::consts::EXE_EXTENSION);
     }
     path
 }
