@@ -20,7 +20,6 @@ pub(crate) enum ParseError {
 }
 
 impl ParseError {
-    #[expect(single_use_lifetimes, reason = "False positive; Removing causes error")]
     fn malformed<'a>(s: impl Into<Cow<'a, str>>) -> Self {
         Self::MalformedPattern(s.into().into_owned())
     }

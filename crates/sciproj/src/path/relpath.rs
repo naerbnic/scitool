@@ -420,13 +420,11 @@ pub struct RelPathBuf(String);
 
 impl RelPathBuf {
     #[must_use]
-    #[expect(single_use_lifetimes)]
     pub fn new<'a>(path: impl Into<Cow<'a, str>>) -> Self {
         Self::try_new(path).unwrap()
     }
 
     #[must_use]
-    #[expect(single_use_lifetimes)]
     pub fn try_new<'a>(path: impl Into<Cow<'a, str>>) -> Option<Self> {
         let path = path.into().into_owned();
         if validate_rel_path(&path) {

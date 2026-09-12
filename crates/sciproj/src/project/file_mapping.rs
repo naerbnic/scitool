@@ -60,7 +60,6 @@ pub(crate) struct FileMapper {
 }
 
 impl FileMapper {
-    #[expect(single_use_lifetimes, reason = "compile error without lifetime")]
     #[cfg_attr(not(test), expect(dead_code, reason = "in progress"))]
     #[cfg_attr(test, expect(dead_code, reason = "in progress"))]
     pub(crate) fn from_config<'a>(

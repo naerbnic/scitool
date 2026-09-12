@@ -3,10 +3,6 @@ use std::collections::HashMap;
 use sciproj::path::relpath::{RelPath, RelPathBuf};
 use serde::Deserialize;
 
-fn default_inc_paths() -> Vec<RelPathBuf> {
-    vec![RelPath::EMPTY.to_buf()]
-}
-
 /// Root project config schema.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProjectConfig {
@@ -28,11 +24,27 @@ pub(crate) struct Target {
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct SourceConfig {
+    /// The directory that contains all source code. This is a path that is
+    /// relative to the root of the project.
+    ///
+    /// If unset, this defaults to the `scripts` directory under the root.
     source_dir: Option<RelPathBuf>,
+
+    /// A list of files that will be unconditionally included in every
+    /// source file.
+    ///
+    /// Paths are provided relative to the source directory.
     #[serde(default)]
     global_includes: Vec<RelPathBuf>,
-    #[serde(default = "default_inc_paths")]
-    include_paths: Vec<RelPathBuf>,
+
+    /// A list of include paths to use within the project.
+    ///
+    /// All paths are relative to the source directory, and must be
+    /// contained inside the directory.
+    ///
+    /// If not set, this defaults to the root of the source directory. If a
+    /// list is provided, that list will be used verbatim.
+    include_paths: Option<Vec<RelPathBuf>>,
 }
 
 impl ProjectConfig {
@@ -80,7 +92,9 @@ impl SourceConfig {
         self.global_includes.iter().map(|p| &**p).collect()
     }
 
-    pub(crate) fn include_paths(&self) -> Vec<&RelPath> {
-        self.include_paths.iter().map(|p| &**p).collect()
+    pub(crate) fn include_paths(&self) -> Option<Vec<&RelPath>> {
+        self.include_paths
+            .as_ref()
+            .map(|inc_paths| inc_paths.iter().map(|p| &**p).collect())
     }
 }

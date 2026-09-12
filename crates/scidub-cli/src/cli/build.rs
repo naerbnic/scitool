@@ -287,6 +287,7 @@ impl Build {
 
         let include_dirs = source_config
             .include_paths()
+            .unwrap_or_else(|| vec![RelPath::EMPTY])
             .into_iter()
             .map(|p| scripts_dir.join_rel(p))
             .collect();
