@@ -1,6 +1,11 @@
 #![allow(unsafe_code)]
 
-use std::{ffi::OsStr, fmt::Display, ops::Deref, path::Component};
+use std::{
+    ffi::OsStr,
+    fmt::Display,
+    ops::Deref,
+    path::{Component, PathBuf},
+};
 
 use crate::path::{relpath::RelPath, segment::Segment};
 
@@ -152,6 +157,11 @@ impl AbsPath {
     pub fn is_dir(&self) -> bool {
         self.as_std().is_dir()
     }
+
+    #[must_use]
+    pub fn extension(&self) -> Option<&str> {
+        Some(self.as_std().extension()?.to_str().expect("Base is UTF-8"))
+    }
 }
 
 impl Display for &AbsPath {
@@ -201,6 +211,10 @@ impl AbsPathBuf {
     #[must_use]
     pub fn as_path(&self) -> &AbsPath {
         AbsPath::from_str_unchecked(self.0.as_str())
+    }
+
+    pub(crate) fn into_std(self) -> PathBuf {
+        PathBuf::from(self.0)
     }
 }
 
@@ -264,6 +278,12 @@ def_partial_cmp_refl!(OsStr => |path, s| (OsStr::new(path.as_str()), s));
 def_partial_cmp_refl!(std::borrow::Cow<'_, str> => |path, s| (path.as_str(), s.as_ref()));
 def_partial_cmp_refl!(std::borrow::Cow<'_, std::path::Path> => |path, s| (OsStr::new(path.as_str()), s.as_ref()));
 def_partial_cmp_refl!(std::borrow::Cow<'_, std::ffi::OsStr> => |path, s| (OsStr::new(path.as_str()), AsRef::<OsStr>::as_ref(s)));
+
+impl AsRef<AbsPath> for AbsPathBuf {
+    fn as_ref(&self) -> &AbsPath {
+        self.as_path()
+    }
+}
 
 impl AsRef<std::path::Path> for AbsPathBuf {
     fn as_ref(&self) -> &std::path::Path {
