@@ -39,15 +39,18 @@ where
         Err::<&'static [u8], _>((self.error)())
     }
 
-    async fn open_mem_async(&self, _range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
-        Err((self.error)())
-    }
-
-    async fn open_async_reader(
+    fn open_mem_async(
         &self,
         _range: BoundedRange<u64>,
-    ) -> OpenBaseResult<impl AsyncRead + Send + 'static> {
-        Err::<&'static [u8], _>((self.error)())
+    ) -> impl Future<Output = OpenBaseResult<MemBlock>> {
+        std::future::ready(Err((self.error)()))
+    }
+
+    fn open_async_reader(
+        &self,
+        _range: BoundedRange<u64>,
+    ) -> impl Future<Output = OpenBaseResult<impl AsyncRead + Send + 'static>> {
+        std::future::ready(Err::<&'static [u8], _>((self.error)()))
     }
 }
 

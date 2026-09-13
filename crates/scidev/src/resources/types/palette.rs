@@ -60,25 +60,22 @@ impl Palette {
         let data0 = data.read_at::<u8>(0);
         let data1 = data.read_at::<u8>(1);
         let data29 = data.read_at::<u16>(29);
-        let block;
-        let format;
-        let color_start;
-        let color_count;
-        if (data0 == 0 && data1 == 1) || (data0 == 0 && data1 == 0 && data29 != 0) {
-            block = data.sub_buffer(260usize..);
-            format = PaletteFormat::Variable;
-            color_start = 0;
-            color_count = 256;
-        } else {
-            block = data.sub_buffer(37usize..);
-            format = match data.read_at::<u8>(32) {
-                0 => PaletteFormat::Variable,
-                1 => PaletteFormat::Constant,
-                _ => bail!("Invalid palette format"),
+
+        let (block, format, color_start, color_count) =
+            if (data0 == 0 && data1 == 1) || (data0 == 0 && data1 == 0 && data29 != 0) {
+                (data.sub_buffer(260usize..), PaletteFormat::Variable, 0, 256)
+            } else {
+                (
+                    data.sub_buffer(37usize..),
+                    match data.read_at::<u8>(32) {
+                        0 => PaletteFormat::Variable,
+                        1 => PaletteFormat::Constant,
+                        _ => bail!("Invalid palette format"),
+                    },
+                    data.read_at::<u8>(25),
+                    data.read_at::<u16>(29),
+                )
             };
-            color_start = data.read_at::<u8>(25);
-            color_count = data.read_at::<u16>(29);
-        }
 
         Self::from_params(&block, format, color_start, color_count)
     }

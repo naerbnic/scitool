@@ -24,8 +24,8 @@ impl ValidationResult {
         if !self.mismatches.is_empty() || !self.missing.is_empty() {
             anyhow::bail!(
                 "Files in manifest are not complete. Missing files: {:?}, Mismatched Files: {:?}",
-                &self.missing,
-                &self.mismatches
+                self.missing,
+                self.mismatches
             )
         }
 

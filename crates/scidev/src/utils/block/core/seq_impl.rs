@@ -63,6 +63,10 @@ impl BlockBase for SequenceBlockImpl {
         Ok(MemBlock::concat_blocks(data))
     }
 
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "Expect block in place after poll"
+    )]
     async fn open_mem_async(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         let mut data = Vec::new();
         let mut remaining_range = range;

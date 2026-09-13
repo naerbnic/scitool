@@ -99,6 +99,10 @@ where
         self.0.open_mem(range)
     }
 
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "Expect block in place after poll"
+    )]
     async fn open_mem_async(&self, range: BoundedRange<u64>) -> OpenBaseResult<MemBlock> {
         tokio::task::block_in_place(|| self.open_mem(range))
     }
@@ -110,6 +114,10 @@ where
         self.0.open_reader(range)
     }
 
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "Expect block in place after poll"
+    )]
     async fn open_async_reader(
         &self,
         range: BoundedRange<u64>,
