@@ -5,9 +5,12 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use sciproj::path::relpath::{RelPath, RelPathBuf};
+use sciproj::path::{
+    relpath::{RelPath, RelPathBuf},
+    walkdir::RelWalkDir,
+};
 
-use crate::{cli::GlobalConfigArgs, project::Manifest, walkdir::RelWalkDir};
+use crate::{cli::GlobalConfigArgs, project::Manifest};
 
 #[derive(Debug, Default)]
 struct ValidationResult {

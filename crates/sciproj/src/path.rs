@@ -3,25 +3,26 @@
 
 pub mod abspath;
 pub mod relpath;
+pub mod search;
 pub mod segment;
+pub mod walkdir;
 
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
+    fs::Metadata,
     path::{Path, PathBuf},
 };
 
 #[cfg(unix)]
 mod plat {
     use std::ffi::OsStr;
+    use std::fs::Metadata;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
-    pub(crate) fn is_executable(path: &Path) -> bool {
-        path.is_file()
-            && path
-                .metadata()
-                .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+    pub(crate) fn is_executable(path: &Path, m: &Metadata) -> bool {
+        path.is_file() && m.permissions().mode() & 0o111 != 0
     }
 
     pub(crate) fn binary_name(path: &Path) -> &OsStr {
@@ -32,9 +33,10 @@ mod plat {
 
 #[cfg(windows)]
 mod plat {
+    use std::fs::Metadata;
     use std::{ffi::OsStr, path::Path};
 
-    pub(super) fn is_executable(path: &Path) -> bool {
+    pub(super) fn is_executable(path: &Path, _m: &Metadata) -> bool {
         if !path.is_file() {
             return false;
         }
@@ -60,7 +62,16 @@ mod plat {
 
 #[must_use]
 pub fn is_executable<P: AsRef<Path>>(path: P) -> bool {
-    plat::is_executable(path.as_ref())
+    let path = path.as_ref();
+    let Ok(m) = path.metadata() else {
+        return false;
+    };
+    plat::is_executable(path, &m)
+}
+
+#[must_use]
+pub fn is_executable_with_metadata<P: AsRef<Path>>(path: P, m: &Metadata) -> bool {
+    plat::is_executable(path.as_ref(), m)
 }
 
 #[derive(Clone, Debug)]

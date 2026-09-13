@@ -6,7 +6,6 @@ mod data;
 mod dist_env;
 mod project;
 mod rt;
-mod walkdir;
 
 fn main() {
     let cli = cli::Cli::parse();

@@ -14,6 +14,7 @@ use sciproj::{
         abspath::AbsPath,
         relpath::{RelPath, RelPathBuf},
         segment::Segment,
+        walkdir::RelWalkDir,
     },
     resources::AudioClip,
     scripts::SciScriptExports,
@@ -27,7 +28,6 @@ use crate::{
     dist_env::DistEnv,
     project::Project,
     rt::run_async,
-    walkdir::RelWalkDir,
 };
 
 #[derive(Debug, Deserialize)]

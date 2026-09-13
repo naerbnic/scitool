@@ -16,7 +16,14 @@ use crate::path::{
 fn get_opt_metadata(path: impl AsRef<AbsPath>) -> io::Result<Option<Metadata>> {
     match std::fs::metadata(path.as_ref().as_std()) {
         Ok(m) => Ok(Some(m)),
-        Err(e) if let io::ErrorKind::NotFound = e.kind() => Ok(None),
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Ok(None)
+        }
         Err(e) => Err(e),
     }
 }
@@ -89,18 +96,25 @@ impl SearchPath {
         let mut seen = BTreeSet::new();
         for base_path in &self.paths {
             eprintln!("Base path: {base_path}");
-            for entry in RelWalkDir::new(base_path) {
-                let entry = entry?;
-                eprintln!("Rel path: {}", entry.rel_path());
-                let rel_path = entry.rel_path();
-                let potential_path = AbsPathBuf::from_std(entry.full_path());
-                if seen.contains(rel_path) {
+            let Some(base_metadata) = get_opt_metadata(base_path)? else {
+                continue;
+            };
+
+            if !base_metadata.is_dir() {
+                continue;
+            }
+
+            for path in RelWalkDir::new(base_path) {
+                let path = path.map_err(io::Error::other)?;
+                eprintln!("Rel path: {path}");
+                let potential_path = AbsPathBuf::from_std(base_path.join(&path));
+                if seen.contains(&path) {
                     continue;
                 }
-                seen.insert(rel_path.to_buf());
-                let metadata = entry.metadata()?;
-                if options.matches(&potential_path, rel_path, &metadata) {
-                    result.insert(rel_path.to_buf(), potential_path);
+                seen.insert(path.clone());
+                let metadata = potential_path.as_std().metadata()?;
+                if options.matches(&potential_path, &path, &metadata) {
+                    result.insert(path.to_buf(), potential_path);
                 }
             }
         }
@@ -113,14 +127,13 @@ impl SearchPath {
     ) -> io::Result<BTreeMap<RelPathBuf, Vec<AbsPathBuf>>> {
         let mut result = BTreeMap::new();
         for base_path in &self.paths {
-            for entry in RelWalkDir::new(base_path) {
-                let entry = entry?;
-                let rel_path = entry.rel_path();
-                let potential_path = AbsPathBuf::from_std(entry.full_path());
-                let metadata = entry.metadata()?;
-                if options.matches(&potential_path, rel_path, &metadata) {
+            for path in RelWalkDir::new(base_path) {
+                let path = path.map_err(io::Error::other)?;
+                let potential_path = AbsPathBuf::from_std(base_path.join(&path));
+                let metadata = potential_path.as_std().metadata()?;
+                if options.matches(&potential_path, &path, &metadata) {
                     result
-                        .entry(rel_path.to_buf())
+                        .entry(path.clone())
                         .or_insert_with(Vec::new)
                         .push(potential_path);
                 }

@@ -213,7 +213,8 @@ impl AbsPathBuf {
         AbsPath::from_str_unchecked(self.0.as_str())
     }
 
-    pub(crate) fn into_std(self) -> PathBuf {
+    #[must_use]
+    pub fn into_std(self) -> PathBuf {
         PathBuf::from(self.0)
     }
 }

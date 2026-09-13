@@ -15,6 +15,7 @@ use sciproj::{
     path::{
         abspath::{AbsPath, AbsPathBuf},
         relpath::{RelPath, RelPathBuf},
+        walkdir::RelWalkDir,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     commands::config::ProjectConfig,
     data::{ConfigFormat, load_config},
-    walkdir::RelWalkDir,
 };
 
 const PROJECT_FILE_NAME: &str = "scidub.toml";

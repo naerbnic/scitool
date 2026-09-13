@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use sciproj::path::relpath::{RelPath, RelPathBuf};
+use crate::path::relpath::{RelPath, RelPathBuf};
 
-pub(crate) struct RelWalkDir {
+pub struct RelWalkDir {
     base: PathBuf,
     iter: walkdir::IntoIter,
 }
 
 impl RelWalkDir {
-    pub(crate) fn new(base: impl AsRef<Path>) -> Self {
+    pub fn new(base: impl AsRef<Path>) -> Self {
         let base = base.as_ref().to_path_buf();
         Self {
             iter: walkdir::WalkDir::new(&base)
