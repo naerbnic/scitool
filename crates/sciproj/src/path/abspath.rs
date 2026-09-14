@@ -3,6 +3,7 @@
 use std::{
     ffi::OsStr,
     fmt::Display,
+    io,
     ops::Deref,
     path::{Component, PathBuf},
 };
@@ -186,6 +187,18 @@ impl AsRef<OsStr> for &AbsPath {
 pub struct AbsPathBuf(String);
 
 impl AbsPathBuf {
+    pub fn new_canonical<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+        let path = path.as_ref().canonicalize()?;
+        Self::try_new(
+            path.into_os_string()
+                .into_string()
+                .map_err(|s| io::Error::other(format!("Path is not utf-8: {:?}", s.display())))?,
+        )
+        .ok_or_else(|| {
+            io::Error::other("Internal: Unable to create Absolute path from canonicalized")
+        })
+    }
+
     #[must_use]
     pub fn new(path: String) -> Self {
         Self::try_new(path).unwrap()

@@ -10,7 +10,13 @@ pub mod walkdir;
 use std::{
     collections::HashMap,
     fs::Metadata,
+    io,
     path::{Path, PathBuf},
+};
+
+use crate::path::{
+    abspath::AbsPathBuf,
+    search::{SearchOptions, SearchPath},
 };
 
 #[cfg(unix)]
@@ -59,6 +65,14 @@ mod plat {
     }
 }
 
+fn result_not_found_to_opt<T>(v: io::Result<T>) -> io::Result<Option<T>> {
+    match v {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if matches!(e.kind(), io::ErrorKind::NotFound) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 #[must_use]
 pub fn is_executable<P: AsRef<Path>>(path: P) -> bool {
     let path = path.as_ref();
@@ -95,25 +109,31 @@ impl LookupPath {
     }
 
     pub fn from_paths(paths: impl IntoIterator<Item = PathBuf>) -> Self {
-        let mut path_entries = HashMap::new();
-        for base_path in paths {
-            if base_path.is_dir() {
-                let Ok(dir_entries) = base_path.read_dir() else {
-                    continue;
-                };
+        let paths = paths.into_iter().collect::<Vec<_>>();
+        let search_path = SearchPath::new(
+            paths
+                .clone()
+                .into_iter()
+                .filter_map(|p| result_not_found_to_opt(AbsPathBuf::new_canonical(&p)).unwrap()),
+        );
+        let bin_paths = search_path
+            .find_all_as_overlay(
+                &SearchOptions::empty()
+                    .recurse(false)
+                    .match_executable(true)
+                    .ignore_access_errors(true),
+            )
+            .unwrap();
 
-                for entry in dir_entries {
-                    let Ok(entry) = entry else {
-                        continue;
-                    };
-                    let path = entry.path();
-                    if is_executable(&path) {
-                        let bin_name = plat::binary_name(&path).to_str().unwrap().to_string();
-                        path_entries.entry(bin_name).or_insert(path);
-                    }
-                }
-            }
-        }
+        let path_entries = bin_paths
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    plat::binary_name(k.as_std()).to_str().unwrap().to_string(),
+                    v.into_std(),
+                )
+            })
+            .collect();
         LookupPath { path_entries }
     }
 

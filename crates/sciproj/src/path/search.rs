@@ -32,14 +32,26 @@ fn create_dir_iter(
     path: impl AsRef<AbsPath>,
     recurse: bool,
 ) -> io::Result<impl Iterator<Item = io::Result<RelPathBuf>>> {
+    let path = path.as_ref();
     if recurse {
         Ok(itertools::Either::Left(
-            RelWalkDir::new(path.as_ref().as_std()).into_iter(),
+            RelWalkDir::new(path.as_std()).into_iter(),
         ))
     } else {
         Ok(itertools::Either::Right(
-            std::fs::read_dir(path.as_ref().to_buf())?.map(|entry| {
-                entry.and_then(|e| RelPathBuf::from_std_path(e.path()).map_err(io::Error::other))
+            std::fs::read_dir(path.to_buf())?.map({
+                let base_path = path.to_buf();
+                move |entry| {
+                    entry.and_then({
+                        let base_path = base_path.to_buf();
+                        move |e| {
+                            RelPathBuf::from_std_path(e.path().strip_prefix(&base_path).unwrap())
+                                .map_err(|_| {
+                                    io::Error::other(format!("Bad path: {}", e.path().display()))
+                                })
+                        }
+                    })
+                }
             }),
         ))
     }
@@ -112,7 +124,6 @@ impl SearchPath {
         let mut result = BTreeMap::new();
         let mut seen = BTreeSet::new();
         for base_path in &self.paths {
-            eprintln!("Base path: {base_path}");
             let Some(base_metadata) = get_opt_metadata(base_path)? else {
                 continue;
             };
@@ -121,15 +132,46 @@ impl SearchPath {
                 continue;
             }
 
-            for path in create_dir_iter(base_path, options.recurse)? {
-                let path = path.map_err(io::Error::other)?;
-                eprintln!("Rel path: {path}");
+            let iter = match create_dir_iter(base_path, options.recurse) {
+                Ok(iter) => iter,
+                Err(e)
+                    if options.ignore_access_errors
+                        && matches!(
+                            e.kind(),
+                            io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                        ) =>
+                {
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+
+            for path in iter {
+                let path = match path {
+                    Ok(v) => v,
+                    Err(e)
+                        if options.ignore_access_errors
+                            && matches!(
+                                e.kind(),
+                                io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                            ) =>
+                    {
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
                 let potential_path = AbsPathBuf::from_std(base_path.join(&path));
                 if seen.contains(&path) {
                     continue;
                 }
                 seen.insert(path.clone());
-                let metadata = potential_path.as_std().metadata()?;
+                let metadata = match potential_path.as_std().metadata() {
+                    Ok(m) => m,
+                    Err(_) if options.ignore_access_errors => {
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
                 if options.matches(&potential_path, &path, &metadata) {
                     result.insert(path.to_buf(), potential_path);
                 }
@@ -163,6 +205,7 @@ impl SearchPath {
 #[derive(Clone, Debug, Default)]
 pub struct SearchOptions {
     recurse: bool,
+    ignore_access_errors: bool,
     extension: Option<String>,
     executable: Option<bool>,
     file_type: Option<FileType>,
@@ -178,6 +221,12 @@ impl SearchOptions {
     #[must_use]
     pub fn match_extension(mut self, extension: impl Into<String>) -> Self {
         self.extension = Some(extension.into());
+        self
+    }
+
+    #[must_use]
+    pub fn ignore_access_errors(mut self, ignore_access_error: bool) -> Self {
+        self.ignore_access_errors = ignore_access_error;
         self
     }
 
