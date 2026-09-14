@@ -7,23 +7,39 @@ use crate::path::relpath::{RelPath, RelPathBuf};
 
 pub struct RelWalkDir {
     base: PathBuf,
-    iter: walkdir::IntoIter,
+    walker: walkdir::WalkDir,
 }
 
 impl RelWalkDir {
     pub fn new(base: impl AsRef<Path>) -> Self {
         let base = base.as_ref().to_path_buf();
         Self {
-            iter: walkdir::WalkDir::new(&base)
+            walker: walkdir::WalkDir::new(&base)
                 .follow_links(false)
-                .follow_root_links(false)
-                .into_iter(),
+                .follow_root_links(false),
             base,
         }
     }
 }
 
-impl Iterator for RelWalkDir {
+impl IntoIterator for RelWalkDir {
+    type Item = io::Result<RelPathBuf>;
+    type IntoIter = IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter {
+            base: self.base,
+            iter: self.walker.into_iter(),
+        }
+    }
+}
+
+pub struct IntoIter {
+    base: PathBuf,
+    iter: walkdir::IntoIter,
+}
+
+impl Iterator for IntoIter {
     type Item = io::Result<RelPathBuf>;
 
     fn next(&mut self) -> Option<Self::Item> {

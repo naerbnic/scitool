@@ -209,7 +209,9 @@ impl ImportGame {
 
             validation_result.matches.into_iter().collect()
         } else {
-            RelWalkDir::new(&self.source).collect::<io::Result<_>>()?
+            RelWalkDir::new(&self.source)
+                .into_iter()
+                .collect::<io::Result<_>>()?
         };
 
         for path in files_to_copy {
