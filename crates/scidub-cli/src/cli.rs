@@ -10,6 +10,7 @@ mod check_distribution;
 mod game_data;
 mod init;
 mod script;
+mod stage;
 
 /// A utility for managing and building an SCI fan-dub project.
 #[derive(Debug, Parser)]
@@ -30,6 +31,7 @@ enum Command {
     Init(init::Init),
     Script(script::ScriptSubCommand),
     Build(build::Build),
+    Stage(stage::Stage),
     GameData(game_data::GameData),
     #[clap(hide = true)]
     CheckDistribution(check_distribution::CheckDistribution),
@@ -41,6 +43,7 @@ impl Command {
             Self::Init(init) => init.run(),
             Self::Script(s) => s.run(),
             Self::Build(build) => build.run(),
+            Self::Stage(stage) => stage.run(),
             Self::GameData(game_data) => game_data.run(),
             Self::CheckDistribution(c) => c.run(),
         }
