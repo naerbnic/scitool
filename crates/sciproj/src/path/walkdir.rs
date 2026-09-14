@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use crate::path::relpath::{RelPath, RelPathBuf};
 
@@ -21,7 +24,7 @@ impl RelWalkDir {
 }
 
 impl Iterator for RelWalkDir {
-    type Item = anyhow::Result<RelPathBuf>;
+    type Item = io::Result<RelPathBuf>;
 
     fn next(&mut self) -> Option<Self::Item> {
         (|| {
@@ -34,9 +37,14 @@ impl Iterator for RelWalkDir {
                     continue;
                 }
 
-                let path = entry.path().strip_prefix(&self.base)?;
+                let path = entry
+                    .path()
+                    .strip_prefix(&self.base)
+                    .map_err(|e| io::Error::other(format!("Invalid relative path: {e}")))?;
                 break RelPath::try_from_std_path(&path)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid relative path: {}", path.display()))?
+                    .ok_or_else(|| {
+                        io::Error::other(format!("Invalid relative path: {}", path.display()))
+                    })?
                     .to_buf();
             }))
         })()

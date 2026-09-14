@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    io,
     path::{Path, PathBuf},
 };
 
@@ -208,7 +209,7 @@ impl ImportGame {
 
             validation_result.matches.into_iter().collect()
         } else {
-            RelWalkDir::new(&self.source).collect::<anyhow::Result<_>>()?
+            RelWalkDir::new(&self.source).collect::<io::Result<_>>()?
         };
 
         for path in files_to_copy {
