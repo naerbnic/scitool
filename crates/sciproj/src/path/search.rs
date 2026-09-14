@@ -28,6 +28,23 @@ fn get_opt_metadata(path: impl AsRef<AbsPath>) -> io::Result<Option<Metadata>> {
     }
 }
 
+fn create_dir_iter(
+    path: impl AsRef<AbsPath>,
+    recurse: bool,
+) -> io::Result<impl Iterator<Item = io::Result<RelPathBuf>>> {
+    if recurse {
+        Ok(itertools::Either::Left(
+            RelWalkDir::new(path.as_ref().as_std()).into_iter(),
+        ))
+    } else {
+        Ok(itertools::Either::Right(
+            std::fs::read_dir(path.as_ref().to_buf())?.map(|entry| {
+                entry.and_then(|e| RelPathBuf::from_std_path(e.path()).map_err(io::Error::other))
+            }),
+        ))
+    }
+}
+
 pub struct SearchPath {
     paths: Vec<AbsPathBuf>,
 }
@@ -104,7 +121,7 @@ impl SearchPath {
                 continue;
             }
 
-            for path in RelWalkDir::new(base_path) {
+            for path in create_dir_iter(base_path, options.recurse)? {
                 let path = path.map_err(io::Error::other)?;
                 eprintln!("Rel path: {path}");
                 let potential_path = AbsPathBuf::from_std(base_path.join(&path));
@@ -127,7 +144,7 @@ impl SearchPath {
     ) -> io::Result<BTreeMap<RelPathBuf, Vec<AbsPathBuf>>> {
         let mut result = BTreeMap::new();
         for base_path in &self.paths {
-            for path in RelWalkDir::new(base_path) {
+            for path in create_dir_iter(base_path, options.recurse)? {
                 let path = path.map_err(io::Error::other)?;
                 let potential_path = AbsPathBuf::from_std(base_path.join(&path));
                 let metadata = potential_path.as_std().metadata()?;

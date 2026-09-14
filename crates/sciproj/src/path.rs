@@ -9,7 +9,6 @@ pub mod walkdir;
 
 use std::{
     collections::HashMap,
-    ffi::{OsStr, OsString},
     fs::Metadata,
     path::{Path, PathBuf},
 };
@@ -76,7 +75,7 @@ pub fn is_executable_with_metadata<P: AsRef<Path>>(path: P, m: &Metadata) -> boo
 
 #[derive(Clone, Debug)]
 pub struct LookupPath {
-    path_entries: HashMap<OsString, PathBuf>,
+    path_entries: HashMap<String, PathBuf>,
 }
 
 impl LookupPath {
@@ -109,7 +108,7 @@ impl LookupPath {
                     };
                     let path = entry.path();
                     if is_executable(&path) {
-                        let bin_name = plat::binary_name(&path).to_os_string();
+                        let bin_name = plat::binary_name(&path).to_str().unwrap().to_string();
                         path_entries.entry(bin_name).or_insert(path);
                     }
                 }
@@ -118,17 +117,17 @@ impl LookupPath {
         LookupPath { path_entries }
     }
 
-    pub fn list_binaries(&self) -> impl Iterator<Item = (&OsString, &Path)> + use<'_> {
+    pub fn list_binaries(&self) -> impl Iterator<Item = (&String, &Path)> + use<'_> {
         self.path_entries
             .iter()
             .map(|(name, path)| (name, path.as_path()))
     }
 
-    pub fn find_binary(&self, name: impl AsRef<OsStr>) -> Option<&Path> {
+    pub fn find_binary(&self, name: impl AsRef<str>) -> Option<&Path> {
         self.path_entries.get(name.as_ref()).map(PathBuf::as_path)
     }
 
-    pub fn has_binary(&self, name: &impl AsRef<OsStr>) -> bool {
+    pub fn has_binary(&self, name: &impl AsRef<str>) -> bool {
         self.path_entries.contains_key(name.as_ref())
     }
 }
