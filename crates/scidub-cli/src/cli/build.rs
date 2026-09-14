@@ -256,6 +256,7 @@ impl Build {
         let source_config = proj.config()?.source_config();
         let header_exports = SciScriptExports::read_from_resources(
             proj.resources_opt()?
+                .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("building scripts requires resources."))?,
         )?;
 

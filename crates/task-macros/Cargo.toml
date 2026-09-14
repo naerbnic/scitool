@@ -1,0 +1,13 @@
+[package]
+name = "scidev-task-macros"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+scidev-task-impl = {path = "../task-impl"}
+
+[lints]
+workspace = true

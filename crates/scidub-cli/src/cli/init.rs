@@ -93,7 +93,7 @@ impl Init {
         // We are in a state where we can load the project directly.
         let project = Project::new(root);
 
-        let mut output = std::fs::File::create(project.manifest_path()?)?;
+        let mut output = std::fs::File::create(project.manifest_path())?;
         serde_json::to_writer_pretty(&mut output, &manifest)?;
 
         Ok(())

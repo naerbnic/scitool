@@ -121,7 +121,7 @@ impl CreateManifest {
     fn run(self) -> anyhow::Result<()> {
         let project = self.env.load_project()?;
         let game_path = project.game_path()?;
-        let manifest_path = project.manifest_path()?;
+        let manifest_path = project.manifest_path();
         let manifest = Manifest::generate_from_game_dir(game_path)?;
 
         let mut output = std::fs::File::create(manifest_path)?;
@@ -223,7 +223,7 @@ impl ImportGame {
 
         if project_manifest.is_none() {
             let manifest = Manifest::generate_from_game_dir(game_path)?;
-            let manifest_path = project.manifest_path()?;
+            let manifest_path = project.manifest_path();
             std::fs::write(manifest_path, serde_json::to_string_pretty(&manifest)?)?;
         }
 

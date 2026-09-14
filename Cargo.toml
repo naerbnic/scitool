@@ -16,6 +16,7 @@ futures-util = "0.3"
 itertools = "0.14"
 scidev = { path = "crates/scidev" }
 scidev-errors = { path = "crates/errors" }
+scidev-task = { path = "crates/task" } 
 sciproj = { path = "crates/sciproj" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

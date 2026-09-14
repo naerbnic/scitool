@@ -1,0 +1,11 @@
+[package]
+name = "scidev-task"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+scidev-task-impl = {path = "../task-impl"}
+scidev-task-macros = {path = "../task-macros"}
+
+[lints]
+workspace = true

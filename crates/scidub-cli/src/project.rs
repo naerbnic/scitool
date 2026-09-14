@@ -1,5 +1,4 @@
 use std::{
-    cell::OnceCell,
     collections::BTreeMap,
     io::Read,
     path::{Path, PathBuf},
@@ -10,10 +9,11 @@ use scidev::{
     resources::{ResourceSet, ResourceType, types::msg::parse_message_resource},
     utils::serde::Sha256Hash,
 };
+use scidev_task::macros::task_struct;
 use sciproj::{
     book::{Book, builder::BookBuilder, config::BookConfig},
     path::{
-        abspath::{AbsPath, AbsPathBuf},
+        abspath::AbsPathBuf,
         relpath::{RelPath, RelPathBuf},
         walkdir::RelWalkDir,
     },
@@ -50,100 +50,66 @@ pub(crate) fn find_project_root(start_path: impl AsRef<Path>) -> anyhow::Result<
     }
 }
 
-fn get_or_init<T, F, E>(cell: &OnceCell<T>, init: F) -> Result<&T, E>
-where
-    F: FnOnce() -> Result<T, E>,
-{
-    let value = if let Some(value) = cell.get() {
-        value
-    } else {
-        let value = init()?;
-        assert!(cell.set(value).is_ok(), "should be empty");
-        cell.get().unwrap()
-    };
-
-    Ok(value)
-}
-
-#[derive(Debug)]
-pub(crate) struct Project {
-    root: PathBuf,
-    config_path: OnceCell<PathBuf>,
-    config: OnceCell<ProjectConfig>,
-    build_dir: OnceCell<PathBuf>,
-    manifest_path: OnceCell<PathBuf>,
-    manifest: OnceCell<Option<Manifest>>,
-    game_path: OnceCell<Option<PathBuf>>,
-    resources: OnceCell<Option<ResourceSet>>,
-    book_config_path: OnceCell<Option<PathBuf>>,
-    book_config: OnceCell<Option<BookConfig>>,
-    book_opt: OnceCell<Option<Book>>,
-    scripts_dir_opt: OnceCell<Option<AbsPathBuf>>,
-}
-
 impl Project {
     pub(crate) fn new_from_path(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let root = find_project_root(path)?;
         Ok(Self::new(root))
     }
-
-    pub(crate) fn new(root: PathBuf) -> Self {
-        Project {
-            root,
-            config_path: OnceCell::new(),
-            config: OnceCell::new(),
-            build_dir: OnceCell::new(),
-            manifest_path: OnceCell::new(),
-            manifest: OnceCell::new(),
-            game_path: OnceCell::new(),
-            resources: OnceCell::new(),
-            book_config_path: OnceCell::new(),
-            book_config: OnceCell::new(),
-            book_opt: OnceCell::new(),
-            scripts_dir_opt: OnceCell::new(),
-        }
-    }
-
     pub(crate) fn root(&self) -> &Path {
         self.root.as_path()
     }
 
-    pub(crate) fn config_path(&self) -> anyhow::Result<&Path> {
-        let path = get_or_init(&self.config_path, || {
+    pub(crate) fn manifest(&self) -> anyhow::Result<&Manifest> {
+        self.manifest_opt()?
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Manifest not found"))
+    }
+
+    pub(crate) fn game_path(&self) -> anyhow::Result<&Path> {
+        self.game_path_opt()?
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("No game path configured for the project"))
+    }
+
+    pub(crate) fn book(&self) -> anyhow::Result<&Book> {
+        self.book_opt()?
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No book is configured for this project"))
+    }
+}
+
+#[task_struct]
+mod project_impl {
+    #[derive(Debug)]
+    pub(crate) struct Project {
+        pub(super) root: PathBuf,
+    }
+
+    impl Project {
+        #[result]
+        pub(crate) fn config_path(&self) -> anyhow::Result<PathBuf> {
             let path = self.root.join(PROJECT_FILE_NAME);
             anyhow::ensure!(path.is_file(), "Project file not found");
             Ok(path)
-        })?;
-        Ok(path.as_path())
-    }
+        }
 
-    pub(crate) fn manifest_path(&self) -> anyhow::Result<&Path> {
-        let path = get_or_init(&self.manifest_path, || {
-            Ok::<_, anyhow::Error>(self.root.join(MANIFEST_FILE_NAME))
-        })?;
-        Ok(path)
-    }
+        pub(crate) fn manifest_path(&self) -> PathBuf {
+            self.root.join(MANIFEST_FILE_NAME)
+        }
 
-    pub(crate) fn manifest_opt(&self) -> anyhow::Result<Option<&Manifest>> {
-        let manifest_opt = get_or_init(&self.manifest, || {
-            let path = self.manifest_path()?;
+        #[result]
+        pub(crate) fn manifest_opt(&self) -> anyhow::Result<Option<Manifest>> {
+            let path = self.manifest_path();
             if !path.is_file() {
                 return Ok(None);
             }
             let manifest: Manifest = serde_json::from_reader(std::fs::File::open(path)?)
                 .context(format!("Unable to parse manifest file {}", path.display()))?;
             Ok::<_, anyhow::Error>(Some(manifest))
-        })?;
-        Ok(manifest_opt.as_ref())
-    }
+        }
 
-    pub(crate) fn manifest(&self) -> anyhow::Result<&Manifest> {
-        self.manifest_opt()?
-            .ok_or_else(|| anyhow::anyhow!("Manifest not found"))
-    }
-
-    pub(crate) fn config(&self) -> anyhow::Result<&ProjectConfig> {
-        get_or_init(&self.config, || {
+        #[result]
+        pub(crate) fn config(&self) -> anyhow::Result<ProjectConfig> {
             let config_path = self.config_path()?;
             let config: ProjectConfig = toml::from_slice(&std::fs::read(config_path).context(
                 anyhow::format_err!("Unable to open project file {}", config_path.display()),
@@ -153,72 +119,55 @@ impl Project {
                 config_path.display()
             ))?;
             Ok(config)
-        })
-    }
+        }
 
-    pub(crate) fn build_dir(&self) -> anyhow::Result<&Path> {
-        let build_dir = get_or_init(&self.build_dir, || {
+        #[result]
+        pub(crate) fn build_dir(&self) -> anyhow::Result<PathBuf> {
             let config = self.config()?;
             let config_build_dir = config.build_dir();
             let rel_path = config_build_dir.unwrap_or(RelPath::new("build"));
             Ok::<_, anyhow::Error>(rel_path.to_std_path(self.root()))
-        })?;
+        }
 
-        Ok(build_dir)
-    }
-
-    pub(crate) fn game_path_opt(&self) -> anyhow::Result<Option<&Path>> {
-        Ok(get_or_init(&self.game_path, || {
+        #[result]
+        pub(crate) fn game_path_opt(&self) -> anyhow::Result<Option<PathBuf>> {
             let config = self.config()?;
             let Some(game_path) = config.game_files() else {
                 return Ok(None);
             };
-            Ok::<_, anyhow::Error>(Some(game_path.to_std_path(self.root())))
-        })?
-        .as_deref())
-    }
+            Ok(Some(game_path.to_std_path(self.root())))
+        }
 
-    pub(crate) fn game_path(&self) -> anyhow::Result<&Path> {
-        self.game_path_opt()?
-            .ok_or_else(|| anyhow::anyhow!("No game path configured for the project"))
-    }
-
-    pub(crate) fn resources_opt(&self) -> anyhow::Result<Option<&ResourceSet>> {
-        Ok(get_or_init(&self.resources, || {
+        #[result]
+        pub(crate) fn resources_opt(&self) -> anyhow::Result<Option<ResourceSet>> {
             let Some(game_path) = self.game_path_opt()? else {
                 return Ok(None);
             };
 
             let resource_set = ResourceSet::from_root_dir(game_path)?;
-            Ok::<_, anyhow::Error>(Some(resource_set))
-        })?
-        .as_ref())
-    }
+            Ok(Some(resource_set))
+        }
 
-    pub(crate) fn book_config_path(&self) -> anyhow::Result<Option<&Path>> {
-        Ok(get_or_init(&self.book_config_path, || {
+        #[result]
+        pub(crate) fn book_config_path(&self) -> anyhow::Result<Option<PathBuf>> {
             let config = self.config()?;
             let Some(book_config_path) = config.voice_script_config() else {
                 return Ok(None);
             };
-            Ok::<_, anyhow::Error>(Some(book_config_path.to_std_path(self.root())))
-        })?
-        .as_deref())
-    }
+            Ok(Some(book_config_path.to_std_path(self.root())))
+        }
 
-    pub(crate) fn book_config(&self) -> anyhow::Result<Option<&BookConfig>> {
-        Ok(get_or_init(&self.book_config, || {
+        #[result]
+        pub(crate) fn book_config(&self) -> anyhow::Result<Option<BookConfig>> {
             let Some(book_config_path) = self.book_config_path()? else {
                 return Ok(None);
             };
             let script_config: BookConfig = load_config(book_config_path, &ConfigFormat::Toml)?;
             Ok::<_, anyhow::Error>(Some(script_config))
-        })?
-        .as_ref())
-    }
+        }
 
-    pub(crate) fn book_opt(&self) -> anyhow::Result<Option<&Book>> {
-        Ok(get_or_init(&self.book_opt, || {
+        #[result]
+        pub(crate) fn book_opt(&self) -> anyhow::Result<Option<Book>> {
             let Some(resource_set) = self.resources_opt()? else {
                 return Ok(None);
             };
@@ -236,18 +185,11 @@ impl Project {
                 }
             }
 
-            Ok::<_, anyhow::Error>(Some(builder.build()?))
-        })?
-        .as_ref())
-    }
+            Ok(Some(builder.build()?))
+        }
 
-    pub(crate) fn book(&self) -> anyhow::Result<&Book> {
-        self.book_opt()?
-            .ok_or_else(|| anyhow::anyhow!("No book is configured for this project"))
-    }
-
-    pub(crate) fn scripts_dir_opt(&self) -> anyhow::Result<Option<&AbsPath>> {
-        Ok(get_or_init(&self.scripts_dir_opt, || {
+        #[result]
+        pub(crate) fn scripts_dir_opt(&self) -> anyhow::Result<Option<AbsPathBuf>> {
             let scripts_rel_path = self
                 .config()?
                 .source_config()
@@ -259,10 +201,11 @@ impl Project {
             } else {
                 Ok(None)
             }
-        })?
-        .as_deref())
+        }
     }
 }
+
+pub(crate) use project_impl::Project;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(transparent)]
