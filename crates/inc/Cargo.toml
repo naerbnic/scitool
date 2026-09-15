@@ -1,0 +1,12 @@
+[package]
+name = "scidev-inc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures-executor = "0.3.34"
+pin-project = "1.1.13"
+thiserror.workspace = true
+
+[lints]
+workspace = true
