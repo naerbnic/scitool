@@ -37,7 +37,7 @@ impl ArtifactStore {
         match guard.entry(key.clone()) {
             hash_map::Entry::Occupied(entry) => entry.get().clone(),
             hash_map::Entry::Vacant(vacant_entry) => {
-                let (trigger, waiter) = crate::event::new_event_pair();
+                let (mut trigger, waiter) = crate::event::new_event_pair();
                 executor.schedule_async({
                     let artifacts = self.artifacts.clone();
                     let key = key.clone();
@@ -93,7 +93,7 @@ impl ArtifactStore {
         match guard.entry(key.clone()) {
             hash_map::Entry::Occupied(entry) => entry.get().clone(),
             hash_map::Entry::Vacant(vacant_entry) => {
-                let (trigger, waiter) = crate::event::new_event_pair();
+                let (mut trigger, waiter) = crate::event::new_event_pair();
                 executor.schedule_async({
                     let artifacts = self.artifacts.clone();
                     let key = key.clone();

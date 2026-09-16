@@ -41,7 +41,7 @@ impl Scheduler {
         Self { handle, inner }
     }
 
-    fn trigger_at(&self, deadline: Instant, event: EventTrigger) {
+    fn trigger_at(&self, deadline: Instant, mut event: EventTrigger) {
         if deadline < self.inner.clock.now() {
             event.trigger();
             return;

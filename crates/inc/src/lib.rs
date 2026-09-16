@@ -3,6 +3,7 @@ mod clock;
 mod event;
 mod executor;
 mod operations;
+mod promise;
 mod scheduler;
 mod type_map;
 mod universe;

@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -24,7 +24,12 @@ impl Event {
         Self(Mutex::new(EventState::Pending {
             next_id: NonZeroUsize::new(1).unwrap(),
             waiters: HashMap::new(),
+            callbacks: Vec::new(),
         }))
+    }
+
+    pub(crate) fn new_signaled() -> Self {
+        Self(Mutex::new(EventState::Signaled))
     }
 
     pub(crate) fn wait_sync(&self) {
@@ -61,7 +66,10 @@ impl Event {
         F: FnOnce() -> Waiter,
     {
         let mut guard = self.0.lock().unwrap();
-        let EventState::Pending { next_id, waiters } = &mut *guard else {
+        let EventState::Pending {
+            next_id, waiters, ..
+        } = &mut *guard
+        else {
             return false;
         };
 
@@ -73,6 +81,28 @@ impl Event {
         true
     }
 
+    fn add_signal_callback<F>(&self, callback: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let mut guard = self.0.lock().unwrap();
+        let EventState::Pending { callbacks, .. } = &mut *guard else {
+            // We don't want to hold the lock across the callback.
+            drop(guard);
+            callback();
+            return;
+        };
+        callbacks.push(Box::new(callback));
+    }
+
+    fn drop_callbacks(&self) {
+        let mut guard = self.0.lock().unwrap();
+        let EventState::Pending { callbacks, .. } = &mut *guard else {
+            return;
+        };
+        callbacks.clear();
+    }
+
     fn try_update_waker(&self, key: NonZeroUsize, cx_waker: &std::task::Waker) -> bool {
         let mut guard = self.0.lock().unwrap();
         let EventState::Pending { waiters, .. } = &mut *guard else {
@@ -81,7 +111,7 @@ impl Event {
 
         if let Some(Waiter::Async(existing_waker)) = waiters.get_mut(&key) {
             if !existing_waker.will_wake(cx_waker) {
-                *existing_waker = cx_waker.clone();
+                existing_waker.clone_from(cx_waker);
             }
             return true;
         }
@@ -97,15 +127,24 @@ impl Event {
 
     /// Cause the event to be signaled.
     pub(crate) fn signal(&self) {
-        let mut guard = self.0.lock().unwrap();
-        let EventState::Pending { waiters, .. } =
-            std::mem::replace(&mut *guard, EventState::Signaled)
-        else {
-            return;
+        let callbacks = {
+            let mut guard = self.0.lock().unwrap();
+            let EventState::Pending {
+                waiters, callbacks, ..
+            } = std::mem::replace(&mut *guard, EventState::Signaled)
+            else {
+                return;
+            };
+
+            #[allow(clippy::iter_over_hash_type)]
+            for (_, waiter) in waiters {
+                waiter.wake();
+            }
+            callbacks
         };
 
-        for (_, waiter) in waiters {
-            waiter.wake();
+        for callback in callbacks {
+            callback();
         }
     }
 }
@@ -181,6 +220,7 @@ enum EventState {
     Pending {
         next_id: NonZeroUsize,
         waiters: HashMap<NonZeroUsize, Waiter>,
+        callbacks: Vec<Box<dyn FnOnce() + Send + 'static>>,
     },
     Signaled,
 }
@@ -193,8 +233,10 @@ struct PairInner {
 pub(crate) struct EventTrigger(Option<Arc<PairInner>>);
 
 impl EventTrigger {
-    pub(crate) fn trigger(mut self) {
-        self.0.take().unwrap().event.signal();
+    pub(crate) fn trigger(&mut self) {
+        if let Some(inner_arc) = self.0.take() {
+            inner_arc.event.signal();
+        }
     }
 }
 
@@ -207,6 +249,7 @@ impl Drop for EventTrigger {
             //
             // Events are ordered by the ordering of signal()/is_pending().
             inner.was_cancelled.store(true, Ordering::Relaxed);
+            inner.event.drop_callbacks();
             inner.event.signal();
         }
     }
@@ -223,10 +266,143 @@ pub(crate) enum TryWaitResult {
     Pending,
 }
 
+struct Countdown(AtomicUsize);
+
+impl Countdown {
+    fn new(count: usize) -> Self {
+        Self(AtomicUsize::new(count))
+    }
+
+    fn tick(&self) -> bool {
+        let mut curr = self.0.load(Ordering::Relaxed);
+        loop {
+            if curr == 0 {
+                return false;
+            }
+            match self
+                .0
+                .compare_exchange_weak(curr, curr - 1, Ordering::AcqRel, Ordering::Relaxed)
+            {
+                Ok(curr) => {
+                    return curr == 1;
+                }
+                Err(changed) => {
+                    curr = changed;
+                }
+            }
+        }
+    }
+}
+
+struct CountdownWaiter {
+    countdown: Countdown,
+    trigger: Mutex<Option<EventTrigger>>,
+}
+
+impl CountdownWaiter {
+    fn new(countdown: usize, trigger: EventTrigger) -> Self {
+        Self {
+            countdown: Countdown::new(countdown),
+            trigger: Mutex::new(Some(trigger)),
+        }
+    }
+
+    fn tick(&self) {
+        if self.countdown.tick() {
+            self.trigger.lock().unwrap().take().unwrap().trigger();
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct EventWaiter(Arc<PairInner>);
 
 impl EventWaiter {
+    /// Creates an `EventWaiter` that is already marked as ready, so anything that
+    /// tries to wait on it will immediately return/continue.
+    pub(crate) fn new_ready() -> EventWaiter {
+        let inner = Arc::new(PairInner {
+            event: Event::new_signaled(),
+            was_cancelled: AtomicBool::new(false),
+        });
+        EventWaiter(inner)
+    }
+
+    /// Creates an `EventWaiter` that is already marked as cancelled, so anything that
+    /// tries to wait on it will immediately return/continue with `TriggerDropped`.
+    pub(crate) fn new_cancelled() -> EventWaiter {
+        let inner = Arc::new(PairInner {
+            event: Event::new_signaled(),
+            was_cancelled: AtomicBool::new(true),
+        });
+        EventWaiter(inner)
+    }
+
+    fn add_light_callback<F: FnOnce() + Send + 'static>(&self, callback: F) {
+        self.0.event.add_signal_callback(callback);
+    }
+
+    pub(crate) fn join_all<C>(waiters: C) -> Self
+    where
+        C: IntoIterator,
+        C::Item: Borrow<Self>,
+        C::IntoIter: ExactSizeIterator,
+    {
+        let iter = waiters.into_iter();
+        if iter.len() == 0 {
+            return EventWaiter::new_ready();
+        }
+        let (trigger, waiter) = new_event_pair();
+
+        let countdown = Arc::new(CountdownWaiter::new(iter.len(), trigger));
+
+        for join_waiter in iter {
+            let countdown = countdown.clone();
+            join_waiter
+                .borrow()
+                .add_light_callback(move || countdown.tick());
+        }
+
+        waiter
+    }
+
+    pub(crate) fn race_all<C>(waiters: C) -> Self
+    where
+        C: IntoIterator,
+        C::Item: Borrow<Self>,
+    {
+        let mut iter = waiters.into_iter();
+
+        // Step once to see if the iter is empty.
+        let Some(first) = iter.next() else {
+            // Since the returned waiter should trigger on the first element,
+            // without any elements, this should be the same as though all of
+            // the inputs were cancelled.
+            return EventWaiter::new_cancelled();
+        };
+        let (trigger, waiter) = new_event_pair();
+
+        let countdown = Arc::new(CountdownWaiter::new(1, trigger));
+
+        for join_waiter in iter {
+            let countdown = countdown.clone();
+            join_waiter
+                .borrow()
+                .add_light_callback(move || countdown.tick());
+        }
+        first.borrow().add_light_callback(move || countdown.tick());
+
+        waiter
+    }
+
+    pub(crate) fn join(&self, other: &EventWaiter) -> Self {
+        Self::join_all([self, other])
+    }
+
+    pub(crate) fn race(&self, other: &EventWaiter) -> Self {
+        Self::race_all([self, other])
+    }
+
     pub(crate) fn wait_sync(&self) -> Result<(), TriggerDropped> {
         self.0.event.wait_sync();
         if self.0.was_cancelled.load(Ordering::Relaxed) {
@@ -269,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_sync_trigger() {
-        let (trigger, waiter) = new_event_pair();
+        let (mut trigger, waiter) = new_event_pair();
         assert_eq!(waiter.try_wait(), TryWaitResult::Pending);
 
         std::thread::spawn(move || {
@@ -295,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_async_trigger() {
-        let (trigger, waiter) = new_event_pair();
+        let (mut trigger, waiter) = new_event_pair();
 
         let handle = std::thread::spawn(move || {
             futures_executor::block_on(async move { waiter.wait_async().await })
