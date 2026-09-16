@@ -1,3 +1,4 @@
+mod artifact_store;
 mod clock;
 mod event;
 mod executor;
@@ -12,9 +13,10 @@ pub use universe::{Artifact, ArtifactKey, Handle, Input, TaskContext, Universe};
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use futures_executor::block_on;
 
-    use super::*;
+    #[derive(Hash, Eq, PartialEq)]
     struct IntInput;
 
     impl ArtifactKey for IntInput {
