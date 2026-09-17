@@ -1,54 +1,44 @@
 use std::{
-    any::Any,
     collections::{HashMap, hash_map},
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    Artifact, ArtifactKey, event::EventWaiter, executor::Executor, untyped_key::UntypedKey,
+    Artifact, ArtifactKey,
+    executor::Executor,
+    promise::{AnyPromise, Promise},
+    untyped_key::UntypedKey,
 };
 
-type AnyArc = Arc<dyn Any + Send + Sync>;
-
-#[derive(Clone)]
-enum ArtifactState {
-    Pending(EventWaiter),
-    Resolved(AnyArc),
-}
-
 pub(crate) struct ArtifactStore {
-    artifacts: Arc<Mutex<HashMap<UntypedKey, ArtifactState>>>,
+    artifacts: Mutex<HashMap<UntypedKey, AnyPromise>>,
 }
 
 impl ArtifactStore {
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
-            artifacts: Arc::default(),
+            artifacts: Mutex::default(),
         }
     }
 
-    fn enqueue_sync<T, F>(&self, executor: &Executor, key: &UntypedKey, body: F) -> ArtifactState
+    fn enqueue_sync<T, F>(&self, executor: &Executor, key: &UntypedKey, body: F) -> Promise<T>
     where
         T: Artifact,
         F: FnOnce() -> T + Send + 'static,
     {
         let mut guard = self.artifacts.lock().unwrap();
         match guard.entry(key.clone()) {
-            hash_map::Entry::Occupied(entry) => entry.get().clone(),
+            hash_map::Entry::Occupied(entry) => entry.get().clone().downcast().ok().unwrap(),
             hash_map::Entry::Vacant(vacant_entry) => {
-                let (mut trigger, waiter) = crate::event::new_event_pair();
+                let (promise, fulfiller) = Promise::new();
                 executor.schedule_async({
-                    let artifacts = self.artifacts.clone();
-                    let key = key.clone();
                     async move {
-                        let value = body();
-                        let mut guard = artifacts.lock().unwrap();
-                        guard.insert(key, ArtifactState::Resolved(Arc::new(value)));
-                        trigger.trigger();
+                        fulfiller.fulfill(Arc::new(body()));
                     }
                 });
-                vacant_entry.insert(ArtifactState::Pending(waiter)).clone()
+                vacant_entry.insert(promise.to_any());
+                promise
             }
         }
     }
@@ -65,46 +55,26 @@ impl ArtifactStore {
     {
         let key = UntypedKey::from_arc(key);
 
-        match self.enqueue_sync(executor, &key, body) {
-            ArtifactState::Resolved(value) => Arc::downcast(value).unwrap(),
-            ArtifactState::Pending(waiter) => {
-                waiter.wait_sync().unwrap();
-                let guard = self.artifacts.lock().unwrap();
-                let Some(ArtifactState::Resolved(value)) = guard.get(&key) else {
-                    unreachable!("triggered only when resolved");
-                };
-
-                Arc::downcast(value.clone()).unwrap()
-            }
-        }
+        self.enqueue_sync(executor, &key, body).get_sync_arc()
     }
 
-    fn enqueue_async<T, Fut>(
-        &self,
-        executor: &Executor,
-        key: &UntypedKey,
-        body: Fut,
-    ) -> ArtifactState
+    fn enqueue_async<T, Fut>(&self, executor: &Executor, key: &UntypedKey, body: Fut) -> Promise<T>
     where
         T: Artifact,
         Fut: Future<Output = T> + Send + 'static,
     {
         let mut guard = self.artifacts.lock().unwrap();
         match guard.entry(key.clone()) {
-            hash_map::Entry::Occupied(entry) => entry.get().clone(),
+            hash_map::Entry::Occupied(entry) => entry.get().downcast_ref().unwrap().clone(),
             hash_map::Entry::Vacant(vacant_entry) => {
-                let (mut trigger, waiter) = crate::event::new_event_pair();
+                let (promise, fulfiller) = Promise::new();
                 executor.schedule_async({
-                    let artifacts = self.artifacts.clone();
-                    let key = key.clone();
                     async move {
-                        let value = body.await;
-                        let mut guard = artifacts.lock().unwrap();
-                        guard.insert(key, ArtifactState::Resolved(Arc::new(value)));
-                        trigger.trigger();
+                        fulfiller.fulfill(Arc::new(body.await));
                     }
                 });
-                vacant_entry.insert(ArtifactState::Pending(waiter)).clone()
+                vacant_entry.insert(promise.to_any());
+                promise
             }
         }
     }
@@ -121,17 +91,8 @@ impl ArtifactStore {
     {
         let key = UntypedKey::from_arc(key);
 
-        match self.enqueue_async(executor, &key, body) {
-            ArtifactState::Resolved(value) => Arc::downcast(value).unwrap(),
-            ArtifactState::Pending(waiter) => {
-                waiter.wait_async().await.unwrap();
-                let guard = self.artifacts.lock().unwrap();
-                let Some(ArtifactState::Resolved(value)) = guard.get(&key) else {
-                    unreachable!("triggered only when resolved");
-                };
-
-                Arc::downcast(value.clone()).unwrap()
-            }
-        }
+        self.enqueue_async(executor, &key, body)
+            .get_async_arc()
+            .await
     }
 }
