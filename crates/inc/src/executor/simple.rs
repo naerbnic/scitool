@@ -1,9 +1,6 @@
 use std::{sync::Mutex, thread::JoinHandle};
 
-use crate::{
-    executor::{Executor, ExecutorImpl},
-    scheduler::Scheduler,
-};
+use crate::executor::{Executor, ExecutorImpl};
 
 pub(crate) struct SimpleExecutor {
     pending_threads: Mutex<Vec<JoinHandle<()>>>,

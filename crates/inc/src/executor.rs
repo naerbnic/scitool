@@ -1,7 +1,5 @@
 mod simple;
-use std::{pin::Pin, time::Instant};
-
-use crate::clock::Clock;
+use std::pin::Pin;
 
 pub(crate) struct Executor {
     exec_impl: Box<dyn ExecutorImpl>,
