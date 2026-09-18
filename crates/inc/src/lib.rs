@@ -3,6 +3,7 @@ mod clock;
 mod event;
 mod executor;
 mod operations;
+mod projected_arc;
 mod promise;
 mod scheduler;
 mod type_map;

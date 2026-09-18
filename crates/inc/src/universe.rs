@@ -89,6 +89,9 @@ impl<T> Deref for Handle<T> {
     }
 }
 
+/// A context passed to each operation to interact with the Universe.
+///
+/// This permits trying to obtain new operations within another operation.
 pub struct TaskContext<'a> {
     inner: &'a Arc<Inner>,
 }
@@ -150,11 +153,10 @@ impl<'a> TaskContext<'a> {
 }
 
 pub trait Artifact: Send + Sync + 'static {}
+impl<T> Artifact for T where T: Send + Sync + 'static {}
 
 pub trait ArtifactKey: Artifact + Eq + Hash {
     type Value: Artifact;
 }
 
 pub trait Input: ArtifactKey {}
-
-impl<T> Artifact for T where T: Send + Sync + 'static {}
