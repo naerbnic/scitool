@@ -7,11 +7,12 @@ mod projected_arc;
 mod promise;
 mod scheduler;
 mod type_map;
+mod types;
 mod universe;
 mod untyped_key;
 
 pub use operations::{AsyncOperation, Operation};
-pub use universe::{Artifact, ArtifactKey, Handle, Input, TaskContext, Universe};
+pub use universe::{Artifact, ArtifactKey, Input, Ref, TaskContext, Universe};
 
 #[cfg(test)]
 mod tests {

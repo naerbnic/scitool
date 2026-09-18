@@ -4,11 +4,10 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use crate::event::{EventTrigger, EventWaiter};
-
-type AnyValue = dyn Any + Send + Sync + 'static;
-
-type AnyArc = Arc<AnyValue>;
+use crate::{
+    event::{EventTrigger, EventWaiter},
+    types::{AnyArc, AnyValue},
+};
 
 type Callback = Box<dyn FnOnce(&AnyValue) + Send + 'static>;
 
@@ -303,12 +302,12 @@ impl AnyPromise {
         unsafe { Some(&*(&raw const self.inner).cast::<Promise<T>>()) }
     }
 
-    pub(crate) fn wait_sync(&self) {
-        let _ = self.inner.get_sync();
+    pub(crate) fn get_sync_arc(&self) -> &AnyArc {
+        self.inner.get_sync()
     }
 
-    pub(crate) async fn wait_async(&self) {
-        let _ = self.inner.get_async().await;
+    pub(crate) async fn get_async_arc(&self) -> &AnyArc {
+        self.inner.get_async().await
     }
 }
 
