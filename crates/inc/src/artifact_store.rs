@@ -22,6 +22,28 @@ impl ArtifactStore {
         }
     }
 
+    pub(crate) fn insert<T>(&self, key: &UntypedKey, value: T) -> Promise<T>
+    where
+        T: Artifact,
+    {
+        let mut guard = self.artifacts.lock().unwrap();
+        match guard.entry(key.clone()) {
+            hash_map::Entry::Occupied(_) => {
+                panic!("Artifact already exists");
+            }
+            hash_map::Entry::Vacant(vacant_entry) => {
+                let promise = Promise::new_ready(Arc::new(value));
+                vacant_entry.insert(promise.to_any());
+                promise
+            }
+        }
+    }
+
+    pub(crate) fn try_get(&self, key: &UntypedKey) -> Option<AnyPromise> {
+        let guard = self.artifacts.lock().unwrap();
+        guard.get(key).cloned()
+    }
+
     pub(crate) fn enqueue_sync<T, F>(
         &self,
         executor: &Executor,

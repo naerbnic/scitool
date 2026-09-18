@@ -168,7 +168,6 @@ where
         )
     }
 
-    #[expect(dead_code)]
     #[must_use]
     pub(crate) fn new_ready(value: Arc<T>) -> Self {
         Self {
@@ -182,7 +181,6 @@ where
         self.inner.try_get().and_then(|v| v.downcast_ref())
     }
 
-    #[expect(dead_code)]
     pub(crate) fn try_get_arc(&self) -> Option<Arc<T>> {
         self.inner
             .try_get()

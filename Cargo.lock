@@ -2205,6 +2205,7 @@ dependencies = [
  "futures-util",
  "indicatif",
  "scidev",
+ "scidev-inc",
  "scidev-task",
  "sciproj",
  "serde",

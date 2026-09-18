@@ -16,6 +16,7 @@ fs-mistrust = "0.14.2"
 futures-util = { workspace = true }
 indicatif = { version = "0.18.4", features = ["tokio"] }
 scidev = { workspace = true }
+scidev-inc = { path = "../inc" }
 scidev-task = { workspace = true }
 sciproj = { workspace = true }
 serde = { workspace = true }

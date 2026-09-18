@@ -1,3 +1,5 @@
+mod artifacts;
+
 use std::{
     collections::BTreeMap,
     io::Read,

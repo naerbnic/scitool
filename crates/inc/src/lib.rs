@@ -7,14 +7,13 @@ mod pending;
 mod projected_arc;
 mod promise;
 mod scheduler;
-mod type_map;
 mod types;
 mod universe;
 mod untyped_key;
 
-pub use operations::{AsyncOperation, Operation};
+pub use operations::{AsyncOperation, FnExt, FnOp, Operation};
 pub use pending::Pending;
-pub use universe::{Artifact, ArtifactKey, Input, Ref, TaskContext, Universe};
+pub use universe::{Artifact, ArtifactKey, Ref, TaskContext, Universe};
 
 #[cfg(test)]
 mod tests {
@@ -28,8 +27,6 @@ mod tests {
         type Value = i32;
     }
 
-    impl Input for IntInput {}
-
     #[derive(Hash, Eq, PartialEq)]
     struct DoubleOp;
 
@@ -39,21 +36,21 @@ mod tests {
 
     impl Operation for DoubleOp {
         fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
-            *ctx.get_input::<IntInput>() * 2
+            *ctx.get_input(IntInput) * 2
         }
     }
 
     impl AsyncOperation for DoubleOp {
         #[allow(clippy::unused_async_trait_impl)]
         async fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
-            *ctx.get_input::<IntInput>() * 2
+            *ctx.get_input(IntInput) * 2
         }
     }
 
     #[test]
     fn test_basic_use() {
         let mut universe = Universe::new();
-        universe.add_input::<IntInput>(12);
+        universe.add_input(IntInput, 12);
 
         let result = universe.sync_op(DoubleOp).get_sync();
         assert_eq!(*result.get(), 24);
@@ -62,7 +59,7 @@ mod tests {
     #[test]
     fn test_async_use() {
         let mut universe = Universe::new();
-        universe.add_input::<IntInput>(12);
+        universe.add_input(IntInput, 12);
 
         let result = block_on(universe.sync_op(DoubleOp).get_async());
         assert_eq!(*result.get(), 24);
