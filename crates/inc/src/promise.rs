@@ -207,6 +207,14 @@ where
 
     pub(crate) fn map<F, R>(&self, func: F) -> Promise<R>
     where
+        F: FnOnce(&T) -> R + Send + 'static,
+        R: Send + Sync + 'static,
+    {
+        self.map_arc(move |v| Arc::new(func(v)))
+    }
+
+    pub(crate) fn map_arc<F, R>(&self, func: F) -> Promise<R>
+    where
         F: FnOnce(&T) -> Arc<R> + Send + 'static,
         R: Send + Sync + 'static,
     {

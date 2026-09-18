@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub(crate) struct Scheduler {
-    handle: JoinHandle<()>,
+    handle: Option<JoinHandle<()>>,
     inner: Arc<Inner>,
 }
 
@@ -38,7 +38,10 @@ impl Scheduler {
                 }
             }
         });
-        Self { handle, inner }
+        Self {
+            handle: Some(handle),
+            inner,
+        }
     }
 
     fn trigger_at(&self, deadline: Instant, mut event: EventTrigger) {
@@ -46,15 +49,27 @@ impl Scheduler {
             event.trigger();
             return;
         }
-        if self.inner.add_event(deadline, event) {
-            self.handle.thread().unpark();
+        if self.inner.add_event(deadline, event)
+            && let Some(handle) = self.handle.as_ref()
+        {
+            handle.thread().unpark();
+        }
+    }
+}
+
+impl Drop for Scheduler {
+    fn drop(&mut self) {
+        self.inner.cancel_event.signal();
+        if let Some(handle) = self.handle.take() {
+            handle.thread().unpark();
+            handle.join().unwrap();
         }
     }
 }
 
 struct Inner {
     clock: Box<dyn Clock + Send + Sync>,
-    queue: Mutex<BTreeMap<Instant, EventTrigger>>,
+    queue: Mutex<BTreeMap<Instant, Vec<EventTrigger>>>,
     cancel_event: Event,
 }
 
@@ -78,7 +93,9 @@ impl Inner {
             if *entry.key() > now {
                 break Some(*entry.key() - now);
             }
-            entry.remove().trigger();
+            for mut trigger in entry.remove() {
+                trigger.trigger();
+            }
         }
     }
 
@@ -91,7 +108,7 @@ impl Inner {
         {
             needs_reschedule = true;
         }
-        guard.insert(deadline, event);
+        guard.entry(deadline).or_default().push(event);
         needs_reschedule
     }
 
