@@ -2,19 +2,12 @@ use std::{
     any::Any,
     hash::Hash,
     ops::Deref,
-    pin::Pin,
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    AsyncOperation,
-    artifact_store::ArtifactStore,
-    executor::Executor,
-    operations::Operation,
-    projected_arc::ProjArc,
-    promise::{AnyPromise, Promise},
-    type_map::TypeMap,
-    types::AnyArc,
+    AsyncOperation, artifact_store::ArtifactStore, executor::Executor, operations::Operation,
+    pending::Pending, projected_arc::ProjArc, type_map::TypeMap, untyped_key::UntypedKey,
 };
 
 struct Inner {
@@ -50,20 +43,12 @@ impl Universe {
         self
     }
 
-    pub fn get_sync<O>(&self, op: O) -> Ref<O::Value>
+    pub fn sync_op<O>(&self, op: O) -> Pending<Ref<O::Value>>
     where
         O: Operation,
     {
         let ctx = TaskContext::new(&self.inner);
-        ctx.get_sync(op)
-    }
-
-    pub async fn get_async<O>(&self, op: O) -> Ref<O::Value>
-    where
-        O: AsyncOperation,
-    {
-        let ctx = TaskContext::new(&self.inner);
-        ctx.get_async(op).await
+        ctx.sync_op(op)
     }
 }
 
@@ -76,6 +61,10 @@ impl Default for Universe {
 pub struct Ref<T>(ProjArc<T>);
 
 impl<T> Ref<T> {
+    pub(crate) fn from_proj_arc(proj_arc: ProjArc<T>) -> Self {
+        Self(proj_arc)
+    }
+
     #[must_use]
     pub fn get(&self) -> &T {
         &self.0
@@ -129,35 +118,20 @@ impl<'a> TaskContext<'a> {
         self.try_get_input::<I>().expect("Input not found")
     }
 
-    pub fn get_sync<O>(&self, op: O) -> Ref<O::Value>
+    pub fn sync_op<O>(&self, op: O) -> Pending<Ref<O::Value>>
     where
         O: Operation + 'a,
     {
         let op = Arc::new(op);
-        let output = self
-            .inner
-            .artifacts
-            .get_or_run_sync(&self.inner.executor, op.clone(), {
+        let output = self.inner.artifacts.enqueue_sync(
+            &self.inner.executor,
+            &UntypedKey::from_arc(op.clone()),
+            {
                 let inner = self.inner.clone();
                 move || op.run(&TaskContext::new(&inner))
-            });
-        Ref(ProjArc::from_arc(output))
-    }
-
-    pub async fn get_async<O>(&self, op: O) -> Ref<O::Value>
-    where
-        O: AsyncOperation,
-    {
-        let op = Arc::new(op);
-        let output = self
-            .inner
-            .artifacts
-            .get_or_run_async(&self.inner.executor, op.clone(), {
-                let inner = self.inner.clone();
-                async move { op.run(&TaskContext::new(&inner)).await }
-            })
-            .await;
-        Ref(ProjArc::from_arc(output))
+            },
+        );
+        Pending::new_infallible(output)
     }
 }
 
@@ -169,95 +143,3 @@ pub trait ArtifactKey: Artifact + Eq + Hash {
 }
 
 pub trait Input: ArtifactKey {}
-
-pub(crate) struct Pending<T> {
-    /// The promise that reesolves into the base value. This is in the Any form,
-    /// despite having a type variable because if T is Ref<V>, then this will
-    /// be a Promise<V>, as we can convert the native internal arc to a Ref with
-    /// no memory allocation.
-    ///
-    /// If this is any other type, the mapper will be set, and T will be the
-    /// exact type expected.
-    promise: AnyPromise,
-    mapper: fn(&AnyArc) -> T,
-}
-
-fn extract_ref_from_any_arc<T>(any_arc: &AnyArc) -> Ref<T>
-where
-    T: Send + Sync + 'static,
-{
-    let Ok(arc) = Arc::downcast::<T>(any_arc.clone()) else {
-        // This is only used when the promise was originally a Promise<T>, so this
-        // Arc is actually an Arc<T>.
-        unreachable!("Enforced by Pending semantics.");
-    };
-
-    Ref(ProjArc::from_arc(arc))
-}
-
-fn extract_result_from_any_arc<T, E>(any_arc: &AnyArc) -> Result<Ref<T>, Ref<E>>
-where
-    T: Send + Sync + 'static,
-    E: Send + Sync + 'static,
-{
-    let Ok(arc) = Arc::downcast::<Result<T, E>>(any_arc.clone()) else {
-        // This is only used when the promise was originally a Promise<Result<T, E>>,
-        unreachable!("Enforced by Pending semantics.");
-    };
-
-    let proj_arc = ProjArc::from_arc(arc);
-    match proj_arc.as_ref() {
-        Ok(_) => Ok(Ref(ProjArc::map(&proj_arc, |v| v.as_ref().ok().unwrap()))),
-        Err(_) => Err(Ref(ProjArc::map(&proj_arc, |v| v.as_ref().err().unwrap()))),
-    }
-}
-
-impl<T> Pending<Ref<T>>
-where
-    T: Send + Sync + 'static,
-{
-    fn new_infallible(promise: Promise<T>) -> Self {
-        Self {
-            promise: promise.into_any(),
-            mapper: extract_ref_from_any_arc,
-        }
-    }
-}
-
-impl<T, E> Pending<Result<Ref<T>, Ref<E>>>
-where
-    T: Send + Sync + 'static,
-    E: Send + Sync + 'static,
-{
-    fn new_fallible(promise: Promise<Result<T, E>>) -> Self {
-        Self {
-            promise: promise.into_any(),
-            mapper: extract_result_from_any_arc,
-        }
-    }
-}
-
-impl<T> Pending<T>
-where
-    T: Send + Sync + 'static,
-{
-    pub(crate) fn get_sync(&self) -> T {
-        (self.mapper)(self.promise.get_sync_arc())
-    }
-
-    pub(crate) async fn get_async(&self) -> T {
-        (self.mapper)(self.promise.get_async_arc().await)
-    }
-}
-
-impl<T> IntoFuture for Pending<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Output = T;
-    type IntoFuture = Pin<Box<dyn Future<Output = T> + Send>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { self.get_async().await })
-    }
-}

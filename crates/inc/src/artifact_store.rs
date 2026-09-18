@@ -22,7 +22,12 @@ impl ArtifactStore {
         }
     }
 
-    fn enqueue_sync<T, F>(&self, executor: &Executor, key: &UntypedKey, body: F) -> Promise<T>
+    pub(crate) fn enqueue_sync<T, F>(
+        &self,
+        executor: &Executor,
+        key: &UntypedKey,
+        body: F,
+    ) -> Promise<T>
     where
         T: Artifact,
         F: FnOnce() -> T + Send + 'static,
@@ -43,22 +48,12 @@ impl ArtifactStore {
         }
     }
 
-    #[must_use]
-    pub(crate) fn get_or_run_sync<K: ArtifactKey, F>(
+    pub(crate) fn enqueue_async<T, Fut>(
         &self,
         executor: &Executor,
-        key: Arc<K>,
-        body: F,
-    ) -> Arc<K::Value>
-    where
-        F: FnOnce() -> K::Value + Send + 'static,
-    {
-        let key = UntypedKey::from_arc(key);
-
-        self.enqueue_sync(executor, &key, body).get_sync_arc()
-    }
-
-    fn enqueue_async<T, Fut>(&self, executor: &Executor, key: &UntypedKey, body: Fut) -> Promise<T>
+        key: &UntypedKey,
+        body: Fut,
+    ) -> Promise<T>
     where
         T: Artifact,
         Fut: Future<Output = T> + Send + 'static,
@@ -77,22 +72,5 @@ impl ArtifactStore {
                 promise
             }
         }
-    }
-
-    #[must_use]
-    pub(crate) async fn get_or_run_async<K: ArtifactKey, Fut>(
-        &self,
-        executor: &Executor,
-        key: Arc<K>,
-        body: Fut,
-    ) -> Arc<K::Value>
-    where
-        Fut: Future<Output = K::Value> + Send + 'static,
-    {
-        let key = UntypedKey::from_arc(key);
-
-        self.enqueue_async(executor, &key, body)
-            .get_async_arc()
-            .await
     }
 }

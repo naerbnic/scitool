@@ -3,6 +3,7 @@ mod clock;
 mod event;
 mod executor;
 mod operations;
+mod pending;
 mod projected_arc;
 mod promise;
 mod scheduler;
@@ -12,6 +13,7 @@ mod universe;
 mod untyped_key;
 
 pub use operations::{AsyncOperation, Operation};
+pub use pending::Pending;
 pub use universe::{Artifact, ArtifactKey, Input, Ref, TaskContext, Universe};
 
 #[cfg(test)]
@@ -53,7 +55,7 @@ mod tests {
         let mut universe = Universe::new();
         universe.add_input::<IntInput>(12);
 
-        let result = universe.get_sync(DoubleOp);
+        let result = universe.sync_op(DoubleOp).get_sync();
         assert_eq!(*result.get(), 24);
     }
 
@@ -62,7 +64,7 @@ mod tests {
         let mut universe = Universe::new();
         universe.add_input::<IntInput>(12);
 
-        let result = block_on(universe.get_async(DoubleOp));
+        let result = block_on(universe.sync_op(DoubleOp).get_async());
         assert_eq!(*result.get(), 24);
     }
 }
