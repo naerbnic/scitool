@@ -47,6 +47,7 @@ where
         }
     }
 
+    #[expect(dead_code)]
     pub(crate) fn downgrade(self: &ProjArc<T>) -> WeakProjArc<T> {
         let any_weak = Arc::downgrade(&self.any_arc);
         WeakProjArc {
@@ -165,6 +166,7 @@ pub(crate) struct WeakProjArc<T> {
 }
 
 impl<T> WeakProjArc<T> {
+    #[expect(dead_code)]
     pub(crate) fn upgrade(&self) -> Option<ProjArc<T>> {
         let any_arc = self.any_weak.upgrade()?;
         Some(ProjArc {

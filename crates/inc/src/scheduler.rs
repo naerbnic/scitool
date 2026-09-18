@@ -10,12 +10,14 @@ use crate::{
     event::{Event, EventTrigger},
 };
 
+#[expect(dead_code)]
 pub(crate) struct Scheduler {
     handle: Option<JoinHandle<()>>,
     inner: Arc<Inner>,
 }
 
 impl Scheduler {
+    #[expect(dead_code)]
     pub(crate) fn new<C>(clock: C) -> Self
     where
         C: Clock + Send + Sync + 'static,
@@ -44,6 +46,7 @@ impl Scheduler {
         }
     }
 
+    #[expect(dead_code)]
     fn trigger_at(&self, deadline: Instant, mut event: EventTrigger) {
         if deadline < self.inner.clock.now() {
             event.trigger();

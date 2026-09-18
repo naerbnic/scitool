@@ -12,6 +12,7 @@ impl Executor {
         }
     }
 
+    #[expect(dead_code)]
     pub(crate) fn schedule<F>(&self, func: F)
     where
         F: FnOnce() + Send + 'static,
@@ -36,5 +37,6 @@ impl Executor {
 pub(crate) trait ExecutorImpl: Send + Sync + 'static {
     fn schedule_impl(&self, func: Box<dyn FnOnce() + Send + 'static>);
     fn schedule_async_impl(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
+    #[expect(dead_code)]
     fn shutdown(self: Box<Self>);
 }

@@ -1,5 +1,5 @@
 use std::{
-    any::{Any, TypeId},
+    any::TypeId,
     marker::PhantomData,
     sync::{Arc, Mutex, OnceLock},
 };
@@ -168,6 +168,7 @@ where
         )
     }
 
+    #[expect(dead_code)]
     #[must_use]
     pub(crate) fn new_ready(value: Arc<T>) -> Self {
         Self {
@@ -176,34 +177,41 @@ where
         }
     }
 
+    #[expect(dead_code)]
     pub(crate) fn try_get(&self) -> Option<&T> {
         self.inner.try_get().and_then(|v| v.downcast_ref())
     }
 
+    #[expect(dead_code)]
     pub(crate) fn try_get_arc(&self) -> Option<Arc<T>> {
         self.inner
             .try_get()
             .map(|v| Arc::downcast(v.clone()).ok().unwrap())
     }
 
+    #[expect(dead_code)]
     pub(crate) fn get_sync(&self) -> &T {
         self.inner.get_sync().downcast_ref().unwrap()
     }
 
+    #[expect(dead_code)]
     pub(crate) fn get_sync_arc(&self) -> Arc<T> {
         Arc::downcast(self.inner.get_sync().clone()).ok().unwrap()
     }
 
+    #[expect(dead_code)]
     pub(crate) async fn get_async(&self) -> &T {
         self.inner.get_async().await.downcast_ref().unwrap()
     }
 
+    #[expect(dead_code)]
     pub(crate) async fn get_async_arc(&self) -> Arc<T> {
         Arc::downcast(self.inner.get_async().await.clone())
             .ok()
             .unwrap()
     }
 
+    #[expect(dead_code)]
     pub(crate) fn map<F, R>(&self, func: F) -> Promise<R>
     where
         F: FnOnce(&T) -> R + Send + 'static,
@@ -212,6 +220,7 @@ where
         self.map_arc(move |v| Arc::new(func(v)))
     }
 
+    #[expect(dead_code)]
     pub(crate) fn map_arc<F, R>(&self, func: F) -> Promise<R>
     where
         F: FnOnce(&T) -> Arc<R> + Send + 'static,

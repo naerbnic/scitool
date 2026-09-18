@@ -12,6 +12,7 @@ impl Clock for RealClock {
     }
 }
 
+#[expect(dead_code)]
 pub(crate) fn real_clock() -> impl Clock + Send + Sync + 'static {
     RealClock
 }

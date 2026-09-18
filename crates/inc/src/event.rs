@@ -81,6 +81,7 @@ impl Event {
         true
     }
 
+    #[expect(dead_code)]
     fn add_signal_callback<F>(&self, callback: F)
     where
         F: FnOnce() + Send + 'static,
@@ -259,6 +260,7 @@ impl Drop for EventTrigger {
 #[error("event trigger was dropped before being triggered")]
 pub(crate) struct TriggerDropped;
 
+#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TryWaitResult {
     Triggered,
@@ -266,13 +268,16 @@ pub(crate) enum TryWaitResult {
     Pending,
 }
 
+#[expect(dead_code)]
 struct Countdown(AtomicUsize);
 
 impl Countdown {
+    #[expect(dead_code)]
     fn new(count: usize) -> Self {
         Self(AtomicUsize::new(count))
     }
 
+    #[expect(dead_code)]
     fn tick(&self) -> bool {
         let mut curr = self.0.load(Ordering::Relaxed);
         loop {
@@ -294,12 +299,14 @@ impl Countdown {
     }
 }
 
+#[expect(dead_code)]
 struct CountdownWaiter {
     countdown: Countdown,
     trigger: Mutex<Option<EventTrigger>>,
 }
 
 impl CountdownWaiter {
+    #[expect(dead_code)]
     fn new(countdown: usize, trigger: EventTrigger) -> Self {
         Self {
             countdown: Countdown::new(countdown),
@@ -307,6 +314,7 @@ impl CountdownWaiter {
         }
     }
 
+    #[expect(dead_code)]
     fn tick(&self) {
         if self.countdown.tick() {
             self.trigger.lock().unwrap().take().unwrap().trigger();
@@ -330,6 +338,7 @@ impl EventWaiter {
 
     /// Creates an `EventWaiter` that is already marked as cancelled, so anything that
     /// tries to wait on it will immediately return/continue with `TriggerDropped`.
+    #[expect(dead_code)]
     pub(crate) fn new_cancelled() -> EventWaiter {
         let inner = Arc::new(PairInner {
             event: Event::new_signaled(),
@@ -342,6 +351,7 @@ impl EventWaiter {
         self.0.event.add_signal_callback(callback);
     }
 
+    #[expect(dead_code)]
     pub(crate) fn join_all<C>(waiters: C) -> Self
     where
         C: IntoIterator,
@@ -366,6 +376,7 @@ impl EventWaiter {
         waiter
     }
 
+    #[expect(dead_code)]
     pub(crate) fn race_all<C>(waiters: C) -> Self
     where
         C: IntoIterator,
@@ -395,10 +406,12 @@ impl EventWaiter {
         waiter
     }
 
+    #[expect(dead_code)]
     pub(crate) fn join(&self, other: &EventWaiter) -> Self {
         Self::join_all([self, other])
     }
 
+    #[expect(dead_code)]
     pub(crate) fn race(&self, other: &EventWaiter) -> Self {
         Self::race_all([self, other])
     }
@@ -411,6 +424,7 @@ impl EventWaiter {
         Ok(())
     }
 
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn try_wait(&self) -> TryWaitResult {
         if self.0.event.is_pending() {
             return TryWaitResult::Pending;
@@ -501,7 +515,7 @@ mod tests {
         {
             let mut fut = std::pin::pin!(event.wait_async());
             let waker = std::task::Waker::noop();
-            let mut cx = std::task::Context::from_waker(&waker);
+            let mut cx = std::task::Context::from_waker(waker);
 
             assert_eq!(fut.as_mut().poll(&mut cx), std::task::Poll::Pending);
 
