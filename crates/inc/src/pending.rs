@@ -79,19 +79,6 @@ where
     }
 }
 
-impl<T, E> Pending<Result<Ref<T>, Ref<E>>>
-where
-    T: Send + Sync + 'static,
-    E: Send + Sync + 'static,
-{
-    pub(crate) fn new_fallible(promise: Promise<Result<T, E>>) -> Self {
-        Self {
-            promise: promise.into_any(),
-            mapper: extract_result_from_any_arc,
-        }
-    }
-}
-
 impl<T> Pending<T>
 where
     T: Send + Sync + 'static,

@@ -133,6 +133,22 @@ impl<'a> TaskContext<'a> {
         );
         Pending::new_infallible(output)
     }
+
+    pub fn async_op<O>(&self, op: O) -> Pending<Ref<O::Value>>
+    where
+        O: AsyncOperation + 'a,
+    {
+        let op = Arc::new(op);
+        let output = self.inner.artifacts.enqueue_async(
+            &self.inner.executor,
+            &UntypedKey::from_arc(op.clone()),
+            {
+                let inner = self.inner.clone();
+                async move { op.run(&TaskContext::new(&inner)).await }
+            },
+        );
+        Pending::new_infallible(output)
+    }
 }
 
 pub trait Artifact: Send + Sync + 'static {}

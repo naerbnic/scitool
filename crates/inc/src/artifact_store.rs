@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    Artifact, ArtifactKey,
+    Artifact,
     executor::Executor,
     promise::{AnyPromise, Promise},
     untyped_key::UntypedKey,
