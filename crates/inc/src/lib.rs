@@ -11,7 +11,7 @@ mod types;
 mod universe;
 mod untyped_key;
 
-pub use operations::{AsyncOperation, FnExt, FnOp, Operation};
+pub use operations::{AsyncOperation, FnAsyncOp, FnExt, FnOp, Operation};
 pub use pending::Pending;
 pub use universe::{Artifact, ArtifactKey, Ref, TaskContext, Universe};
 

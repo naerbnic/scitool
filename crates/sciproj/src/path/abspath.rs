@@ -227,6 +227,11 @@ impl AbsPathBuf {
     }
 
     #[must_use]
+    pub fn to_std(&self) -> PathBuf {
+        self.clone().into_std()
+    }
+
+    #[must_use]
     pub fn into_std(self) -> PathBuf {
         PathBuf::from(self.0)
     }

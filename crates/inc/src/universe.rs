@@ -6,8 +6,13 @@ use std::{
 };
 
 use crate::{
-    AsyncOperation, artifact_store::ArtifactStore, executor::Executor, operations::Operation,
-    pending::Pending, projected_arc::ProjArc, untyped_key::UntypedKey,
+    AsyncOperation,
+    artifact_store::ArtifactStore,
+    executor::Executor,
+    operations::{IntoAsyncOperation, IntoOperation, Operation},
+    pending::Pending,
+    projected_arc::ProjArc,
+    untyped_key::UntypedKey,
 };
 
 struct Inner {
@@ -37,9 +42,9 @@ impl Universe {
         self
     }
 
-    pub fn sync_op<O>(&self, op: O) -> Pending<Ref<O::Value>>
+    pub fn sync_op<O, M>(&self, op: O) -> Pending<Ref<O::Value>>
     where
-        O: Operation,
+        O: IntoOperation<M>,
     {
         let ctx = TaskContext::new(&self.inner);
         ctx.sync_op(op)
@@ -55,6 +60,13 @@ impl Default for Universe {
 pub struct Ref<T>(ProjArc<T>);
 
 impl<T> Ref<T> {
+    pub(crate) fn from_arc(arc: Arc<T>) -> Self
+    where
+        T: Send + Sync + 'static,
+    {
+        Self(ProjArc::from_arc(arc))
+    }
+
     pub(crate) fn from_proj_arc(proj_arc: ProjArc<T>) -> Self {
         Self(proj_arc)
     }
@@ -232,11 +244,23 @@ impl<'a> TaskContext<'a> {
         self.try_get_input::<I>(input).expect("Input not found")
     }
 
-    pub fn sync_op<O>(&self, op: O) -> Pending<Ref<O::Value>>
+    /// Run a simple item that will be cached. Runs immediately, and the
+    /// resulting value is cached.
+    ///
+    /// This should generally be used for non-I/O functions that need to be
+    /// able to request other operations.
+    pub fn cached<O, M>(&self, op: O) -> Ref<O::Value>
     where
-        O: Operation + 'a,
+        O: IntoOperation<M> + 'a,
     {
-        let op = Arc::new(op);
+        self.sync_op(op).get_sync()
+    }
+
+    pub fn sync_op<O, M>(&self, op: O) -> Pending<Ref<O::Value>>
+    where
+        O: IntoOperation<M> + 'a,
+    {
+        let op = Arc::new(op.into_op());
         let output = self.inner.artifacts.enqueue_sync(
             &self.inner.executor,
             &UntypedKey::from_arc(op.clone()),
@@ -248,11 +272,11 @@ impl<'a> TaskContext<'a> {
         Pending::new_infallible(output)
     }
 
-    pub fn async_op<O>(&self, op: O) -> Pending<Ref<O::Value>>
+    pub fn async_op<O, M>(&self, op: O) -> Pending<Ref<O::Value>>
     where
-        O: AsyncOperation + 'a,
+        O: IntoAsyncOperation<M> + 'a,
     {
-        let op = Arc::new(op);
+        let op = Arc::new(op.into_op());
         let output = self.inner.artifacts.enqueue_async(
             &self.inner.executor,
             &UntypedKey::from_arc(op.clone()),

@@ -1,10 +1,15 @@
-use std::{pin::Pin, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    pin::Pin,
+    sync::Arc,
+};
 
 use crate::{
     Ref,
     projected_arc::ProjArc,
     promise::{AnyPromise, Promise},
     types::AnyArc,
+    universe::RefErr,
 };
 
 pub struct Pending<T> {
@@ -19,7 +24,7 @@ pub struct Pending<T> {
     mapper: fn(&AnyArc) -> T,
 }
 
-fn extract_ref_from_any_arc<T>(any_arc: &AnyArc) -> Ref<T>
+fn plain_impl<T>(any_arc: &AnyArc) -> Ref<T>
 where
     T: Send + Sync + 'static,
 {
@@ -32,7 +37,7 @@ where
     Ref::from_proj_arc(ProjArc::from_arc(arc))
 }
 
-fn extract_result_from_any_arc<T, E>(any_arc: &AnyArc) -> Result<Ref<T>, Ref<E>>
+fn can_fail_impl<T, E>(any_arc: &AnyArc) -> Result<Ref<T>, Ref<E>>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
@@ -42,15 +47,20 @@ where
         unreachable!("Enforced by Pending semantics.");
     };
 
-    let proj_arc = ProjArc::from_arc(arc);
-    match proj_arc.as_ref() {
-        Ok(_) => Ok(Ref::from_proj_arc(ProjArc::map(&proj_arc, |v| {
-            v.as_ref().ok().unwrap()
-        }))),
-        Err(_) => Err(Ref::from_proj_arc(ProjArc::map(&proj_arc, |v| {
-            v.as_ref().err().unwrap()
-        }))),
-    }
+    Ref::from_arc(arc).can_fail()
+}
+
+fn can_fail_disp_impl<T, E>(any_arc: &AnyArc) -> Result<Ref<T>, RefErr<E>>
+where
+    T: Send + Sync + 'static,
+    E: Display + Debug + Send + Sync + 'static,
+{
+    let Ok(arc) = Arc::downcast::<Result<T, E>>(any_arc.clone()) else {
+        // This is only used when the promise was originally a Promise<Result<T, E>>,
+        unreachable!("Enforced by Pending semantics.");
+    };
+
+    Ref::from_arc(arc).can_fail_disp()
 }
 
 impl<T> Pending<Ref<T>>
@@ -60,7 +70,7 @@ where
     pub(crate) fn new_infallible(promise: Promise<T>) -> Self {
         Self {
             promise: promise.into_any(),
-            mapper: extract_ref_from_any_arc,
+            mapper: plain_impl,
         }
     }
 }
@@ -74,7 +84,21 @@ where
     pub fn can_fail(self) -> Pending<Result<Ref<T>, Ref<E>>> {
         Pending {
             promise: self.promise,
-            mapper: extract_result_from_any_arc,
+            mapper: can_fail_impl,
+        }
+    }
+}
+
+impl<T, E> Pending<Ref<Result<T, E>>>
+where
+    T: Send + Sync + 'static,
+    E: Display + Debug + Send + Sync + 'static,
+{
+    #[must_use]
+    pub fn can_fail_disp(self) -> Pending<Result<Ref<T>, RefErr<E>>> {
+        Pending {
+            promise: self.promise,
+            mapper: can_fail_disp_impl,
         }
     }
 }

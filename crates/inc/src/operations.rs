@@ -10,12 +10,21 @@ pub trait AsyncOperation: Hash + Eq + ArtifactKey {
     fn run(&self, ctx: &TaskContext<'_>) -> impl Future<Output = Self::Value> + Send;
 }
 
+/// Helper for statically checking if a type is ZST.
+pub trait ZeroSized {
+    const IS_ZST: bool;
+}
+
+impl<T> ZeroSized for T {
+    const IS_ZST: bool = std::mem::size_of::<T>() == 0;
+}
+
 #[derive(Clone, Copy)]
 pub struct FnOp<F>(F);
 
 impl<F, R> FnOp<F>
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Send + Sync + 'static,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Send + Sync + 'static,
     R: Artifact,
 {
     pub const fn new(f: F) -> Self {
@@ -25,37 +34,34 @@ where
 
 impl<F, R> Hash for FnOp<F>
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Send + Sync + 'static,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // This should be a function item with no members, thus a ZST.
-        assert_eq!(std::mem::size_of::<F>(), 0);
         state.write(&[]);
     }
 }
 
 impl<F, R> Eq for FnOp<F>
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Artifact,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
 {
 }
 
 impl<F, R> PartialEq for FnOp<F>
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Artifact,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
 {
     fn eq(&self, _other: &Self) -> bool {
-        assert_eq!(std::mem::size_of::<F>(), 0);
         true
     }
 }
 
 impl<F, R> ArtifactKey for FnOp<F>
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Send + Sync + 'static,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Send + Sync + 'static,
     R: Artifact,
 {
     type Value = R;
@@ -63,7 +69,7 @@ where
 
 impl<F, R> Operation for FnOp<F>
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Send + Sync + 'static,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Send + Sync + 'static,
     R: Artifact,
 {
     fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
@@ -71,7 +77,7 @@ where
     }
 }
 
-pub trait FnExt<R>: Fn(&TaskContext<'_>) -> R + Sized + Copy + Artifact
+pub trait FnExt<R>: Fn(&TaskContext<'_>) -> R + Sized + ZeroSized + Copy + Artifact
 where
     R: Artifact,
 {
@@ -80,11 +86,64 @@ where
 
 impl<F, R> FnExt<R> for F
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Artifact,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
 {
     fn to_op(self) -> impl Operation<Value = R> {
         FnOp::new(self)
+    }
+}
+
+pub struct FnAsyncOp<T>(T);
+
+impl<F, Fut> FnAsyncOp<F>
+where
+    F: Fn(&TaskContext<'_>) -> Fut + ZeroSized + Copy + Artifact,
+    Fut: Future + Send + Sync,
+    Fut::Output: Artifact,
+{
+    fn new(f: F) -> Self {
+        Self(f)
+    }
+}
+
+impl<F> Hash for FnAsyncOp<F>
+where
+    F: ZeroSized,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&[]);
+    }
+}
+
+impl<F> Eq for FnAsyncOp<F> {}
+
+impl<F> PartialEq for FnAsyncOp<F>
+where
+    F: ZeroSized,
+{
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<F, Fut> ArtifactKey for FnAsyncOp<F>
+where
+    F: Fn(&TaskContext<'_>) -> Fut + Copy + Artifact,
+    Fut: Future + Send + Sync,
+    Fut::Output: Artifact,
+{
+    type Value = Fut::Output;
+}
+
+impl<F, Fut> AsyncOperation for FnAsyncOp<F>
+where
+    F: Fn(&TaskContext<'_>) -> Fut + ZeroSized + Copy + Artifact,
+    Fut: Future + Send + Sync,
+    Fut::Output: Artifact,
+{
+    async fn run(&self, ctx: &TaskContext<'_>) -> Fut::Output {
+        (self.0)(ctx).await
     }
 }
 
@@ -105,7 +164,7 @@ pub trait IntoOperation<M>: Sized {
 
 impl<F, R> IntoOperation<FnMarker> for F
 where
-    F: Fn(&TaskContext<'_>) -> R + Copy + Artifact,
+    F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
 {
     type Value = R;
@@ -119,6 +178,39 @@ where
 impl<T> IntoOperation<OpMarker> for T
 where
     T: Operation,
+{
+    type Value = T::Value;
+    type Op = T;
+
+    fn into_op(self) -> Self::Op {
+        self
+    }
+}
+
+pub trait IntoAsyncOperation<M>: Sized {
+    type Value: Artifact;
+    type Op: AsyncOperation<Value = Self::Value> + Artifact;
+
+    fn into_op(self) -> Self::Op;
+}
+
+impl<F, Fut> IntoAsyncOperation<FnMarker> for F
+where
+    F: Fn(&TaskContext<'_>) -> Fut + ZeroSized + Copy + Artifact,
+    Fut: Future + Send + Sync,
+    Fut::Output: Artifact,
+{
+    type Value = Fut::Output;
+    type Op = FnAsyncOp<Self>;
+
+    fn into_op(self) -> Self::Op {
+        FnAsyncOp::new(self)
+    }
+}
+
+impl<T> IntoAsyncOperation<OpMarker> for T
+where
+    T: AsyncOperation,
 {
     type Value = T::Value;
     type Op = T;
