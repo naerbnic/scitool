@@ -11,7 +11,7 @@ use scidev::ids::LineId;
 use sciproj::{
     build::audio::{ProgressFactory, compile_audio_base},
     path::{
-        abspath::AbsPath,
+        abspath::{AbsPath, AbsPathBuf},
         relpath::{RelPath, RelPathBuf},
         segment::Segment,
         walkdir::RelWalkDir,
@@ -146,7 +146,7 @@ impl Build {
             .ok_or_else(|| anyhow::anyhow!("Target name must be a valid relative path segment"))?;
 
         let base_output_dir = if let Some(output_dir) = &self.output {
-            output_dir.clone()
+            AbsPathBuf::from_std(output_dir)
         } else {
             project.build_dir()?.join(target_relpath)
         };

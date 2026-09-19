@@ -42,6 +42,15 @@ impl Universe {
         self
     }
 
+    pub fn try_get_input<I: ArtifactKey>(&self, input: I) -> Option<&I::Value> {
+        let ctx = TaskContext::new(&self.inner);
+        ctx.try_get_input(input)
+    }
+
+    pub fn get_input<I: ArtifactKey>(&self, input: I) -> &I::Value {
+        self.try_get_input(input).expect("Input not found")
+    }
+
     pub fn op<'a, O, M1, M2>(&'a self, op: O) -> Pending<'a, &'a O::Value>
     where
         O: Op<M1, M2> + 'a,
@@ -218,7 +227,7 @@ impl<'a> TaskContext<'a> {
     }
 
     #[must_use]
-    pub fn try_get_input<I>(&self, input: I) -> Option<&I::Value>
+    pub fn try_get_input<I>(&self, input: I) -> Option<&'a I::Value>
     where
         I: ArtifactKey,
     {
