@@ -12,7 +12,7 @@ mod types;
 mod universe;
 mod untyped_key;
 
-pub use operations::{AsyncOperation, FnAsyncOp, FnExt, FnOp, Operation};
+pub use operations::{AsyncMarker, AsyncOp, FnAsyncOp, FnExt, FnOp, Op, SyncMarker, SyncOp};
 pub use pending::Pending;
 pub use universe::{Artifact, ArtifactKey, Ref, TaskContext, Universe};
 
@@ -29,21 +29,27 @@ mod tests {
     }
 
     #[derive(Hash, Eq, PartialEq)]
-    struct DoubleOp;
+    struct SyncDoubleOp;
 
-    impl ArtifactKey for DoubleOp {
+    impl ArtifactKey for SyncDoubleOp {
         type Value = i32;
     }
 
-    impl Operation for DoubleOp {
-        fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
+    impl AsyncOp for SyncDoubleOp {
+        #[allow(clippy::unused_async_trait_impl)]
+        async fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
             *ctx.get_input(IntInput) * 2
         }
     }
+    #[derive(Hash, Eq, PartialEq)]
+    struct AsyncDoubleOp;
 
-    impl AsyncOperation for DoubleOp {
-        #[allow(clippy::unused_async_trait_impl)]
-        async fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
+    impl ArtifactKey for AsyncDoubleOp {
+        type Value = i32;
+    }
+
+    impl SyncOp for AsyncDoubleOp {
+        fn run(&self, ctx: &TaskContext<'_>) -> Self::Value {
             *ctx.get_input(IntInput) * 2
         }
     }
@@ -53,7 +59,7 @@ mod tests {
         let mut universe = Universe::new();
         universe.add_input(IntInput, 12);
 
-        let result = universe.sync_op(DoubleOp).get_sync();
+        let result = universe.op(SyncDoubleOp).get_sync();
         assert_eq!(*result, 24);
     }
 
@@ -62,7 +68,7 @@ mod tests {
         let mut universe = Universe::new();
         universe.add_input(IntInput, 12);
 
-        let result = block_on(universe.sync_op(DoubleOp).get_async());
+        let result = block_on(universe.op(AsyncDoubleOp).get_async());
         assert_eq!(*result, 24);
     }
 }

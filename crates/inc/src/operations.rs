@@ -1,12 +1,17 @@
 use std::hash::{Hash, Hasher};
 
-use crate::{Artifact, ArtifactKey, TaskContext};
+use crate::{Artifact, ArtifactKey, Pending, TaskContext};
 
-pub trait Operation: Hash + Eq + ArtifactKey {
+pub trait Op<M1, M2> {
+    type Value: Artifact;
+    fn make_pending<'a>(self, ctx: &TaskContext<'a>) -> Pending<'a, &'a Self::Value>;
+}
+
+pub trait SyncOp: Hash + Eq + ArtifactKey {
     fn run(&self, ctx: &TaskContext<'_>) -> Self::Value;
 }
 
-pub trait AsyncOperation: Hash + Eq + ArtifactKey {
+pub trait AsyncOp: Hash + Eq + ArtifactKey {
     fn run(&self, ctx: &TaskContext<'_>) -> impl Future<Output = Self::Value> + Send;
 }
 
@@ -67,7 +72,7 @@ where
     type Value = R;
 }
 
-impl<F, R> Operation for FnOp<F>
+impl<F, R> SyncOp for FnOp<F>
 where
     F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Send + Sync + 'static,
     R: Artifact,
@@ -81,7 +86,7 @@ pub trait FnExt<R>: Fn(&TaskContext<'_>) -> R + Sized + ZeroSized + Copy + Artif
 where
     R: Artifact,
 {
-    fn to_op(self) -> impl Operation<Value = R>;
+    fn to_op(self) -> impl SyncOp<Value = R>;
 }
 
 impl<F, R> FnExt<R> for F
@@ -89,7 +94,7 @@ where
     F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
 {
-    fn to_op(self) -> impl Operation<Value = R> {
+    fn to_op(self) -> impl SyncOp<Value = R> {
         FnOp::new(self)
     }
 }
@@ -136,7 +141,7 @@ where
     type Value = Fut::Output;
 }
 
-impl<F, Fut> AsyncOperation for FnAsyncOp<F>
+impl<F, Fut> AsyncOp for FnAsyncOp<F>
 where
     F: Fn(&TaskContext<'_>) -> Fut + ZeroSized + Copy + Artifact,
     Fut: Future + Send + Sync,
@@ -155,14 +160,14 @@ pub struct OpMarker;
 /// M is a type that is used to allow for multiple blanket implementations.
 /// You should not need to specify M, and it should be left free when taken
 /// as an argument. Impls should define a specific struct type.
-pub trait IntoOperation<M>: Sized {
+pub trait IntoSyncOp<M>: Sized {
     type Value: Artifact;
-    type Op: Operation<Value = Self::Value> + Artifact;
+    type Op: SyncOp<Value = Self::Value> + Artifact;
 
     fn into_op(self) -> Self::Op;
 }
 
-impl<F, R> IntoOperation<FnMarker> for F
+impl<F, R> IntoSyncOp<FnMarker> for F
 where
     F: Fn(&TaskContext<'_>) -> R + ZeroSized + Copy + Artifact,
     R: Artifact,
@@ -175,9 +180,9 @@ where
     }
 }
 
-impl<T> IntoOperation<OpMarker> for T
+impl<T> IntoSyncOp<OpMarker> for T
 where
-    T: Operation,
+    T: SyncOp,
 {
     type Value = T::Value;
     type Op = T;
@@ -187,14 +192,14 @@ where
     }
 }
 
-pub trait IntoAsyncOperation<M>: Sized {
+pub trait IntoAsyncOp<M>: Sized {
     type Value: Artifact;
-    type Op: AsyncOperation<Value = Self::Value> + Artifact;
+    type Op: AsyncOp<Value = Self::Value> + Artifact;
 
     fn into_op(self) -> Self::Op;
 }
 
-impl<F, Fut> IntoAsyncOperation<FnMarker> for F
+impl<F, Fut> IntoAsyncOp<FnMarker> for F
 where
     F: Fn(&TaskContext<'_>) -> Fut + ZeroSized + Copy + Artifact,
     Fut: Future + Send + Sync,
@@ -208,14 +213,37 @@ where
     }
 }
 
-impl<T> IntoAsyncOperation<OpMarker> for T
+impl<T> IntoAsyncOp<OpMarker> for T
 where
-    T: AsyncOperation,
+    T: AsyncOp,
 {
     type Value = T::Value;
     type Op = T;
 
     fn into_op(self) -> Self::Op {
         self
+    }
+}
+
+pub struct SyncMarker;
+pub struct AsyncMarker;
+
+impl<T, M2> Op<SyncMarker, M2> for T
+where
+    T: IntoSyncOp<M2>,
+{
+    type Value = T::Value;
+    fn make_pending<'a>(self, ctx: &TaskContext<'a>) -> Pending<'a, &'a Self::Value> {
+        ctx.sync_op(self.into_op())
+    }
+}
+
+impl<T, M2> Op<AsyncMarker, M2> for T
+where
+    T: IntoAsyncOp<M2>,
+{
+    type Value = T::Value;
+    fn make_pending<'a>(self, ctx: &TaskContext<'a>) -> Pending<'a, &'a Self::Value> {
+        ctx.async_op(self.into_op())
     }
 }

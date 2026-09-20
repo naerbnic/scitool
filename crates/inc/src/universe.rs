@@ -6,10 +6,10 @@ use std::{
 };
 
 use crate::{
-    AsyncOperation,
+    AsyncOp, Op,
     artifact_store::ArtifactStore,
     executor::Executor,
-    operations::{IntoAsyncOperation, IntoOperation, Operation},
+    operations::{IntoAsyncOp, IntoSyncOp, SyncOp},
     pending::Pending,
     projected_arc::ProjArc,
     untyped_key::UntypedKey,
@@ -42,12 +42,12 @@ impl Universe {
         self
     }
 
-    pub fn sync_op<'a, O, M>(&'a self, op: O) -> Pending<'a, &'a O::Value>
+    pub fn op<'a, O, M1, M2>(&'a self, op: O) -> Pending<'a, &'a O::Value>
     where
-        O: IntoOperation<M> + 'a,
+        O: Op<M1, M2> + 'a,
     {
         let ctx = TaskContext::new(&self.inner);
-        ctx.sync_op(op)
+        ctx.op(op)
     }
 }
 
@@ -244,7 +244,7 @@ impl<'a> TaskContext<'a> {
     /// able to request other operations.
     pub fn cached<O, M>(&self, op: O) -> &'a O::Value
     where
-        O: IntoOperation<M> + 'a,
+        O: IntoSyncOp<M> + 'a,
         O: Artifact,
     {
         self.sync_op(op).get_sync()
@@ -257,7 +257,7 @@ impl<'a> TaskContext<'a> {
     /// able to request other operations.
     pub fn cached_disp<O, M, T, E>(&self, op: O) -> Result<&'a T, RefErr<E>>
     where
-        O: IntoOperation<M, Value = Result<T, E>> + 'a,
+        O: IntoSyncOp<M, Value = Result<T, E>> + 'a,
         O: Artifact,
         T: Send + Sync + 'static,
         E: Display + Debug + Send + Sync + 'static,
@@ -265,9 +265,16 @@ impl<'a> TaskContext<'a> {
         self.sync_op(op).can_fail_disp().get_sync()
     }
 
-    pub fn sync_op<O, M>(&self, op: O) -> Pending<'a, &'a O::Value>
+    pub fn op<O, M1, M2>(&self, op: O) -> Pending<'a, &'a O::Value>
     where
-        O: IntoOperation<M> + 'a,
+        O: Op<M1, M2> + 'a,
+    {
+        op.make_pending(self)
+    }
+
+    pub(crate) fn sync_op<O, M>(&self, op: O) -> Pending<'a, &'a O::Value>
+    where
+        O: IntoSyncOp<M> + 'a,
     {
         let op = Arc::new(op.into_op());
         let output = self.inner.artifacts.enqueue_sync(
@@ -281,9 +288,9 @@ impl<'a> TaskContext<'a> {
         Pending::new_infallible(output)
     }
 
-    pub fn async_op<O, M>(&self, op: O) -> Pending<'a, &'a O::Value>
+    pub(crate) fn async_op<O, M>(&self, op: O) -> Pending<'a, &'a O::Value>
     where
-        O: IntoAsyncOperation<M> + 'a,
+        O: IntoAsyncOp<M> + 'a,
     {
         let op = Arc::new(op.into_op());
         let output = self.inner.artifacts.enqueue_async(

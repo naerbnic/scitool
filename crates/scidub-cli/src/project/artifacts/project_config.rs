@@ -17,7 +17,7 @@ pub(super) fn project_config(
     ctx: &TaskContext<'_>,
 ) -> anyhow::Result<crate::project::ProjectConfig> {
     let config_path = ctx
-        .sync_op(super::paths::config_path)
+        .op(super::paths::config_path)
         .can_fail_disp()
         .get_sync()?;
     let contents = std::fs::read(config_path).context(anyhow::format_err!(
@@ -53,7 +53,7 @@ pub(crate) fn resources_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<Reso
 }
 
 pub(crate) fn book_config_path(ctx: &TaskContext<'_>) -> anyhow::Result<Option<PathBuf>> {
-    let config = ctx.sync_op(project_config).can_fail_disp().get_sync()?;
+    let config = ctx.op(project_config).can_fail_disp().get_sync()?;
     let Some(book_config_path) = config.voice_script_config() else {
         return Ok(None);
     };
@@ -72,12 +72,12 @@ pub(crate) fn book_config(ctx: &TaskContext<'_>) -> anyhow::Result<Option<BookCo
 }
 
 pub(crate) fn book_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<Book>> {
-    let resources_opt = ctx.sync_op(resources_opt).can_fail_disp().get_sync()?;
+    let resources_opt = ctx.op(resources_opt).can_fail_disp().get_sync()?;
     let Some(resource_set) = resources_opt.as_ref() else {
         return Ok(None);
     };
 
-    let book_config_opt = ctx.sync_op(book_config).can_fail_disp().get_sync()?;
+    let book_config_opt = ctx.op(book_config).can_fail_disp().get_sync()?;
     let Some(book_config) = book_config_opt.as_ref() else {
         return Ok(None);
     };
@@ -95,7 +95,7 @@ pub(crate) fn book_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<Book>> {
 }
 
 pub(crate) fn scripts_dir_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<AbsPathBuf>> {
-    let project_config = ctx.sync_op(project_config).can_fail_disp().get_sync()?;
+    let project_config = ctx.op(project_config).can_fail_disp().get_sync()?;
     let scripts_rel_path = project_config
         .source_config()
         .source_dir()
