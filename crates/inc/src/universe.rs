@@ -66,6 +66,12 @@ impl Default for Universe {
     }
 }
 
+impl Debug for Universe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Universe").finish()
+    }
+}
+
 pub struct Ref<T>(ProjArc<T>);
 
 impl<T> Ref<T> {

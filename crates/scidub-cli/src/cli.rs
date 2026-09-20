@@ -79,7 +79,7 @@ impl GlobalConfigArgs {
                 project_root.display()
             ))?;
             anyhow::ensure!(metadata.is_dir(), "Provided project is not a directory");
-            Project::new(project_root_buf.clone())
+            Project::new_from_path(project_root_buf.clone())?
         } else {
             Project::new_from_path(&std::env::current_dir()?)?
         };

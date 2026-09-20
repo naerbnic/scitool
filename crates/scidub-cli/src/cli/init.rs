@@ -91,7 +91,7 @@ impl Init {
         let manifest = Manifest::generate_from_game_dir(&game_data_path)?;
 
         // We are in a state where we can load the project directly.
-        let project = Project::new(root);
+        let project = Project::new_from_path(root)?;
 
         let mut output = std::fs::File::create(project.manifest_path())?;
         serde_json::to_writer_pretty(&mut output, &manifest)?;

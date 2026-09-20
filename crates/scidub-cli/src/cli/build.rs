@@ -173,7 +173,7 @@ impl Build {
 
             non_present_clips.sort_unstable();
             eprintln!("There were lines in the project that are not provided in the mapping.");
-            eprintln!("Writing missing lines to {}", missing_lines_path.display());
+            eprintln!("Writing missing lines to {missing_lines_path}");
 
             let mut missing_lines_writer = WriterBuilder::new()
                 .has_headers(true)
@@ -226,7 +226,7 @@ impl Build {
                 progress_factory,
                 book,
                 &clip_map,
-                &res_dir_path,
+                res_dir_path.as_std(),
             )));
 
             if let Some(scripts_dir) = project.scripts_dir_opt()? {

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use scidev::utils::serde::Sha256Hash;
+use scidev::{resources::ResourceSet, utils::serde::Sha256Hash};
 use scidev_inc::Universe;
 use sciproj::{
     book::Book,
@@ -45,6 +45,7 @@ pub(crate) fn find_project_root(start_path: impl AsRef<Path>) -> anyhow::Result<
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Project {
     universe: Universe,
 }
@@ -61,10 +62,17 @@ impl Project {
         self.universe.get_input(artifacts::Root).as_std()
     }
 
+    pub(crate) fn manifest_path(&self) -> &Path {
+        self.universe
+            .op(artifacts::manifest_path)
+            .get_sync()
+            .as_std()
+    }
+
     pub(crate) fn manifest_opt(&self) -> anyhow::Result<Option<&Manifest>> {
         Ok(self
             .universe
-            .sync_op(artifacts::manifest_opt)
+            .op(artifacts::manifest_opt)
             .can_fail_disp()
             .get_sync()?
             .as_ref())
@@ -80,7 +88,7 @@ impl Project {
     fn game_path_opt(&self) -> anyhow::Result<Option<&AbsPath>> {
         Ok(self
             .universe
-            .sync_op(artifacts::game_path_opt)
+            .op(artifacts::game_path_opt)
             .can_fail_disp()
             .get_sync()?
             .as_deref())
@@ -96,7 +104,7 @@ impl Project {
     fn book_opt(&self) -> anyhow::Result<Option<&Book>> {
         Ok(self
             .universe
-            .sync_op(artifacts::book_opt)
+            .op(artifacts::book_opt)
             .can_fail_disp()
             .get_sync()?
             .as_ref())
@@ -110,13 +118,35 @@ impl Project {
     pub(crate) fn build_dir(&self) -> anyhow::Result<&AbsPath> {
         Ok(self
             .universe
-            .sync_op(artifacts::build_dir)
+            .op(artifacts::build_dir)
             .can_fail_disp()
             .get_sync()?)
     }
 
     pub(crate) fn config(&self) -> anyhow::Result<&ProjectConfig> {
-        Ok(self.universe.op(artifacts::project_config))
+        Ok(self
+            .universe
+            .op(artifacts::project_config)
+            .can_fail_disp()
+            .get_sync()?)
+    }
+
+    pub(crate) fn scripts_dir_opt(&self) -> anyhow::Result<Option<&AbsPath>> {
+        Ok(self
+            .universe
+            .op(artifacts::scripts_dir_opt)
+            .can_fail_disp()
+            .get_sync()?
+            .as_deref())
+    }
+
+    pub(crate) fn resources_opt(&self) -> anyhow::Result<Option<&ResourceSet>> {
+        Ok(self
+            .universe
+            .op(artifacts::resources_opt)
+            .can_fail_disp()
+            .get_sync()?
+            .as_ref())
     }
 }
 
