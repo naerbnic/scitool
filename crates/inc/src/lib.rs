@@ -2,6 +2,7 @@ mod artifact_store;
 mod clock;
 mod event;
 mod executor;
+mod mut_cache;
 mod operations;
 mod pending;
 mod projected_arc;
