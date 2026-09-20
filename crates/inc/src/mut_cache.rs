@@ -3,7 +3,6 @@ use std::{
     borrow::Borrow,
     collections::{HashMap, hash_map},
     hash::Hash,
-    pin::Pin,
     ptr,
     sync::Mutex,
 };
@@ -84,26 +83,5 @@ where
         // - The reference itself will not change, enforced by reference
         //   stability within a box.
         v_ref.map(|v| unsafe { transmute_lifetime(v) })
-    }
-
-    pub(crate) fn insert(&mut self, key: K, value: V) -> Option<V> {
-        let mut guard = self.map.lock().unwrap();
-        match guard.entry(key) {
-            hash_map::Entry::Occupied(occ) => Some(std::mem::replace(&mut **occ.into_mut(), value)),
-            hash_map::Entry::Vacant(vac) => {
-                vac.insert(Box::new(value));
-                None
-            }
-        }
-    }
-
-    pub(crate) fn remove<Q>(&mut self, key: &Q) -> Option<V>
-    where
-        Q: Hash + Eq + ?Sized,
-        K: Borrow<Q>,
-    {
-        let mut guard = self.map.lock().unwrap();
-        let removed = guard.remove(key)?;
-        Some(*removed)
     }
 }

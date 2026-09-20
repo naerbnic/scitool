@@ -1,6 +1,8 @@
+#![expect(unsafe_code)]
 use std::{
     any::TypeId,
     marker::PhantomData,
+    ptr,
     sync::{Arc, Mutex, OnceLock},
 };
 
@@ -13,6 +15,7 @@ type Callback = Box<dyn FnOnce(&AnyValue) + Send + 'static>;
 
 struct SharedState {
     data: OnceLock<AnyArc>,
+    type_id: TypeId,
     callbacks: Mutex<Option<Vec<Callback>>>,
 }
 
@@ -22,10 +25,11 @@ struct ErasedPromise {
 }
 
 impl ErasedPromise {
-    fn new() -> (Self, ErasedFulfiller) {
+    fn new(type_id: TypeId) -> (Self, ErasedFulfiller) {
         let (trigger, waiter) = crate::event::new_event_pair();
         let shared = Arc::new(SharedState {
             data: OnceLock::new(),
+            type_id,
             callbacks: Mutex::new(Some(Vec::new())),
         });
         (
@@ -47,6 +51,7 @@ impl ErasedPromise {
         let value: AnyArc = value;
         let shared = Arc::new(SharedState {
             data: OnceLock::from(value),
+            type_id: TypeId::of::<T>(),
             callbacks: Mutex::new(None),
         });
         Self {
@@ -91,7 +96,7 @@ impl ErasedPromise {
             drop(guard);
             return ErasedPromise::new_ready(func(self.try_get().unwrap()));
         };
-        let (promise, fulfiller) = ErasedPromise::new();
+        let (promise, fulfiller) = ErasedPromise::new(TypeId::of::<R>());
 
         callbacks.push(Box::new(move |value| {
             fulfiller.fulfill(func(value));
@@ -155,7 +160,7 @@ where
 {
     #[must_use]
     pub(crate) fn new() -> (Self, Fulfiller<T>) {
-        let (any_promise, any_fulfiller) = ErasedPromise::new();
+        let (any_promise, any_fulfiller) = ErasedPromise::new(TypeId::of::<T>());
         (
             Self {
                 inner: any_promise,
@@ -176,15 +181,8 @@ where
         }
     }
 
-    #[expect(dead_code)]
     pub(crate) fn try_get(&self) -> Option<&T> {
         self.inner.try_get().and_then(|v| v.downcast_ref())
-    }
-
-    pub(crate) fn try_get_arc(&self) -> Option<Arc<T>> {
-        self.inner
-            .try_get()
-            .map(|v| Arc::downcast(v.clone()).ok().unwrap())
     }
 
     #[expect(dead_code)]
@@ -236,18 +234,13 @@ where
         }
     }
 
-    pub(crate) fn to_any(&self) -> AnyPromise {
-        AnyPromise {
-            inner: self.inner.clone(),
-            type_id: TypeId::of::<T>(),
-        }
+    pub(crate) fn as_any(&self) -> &AnyPromise {
+        // SAFETY: AnyPromise and Promise are repr(transparent) over ErasedPromise.
+        unsafe { &*ptr::from_ref::<Self>(self).cast::<AnyPromise>() }
     }
 
     pub(crate) fn into_any(self) -> AnyPromise {
-        AnyPromise {
-            inner: self.inner,
-            type_id: TypeId::of::<T>(),
-        }
+        AnyPromise { inner: self.inner }
     }
 }
 
@@ -277,31 +270,18 @@ where
     }
 }
 
+#[repr(transparent)]
 pub(crate) struct AnyPromise {
     inner: ErasedPromise,
-    type_id: TypeId,
 }
 
 impl AnyPromise {
-    pub(crate) fn downcast<T>(self) -> Result<Promise<T>, Self>
-    where
-        T: Send + Sync + 'static,
-    {
-        if self.type_id != TypeId::of::<T>() {
-            return Err(self);
-        }
-        Ok(Promise {
-            inner: self.inner,
-            _phantom: PhantomData,
-        })
-    }
-
     #[allow(unsafe_code)]
     pub(crate) fn downcast_ref<T>(&self) -> Option<&Promise<T>>
     where
         T: Send + Sync + 'static,
     {
-        if self.type_id != TypeId::of::<T>() {
+        if self.inner.shared.type_id != TypeId::of::<T>() {
             return None;
         }
         // SAFETY: Promise<T> is repr(transparent) over ErasedPromise, so the layout of the two
@@ -322,7 +302,6 @@ impl Clone for AnyPromise {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
-            type_id: self.type_id,
         }
     }
 }

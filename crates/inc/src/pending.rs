@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Display},
-    pin::Pin,
     sync::Arc,
 };
 
@@ -12,7 +11,7 @@ use crate::{
     universe::RefErr,
 };
 
-pub struct Pending<T> {
+pub struct Pending<'a, T> {
     /// The promise that reesolves into the base value. This is in the Any form,
     /// despite having a type variable because if T is Ref<V>, then this will
     /// be a Promise<V>, as we can convert the native internal arc to a Ref with
@@ -20,68 +19,77 @@ pub struct Pending<T> {
     ///
     /// If this is any other type, the mapper will be set, and T will be the
     /// exact type expected.
-    promise: AnyPromise,
-    mapper: fn(&AnyArc) -> T,
+    promise: &'a AnyPromise,
+    mapper: fn(&'a AnyArc) -> T,
 }
 
-fn plain_impl<T>(any_arc: &AnyArc) -> Ref<T>
+fn plain_impl<T>(any: &AnyArc) -> &T
 where
     T: Send + Sync + 'static,
 {
-    let Ok(arc) = Arc::downcast::<T>(any_arc.clone()) else {
-        // This is only used when the promise was originally a Promise<T>, so this
-        // Arc is actually an Arc<T>.
+    let Some(v) = any.downcast_ref() else {
         unreachable!("Enforced by Pending semantics.");
     };
-
-    Ref::from_proj_arc(ProjArc::from_arc(arc))
+    v
 }
 
-fn can_fail_impl<T, E>(any_arc: &AnyArc) -> Result<Ref<T>, Ref<E>>
+fn can_fail_impl<T, E>(any: &AnyArc) -> Result<&T, &E>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
 {
-    let Ok(arc) = Arc::downcast::<Result<T, E>>(any_arc.clone()) else {
+    let Some(result) = any.downcast_ref::<Result<T, E>>() else {
         // This is only used when the promise was originally a Promise<Result<T, E>>,
         unreachable!("Enforced by Pending semantics.");
     };
 
-    Ref::from_arc(arc).can_fail()
+    result.as_ref()
 }
 
-fn can_fail_disp_impl<T, E>(any_arc: &AnyArc) -> Result<Ref<T>, RefErr<E>>
+fn can_fail_disp_impl<T, E>(any_arc: &AnyArc) -> Result<&T, RefErr<E>>
 where
     T: Send + Sync + 'static,
     E: Display + Debug + Send + Sync + 'static,
 {
-    let Ok(arc) = Arc::downcast::<Result<T, E>>(any_arc.clone()) else {
-        // This is only used when the promise was originally a Promise<Result<T, E>>,
-        unreachable!("Enforced by Pending semantics.");
+    let Some(result) = any_arc.downcast_ref::<Result<T, E>>() else {
+        unreachable!("Enforced by Pending semantics");
     };
 
-    Ref::from_arc(arc).can_fail_disp()
+    if let Ok(v_ref) = result {
+        return Ok(v_ref);
+    }
+
+    let Ok(result) = Arc::downcast::<Result<T, E>>(any_arc.clone()) else {
+        unreachable!("Enforced by pending semantics.");
+    };
+
+    let proj_arc = ProjArc::from_arc(result);
+
+    Err(RefErr::from_ref(Ref::from_proj_arc(ProjArc::map(
+        &proj_arc,
+        |r| r.as_ref().err().unwrap(),
+    ))))
 }
 
-impl<T> Pending<Ref<T>>
+impl<'a, T> Pending<'a, &'a T>
 where
     T: Send + Sync + 'static,
 {
-    pub(crate) fn new_infallible(promise: Promise<T>) -> Self {
+    pub(crate) fn new_infallible(promise: &'a Promise<T>) -> Self {
         Self {
-            promise: promise.into_any(),
+            promise: promise.as_any(),
             mapper: plain_impl,
         }
     }
 }
 
-impl<T, E> Pending<Ref<Result<T, E>>>
+impl<'a, T, E> Pending<'a, &'a Result<T, E>>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
 {
     #[must_use]
-    pub fn can_fail(self) -> Pending<Result<Ref<T>, Ref<E>>> {
+    pub fn can_fail(self) -> Pending<'a, Result<&'a T, &'a E>> {
         Pending {
             promise: self.promise,
             mapper: can_fail_impl,
@@ -89,13 +97,13 @@ where
     }
 }
 
-impl<T, E> Pending<Ref<Result<T, E>>>
+impl<'a, T, E> Pending<'a, &'a Result<T, E>>
 where
     T: Send + Sync + 'static,
     E: Display + Debug + Send + Sync + 'static,
 {
     #[must_use]
-    pub fn can_fail_disp(self) -> Pending<Result<Ref<T>, RefErr<E>>> {
+    pub fn can_fail_disp(self) -> Pending<'a, Result<&'a T, RefErr<E>>> {
         Pending {
             promise: self.promise,
             mapper: can_fail_disp_impl,
@@ -103,9 +111,9 @@ where
     }
 }
 
-impl<T> Pending<T>
+impl<'a, T> Pending<'a, T>
 where
-    T: Send + Sync + 'static,
+    T: Send + Sync + 'a,
 {
     #[must_use]
     pub fn get_sync(&self) -> T {
@@ -114,17 +122,5 @@ where
 
     pub async fn get_async(&self) -> T {
         (self.mapper)(self.promise.get_async_arc().await)
-    }
-}
-
-impl<T> IntoFuture for Pending<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Output = T;
-    type IntoFuture = Pin<Box<dyn Future<Output = T> + Send>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { self.get_async().await })
     }
 }

@@ -42,9 +42,9 @@ impl Universe {
         self
     }
 
-    pub fn sync_op<O, M>(&self, op: O) -> Pending<Ref<O::Value>>
+    pub fn sync_op<'a, O, M>(&'a self, op: O) -> Pending<'a, &'a O::Value>
     where
-        O: IntoOperation<M>,
+        O: IntoOperation<M> + 'a,
     {
         let ctx = TaskContext::new(&self.inner);
         ctx.sync_op(op)
@@ -60,13 +60,6 @@ impl Default for Universe {
 pub struct Ref<T>(ProjArc<T>);
 
 impl<T> Ref<T> {
-    pub(crate) fn from_arc(arc: Arc<T>) -> Self
-    where
-        T: Send + Sync + 'static,
-    {
-        Self(ProjArc::from_arc(arc))
-    }
-
     pub(crate) fn from_proj_arc(proj_arc: ProjArc<T>) -> Self {
         Self(proj_arc)
     }
@@ -182,6 +175,10 @@ impl<E> RefErr<E>
 where
     E: Display + Debug + Send + Sync + 'static,
 {
+    pub(crate) fn from_ref(r: Ref<E>) -> Self {
+        Self(r)
+    }
+
     #[must_use]
     pub fn into_ref(self) -> Ref<E> {
         self.0
@@ -221,23 +218,19 @@ impl<'a> TaskContext<'a> {
     }
 
     #[must_use]
-    pub fn try_get_input<I>(&self, input: I) -> Option<Ref<I::Value>>
+    pub fn try_get_input<I>(&self, input: I) -> Option<&I::Value>
     where
         I: ArtifactKey,
     {
-        let any_promise = self
+        let promise = self
             .inner
             .artifacts
-            .try_get(&UntypedKey::from_arc(Arc::new(input)))?;
-        let promise = any_promise.downcast::<I::Value>().ok().unwrap();
-        let v = promise.try_get_arc()?;
-        Some(Ref(ProjArc::from_arc(
-            Arc::downcast(v.clone()).expect("Downcast to I"),
-        )))
+            .try_get::<I::Value>(&UntypedKey::from_arc(Arc::new(input)))?;
+        promise.try_get()
     }
 
     #[must_use]
-    pub fn get_input<I>(&self, input: I) -> Ref<I::Value>
+    pub fn get_input<I>(&self, input: I) -> &I::Value
     where
         I: ArtifactKey,
     {
@@ -249,14 +242,30 @@ impl<'a> TaskContext<'a> {
     ///
     /// This should generally be used for non-I/O functions that need to be
     /// able to request other operations.
-    pub fn cached<O, M>(&self, op: O) -> Ref<O::Value>
+    pub fn cached<O, M>(&self, op: O) -> &'a O::Value
     where
         O: IntoOperation<M> + 'a,
+        O: Artifact,
     {
         self.sync_op(op).get_sync()
     }
 
-    pub fn sync_op<O, M>(&self, op: O) -> Pending<Ref<O::Value>>
+    /// Run a simple item that will be cached. Runs immediately, and the
+    /// resulting value is cached.
+    ///
+    /// This should generally be used for non-I/O functions that need to be
+    /// able to request other operations.
+    pub fn cached_disp<O, M, T, E>(&self, op: O) -> Result<&'a T, RefErr<E>>
+    where
+        O: IntoOperation<M, Value = Result<T, E>> + 'a,
+        O: Artifact,
+        T: Send + Sync + 'static,
+        E: Display + Debug + Send + Sync + 'static,
+    {
+        self.sync_op(op).can_fail_disp().get_sync()
+    }
+
+    pub fn sync_op<O, M>(&self, op: O) -> Pending<'a, &'a O::Value>
     where
         O: IntoOperation<M> + 'a,
     {
@@ -272,7 +281,7 @@ impl<'a> TaskContext<'a> {
         Pending::new_infallible(output)
     }
 
-    pub fn async_op<O, M>(&self, op: O) -> Pending<Ref<O::Value>>
+    pub fn async_op<O, M>(&self, op: O) -> Pending<'a, &'a O::Value>
     where
         O: IntoAsyncOperation<M> + 'a,
     {

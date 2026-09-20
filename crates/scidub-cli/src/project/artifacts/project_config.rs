@@ -9,7 +9,6 @@ use sciproj::{
 };
 
 use crate::{
-    commands::config,
     data::{ConfigFormat, load_config},
     project::{SCRIPTS_DEFAULT_PATH, artifacts::root},
 };
@@ -21,7 +20,7 @@ pub(super) fn project_config(
         .sync_op(super::paths::config_path)
         .can_fail_disp()
         .get_sync()?;
-    let contents = std::fs::read(&*config_path).context(anyhow::format_err!(
+    let contents = std::fs::read(config_path).context(anyhow::format_err!(
         "Unable to open project file {config_path}"
     ))?;
     let config: crate::project::ProjectConfig = toml::from_slice(&contents)
@@ -30,13 +29,13 @@ pub(super) fn project_config(
 }
 
 pub(super) fn build_dir(ctx: &TaskContext<'_>) -> anyhow::Result<AbsPathBuf> {
-    let project_config = ctx.cached(project_config).can_fail_disp()?;
+    let project_config = ctx.cached_disp(project_config)?;
     let build_dir = project_config.build_dir().unwrap_or(RelPath::new("build"));
     Ok(ctx.get_input(super::root::Root).join_rel(build_dir))
 }
 
 pub(crate) fn game_path_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<AbsPathBuf>> {
-    let project_config = ctx.cached(project_config).can_fail_disp()?;
+    let project_config = ctx.cached_disp(project_config)?;
     let Some(game_path) = project_config.game_files() else {
         return Ok(None);
     };
@@ -44,7 +43,7 @@ pub(crate) fn game_path_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<AbsP
 }
 
 pub(crate) fn resources_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<ResourceSet>> {
-    let result = ctx.cached(game_path_opt).can_fail_disp()?;
+    let result = ctx.cached_disp(game_path_opt)?;
     let Some(game_path) = result.as_ref() else {
         return Ok(None);
     };
@@ -64,7 +63,7 @@ pub(crate) fn book_config_path(ctx: &TaskContext<'_>) -> anyhow::Result<Option<P
 }
 
 pub(crate) fn book_config(ctx: &TaskContext<'_>) -> anyhow::Result<Option<BookConfig>> {
-    let book_path = ctx.cached(book_config_path).can_fail_disp()?;
+    let book_path = ctx.cached_disp(book_config_path)?;
     let Some(book_config_path) = book_path.as_ref() else {
         return Ok(None);
     };

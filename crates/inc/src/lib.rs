@@ -54,7 +54,7 @@ mod tests {
         universe.add_input(IntInput, 12);
 
         let result = universe.sync_op(DoubleOp).get_sync();
-        assert_eq!(*result.get(), 24);
+        assert_eq!(*result, 24);
     }
 
     #[test]
@@ -63,6 +63,6 @@ mod tests {
         universe.add_input(IntInput, 12);
 
         let result = block_on(universe.sync_op(DoubleOp).get_async());
-        assert_eq!(*result.get(), 24);
+        assert_eq!(*result, 24);
     }
 }

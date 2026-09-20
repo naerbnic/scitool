@@ -1,47 +1,43 @@
-use std::{
-    collections::{HashMap, hash_map},
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 
 use crate::{
     Artifact,
     executor::Executor,
+    mut_cache::MutCache,
     promise::{AnyPromise, Promise},
     untyped_key::UntypedKey,
 };
 
 pub(crate) struct ArtifactStore {
-    artifacts: Mutex<HashMap<UntypedKey, AnyPromise>>,
+    artifacts: MutCache<UntypedKey, AnyPromise>,
 }
 
 impl ArtifactStore {
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
-            artifacts: Mutex::default(),
+            artifacts: MutCache::new(),
         }
     }
 
-    pub(crate) fn insert<T>(&self, key: &UntypedKey, value: T) -> Promise<T>
+    pub(crate) fn insert<T>(&self, key: &UntypedKey, value: T) -> &Promise<T>
     where
         T: Artifact,
     {
-        let mut guard = self.artifacts.lock().unwrap();
-        match guard.entry(key.clone()) {
-            hash_map::Entry::Occupied(_) => {
-                panic!("Artifact already exists");
-            }
-            hash_map::Entry::Vacant(vacant_entry) => {
-                let promise = Promise::new_ready(Arc::new(value));
-                vacant_entry.insert(promise.to_any());
-                promise
-            }
-        }
+        let Ok(promise_ref) = self
+            .artifacts
+            .sync_insert(key.clone(), Promise::new_ready(Arc::new(value)).into_any())
+        else {
+            panic!("Artifact already exists");
+        };
+        promise_ref.downcast_ref::<T>().unwrap()
     }
 
-    pub(crate) fn try_get(&self, key: &UntypedKey) -> Option<AnyPromise> {
-        let guard = self.artifacts.lock().unwrap();
-        guard.get(key).cloned()
+    pub(crate) fn try_get<T>(&self, key: &UntypedKey) -> Option<&Promise<T>>
+    where
+        T: Artifact,
+    {
+        Some(self.artifacts.get(key)?.downcast_ref::<T>().unwrap())
     }
 
     pub(crate) fn enqueue_sync<T, F>(
@@ -49,25 +45,21 @@ impl ArtifactStore {
         executor: &Executor,
         key: &UntypedKey,
         body: F,
-    ) -> Promise<T>
+    ) -> &Promise<T>
     where
         T: Artifact,
         F: FnOnce() -> T + Send + 'static,
     {
-        let mut guard = self.artifacts.lock().unwrap();
-        match guard.entry(key.clone()) {
-            hash_map::Entry::Occupied(entry) => entry.get().clone().downcast().ok().unwrap(),
-            hash_map::Entry::Vacant(vacant_entry) => {
-                let (promise, fulfiller) = Promise::new();
-                executor.schedule_async({
-                    async move {
-                        fulfiller.fulfill(Arc::new(body()));
-                    }
-                });
-                vacant_entry.insert(promise.to_any());
-                promise
-            }
-        }
+        let any_promise = self.artifacts.get_or_insert_with(key.clone(), || {
+            let (promise, fulfiller) = Promise::new();
+            executor.schedule_async({
+                async move {
+                    fulfiller.fulfill(Arc::new(body()));
+                }
+            });
+            promise.into_any()
+        });
+        any_promise.downcast_ref::<T>().unwrap()
     }
 
     pub(crate) fn enqueue_async<T, Fut>(
@@ -75,24 +67,20 @@ impl ArtifactStore {
         executor: &Executor,
         key: &UntypedKey,
         body: Fut,
-    ) -> Promise<T>
+    ) -> &Promise<T>
     where
         T: Artifact,
         Fut: Future<Output = T> + Send + 'static,
     {
-        let mut guard = self.artifacts.lock().unwrap();
-        match guard.entry(key.clone()) {
-            hash_map::Entry::Occupied(entry) => entry.get().downcast_ref().unwrap().clone(),
-            hash_map::Entry::Vacant(vacant_entry) => {
-                let (promise, fulfiller) = Promise::new();
-                executor.schedule_async({
-                    async move {
-                        fulfiller.fulfill(Arc::new(body.await));
-                    }
-                });
-                vacant_entry.insert(promise.to_any());
-                promise
-            }
-        }
+        let any_promise = self.artifacts.get_or_insert_with(key.clone(), || {
+            let (promise, fulfiller) = Promise::new();
+            executor.schedule_async({
+                async move {
+                    fulfiller.fulfill(Arc::new(body.await));
+                }
+            });
+            promise.into_any()
+        });
+        any_promise.downcast_ref::<T>().unwrap()
     }
 }
