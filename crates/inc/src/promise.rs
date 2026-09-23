@@ -1,307 +1,158 @@
 #![expect(unsafe_code)]
-use std::{
-    any::TypeId,
-    marker::PhantomData,
-    ptr,
-    sync::{Arc, Mutex, OnceLock},
-};
 
-use crate::{
-    event::{EventTrigger, EventWaiter},
-    types::{AnyArc, AnyValue},
-};
+mod core;
+mod owned;
+mod shared;
 
-type Callback = Box<dyn FnOnce(&AnyValue) + Send + 'static>;
+use std::{collections::VecDeque, pin::pin, sync::Arc};
 
-struct SharedState {
-    data: OnceLock<AnyArc>,
-    type_id: TypeId,
-    callbacks: Mutex<Option<Vec<Callback>>>,
+use asynx::stream::Stream;
+use asynx::stream::StreamExt;
+
+use crate::{event::Event, executor::Executor};
+
+pub(crate) use owned::{Fulfiller, Promise};
+pub(crate) use shared::{SharedAnyPromise, SharedFulfiller, SharedPromise};
+
+pub(crate) struct StreamFulfiller<T> {
+    event_queue: VecDeque<Option<Arc<Event>>>,
+    fulfiller: SharedFulfiller<Option<(T, PromiseStream<T>)>>,
 }
 
-struct ErasedPromise {
-    shared: Arc<SharedState>,
-    event: EventWaiter,
+impl<T> StreamFulfiller<T>
+where
+    T: Send + Sync + 'static,
+{
+    fn push_next(&mut self, value: T) -> Option<Arc<Event>> {
+        let (promise, mut fulfiller) = SharedPromise::new();
+        let event = Arc::new(Event::new());
+
+        let next_stream = PromiseStream {
+            event: event.clone(),
+            promise,
+        };
+        std::mem::swap(&mut self.fulfiller, &mut fulfiller);
+
+        fulfiller.fulfill_arc(Arc::new(Some((value, next_stream))));
+
+        self.event_queue.push_back(Some(event));
+        self.event_queue.pop_front().unwrap()
+    }
+
+    pub fn send_sync(&mut self, value: T) {
+        if let Some(next_event) = self.push_next(value) {
+            next_event.wait_sync();
+        }
+    }
+
+    pub async fn send_async(&mut self, value: T) {
+        if let Some(next_event) = self.push_next(value) {
+            next_event.wait_async().await;
+        }
+    }
+
+    pub fn finish(self) {
+        self.fulfiller.fulfill_arc(Arc::new(None));
+    }
 }
 
-impl ErasedPromise {
-    fn new(type_id: TypeId) -> (Self, ErasedFulfiller) {
-        let (trigger, waiter) = crate::event::new_event_pair();
-        let shared = Arc::new(SharedState {
-            data: OnceLock::new(),
-            type_id,
-            callbacks: Mutex::new(Some(Vec::new())),
-        });
+pub struct PromiseStream<T> {
+    event: Arc<Event>,
+    promise: SharedPromise<Option<(T, PromiseStream<T>)>>,
+}
+
+impl<T> PromiseStream<T>
+where
+    T: Send + Sync + 'static,
+{
+    fn new() -> (Self, StreamFulfiller<T>) {
+        let initial_event = Arc::new(Event::new());
+
+        // This initial queue skips the first slot, to allow the fulfiller to
+        // create one value ahead of the consumer.
+        let event_queue = VecDeque::from([None, Some(initial_event.clone())]);
+
+        let (promise, fulfiller) = SharedPromise::new();
+        let stream_fulfiller = StreamFulfiller {
+            event_queue,
+            fulfiller,
+        };
+
         (
             Self {
-                shared: shared.clone(),
-                event: waiter,
+                event: initial_event,
+                promise,
             },
-            ErasedFulfiller {
-                shared,
-                event: trigger,
-            },
+            stream_fulfiller,
         )
     }
 
-    fn new_ready<T>(value: Arc<T>) -> Self
+    pub(crate) fn from_iter<It>(executor: &Executor, iter: It) -> PromiseStream<T>
     where
-        T: Send + Sync + 'static,
+        It: Iterator<Item = T> + Send + 'static,
     {
-        let value: AnyArc = value;
-        let shared = Arc::new(SharedState {
-            data: OnceLock::from(value),
-            type_id: TypeId::of::<T>(),
-            callbacks: Mutex::new(None),
+        // Use a synchronous semaphore to block until each item in the
+        // iterator has been consumed, as opposed to pumping all of the
+        // values at once.
+        let (stream, mut fulfiller) = PromiseStream::new();
+        executor.schedule(move || {
+            for value in iter {
+                fulfiller.send_sync(value);
+            }
+            fulfiller.finish();
         });
-        Self {
-            shared: shared.clone(),
-            event: EventWaiter::new_ready(),
-        }
+        stream
     }
 
-    fn try_get(&self) -> Option<&AnyArc> {
-        self.shared.data.get()
-    }
-
-    fn get_sync(&self) -> &AnyArc {
-        self.try_get().unwrap_or_else(|| {
-            self.event.wait_sync().unwrap();
-            self.try_get().unwrap()
-        })
-    }
-
-    async fn get_async(&self) -> &AnyArc {
-        if let Some(curr_ref) = self.try_get() {
-            return curr_ref;
-        }
-        self.event.wait_async().await.unwrap();
-        self.try_get().unwrap()
-    }
-
-    fn map<F, R>(&self, func: F) -> ErasedPromise
+    pub(crate) fn from_stream<S>(executor: &Executor, iter: S) -> PromiseStream<T>
     where
-        F: FnOnce(&AnyValue) -> Arc<R> + Send + 'static,
-        R: Send + Sync + 'static,
+        S: Stream<Item = T> + Send + 'static,
     {
-        // Initial check for relative speed (no need to wait on locks)
-        if let Some(value) = self.try_get() {
-            return ErasedPromise::new_ready(func(value));
-        }
+        // Use a synchronous semaphore to block until each item in the
+        // iterator has been consumed, as opposed to pumping all of the
+        // values at once.
+        let (stream, mut fulfiller) = PromiseStream::new();
+        executor.schedule_async(async move {
+            let mut iter = pin!(iter);
+            while let Some(value) = iter.next().await {
+                fulfiller.send_async(value).await;
+            }
+            fulfiller.finish();
+        });
+        stream
+    }
 
-        let mut guard = self.shared.callbacks.lock().unwrap();
-
-        let Some(callbacks) = &mut *guard else {
-            // The value has already been set.
-            drop(guard);
-            return ErasedPromise::new_ready(func(self.try_get().unwrap()));
-        };
-        let (promise, fulfiller) = ErasedPromise::new(TypeId::of::<R>());
-
-        callbacks.push(Box::new(move |value| {
-            fulfiller.fulfill(func(value));
-        }));
-        promise
+    pub fn next(&self) -> SharedPromise<Option<(T, PromiseStream<T>)>> {
+        self.event.signal();
+        self.promise.clone()
     }
 }
 
-impl Clone for ErasedPromise {
+impl<T> Clone for PromiseStream<T> {
     fn clone(&self) -> Self {
         Self {
-            shared: self.shared.clone(),
             event: self.event.clone(),
+            promise: self.promise.clone(),
         }
     }
 }
 
-struct ErasedFulfiller {
-    shared: Arc<SharedState>,
-    event: EventTrigger,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl ErasedFulfiller {
-    fn fulfill(mut self, value: AnyArc) {
-        if self.shared.data.set(value).is_err() {
-            unreachable!("At most once ensured by ownership");
+    #[test]
+    fn test_promise_stream() {
+        let executor = Executor::new_simple();
+        let values = vec![1i32, 2, 3];
+        let mut stream = PromiseStream::from_iter(&executor, values.into_iter());
+
+        let mut result = Vec::new();
+        while let Some((value, next)) = stream.next().get_sync() {
+            result.push(*value);
+            stream = next.clone();
         }
 
-        let Some(callbacks) = std::mem::take(&mut *self.shared.callbacks.lock().unwrap()) else {
-            unreachable!("Only the fulfill method removes the vector")
-        };
-
-        self.event.trigger();
-        let Some(data_ref) = self.shared.data.get() else {
-            unreachable!("Enforced by set")
-        };
-        for callback in callbacks {
-            callback(data_ref);
-        }
-    }
-}
-
-impl Drop for ErasedFulfiller {
-    fn drop(&mut self) {
-        if let Ok(mut guard) = self.shared.callbacks.lock() {
-            let _unused = guard.take();
-        }
-    }
-}
-
-// Uses repr transparent to allow downcast_ref() to be sound.
-#[repr(transparent)]
-pub(crate) struct Promise<T> {
-    inner: ErasedPromise,
-    _phantom: PhantomData<T>,
-}
-
-impl<T> Promise<T>
-where
-    T: Send + Sync + 'static,
-{
-    #[must_use]
-    pub(crate) fn new() -> (Self, Fulfiller<T>) {
-        let (any_promise, any_fulfiller) = ErasedPromise::new(TypeId::of::<T>());
-        (
-            Self {
-                inner: any_promise,
-                _phantom: PhantomData,
-            },
-            Fulfiller {
-                inner: any_fulfiller,
-                _phantom: PhantomData,
-            },
-        )
-    }
-
-    #[must_use]
-    pub(crate) fn new_ready(value: Arc<T>) -> Self {
-        Self {
-            inner: ErasedPromise::new_ready(value),
-            _phantom: PhantomData,
-        }
-    }
-
-    pub(crate) fn try_get(&self) -> Option<&T> {
-        self.inner.try_get().and_then(|v| v.downcast_ref())
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn get_sync(&self) -> &T {
-        self.inner.get_sync().downcast_ref().unwrap()
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn get_sync_arc(&self) -> Arc<T> {
-        Arc::downcast(self.inner.get_sync().clone()).ok().unwrap()
-    }
-
-    #[expect(dead_code)]
-    pub(crate) async fn get_async(&self) -> &T {
-        self.inner.get_async().await.downcast_ref().unwrap()
-    }
-
-    #[expect(dead_code)]
-    pub(crate) async fn get_async_arc(&self) -> Arc<T> {
-        Arc::downcast(self.inner.get_async().await.clone())
-            .ok()
-            .unwrap()
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn map<F, R>(&self, func: F) -> Promise<R>
-    where
-        F: FnOnce(&T) -> R + Send + 'static,
-        R: Send + Sync + 'static,
-    {
-        self.map_arc(move |v| Arc::new(func(v)))
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn map_arc<F, R>(&self, func: F) -> Promise<R>
-    where
-        F: FnOnce(&T) -> Arc<R> + Send + 'static,
-        R: Send + Sync + 'static,
-    {
-        let inner = self.inner.map(move |v| {
-            let Some(cast_ref) = v.downcast_ref() else {
-                unreachable!("Prevented by type system during construction")
-            };
-            func(cast_ref)
-        });
-        Promise {
-            inner,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub(crate) fn as_any(&self) -> &AnyPromise {
-        // SAFETY: AnyPromise and Promise are repr(transparent) over ErasedPromise.
-        unsafe { &*ptr::from_ref::<Self>(self).cast::<AnyPromise>() }
-    }
-
-    pub(crate) fn into_any(self) -> AnyPromise {
-        AnyPromise { inner: self.inner }
-    }
-}
-
-impl<T> Clone for Promise<T>
-where
-    T: Send + Sync + 'static,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-pub(crate) struct Fulfiller<T> {
-    inner: ErasedFulfiller,
-    _phantom: PhantomData<fn(T)>,
-}
-
-impl<T> Fulfiller<T>
-where
-    T: Send + Sync + 'static,
-{
-    pub(crate) fn fulfill(self, value: Arc<T>) {
-        self.inner.fulfill(value);
-    }
-}
-
-#[repr(transparent)]
-pub(crate) struct AnyPromise {
-    inner: ErasedPromise,
-}
-
-impl AnyPromise {
-    #[allow(unsafe_code)]
-    pub(crate) fn downcast_ref<T>(&self) -> Option<&Promise<T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        if self.inner.shared.type_id != TypeId::of::<T>() {
-            return None;
-        }
-        // SAFETY: Promise<T> is repr(transparent) over ErasedPromise, so the layout of the two
-        // is identical.
-        unsafe { Some(&*(&raw const self.inner).cast::<Promise<T>>()) }
-    }
-
-    pub(crate) fn get_sync_arc(&self) -> &AnyArc {
-        self.inner.get_sync()
-    }
-
-    pub(crate) async fn get_async_arc(&self) -> &AnyArc {
-        self.inner.get_async().await
-    }
-}
-
-impl Clone for AnyPromise {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        assert_eq!(result, vec![1i32, 2, 3]);
     }
 }

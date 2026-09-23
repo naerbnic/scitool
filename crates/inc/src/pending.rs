@@ -6,7 +6,7 @@ use std::{
 use crate::{
     Ref,
     projected_arc::ProjArc,
-    promise::{AnyPromise, Promise},
+    promise::{SharedAnyPromise, SharedPromise},
     types::AnyArc,
     universe::RefErr,
 };
@@ -19,7 +19,7 @@ pub struct Pending<'a, T> {
     ///
     /// If this is any other type, the mapper will be set, and T will be the
     /// exact type expected.
-    promise: &'a AnyPromise,
+    promise: &'a SharedAnyPromise,
     mapper: fn(&'a AnyArc) -> T,
 }
 
@@ -75,7 +75,7 @@ impl<'a, T> Pending<'a, &'a T>
 where
     T: Send + Sync + 'static,
 {
-    pub(crate) fn new_infallible(promise: &'a Promise<T>) -> Self {
+    pub(crate) fn new_infallible(promise: &'a SharedPromise<T>) -> Self {
         Self {
             promise: promise.as_any(),
             mapper: plain_impl,

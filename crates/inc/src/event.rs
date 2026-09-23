@@ -1,258 +1,17 @@
-use std::{
-    borrow::Borrow,
-    collections::HashMap,
-    fmt::Debug,
-    num::NonZeroUsize,
-    pin::Pin,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-};
+mod oneshot;
+mod semaphore;
+pub(crate) mod wait_node;
 
-/// An object representing a state that can be activated at a specific time.
-pub(crate) struct Event(Mutex<EventState>);
+use std::fmt::Debug;
 
-impl Debug for Event {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Event").finish()
-    }
-}
+pub(crate) use crate::event::oneshot::Event;
+use crate::event::wait_node::EventToken;
 
-impl Event {
-    pub(crate) fn new() -> Self {
-        Self(Mutex::new(EventState::Pending {
-            next_id: NonZeroUsize::new(1).unwrap(),
-            waiters: HashMap::new(),
-            callbacks: Vec::new(),
-        }))
-    }
-
-    pub(crate) fn new_signaled() -> Self {
-        Self(Mutex::new(EventState::Signaled))
-    }
-
-    pub(crate) fn wait_sync(&self) {
-        let mut key = None;
-        if !self.add_waiter(&mut key, Waiter::new_thread) {
-            return;
-        }
-
-        // Block until signaled. Park can spuriously wake up, so we have to
-        // do this in a loop.
-        loop {
-            std::thread::park();
-
-            if !self.is_pending() {
-                return;
-            }
-        }
-    }
-
-    pub(crate) fn wait_async(&self) -> impl Future<Output = ()> {
-        EventFuture {
-            event: self,
-            key: None,
-        }
-    }
-
-    pub(crate) fn is_pending(&self) -> bool {
-        let guard = self.0.lock().unwrap();
-        matches!(*guard, EventState::Pending { .. })
-    }
-
-    fn add_waiter<F>(&self, key: &mut Option<NonZeroUsize>, waiter_fn: F) -> bool
-    where
-        F: FnOnce() -> Waiter,
-    {
-        let mut guard = self.0.lock().unwrap();
-        let EventState::Pending {
-            next_id, waiters, ..
-        } = &mut *guard
-        else {
-            return false;
-        };
-
-        let id = *next_id;
-        let next_val = next_id.get().wrapping_add(1);
-        *next_id = NonZeroUsize::new(if next_val == 0 { 1 } else { next_val }).unwrap();
-        waiters.insert(id, waiter_fn());
-        *key = Some(id);
-        true
-    }
-
-    #[expect(dead_code)]
-    fn add_signal_callback<F>(&self, callback: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        let mut guard = self.0.lock().unwrap();
-        let EventState::Pending { callbacks, .. } = &mut *guard else {
-            // We don't want to hold the lock across the callback.
-            drop(guard);
-            callback();
-            return;
-        };
-        callbacks.push(Box::new(callback));
-    }
-
-    fn drop_callbacks(&self) {
-        let mut guard = self.0.lock().unwrap();
-        let EventState::Pending { callbacks, .. } = &mut *guard else {
-            return;
-        };
-        callbacks.clear();
-    }
-
-    fn try_update_waker(&self, key: NonZeroUsize, cx_waker: &std::task::Waker) -> bool {
-        let mut guard = self.0.lock().unwrap();
-        let EventState::Pending { waiters, .. } = &mut *guard else {
-            return false;
-        };
-
-        if let Some(Waiter::Async(existing_waker)) = waiters.get_mut(&key) {
-            if !existing_waker.will_wake(cx_waker) {
-                existing_waker.clone_from(cx_waker);
-            }
-            return true;
-        }
-        false
-    }
-
-    fn remove_waiter(&self, key: NonZeroUsize) {
-        let mut guard = self.0.lock().unwrap();
-        if let EventState::Pending { waiters, .. } = &mut *guard {
-            waiters.remove(&key);
-        }
-    }
-
-    /// Cause the event to be signaled.
-    pub(crate) fn signal(&self) {
-        let callbacks = {
-            let mut guard = self.0.lock().unwrap();
-            let EventState::Pending {
-                waiters, callbacks, ..
-            } = std::mem::replace(&mut *guard, EventState::Signaled)
-            else {
-                return;
-            };
-
-            #[allow(clippy::iter_over_hash_type)]
-            for (_, waiter) in waiters {
-                waiter.wake();
-            }
-            callbacks
-        };
-
-        for callback in callbacks {
-            callback();
-        }
-    }
-}
-
-struct EventFuture<E: Borrow<Event>> {
-    event: E,
-    key: Option<NonZeroUsize>,
-}
-
-impl<E> std::future::Future for EventFuture<E>
-where
-    E: Borrow<Event> + Unpin,
-{
-    type Output = ();
-
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let this = self.get_mut();
-        if let Some(key) = this.key {
-            if this.event.borrow().try_update_waker(key, cx.waker()) {
-                std::task::Poll::Pending
-            } else {
-                std::task::Poll::Ready(())
-            }
-        } else if this
-            .event
-            .borrow()
-            .add_waiter(&mut this.key, || Waiter::new_waker(cx.waker().clone()))
-        {
-            std::task::Poll::Pending
-        } else {
-            std::task::Poll::Ready(())
-        }
-    }
-}
-
-impl<E> Drop for EventFuture<E>
-where
-    E: Borrow<Event>,
-{
-    fn drop(&mut self) {
-        if let Some(key) = self.key {
-            self.event.borrow().remove_waiter(key);
-        }
-    }
-}
-
-enum Waiter {
-    Async(std::task::Waker),
-    Sync(std::thread::Thread),
-}
-
-impl Waiter {
-    fn new_thread() -> Self {
-        Self::Sync(std::thread::current())
-    }
-
-    fn new_waker(waker: std::task::Waker) -> Self {
-        Self::Async(waker)
-    }
-
-    fn wake(self) {
-        match self {
-            Waiter::Async(waker) => waker.wake(),
-            Waiter::Sync(thread) => thread.unpark(),
-        }
-    }
-}
-
-enum EventState {
-    Pending {
-        next_id: NonZeroUsize,
-        waiters: HashMap<NonZeroUsize, Waiter>,
-        callbacks: Vec<Box<dyn FnOnce() + Send + 'static>>,
-    },
-    Signaled,
-}
-
-struct PairInner {
-    event: Event,
-    was_cancelled: AtomicBool,
-}
-
-pub(crate) struct EventTrigger(Option<Arc<PairInner>>);
+pub(crate) struct EventTrigger(crate::event::wait_node::EventTrigger);
 
 impl EventTrigger {
     pub(crate) fn trigger(&mut self) {
-        if let Some(inner_arc) = self.0.take() {
-            inner_arc.event.signal();
-        }
-    }
-}
-
-impl Drop for EventTrigger {
-    fn drop(&mut self) {
-        if let Some(inner) = self.0.take() {
-            // We did not trigger this event, so we have to indicate it is cancelled.
-            // Only we have the ability to signal, so there's no chance of a race
-            // condition until we trigger the event.
-            //
-            // Events are ordered by the ordering of signal()/is_pending().
-            inner.was_cancelled.store(true, Ordering::Relaxed);
-            inner.event.drop_callbacks();
-            inner.event.signal();
-        }
+        let _ = self.0.trigger();
     }
 }
 
@@ -260,227 +19,69 @@ impl Drop for EventTrigger {
 #[error("event trigger was dropped before being triggered")]
 pub(crate) struct TriggerDropped;
 
-#[cfg_attr(not(test), expect(dead_code))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TryWaitResult {
-    Triggered,
-    TriggerDropped,
-    Pending,
-}
-
-#[expect(dead_code)]
-struct Countdown(AtomicUsize);
-
-impl Countdown {
-    #[expect(dead_code)]
-    fn new(count: usize) -> Self {
-        Self(AtomicUsize::new(count))
-    }
-
-    #[expect(dead_code)]
-    fn tick(&self) -> bool {
-        let mut curr = self.0.load(Ordering::Relaxed);
-        loop {
-            if curr == 0 {
-                return false;
-            }
-            match self
-                .0
-                .compare_exchange_weak(curr, curr - 1, Ordering::AcqRel, Ordering::Relaxed)
-            {
-                Ok(curr) => {
-                    return curr == 1;
-                }
-                Err(changed) => {
-                    curr = changed;
-                }
-            }
-        }
-    }
-}
-
-#[expect(dead_code)]
-struct CountdownWaiter {
-    countdown: Countdown,
-    trigger: Mutex<Option<EventTrigger>>,
-}
-
-impl CountdownWaiter {
-    #[expect(dead_code)]
-    fn new(countdown: usize, trigger: EventTrigger) -> Self {
-        Self {
-            countdown: Countdown::new(countdown),
-            trigger: Mutex::new(Some(trigger)),
-        }
-    }
-
-    #[expect(dead_code)]
-    fn tick(&self) {
-        if self.countdown.tick() {
-            self.trigger.lock().unwrap().take().unwrap().trigger();
-        }
-    }
-}
-
 #[derive(Clone)]
-pub(crate) struct EventWaiter(Arc<PairInner>);
+pub(crate) struct EventWaiter(EventToken);
 
 impl EventWaiter {
     /// Creates an `EventWaiter` that is already marked as ready, so anything that
     /// tries to wait on it will immediately return/continue.
     pub(crate) fn new_ready() -> EventWaiter {
-        let inner = Arc::new(PairInner {
-            event: Event::new_signaled(),
-            was_cancelled: AtomicBool::new(false),
-        });
-        EventWaiter(inner)
+        EventWaiter(EventToken::new_triggered())
     }
 
     /// Creates an `EventWaiter` that is already marked as cancelled, so anything that
     /// tries to wait on it will immediately return/continue with `TriggerDropped`.
     #[expect(dead_code)]
     pub(crate) fn new_cancelled() -> EventWaiter {
-        let inner = Arc::new(PairInner {
-            event: Event::new_signaled(),
-            was_cancelled: AtomicBool::new(true),
-        });
-        EventWaiter(inner)
+        EventWaiter(EventToken::new_dropped())
     }
 
-    fn add_light_callback<F: FnOnce() + Send + 'static>(&self, callback: F) {
-        self.0.event.add_signal_callback(callback);
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn join_all<C>(waiters: C) -> Self
-    where
-        C: IntoIterator,
-        C::Item: Borrow<Self>,
-        C::IntoIter: ExactSizeIterator,
-    {
-        let iter = waiters.into_iter();
-        if iter.len() == 0 {
-            return EventWaiter::new_ready();
-        }
-        let (trigger, waiter) = new_event_pair();
-
-        let countdown = Arc::new(CountdownWaiter::new(iter.len(), trigger));
-
-        for join_waiter in iter {
-            let countdown = countdown.clone();
-            join_waiter
-                .borrow()
-                .add_light_callback(move || countdown.tick());
-        }
-
-        waiter
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn race_all<C>(waiters: C) -> Self
-    where
-        C: IntoIterator,
-        C::Item: Borrow<Self>,
-    {
-        let mut iter = waiters.into_iter();
-
-        // Step once to see if the iter is empty.
-        let Some(first) = iter.next() else {
-            // Since the returned waiter should trigger on the first element,
-            // without any elements, this should be the same as though all of
-            // the inputs were cancelled.
-            return EventWaiter::new_cancelled();
-        };
-        let (trigger, waiter) = new_event_pair();
-
-        let countdown = Arc::new(CountdownWaiter::new(1, trigger));
-
-        for join_waiter in iter {
-            let countdown = countdown.clone();
-            join_waiter
-                .borrow()
-                .add_light_callback(move || countdown.tick());
-        }
-        first.borrow().add_light_callback(move || countdown.tick());
-
-        waiter
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn join(&self, other: &EventWaiter) -> Self {
-        Self::join_all([self, other])
-    }
-
-    #[expect(dead_code)]
-    pub(crate) fn race(&self, other: &EventWaiter) -> Self {
-        Self::race_all([self, other])
-    }
-
-    pub(crate) fn wait_sync(&self) -> Result<(), TriggerDropped> {
-        self.0.event.wait_sync();
-        if self.0.was_cancelled.load(Ordering::Relaxed) {
-            return Err(TriggerDropped);
-        }
-        Ok(())
-    }
-
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) fn try_wait(&self) -> TryWaitResult {
-        if self.0.event.is_pending() {
-            return TryWaitResult::Pending;
-        }
-        if self.0.was_cancelled.load(Ordering::Relaxed) {
-            return TryWaitResult::TriggerDropped;
-        }
-        TryWaitResult::Triggered
-    }
-
-    pub(crate) async fn wait_async(&self) -> Result<(), TriggerDropped> {
-        self.0.event.wait_async().await;
-        if self.0.was_cancelled.load(Ordering::Relaxed) {
-            return Err(TriggerDropped);
-        }
-        Ok(())
+    pub(crate) fn wait(&self) -> EventToken {
+        self.0.clone()
     }
 }
 
 pub(crate) fn new_event_pair() -> (EventTrigger, EventWaiter) {
-    let inner = Arc::new(PairInner {
-        event: Event::new(),
-        was_cancelled: AtomicBool::new(false),
-    });
+    let (token, trigger) = EventToken::new();
 
-    (EventTrigger(Some(inner.clone())), EventWaiter(inner))
+    let trigger = EventTrigger(trigger);
+    let waiter = EventWaiter(token);
+
+    (trigger, waiter)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::event::wait_node::DroppedError;
+
     use super::*;
 
     #[test]
     fn test_sync_trigger() {
         let (mut trigger, waiter) = new_event_pair();
-        assert_eq!(waiter.try_wait(), TryWaitResult::Pending);
+        let mut token = waiter.wait();
+        assert_eq!(token.try_wait(), None);
 
         std::thread::spawn(move || {
             trigger.trigger();
         });
 
-        assert_eq!(waiter.wait_sync(), Ok(()));
-        assert_eq!(waiter.try_wait(), TryWaitResult::Triggered);
+        assert_eq!(token.wait_sync(), Ok(()));
+        assert_eq!(token.try_wait(), Some(Ok(())));
     }
 
     #[test]
     fn test_sync_trigger_dropped() {
         let (trigger, waiter) = new_event_pair();
-        assert_eq!(waiter.try_wait(), TryWaitResult::Pending);
+        let mut token = waiter.wait();
+        assert_eq!(token.try_wait(), None);
 
         std::thread::spawn(move || {
             drop(trigger);
         });
 
-        assert_eq!(waiter.wait_sync(), Err(TriggerDropped));
-        assert_eq!(waiter.try_wait(), TryWaitResult::TriggerDropped);
+        assert_eq!(token.wait_sync(), Err(DroppedError));
+        assert_eq!(token.try_wait(), Some(Err(DroppedError)));
     }
 
     #[test]
@@ -488,7 +89,7 @@ mod tests {
         let (mut trigger, waiter) = new_event_pair();
 
         let handle = std::thread::spawn(move || {
-            futures_executor::block_on(async move { waiter.wait_async().await })
+            futures_executor::block_on(async move { waiter.wait().await })
         });
 
         trigger.trigger();
@@ -500,38 +101,10 @@ mod tests {
         let (trigger, waiter) = new_event_pair();
 
         let handle = std::thread::spawn(move || {
-            futures_executor::block_on(async move { waiter.wait_async().await })
+            futures_executor::block_on(async move { waiter.wait().await })
         });
 
         drop(trigger);
-        assert_eq!(handle.join().unwrap(), Err(TriggerDropped));
-    }
-
-    #[test]
-    fn test_future_drop_cleans_up_waiter() {
-        let event = Event::new();
-        assert!(event.is_pending());
-
-        {
-            let mut fut = std::pin::pin!(event.wait_async());
-            let waker = std::task::Waker::noop();
-            let mut cx = std::task::Context::from_waker(waker);
-
-            assert_eq!(fut.as_mut().poll(&mut cx), std::task::Poll::Pending);
-
-            // Verify a waiter was registered
-            let guard = event.0.lock().unwrap();
-            let EventState::Pending { waiters, .. } = &*guard else {
-                panic!("expected pending");
-            };
-            assert_eq!(waiters.len(), 1);
-        }
-
-        // Dropping the future should have removed the waiter from event
-        let guard = event.0.lock().unwrap();
-        let EventState::Pending { waiters, .. } = &*guard else {
-            panic!("expected pending");
-        };
-        assert_eq!(waiters.len(), 0);
+        assert_eq!(handle.join().unwrap(), Err(DroppedError));
     }
 }

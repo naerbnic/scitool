@@ -4,12 +4,12 @@ use crate::{
     Artifact,
     executor::Executor,
     mut_cache::MutCache,
-    promise::{AnyPromise, Promise},
+    promise::{SharedAnyPromise, SharedPromise},
     untyped_key::UntypedKey,
 };
 
 pub(crate) struct ArtifactStore {
-    artifacts: MutCache<UntypedKey, AnyPromise>,
+    artifacts: MutCache<UntypedKey, SharedAnyPromise>,
 }
 
 impl ArtifactStore {
@@ -20,20 +20,20 @@ impl ArtifactStore {
         }
     }
 
-    pub(crate) fn insert<T>(&self, key: &UntypedKey, value: T) -> &Promise<T>
+    pub(crate) fn insert<T>(&self, key: &UntypedKey, value: T) -> &SharedPromise<T>
     where
         T: Artifact,
     {
-        let Ok(promise_ref) = self
-            .artifacts
-            .sync_insert(key.clone(), Promise::new_ready(Arc::new(value)).into_any())
-        else {
+        let Ok(promise_ref) = self.artifacts.sync_insert(
+            key.clone(),
+            SharedPromise::new_ready(Arc::new(value)).into_any(),
+        ) else {
             panic!("Artifact already exists");
         };
         promise_ref.downcast_ref::<T>().unwrap()
     }
 
-    pub(crate) fn try_get<T>(&self, key: &UntypedKey) -> Option<&Promise<T>>
+    pub(crate) fn try_get<T>(&self, key: &UntypedKey) -> Option<&SharedPromise<T>>
     where
         T: Artifact,
     {
@@ -45,16 +45,16 @@ impl ArtifactStore {
         executor: &Executor,
         key: &UntypedKey,
         body: F,
-    ) -> &Promise<T>
+    ) -> &SharedPromise<T>
     where
         T: Artifact,
         F: FnOnce() -> T + Send + 'static,
     {
         let any_promise = self.artifacts.get_or_insert_with(key.clone(), || {
-            let (promise, fulfiller) = Promise::new();
+            let (promise, fulfiller) = SharedPromise::new();
             executor.schedule_async({
                 async move {
-                    fulfiller.fulfill(Arc::new(body()));
+                    fulfiller.fulfill_arc(Arc::new(body()));
                 }
             });
             promise.into_any()
@@ -67,16 +67,16 @@ impl ArtifactStore {
         executor: &Executor,
         key: &UntypedKey,
         body: Fut,
-    ) -> &Promise<T>
+    ) -> &SharedPromise<T>
     where
         T: Artifact,
         Fut: Future<Output = T> + Send + 'static,
     {
         let any_promise = self.artifacts.get_or_insert_with(key.clone(), || {
-            let (promise, fulfiller) = Promise::new();
+            let (promise, fulfiller) = SharedPromise::new();
             executor.schedule_async({
                 async move {
-                    fulfiller.fulfill(Arc::new(body.await));
+                    fulfiller.fulfill_arc(Arc::new(body.await));
                 }
             });
             promise.into_any()
