@@ -1,15 +1,12 @@
 use std::{pin::Pin, process::Output};
 
+use scidev_path::{
+    abspath::{AbsPath, AbsPathBuf},
+    relpath::RelPath,
+};
 use tokio::process::Command;
 
-use crate::{
-    path::{
-        abspath::{AbsPath, AbsPathBuf},
-        relpath::RelPath,
-    },
-    tools::{TestableTool, location::DistLocation},
-};
-
+use crate::tools::{TestableTool, location::DistLocation};
 #[derive(Debug)]
 pub struct CompileEnv {
     pub class_defs: String,

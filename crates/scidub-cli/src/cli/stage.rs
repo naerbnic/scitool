@@ -18,6 +18,6 @@ pub(super) struct Stage {
 
 impl Stage {
     pub(super) fn run(self) -> anyhow::Result<()> {
-        Ok(())
+        todo!()
     }
 }

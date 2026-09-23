@@ -8,14 +8,12 @@ use std::{
 
 use scidev::{resources::ResourceSet, utils::serde::Sha256Hash};
 use scidev_inc::Universe;
-use sciproj::{
-    book::Book,
-    path::{
-        abspath::{AbsPath, AbsPathBuf},
-        relpath::{RelPath, RelPathBuf},
-        walkdir::RelWalkDir,
-    },
+use scidev_path::{
+    abspath::{AbsPath, AbsPathBuf},
+    relpath::{RelPath, RelPathBuf},
+    walkdir::RelWalkDir,
 };
+use sciproj::book::Book;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::config::ProjectConfig;

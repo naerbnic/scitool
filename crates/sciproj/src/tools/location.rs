@@ -1,4 +1,4 @@
-use crate::path::{
+use scidev_path::{
     abspath::{AbsPath, AbsPathBuf},
     relpath::RelPathBuf,
 };

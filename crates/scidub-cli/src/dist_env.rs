@@ -4,19 +4,17 @@
 use std::{collections::BTreeMap, sync::LazyLock};
 
 use fs_mistrust::Mistrust;
-use sciproj::{
-    path::{
-        LookupPath,
-        abspath::{AbsPath, AbsPathBuf},
-        is_executable,
-        relpath::{RelPath, RelPathBuf},
-    },
-    tools::{
-        espeak::{self, BoxEspeak},
-        ffmpeg::{self, BoxFfmpeg},
-        location::{DistLocation, SystemPathLocation, ToolLocation},
-        scinc::{self, BoxScinc},
-    },
+use scidev_path::{
+    LookupPath,
+    abspath::{AbsPath, AbsPathBuf},
+    is_executable,
+    relpath::{RelPath, RelPathBuf},
+};
+use sciproj::tools::{
+    espeak::{self, BoxEspeak},
+    ffmpeg::{self, BoxFfmpeg},
+    location::{DistLocation, SystemPathLocation, ToolLocation},
+    scinc::{self, BoxScinc},
 };
 use tracing::{info, instrument};
 

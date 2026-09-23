@@ -2,7 +2,6 @@ pub mod book;
 pub mod build;
 pub mod file;
 pub mod formats;
-pub mod path;
 pub mod project;
 pub mod resources;
 pub mod scripts;

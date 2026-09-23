@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::path::relpath::{RelPath, RelPathBuf};
+use crate::relpath::{RelPath, RelPathBuf};
 
 pub struct RelWalkDir {
     base: PathBuf,

@@ -1,0 +1,13 @@
+[package]
+name = "scidev-path"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+itertools = { workspace = true }
+thiserror = { workspace = true }
+walkdir = { workspace = true }
+
+[lints]
+workspace = true

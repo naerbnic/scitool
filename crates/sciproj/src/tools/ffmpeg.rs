@@ -5,11 +5,11 @@ use std::{pin::Pin, process::Output};
 
 pub use formats::{OggVorbisOutputOptions, OutputFormat};
 pub use next_version::ConverterReader;
+use scidev_path::abspath::AbsPathBuf;
 use tokio::process::Command;
 
 use crate::{
     imp::futures::prelude::*,
-    path::abspath::AbsPathBuf,
     tools::{TestableTool, location::ToolLocation},
 };
 

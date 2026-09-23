@@ -2169,6 +2169,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scidev-path"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "serde",
+ "thiserror",
+ "walkdir",
+]
+
+[[package]]
 name = "scidev-task"
 version = "0.1.0"
 dependencies = [
@@ -2206,6 +2216,7 @@ dependencies = [
  "indicatif",
  "scidev",
  "scidev-inc",
+ "scidev-path",
  "scidev-task",
  "sciproj",
  "serde",
@@ -2242,6 +2253,7 @@ dependencies = [
  "schemars",
  "scidev",
  "scidev-errors",
+ "scidev-path",
  "serde",
  "serde_json",
  "slab",

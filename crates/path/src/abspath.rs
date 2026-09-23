@@ -8,7 +8,7 @@ use std::{
     path::{Component, PathBuf},
 };
 
-use crate::path::{relpath::RelPath, segment::Segment};
+use crate::{relpath::RelPath, segment::Segment};
 
 fn validate_abs_path(path: &str) -> bool {
     let std_path: &std::path::Path = path.as_ref();

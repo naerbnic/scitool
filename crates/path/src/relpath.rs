@@ -20,7 +20,7 @@ use std::{
 
 use itertools::{EitherOrBoth, Itertools as _};
 
-use crate::path::segment::{SPECIAL_MEANING_CHARS, Segment};
+use crate::segment::{SPECIAL_MEANING_CHARS, Segment};
 
 fn validate_rel_path(path: &str) -> bool {
     if path.is_empty() {

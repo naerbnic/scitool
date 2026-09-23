@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use sciproj::path::walkdir::RelWalkDir;
+use scidev_path::walkdir::RelWalkDir;
 
 use crate::project::{Manifest, Project};
 

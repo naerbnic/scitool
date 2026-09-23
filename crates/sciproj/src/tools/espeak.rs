@@ -6,14 +6,12 @@ use std::{
 
 use tokio::{io::AsyncRead, process::Command, select};
 
-use crate::{
-    path::abspath::AbsPathBuf,
-    tools::{
-        TestableTool,
-        location::ToolLocation,
-        util::{CancelToken, ProcessAsyncReader},
-    },
+use crate::tools::{
+    TestableTool,
+    location::ToolLocation,
+    util::{CancelToken, ProcessAsyncReader},
 };
+use scidev_path::abspath::AbsPathBuf;
 
 pub type BoxEspeak = Box<dyn Espeak + Send + Sync>;
 

@@ -14,7 +14,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::path::{
+use crate::{
     abspath::AbsPathBuf,
     search::{SearchOptions, SearchPath},
 };

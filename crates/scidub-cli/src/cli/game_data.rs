@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use sciproj::path::{
+use scidev_path::{
     relpath::{RelPath, RelPathBuf},
     walkdir::RelWalkDir,
 };

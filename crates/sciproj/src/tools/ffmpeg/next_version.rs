@@ -7,13 +7,14 @@ use std::{
 };
 
 use pin_project::pin_project;
+use scidev_path::abspath::AbsPath;
 use tokio::{
     io::ReadBuf,
     process::{Child, Command},
     task::JoinSet,
 };
 
-use crate::{imp::futures::prelude::*, path::abspath::AbsPath, tools::ffmpeg::formats};
+use crate::{imp::futures::prelude::*, tools::ffmpeg::formats};
 
 const FFMPEG_INIT_FLAGS: &[&str] = &["-hide_banner"];
 const FFMPEG_INPUT_FLAGS: &[&str] = &["-i", "pipe:0"];

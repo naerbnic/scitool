@@ -6,7 +6,7 @@ use std::{
     io,
 };
 
-use crate::path::{
+use crate::{
     abspath::{AbsPath, AbsPathBuf},
     is_executable_with_metadata,
     relpath::{RelPath, RelPathBuf},

@@ -1,7 +1,17 @@
 use anyhow::Context as _;
 use scidev_inc::TaskContext;
 
-use crate::project::{MANIFEST_FILE_NAME, Manifest};
+use scidev_path::{abspath::AbsPathBuf, relpath::RelPath};
+
+use std::path::PathBuf;
+
+use scidev::resources::{ResourceSet, ResourceType, types::msg::parse_message_resource};
+use sciproj::book::{Book, builder::BookBuilder, config::BookConfig};
+
+use crate::{
+    data::{ConfigFormat, load_config},
+    project::{MANIFEST_FILE_NAME, Manifest, PROJECT_FILE_NAME, SCRIPTS_DEFAULT_PATH},
+};
 
 pub(in super::super) fn manifest_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Option<Manifest>> {
     let manifest_path = ctx.get_input(Root).join(MANIFEST_FILE_NAME);
@@ -12,10 +22,6 @@ pub(in super::super) fn manifest_opt(ctx: &TaskContext<'_>) -> anyhow::Result<Op
         .context(format!("Unable to parse manifest file {manifest_path}"))?;
     Ok(Some(manifest))
 }
-
-use sciproj::path::abspath::AbsPathBuf;
-
-use crate::project::PROJECT_FILE_NAME;
 
 pub(super) fn config_path(ctx: &TaskContext<'_>) -> anyhow::Result<AbsPathBuf> {
     let root = ctx.get_input(Root);
@@ -36,19 +42,6 @@ pub(crate) struct Root;
 impl ArtifactKey for Root {
     type Value = AbsPathBuf;
 }
-
-use std::path::PathBuf;
-
-use scidev::resources::{ResourceSet, ResourceType, types::msg::parse_message_resource};
-use sciproj::{
-    book::{Book, builder::BookBuilder, config::BookConfig},
-    path::relpath::RelPath,
-};
-
-use crate::{
-    data::{ConfigFormat, load_config},
-    project::SCRIPTS_DEFAULT_PATH,
-};
 
 pub(super) fn project_config(
     ctx: &TaskContext<'_>,

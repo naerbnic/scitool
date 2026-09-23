@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use sciproj::path::relpath::{RelPath, RelPathBuf};
+use scidev_path::relpath::{RelPath, RelPathBuf};
 use serde::Deserialize;
 
 /// Root project config schema.

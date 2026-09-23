@@ -8,14 +8,14 @@ use clap::Parser;
 use csv::WriterBuilder;
 use indicatif::ProgressFinish;
 use scidev::ids::LineId;
+use scidev_path::{
+    abspath::{AbsPath, AbsPathBuf},
+    relpath::{RelPath, RelPathBuf},
+    segment::Segment,
+    walkdir::RelWalkDir,
+};
 use sciproj::{
     build::audio::{ProgressFactory, compile_audio_base},
-    path::{
-        abspath::{AbsPath, AbsPathBuf},
-        relpath::{RelPath, RelPathBuf},
-        segment::Segment,
-        walkdir::RelWalkDir,
-    },
     resources::AudioClip,
     scripts::SciScriptExports,
     tools::scinc::{CompileEnv, CompilerInputs, SciVersion},

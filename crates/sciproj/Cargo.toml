@@ -24,6 +24,7 @@ regex-syntax = "0.8.8"
 schemars = "1.0.4"
 scidev = { workspace = true }
 scidev-errors = { workspace = true }
+scidev-path = { workspace = true}
 serde = { workspace = true }
 serde_json = { workspace = true }
 slab = "0.4.11"
